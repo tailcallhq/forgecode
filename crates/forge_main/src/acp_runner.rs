@@ -39,8 +39,11 @@ mod tests {
 
     impl MachineStdioApi for MockApi {
         fn acp_start_stdio(&self) -> impl std::future::Future<Output = Result<()>> + Send {
-            self.called.store(true, Ordering::SeqCst);
-            async { Ok(()) }
+            let called = self.called.clone();
+            async move {
+                called.store(true, Ordering::SeqCst);
+                Ok(())
+            }
         }
     }
 
