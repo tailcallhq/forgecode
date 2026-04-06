@@ -3279,5 +3279,14 @@
       }
     ],
     "auth_methods": ["api_key"]
+  },
+  {
+    "id": "adal",
+    "api_key_vars": "ADAL_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.sylph.ai/v1/chat/completions",
+    "models": "https://api.sylph.ai/v1/models",
+    "auth_methods": ["api_key"]
   }
 ]
