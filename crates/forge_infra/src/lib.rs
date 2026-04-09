@@ -18,6 +18,7 @@ mod mcp_client;
 mod mcp_server;
 mod walker;
 
+pub use auth::api_key_helper;
 pub use console::StdConsoleWriter;
 pub use env::ForgeEnvironmentInfra;
 pub use executor::ForgeCommandExecutorService;

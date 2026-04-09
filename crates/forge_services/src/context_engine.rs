@@ -103,7 +103,7 @@ impl<
             .context("No authentication credentials found. Please authenticate first.")?;
 
         match &credential.auth_details {
-            AuthDetails::ApiKey(token) => {
+            AuthDetails::ApiKey(provider) => {
                 // Extract user_id from URL params
                 let user_id_str = credential
                     .url_params
@@ -113,7 +113,7 @@ impl<
                     })?;
                 let user_id = UserId::from_string(user_id_str.as_str())?;
 
-                Ok((token.clone(), user_id))
+                Ok((provider.api_key().clone(), user_id))
             }
             _ => anyhow::bail!("ForgeServices credential must be an API key"),
         }

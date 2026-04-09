@@ -273,7 +273,7 @@ mod tests {
                 url_params: vec![],
                 credential: Some(AuthCredential {
                     id: ProviderId::OPENAI,
-                    auth_details: AuthDetails::ApiKey("test-key".to_string().into()),
+                    auth_details: AuthDetails::static_api_key("test-key".to_string().into()),
                     url_params: Default::default(),
                 }),
                 custom_headers: None,

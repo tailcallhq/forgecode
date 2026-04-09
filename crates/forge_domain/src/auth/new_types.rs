@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(
     Clone, Serialize, Deserialize, derive_more::From, derive_more::Deref, PartialEq, Eq, Hash, Debug,
+    Default,
 )]
 #[serde(transparent)]
 pub struct ApiKey(String);

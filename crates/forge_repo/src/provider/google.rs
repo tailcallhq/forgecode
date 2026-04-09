@@ -166,7 +166,7 @@ impl<F: HttpInfra> GoogleResponseRepository<F> {
         // For Vertex AI, the Google ADC token is stored as ApiKey
         // For OAuth, extract the access token
         let (token, use_api_key_header) = match creds {
-            forge_domain::AuthDetails::ApiKey(api_key) => (api_key.as_str().to_string(), true),
+            forge_domain::AuthDetails::ApiKey(provider) => (provider.api_key().as_str().to_string(), true),
             forge_domain::AuthDetails::GoogleAdc(token) => (token.as_str().to_string(), false),
             forge_domain::AuthDetails::OAuth { tokens, .. } => {
                 (tokens.access_token.as_str().to_string(), false)

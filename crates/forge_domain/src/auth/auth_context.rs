@@ -26,6 +26,9 @@ pub struct ApiKeyRequest {
 pub struct ApiKeyResponse {
     pub api_key: ApiKey,
     pub url_params: HashMap<URLParam, URLParamValue>,
+    /// When set, the API key was produced by this shell command and the
+    /// credential should be stored as a [`HelperCommand`](super::ApiKeyProvider::HelperCommand).
+    pub helper_command: Option<String>,
 }
 
 // Authorization Code Flow
@@ -95,7 +98,7 @@ pub enum AuthContextResponse {
 }
 
 impl AuthContextResponse {
-    /// Creates an API key authentication context
+    /// Creates an API key authentication context with a static key.
     pub fn api_key(
         request: ApiKeyRequest,
         api_key: impl ToString,
@@ -109,6 +112,27 @@ impl AuthContextResponse {
                     .into_iter()
                     .map(|(k, v)| (k.into(), v.into()))
                     .collect(),
+                helper_command: None,
+            },
+        })
+    }
+
+    /// Creates an API key authentication context backed by a helper command.
+    pub fn api_key_with_helper(
+        request: ApiKeyRequest,
+        api_key: impl ToString,
+        url_params: HashMap<String, String>,
+        command: String,
+    ) -> Self {
+        Self::ApiKey(AuthContext {
+            request,
+            response: ApiKeyResponse {
+                api_key: api_key.to_string().into(),
+                url_params: url_params
+                    .into_iter()
+                    .map(|(k, v)| (k.into(), v.into()))
+                    .collect(),
+                helper_command: Some(command),
             },
         })
     }

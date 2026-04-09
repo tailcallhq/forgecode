@@ -2941,43 +2941,82 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             })
             .collect::<anyhow::Result<HashMap<_, _>>>()?;
 
-        // Check if API key is already provided
-        // For Google ADC, we use a marker to skip prompting
-        // For other providers, we use the existing key as a default value (autofill)
-        let api_key_str = if let Some(default_key) = &request.api_key {
-            let key_str = default_key.as_ref();
+        // Skip interactive prompts for auth markers (Google ADC, AWS profile)
+        let is_auth_marker = request
+            .api_key
+            .as_ref()
+            .map_or(false, |k| {
+                k.as_ref() == "google_adc_marker" || k.as_ref() == "aws_profile_marker"
+            });
 
-            // Skip prompting for markers that indicate non-API-key auth
-            if key_str == "google_adc_marker" || key_str == "aws_profile_marker" {
-                key_str.to_string()
-            } else {
-                // For other providers, show the existing key as default (autofill)
+        if is_auth_marker {
+            // Google ADC / AWS profile: skip prompting entirely
+            let response = AuthContextResponse::api_key(
+                request.clone(),
+                request.api_key.as_ref().unwrap().as_ref(),
+                url_params,
+            );
+            self.api
+                .complete_provider_auth(provider_id, response, Duration::from_secs(0))
+                .await?;
+            return Ok(());
+        }
+
+        let auth_type_options = vec![
+            "Static API Key".to_string(),
+            "Helper Command (script that generates a key)".to_string(),
+        ];
+        let use_helper = ForgeWidget::select("Authentication type:", auth_type_options)
+            .prompt()?
+            .as_deref()
+            == Some("Helper Command (script that generates a key)");
+
+        if use_helper {
+            // Helper command flow
+            let command = ForgeWidget::input(
+                "Enter helper command (e.g. vault read -field=token secret/key)",
+            )
+            .prompt()?
+            .context("Helper command input cancelled")?;
+            anyhow::ensure!(!command.trim().is_empty(), "Helper command cannot be empty");
+            let command = command.trim().to_string();
+
+            // Send with a placeholder key — the strategy will validate by
+            // executing the command during complete_provider_auth
+            let response = AuthContextResponse::api_key_with_helper(
+                request.clone(),
+                "",
+                url_params,
+                command,
+            );
+            self.spinner.start(Some("Validating helper command..."))?;
+            self.api
+                .complete_provider_auth(provider_id, response, Duration::from_secs(0))
+                .await?;
+            self.spinner.stop(None)?;
+        } else {
+            // Static API key flow
+            let api_key_str = if let Some(default_key) = &request.api_key {
+                let key_str = default_key.as_ref();
                 let input = ForgeWidget::input(format!("Enter your {provider_id} API key"))
                     .with_default(key_str);
                 let api_key = input.prompt()?.context("API key input cancelled")?;
                 let api_key_str = api_key.trim();
                 anyhow::ensure!(!api_key_str.is_empty(), "API key cannot be empty");
                 api_key_str.to_string()
-            }
-        } else {
-            // Prompt for API key input (no existing key)
-            let input = ForgeWidget::input(format!("Enter your {provider_id} API key"));
-            let api_key = input.prompt()?.context("API key input cancelled")?;
-            let api_key_str = api_key.trim();
-            anyhow::ensure!(!api_key_str.is_empty(), "API key cannot be empty");
-            api_key_str.to_string()
-        };
+            } else {
+                let input = ForgeWidget::input(format!("Enter your {provider_id} API key"));
+                let api_key = input.prompt()?.context("API key input cancelled")?;
+                let api_key_str = api_key.trim();
+                anyhow::ensure!(!api_key_str.is_empty(), "API key cannot be empty");
+                api_key_str.to_string()
+            };
 
-        // Update the context with collected data
-        let response = AuthContextResponse::api_key(request.clone(), &api_key_str, url_params);
-
-        self.api
-            .complete_provider_auth(
-                provider_id,
-                response,
-                Duration::from_secs(0), // No timeout needed since we have the data
-            )
-            .await?;
+            let response = AuthContextResponse::api_key(request.clone(), &api_key_str, url_params);
+            self.api
+                .complete_provider_auth(provider_id, response, Duration::from_secs(0))
+                .await?;
+        }
 
         Ok(())
     }

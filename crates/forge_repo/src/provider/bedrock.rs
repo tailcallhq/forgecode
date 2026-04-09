@@ -50,8 +50,8 @@ impl BedrockProvider {
             .context("Bedrock requires credentials")?;
 
         let auth_mode = match &credential.auth_details {
-            AuthDetails::ApiKey(key) if !key.is_empty() => {
-                BedrockAuthMode::BearerToken(key.as_ref().to_string())
+            AuthDetails::ApiKey(provider) if !provider.api_key().is_empty() => {
+                BedrockAuthMode::BearerToken(provider.api_key().as_ref().to_string())
             }
             AuthDetails::AwsProfile(profile) if !profile.is_empty() => {
                 BedrockAuthMode::AwsProfile(profile.as_ref().to_string())
@@ -1074,7 +1074,7 @@ mod tests {
             url_params: vec![],
             credential: Some(AuthCredential {
                 id: ProviderId::from("bedrock".to_string()),
-                auth_details: AuthDetails::ApiKey(ApiKey::from(token.to_string())),
+                auth_details: AuthDetails::static_api_key(ApiKey::from(token.to_string())),
                 url_params,
             }),
             custom_headers: None,
