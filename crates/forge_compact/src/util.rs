@@ -1,4 +1,12 @@
-use std::ops::RangeInclusive;
+use std::ops::{Deref, RangeInclusive};
+
+/// Collects references to the inner values of a slice of `Deref`-able wrappers.
+///
+/// Useful for converting a `&[Message<T>]` to a `Vec<&T>` before passing to callbacks
+/// that operate on bare item references.
+pub fn deref_messages<W: Deref>(messages: &[W]) -> Vec<&W::Target> {
+    messages.iter().map(|m| m.deref()).collect()
+}
 
 /// Replaces all items within `range` in `items` with the single `replacement` item.
 ///

@@ -2,7 +2,7 @@ mod util;
 
 use std::ops::{Deref, RangeInclusive};
 
-use util::replace_range;
+use util::{deref_messages, replace_range};
 
 pub struct Compaction<Item> {
     summarize: Box<dyn Fn(&[&Item]) -> Item>,
@@ -18,19 +18,26 @@ pub trait ContextMessage {
     fn is_toolcall_result(&self) -> bool;
 }
 
+/// A compacted summary that replaces a range of original messages.
+struct Summary<I> {
+    /// The synthesised summary item.
+    message: I,
+    /// The original messages that were compacted into this summary.
+    source: Vec<I>,
+}
+
 enum Message<I> {
-    // FIXME: Create a new type for Summary {message, range} and use that type in Message::Summary
-    Summary { message: I, source: Vec<I> },
+    Summary(Summary<I>),
     Original { message: I },
 }
 
 impl<I> Message<I> {
     fn is_summary(&self) -> bool {
-        todo!()
+        matches!(self, Message::Summary(_))
     }
 
     fn is_original(&self) -> bool {
-        todo!()
+        matches!(self, Message::Original { .. })
     }
 }
 
@@ -39,37 +46,23 @@ impl<I> Deref for Message<I> {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            Message::Summary { message, .. } => message,
+            Message::Summary(Summary { message, .. }) => message,
             Message::Original { message } => message,
         }
     }
 }
 
-impl<Item: ContextMessage> Compaction<Item> {
+impl<Item: ContextMessage + Clone> Compaction<Item> {
     pub fn compact_conversation(&self, messages: Vec<Item>) -> Vec<Item> {
         todo!()
     }
 
     fn threshold(&self, messages: &[Message<Item>]) -> bool {
-        (self.threshold)(
-            // FIXME: Create a helper for this conversion in utils and use it
-            messages
-                .iter()
-                .map(|item| item.deref())
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )
+        (self.threshold)(deref_messages(messages).as_slice())
     }
 
     fn summarize(&self, messages: &[Message<Item>]) -> Item {
-        (self.summarize)(
-            // FIXME: Create a helper for this conversion in utils and use it
-            messages
-                .iter()
-                .map(|item| item.deref())
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )
+        (self.summarize)(deref_messages(messages).as_slice())
     }
 
     fn compact_conversation_slice(&self, messages: Vec<Message<Item>>) -> Vec<Message<Item>> {
@@ -157,11 +150,11 @@ impl<Item: ContextMessage> Compaction<Item> {
 
     fn compact_complete(&self, messages: Vec<Message<Item>>) -> Vec<Message<Item>> {
         if let Some(range) = self.find_compact_range(&messages) {
-            let summary = Message::Summary {
-                message: self.summarize(&messages[*range.start()..=*range.end()]),
-                // FIXME: Add the selected message range
-                source: Vec::new(),
-            };
+            let source_slice = &messages[*range.start()..=*range.end()];
+            let summary = Message::Summary(Summary {
+                message: self.summarize(source_slice),
+                source: source_slice.iter().map(|m| m.deref().clone()).collect(),
+            });
 
             replace_range(messages, summary, range)
         } else {
@@ -172,5 +165,124 @@ impl<Item: ContextMessage> Compaction<Item> {
 
 #[cfg(test)]
 mod tests {
-    // FIXME: Add forge_domain/src/compact/strategy.rs::test_sequence_finding tests
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    /// A minimal message type for testing `find_compact_range`.
+    #[derive(Clone, Debug, PartialEq)]
+    struct TestMsg {
+        role: char,
+    }
+
+    impl TestMsg {
+        fn new(role: char) -> Self {
+            Self { role }
+        }
+    }
+
+    impl ContextMessage for TestMsg {
+        fn is_user(&self) -> bool {
+            self.role == 'u'
+        }
+        fn is_assistant(&self) -> bool {
+            self.role == 'a' || self.role == 't'
+        }
+        fn is_system(&self) -> bool {
+            self.role == 's'
+        }
+        fn is_toolcall(&self) -> bool {
+            self.role == 't'
+        }
+        fn is_toolcall_result(&self) -> bool {
+            self.role == 'r'
+        }
+    }
+
+    fn compaction(retain: usize) -> Compaction<TestMsg> {
+        Compaction {
+            summarize: Box::new(|_| TestMsg::new('S')),
+            threshold: Box::new(|_| true),
+            retain,
+        }
+    }
+
+    /// Build a `Vec<Message<TestMsg>>` from a pattern string where each char
+    /// maps to a role: s=system, u=user, a=assistant, t=toolcall, r=toolcall_result.
+    fn messages_from(pattern: &str) -> Vec<Message<TestMsg>> {
+        pattern
+            .chars()
+            .map(|c| Message::Original { message: TestMsg::new(c) })
+            .collect()
+    }
+
+    /// Returns the pattern string with `[` and `]` inserted around the compacted
+    /// range, mirroring the helper in `forge_domain`.
+    fn seq(pattern: &str, retain: usize) -> String {
+        let c = compaction(retain);
+        let messages = messages_from(pattern);
+        let range = c.find_compact_range(&messages);
+
+        let mut result = pattern.to_string();
+        if let Some(range) = range {
+            result.insert(*range.start(), '[');
+            result.insert(range.end() + 2, ']');
+        }
+        result
+    }
+
+    #[test]
+    fn test_sequence_finding() {
+        // Basic compaction scenarios
+        assert_eq!(seq("suaaau", 0), "su[aaau]");
+        assert_eq!(seq("sua", 0), "su[a]");
+        assert_eq!(seq("suauaa", 0), "su[auaa]");
+
+        // Tool call scenarios
+        assert_eq!(seq("suttu", 0), "su[ttu]");
+        assert_eq!(seq("sutraau", 0), "su[traau]");
+        assert_eq!(seq("utrutru", 0), "u[trutru]");
+        assert_eq!(seq("uttarru", 0), "u[ttarru]");
+        assert_eq!(seq("urru", 0), "urru");
+        assert_eq!(seq("uturu", 0), "u[turu]");
+
+        // Preservation window scenarios
+        assert_eq!(seq("suaaaauaa", 0), "su[aaaauaa]");
+        assert_eq!(seq("suaaaauaa", 3), "su[aaaa]uaa");
+        assert_eq!(seq("suaaaauaa", 5), "su[aa]aauaa");
+        assert_eq!(seq("suaaaauaa", 8), "suaaaauaa");
+        assert_eq!(seq("suauaaa", 0), "su[auaaa]");
+        assert_eq!(seq("suauaaa", 2), "su[aua]aa");
+        assert_eq!(seq("suauaaa", 1), "su[auaa]a");
+
+        // Tool call atomicity preservation
+        assert_eq!(seq("sutrtrtra", 0), "su[trtrtra]");
+        assert_eq!(seq("sutrtrtra", 1), "su[trtrtr]a");
+        assert_eq!(seq("sutrtrtra", 2), "su[trtr]tra");
+
+        // Parallel tool calls
+        assert_eq!(seq("sutrtrtrra", 2), "su[trtr]trra");
+        assert_eq!(seq("sutrtrtrra", 3), "su[trtr]trra");
+        assert_eq!(seq("sutrrrrrra", 2), "sutrrrrrra");
+
+        // Conversation patterns
+        assert_eq!(seq("suauauaua", 0), "su[auauaua]");
+        assert_eq!(seq("suauauaua", 2), "su[auaua]ua");
+        assert_eq!(seq("suauauaua", 6), "su[a]uauaua");
+        assert_eq!(seq("sutruaua", 0), "su[truaua]");
+        assert_eq!(seq("sutruaua", 3), "su[tru]aua");
+
+        // Special cases
+        assert_eq!(seq("saua", 0), "s[aua]");
+        assert_eq!(seq("suaut", 0), "su[au]t");
+
+        // Edge cases
+        assert_eq!(seq("", 0), "");
+        assert_eq!(seq("s", 0), "s");
+        assert_eq!(seq("sua", 3), "sua");
+        assert_eq!(seq("ut", 0), "ut");
+        assert_eq!(seq("suuu", 0), "suuu");
+        assert_eq!(seq("ut", 1), "ut");
+        assert_eq!(seq("ua", 0), "u[a]");
+    }
 }
