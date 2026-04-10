@@ -2090,6 +2090,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "forge_compact"
+version = "0.1.0"
+dependencies = [
+ "derive_builder 0.20.2",
+ "pretty_assertions",
+]
+
+[[package]]
 name = "forge_config"
 version = "0.1.0"
 dependencies = [
