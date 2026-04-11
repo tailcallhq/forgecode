@@ -175,7 +175,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             services.clone(),
             conversation,
             agent,
-            self.services.get_config()?,
+            forge_config,
+            chat.id,
         )
         .error_tracker(ToolErrorTracker::new(max_tool_failure_per_turn))
         .tool_definitions(tool_definitions)

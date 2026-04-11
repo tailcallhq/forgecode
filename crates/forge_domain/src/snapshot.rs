@@ -6,6 +6,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::UserInputId;
+
 /// A newtype for snapshot IDs, internally using UUID
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct SnapshotId(Uuid);
@@ -46,23 +48,38 @@ impl From<Uuid> for SnapshotId {
 }
 
 /// Represents information about a file snapshot
+/// Represents information about a file snapshot
 ///
 /// Contains details about when the snapshot was created,
-/// the original file path, the snapshot location, and file size.
+/// the original file path, and the user input that triggered it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
-    /// Unique ID for the file
+    /// Unique ID for the snapshot.
     pub id: SnapshotId,
 
-    /// Unix timestamp when the snapshot was created
+    /// Unix timestamp when the snapshot was created.
     pub timestamp: Duration,
 
-    /// Original file path that is being processed
+    /// Original file path that is being processed.
     pub path: String,
+
+    /// The user input that triggered this snapshot, used to group all file
+    /// changes from a single prompt together for prompt-level undo.
+    pub user_input_id: UserInputId,
 }
 
 impl Snapshot {
-    pub fn create(path: PathBuf) -> anyhow::Result<Self> {
+    /// Creates a snapshot for the provided file path, tagged with the
+    /// `UserInputId` of the prompt that triggered the file mutation.
+    ///
+    /// # Arguments
+    /// * `path` - Absolute or canonicalizable file path to snapshot.
+    /// * `user_input_id` - ID of the user prompt that caused this mutation.
+    ///
+    /// # Errors
+    /// Returns an error when the path is relative and cannot be canonicalized,
+    /// or when the current system time is earlier than the Unix epoch.
+    pub fn create(path: PathBuf, user_input_id: UserInputId) -> anyhow::Result<Self> {
         let path = match path.canonicalize() {
             Ok(p) => p,
             Err(_) => {
@@ -81,26 +98,36 @@ impl Snapshot {
             id: SnapshotId::new(),
             timestamp,
             path: path.display().to_string(),
+            user_input_id,
         })
     }
 
-    /// Create a hash of a file path for storage
+    /// Creates a stable hash of the snapshot path for storage.
     pub fn path_hash(&self) -> String {
         let mut hasher = fnv_rs::Fnv64::default();
         hasher.write(self.path.as_bytes());
         format!("{:x}", hasher.finish())
     }
 
-    /// Create a snapshot filename from a path and timestamp
+    /// Creates the snapshot file path relative to the snapshot root.
+    ///
+    /// The filename encodes both the timestamp (for chronological ordering
+    /// during per-file undo) and the `UserInputId` (for grouping all changes
+    /// from one prompt during prompt-level undo).
+    ///
+    /// Format: `<timestamp>__<user_input_id>.snap`
+    ///
+    /// # Arguments
+    /// * `cwd` - Optional snapshot root directory to prepend to the generated
+    ///   relative path.
     pub fn snapshot_path(&self, cwd: Option<PathBuf>) -> PathBuf {
-        // Convert Duration to SystemTime then to a formatted string
         let datetime = UNIX_EPOCH + self.timestamp;
         // Format: YYYY-MM-DD_HH-MM-SS-nnnnnnnnn (including nanoseconds)
         let formatted_time = chrono::DateTime::<chrono::Utc>::from(datetime)
             .format("%Y-%m-%d_%H-%M-%S-%9f")
             .to_string();
 
-        let filename = format!("{formatted_time}.snap");
+        let filename = format!("{}__{}.snap", formatted_time, self.user_input_id);
         let path = PathBuf::from(self.path_hash()).join(PathBuf::from(filename));
         if let Some(cwd) = cwd {
             cwd.join(path)
@@ -109,40 +136,61 @@ impl Snapshot {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
+
     use super::*;
 
     #[test]
     fn test_create_with_nonexistent_absolute_path() {
-        // Test with a non-existent absolute path
-        let nonexistent_path = PathBuf::from("/this/path/does/not/exist/file.txt");
-        let snapshot = Snapshot::create(nonexistent_path.clone()).unwrap();
+        let fixture = PathBuf::from("/this/path/does/not/exist/file.txt");
+        let user_input_id = UserInputId::new();
 
-        assert!(!snapshot.id.to_string().is_empty());
-        assert!(snapshot.timestamp.as_secs() > 0);
-        // Should use the original absolute path since canonicalize fails
-        assert_eq!(snapshot.path, nonexistent_path.display().to_string());
+        let actual = Snapshot::create(fixture.clone(), user_input_id).unwrap();
+
+        assert!(!actual.id.to_string().is_empty());
+        assert!(actual.timestamp.as_secs() > 0);
+        assert_eq!(actual.path, fixture.display().to_string());
+        assert_eq!(actual.user_input_id, user_input_id);
     }
 
     #[test]
     fn test_create_with_nonexistent_relative_path() {
-        // Test with a non-existent relative path
-        let nonexistent_path = PathBuf::from("nonexistent/file.txt");
-        let snapshot = Snapshot::create(nonexistent_path.clone());
-        assert!(snapshot.is_err());
+        let fixture = PathBuf::from("nonexistent/file.txt");
+
+        let actual = Snapshot::create(fixture, UserInputId::new());
+
+        assert!(actual.is_err());
+    }
+
+    #[test]
+    fn test_snapshot_path_encodes_user_input_id() {
+        let fixture = PathBuf::from("/some/absolute/file.txt");
+        let user_input_id = UserInputId::new();
+
+        let snapshot = Snapshot::create(fixture, user_input_id).unwrap();
+        let path = snapshot.snapshot_path(None);
+        let filename = path.file_name().unwrap().to_string_lossy();
+
+        assert!(
+            filename.contains(&user_input_id.to_string()),
+            "filename '{filename}' should contain the user_input_id '{user_input_id}'"
+        );
+        assert!(filename.ends_with(".snap"));
     }
 
     #[cfg(windows)]
     #[test]
     fn test_create_with_nonexistent_absolute_windows_path() {
-        // Test with Windows-style absolute path that doesn't exist
-        let nonexistent_path = PathBuf::from("C:\\nonexistent\\windows\\path\\file.txt");
-        let snapshot = Snapshot::create(nonexistent_path.clone()).unwrap();
+        let fixture = PathBuf::from("C:\\nonexistent\\windows\\path\\file.txt");
+        let user_input_id = UserInputId::new();
 
-        assert!(!snapshot.id.to_string().is_empty());
-        assert!(snapshot.timestamp.as_secs() > 0);
-        assert_eq!(snapshot.path, nonexistent_path.display().to_string());
+        let actual = Snapshot::create(fixture.clone(), user_input_id).unwrap();
+
+        assert!(!actual.id.to_string().is_empty());
+        assert!(actual.timestamp.as_secs() > 0);
+        assert_eq!(actual.path, fixture.display().to_string());
+        assert_eq!(actual.user_input_id, user_input_id);
     }
 }

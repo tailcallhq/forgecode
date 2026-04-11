@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use forge_domain::{
     Attachment, ChatCompletionMessage, ChatResponse, Conversation, ConversationId, Environment,
-    Event, Hook, ProviderId, ToolCallFull, ToolErrorTracker, ToolResult,
+    Event, Hook, ProviderId, ToolCallFull, ToolErrorTracker, ToolResult, UserInputId,
 };
 use handlebars::{Handlebars, no_escape};
 use include_dir::{Dir, include_dir};
@@ -129,15 +129,21 @@ impl Runner {
             ApplyTunableParameters::new(agent.clone(), system_tools.clone()).apply(conversation);
         let conversation = SetConversationId.apply(conversation);
 
-        let orch = Orchestrator::new(services.clone(), conversation, agent, setup.config.clone())
-            .error_tracker(ToolErrorTracker::new(3))
-            .tool_definitions(system_tools)
-            .hook(Arc::new(
-                Hook::default()
-                    .on_request(DoomLoopDetector::default())
-                    .on_end(PendingTodosHandler::new()),
-            ))
-            .sender(tx);
+        let orch = Orchestrator::new(
+            services.clone(),
+            conversation,
+            agent,
+            setup.config.clone(),
+            UserInputId::new(),
+        )
+        .error_tracker(ToolErrorTracker::new(3))
+        .tool_definitions(system_tools)
+        .hook(Arc::new(
+            Hook::default()
+                .on_request(DoomLoopDetector::default())
+                .on_end(PendingTodosHandler::new()),
+        ))
+        .sender(tx);
 
         let (mut orch, runner) = (orch, services);
 

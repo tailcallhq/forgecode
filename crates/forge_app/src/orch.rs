@@ -26,6 +26,9 @@ pub struct Orchestrator<S> {
     error_tracker: ToolErrorTracker,
     hook: Arc<Hook>,
     config: forge_config::ForgeConfig,
+    /// The ID of the user prompt that initiated this orchestrator run.
+    /// Stamped on every file snapshot taken during the run.
+    user_input_id: UserInputId,
 }
 
 impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orchestrator<S> {
@@ -34,12 +37,14 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         conversation: Conversation,
         agent: Agent,
         config: forge_config::ForgeConfig,
+        user_input_id: UserInputId,
     ) -> Self {
         Self {
             conversation,
             services,
             agent,
             config,
+            user_input_id,
             sender: Default::default(),
             tool_definitions: Default::default(),
             models: Default::default(),
@@ -263,7 +268,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         // Retrieve the number of requests allowed per tick.
         let max_requests_per_turn = self.agent.max_requests_per_turn;
         let tool_context =
-            ToolCallContext::new(self.conversation.metrics.clone()).sender(self.sender.clone());
+            ToolCallContext::new(self.conversation.metrics.clone(), self.user_input_id)
+                .sender(self.sender.clone());
 
         while !should_yield {
             // Set context for the current loop iteration

@@ -331,6 +331,7 @@ pub trait FsWriteService: Send + Sync {
         path: String,
         content: String,
         overwrite: bool,
+        user_input_id: forge_domain::UserInputId,
     ) -> anyhow::Result<FsWriteOutput>;
 }
 
@@ -354,6 +355,7 @@ pub trait FsPatchService: Send + Sync {
         search: String,
         content: String,
         replace_all: bool,
+        user_input_id: forge_domain::UserInputId,
     ) -> anyhow::Result<PatchOutput>;
 
     /// Applies multiple patches to a single file in sequence
@@ -361,6 +363,7 @@ pub trait FsPatchService: Send + Sync {
         &self,
         path: String,
         edits: Vec<forge_domain::PatchEdit>,
+        user_input_id: forge_domain::UserInputId,
     ) -> anyhow::Result<PatchOutput>;
 }
 
@@ -384,7 +387,11 @@ pub trait ImageReadService: Send + Sync {
 #[async_trait::async_trait]
 pub trait FsRemoveService: Send + Sync {
     /// Removes a file at the specified path.
-    async fn remove(&self, path: String) -> anyhow::Result<FsRemoveOutput>;
+    async fn remove(
+        &self,
+        path: String,
+        user_input_id: forge_domain::UserInputId,
+    ) -> anyhow::Result<FsRemoveOutput>;
 }
 
 #[async_trait::async_trait]
@@ -739,9 +746,10 @@ impl<I: Services> FsWriteService for I {
         path: String,
         content: String,
         overwrite: bool,
+        user_input_id: forge_domain::UserInputId,
     ) -> anyhow::Result<FsWriteOutput> {
         self.fs_create_service()
-            .write(path, content, overwrite)
+            .write(path, content, overwrite, user_input_id)
             .await
     }
 }
@@ -768,9 +776,10 @@ impl<I: Services> FsPatchService for I {
         search: String,
         content: String,
         replace_all: bool,
+        user_input_id: forge_domain::UserInputId,
     ) -> anyhow::Result<PatchOutput> {
         self.fs_patch_service()
-            .patch(path, search, content, replace_all)
+            .patch(path, search, content, replace_all, user_input_id)
             .await
     }
 
@@ -778,8 +787,11 @@ impl<I: Services> FsPatchService for I {
         &self,
         path: String,
         edits: Vec<forge_domain::PatchEdit>,
+        user_input_id: forge_domain::UserInputId,
     ) -> anyhow::Result<PatchOutput> {
-        self.fs_patch_service().multi_patch(path, edits).await
+        self.fs_patch_service()
+            .multi_patch(path, edits, user_input_id)
+            .await
     }
 }
 
@@ -805,8 +817,12 @@ impl<I: Services> ImageReadService for I {
 
 #[async_trait::async_trait]
 impl<I: Services> FsRemoveService for I {
-    async fn remove(&self, path: String) -> anyhow::Result<FsRemoveOutput> {
-        self.fs_remove_service().remove(path).await
+    async fn remove(
+        &self,
+        path: String,
+        user_input_id: forge_domain::UserInputId,
+    ) -> anyhow::Result<FsRemoveOutput> {
+        self.fs_remove_service().remove(path, user_input_id).await
     }
 }
 

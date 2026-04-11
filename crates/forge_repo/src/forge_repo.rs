@@ -14,7 +14,7 @@ use forge_domain::{
     Conversation, ConversationId, ConversationRepository, Environment, FileInfo,
     FuzzySearchRepository, McpServerConfig, MigrationResult, Model, ModelId, Provider, ProviderId,
     ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository, Snapshot,
-    SnapshotRepository,
+    SnapshotRepository, UserInputId,
 };
 // Re-export CacacheStorage from forge_infra
 pub use forge_infra::CacacheStorage;
@@ -101,8 +101,14 @@ impl<
 
 #[async_trait::async_trait]
 impl<F: Send + Sync> SnapshotRepository for ForgeRepo<F> {
-    async fn insert_snapshot(&self, file_path: &Path) -> anyhow::Result<Snapshot> {
-        self.file_snapshot_service.insert_snapshot(file_path).await
+    async fn insert_snapshot(
+        &self,
+        file_path: &Path,
+        user_input_id: UserInputId,
+    ) -> anyhow::Result<Snapshot> {
+        self.file_snapshot_service
+            .insert_snapshot(file_path, user_input_id)
+            .await
     }
 
     async fn undo_snapshot(&self, file_path: &Path) -> anyhow::Result<()> {

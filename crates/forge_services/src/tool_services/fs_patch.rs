@@ -380,6 +380,7 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
         search: String,
         content: String,
         replace_all: bool,
+        user_input_id: forge_domain::UserInputId,
     ) -> anyhow::Result<PatchOutput> {
         let path = Path::new(&input_path);
         assert_absolute_path(path)?;
@@ -431,7 +432,7 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
         current_content = apply_replacement(current_content, range, &operation, &content)?;
 
         // SNAPSHOT COORDINATION: Always capture snapshot before modifying
-        self.infra.insert_snapshot(path).await?;
+        self.infra.insert_snapshot(path, user_input_id).await?;
 
         // Write final content to file after all patches are applied
         self.infra
@@ -460,6 +461,7 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
         &self,
         input_path: String,
         edits: Vec<forge_domain::PatchEdit>,
+        user_input_id: forge_domain::UserInputId,
     ) -> anyhow::Result<PatchOutput> {
         let path = Path::new(&input_path);
         assert_absolute_path(path)?;
@@ -513,7 +515,7 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
         }
 
         // SNAPSHOT COORDINATION: Always capture snapshot before modifying
-        self.infra.insert_snapshot(path).await?;
+        self.infra.insert_snapshot(path, user_input_id).await?;
 
         // Write final content to file after all patches are applied
         self.infra

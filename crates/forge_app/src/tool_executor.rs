@@ -143,6 +143,7 @@ impl<
                 path.to_string_lossy().to_string(),
                 content.to_string(),
                 true,
+                forge_domain::UserInputId::default(),
             )
             .await?;
         Ok(path)
@@ -171,7 +172,12 @@ impl<
                 let normalized_path = self.normalize_path(input.file_path.clone());
                 let output = self
                     .services
-                    .write(normalized_path, input.content.clone(), input.overwrite)
+                    .write(
+                        normalized_path,
+                        input.content.clone(),
+                        input.overwrite,
+                        context.user_input_id,
+                    )
                     .await?;
                 (input, output).into()
             }
@@ -228,7 +234,10 @@ impl<
             }
             ToolCatalog::Remove(input) => {
                 let normalized_path = self.normalize_path(input.path.clone());
-                let output = self.services.remove(normalized_path).await?;
+                let output = self
+                    .services
+                    .remove(normalized_path, context.user_input_id)
+                    .await?;
                 (input, output).into()
             }
             ToolCatalog::Patch(input) => {
@@ -240,6 +249,7 @@ impl<
                         input.old_string.clone(),
                         input.new_string.clone(),
                         input.replace_all,
+                        context.user_input_id,
                     )
                     .await?;
                 (input, output).into()
@@ -248,7 +258,7 @@ impl<
                 let normalized_path = self.normalize_path(input.file_path.clone());
                 let output = self
                     .services
-                    .multi_patch(normalized_path, input.edits.clone())
+                    .multi_patch(normalized_path, input.edits.clone(), context.user_input_id)
                     .await?;
                 (input, output).into()
             }

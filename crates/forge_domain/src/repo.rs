@@ -6,7 +6,7 @@ use url::Url;
 use crate::{
     AnyProvider, AuthCredential, ChatCompletionMessage, Context, Conversation, ConversationId,
     MigrationResult, Model, ModelId, Provider, ProviderId, ProviderTemplate, ResultStream,
-    SearchMatch, Skill, Snapshot, WorkspaceAuth, WorkspaceId,
+    SearchMatch, Skill, Snapshot, UserInputId, WorkspaceAuth, WorkspaceId,
 };
 
 /// Repository for managing file snapshots
@@ -15,14 +15,20 @@ use crate::{
 /// snapshots, enabling undo functionality for file modifications.
 #[async_trait::async_trait]
 pub trait SnapshotRepository: Send + Sync {
-    /// Inserts a new snapshot for the given file path
+    /// Inserts a new snapshot for the given file path, tagged with the
+    /// `UserInputId` of the prompt that triggered the mutation.
     ///
     /// # Arguments
-    /// * `file_path` - Path to the file to snapshot
+    /// * `file_path` - Path to the file to snapshot.
+    /// * `user_input_id` - ID of the user prompt causing the mutation.
     ///
     /// # Errors
     /// Returns an error if the snapshot creation fails
-    async fn insert_snapshot(&self, file_path: &Path) -> Result<Snapshot>;
+    async fn insert_snapshot(
+        &self,
+        file_path: &Path,
+        user_input_id: UserInputId,
+    ) -> Result<Snapshot>;
 
     /// Restores the most recent snapshot for the given file path
     ///

@@ -48,6 +48,7 @@ impl<
         path: String,
         content: String,
         overwrite: bool,
+        user_input_id: forge_domain::UserInputId,
     ) -> anyhow::Result<FsWriteOutput> {
         let path = Path::new(&path);
         assert_absolute_path(path)?;
@@ -97,7 +98,7 @@ impl<
 
         // SNAPSHOT COORDINATION: Capture snapshot before writing if file exists
         if file_exists {
-            self.infra.insert_snapshot(path).await?;
+            self.infra.insert_snapshot(path, user_input_id).await?;
         }
 
         // Normalize line endings to match the target style before writing
