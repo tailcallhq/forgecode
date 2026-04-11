@@ -14,7 +14,7 @@ use forge_domain::{
     Conversation, ConversationId, ConversationRepository, Environment, FileInfo,
     FuzzySearchRepository, McpServerConfig, MigrationResult, Model, ModelId, Provider, ProviderId,
     ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository, Snapshot,
-    SnapshotRepository, UserInputId,
+    SnapshotMetadataRepository, SnapshotRepository, UserInputId,
 };
 // Re-export CacacheStorage from forge_infra
 pub use forge_infra::CacacheStorage;
@@ -31,6 +31,7 @@ use crate::fs_snap::ForgeFileSnapshotService;
 use crate::fuzzy_search::ForgeFuzzySearchRepository;
 use crate::provider::{ForgeChatRepository, ForgeProviderRepository};
 use crate::skill::ForgeSkillRepository;
+use crate::snapshot::SnapshotMetadataRepositoryImpl;
 use crate::validation::ForgeValidationRepository;
 
 /// Repository layer that implements all domain repository traits
@@ -41,6 +42,7 @@ use crate::validation::ForgeValidationRepository;
 pub struct ForgeRepo<F> {
     infra: Arc<F>,
     file_snapshot_service: Arc<ForgeFileSnapshotService>,
+    snapshot_metadata_repository: Arc<SnapshotMetadataRepositoryImpl>,
     conversation_repository: Arc<ConversationRepositoryImpl>,
     mcp_cache_repository: Arc<CacacheStorage>,
     provider_repository: Arc<ForgeProviderRepository<F>>,
@@ -65,6 +67,8 @@ impl<
         let file_snapshot_service = Arc::new(ForgeFileSnapshotService::new(env.clone()));
         let db_pool =
             Arc::new(DatabasePool::try_from(PoolConfig::new(env.database_path())).unwrap());
+        let snapshot_metadata_repository =
+            Arc::new(SnapshotMetadataRepositoryImpl::new(db_pool.clone()));
         let conversation_repository = Arc::new(ConversationRepositoryImpl::new(
             db_pool.clone(),
             env.workspace_hash(),
@@ -86,6 +90,7 @@ impl<
         Self {
             infra,
             file_snapshot_service,
+            snapshot_metadata_repository,
             conversation_repository,
             mcp_cache_repository,
             provider_repository,
@@ -106,13 +111,47 @@ impl<F: Send + Sync> SnapshotRepository for ForgeRepo<F> {
         file_path: &Path,
         user_input_id: UserInputId,
     ) -> anyhow::Result<Snapshot> {
-        self.file_snapshot_service
+        let snapshot = self
+            .file_snapshot_service
             .insert_snapshot(file_path, user_input_id)
-            .await
+            .await?;
+
+        // Persist metadata to SQLite alongside the .snap file on disk.
+        let snap_file_path = snapshot
+            .snapshot_path(Some(self.file_snapshot_service.snapshot_root()))
+            .to_string_lossy()
+            .to_string();
+        self.snapshot_metadata_repository
+            .insert_snapshot_metadata(&snapshot, snap_file_path)
+            .await?;
+
+        Ok(snapshot)
     }
 
     async fn undo_snapshot(&self, file_path: &Path) -> anyhow::Result<()> {
         self.file_snapshot_service.undo_snapshot(file_path).await
+    }
+}
+
+#[async_trait::async_trait]
+impl<F: Send + Sync> SnapshotMetadataRepository for ForgeRepo<F> {
+    async fn insert_snapshot_metadata(
+        &self,
+        snapshot: &Snapshot,
+        snap_file_path: String,
+    ) -> anyhow::Result<()> {
+        self.snapshot_metadata_repository
+            .insert_snapshot_metadata(snapshot, snap_file_path)
+            .await
+    }
+
+    async fn find_snapshots_by_user_input_id(
+        &self,
+        user_input_id: UserInputId,
+    ) -> anyhow::Result<Vec<(String, String)>> {
+        self.snapshot_metadata_repository
+            .find_snapshots_by_user_input_id(user_input_id)
+            .await
     }
 }
 

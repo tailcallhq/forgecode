@@ -8,6 +8,7 @@ mod fs_snap;
 mod fuzzy_search;
 mod provider;
 mod skill;
+mod snapshot;
 mod validation;
 
 mod proto_generated {

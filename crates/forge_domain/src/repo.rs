@@ -9,6 +9,37 @@ use crate::{
     SearchMatch, Skill, Snapshot, UserInputId, WorkspaceAuth, WorkspaceId,
 };
 
+/// Repository for persisting and querying snapshot metadata in SQLite.
+///
+/// Stores one row per snapshot created, allowing bulk-undo queries
+/// grouped by the `UserInputId` of the prompt that triggered the changes.
+#[async_trait::async_trait]
+pub trait SnapshotMetadataRepository: Send + Sync {
+    /// Persists metadata for one snapshot into the `snapshot_metadata` table.
+    ///
+    /// # Arguments
+    /// * `snapshot` - The domain snapshot whose metadata to persist.
+    /// * `snap_file_path` - Absolute path to the `.snap` file written to disk.
+    ///
+    /// # Errors
+    /// Returns an error if the database write fails.
+    async fn insert_snapshot_metadata(
+        &self,
+        snapshot: &Snapshot,
+        snap_file_path: String,
+    ) -> Result<()>;
+
+    /// Returns `(file_path, snap_file_path)` pairs for every snapshot belonging
+    /// to the given `UserInputId`, enabling prompt-level bulk undo.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
+    async fn find_snapshots_by_user_input_id(
+        &self,
+        user_input_id: UserInputId,
+    ) -> Result<Vec<(String, String)>>;
+}
+
 /// Repository for managing file snapshots
 ///
 /// This repository provides operations for creating and restoring file
