@@ -379,8 +379,10 @@ mod tests {
         Context as ChatContext, ContextMessage, ModelId, ToolCallId, ToolChoice,
     };
     use forge_app::utils::enforce_strict_schema;
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
 
-    use crate::provider::FromDomain;
+    use crate::provider::{FromDomain, openai_responses::request::codex_tool_parameters};
 
     #[test]
     fn test_reasoning_config_conversion_with_effort() -> anyhow::Result<()> {
@@ -577,6 +579,37 @@ mod tests {
         forge_app::domain::ToolCallFull::new(name)
             .call_id(ToolCallId::new(call_id))
             .arguments(forge_app::domain::ToolCallArguments::from_json(args))
+    }
+
+    #[test]
+    fn test_codex_tool_parameters_removes_unsupported_uri_format() -> anyhow::Result<()> {
+        let fixture = schemars::Schema::try_from(json!({
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "format": "uri"
+                }
+            }
+        }))
+        .unwrap();
+
+        let actual = codex_tool_parameters(&fixture)?;
+
+        let expected = json!({
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false,
+            "required": ["url"]
+        });
+
+        assert_eq!(actual, expected);
+
+        Ok(())
     }
 
     #[test]
