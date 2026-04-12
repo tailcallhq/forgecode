@@ -42,8 +42,12 @@ impl<S> TerminalContextService<S> {
     }
 }
 
-impl<S: EnvironmentInfra> TerminalContextService<S> {
+impl<S: EnvironmentInfra<Config = forge_config::ForgeConfig>> TerminalContextService<S> {
     /// Reads the terminal context from environment variables.
+    ///
+    /// Commands are sorted by timestamp (oldest first, most recent last) and
+    /// limited to the number specified by [`forge_config::ForgeConfig::max_terminal_commands`].
+    /// When `max_terminal_commands` is `0`, all captured commands are included.
     ///
     /// Returns `None` if none of the required variables are set or if no
     /// commands were recorded.
@@ -70,7 +74,7 @@ impl<S: EnvironmentInfra> TerminalContextService<S> {
         // Zip the three lists together; pad missing exit codes/timestamps with 0.
         // The outer zip() truncates to the length of `commands`, so the
         // repeat() padding never produces extra entries.
-        let entries: Vec<TerminalCommand> = commands
+        let mut entries: Vec<TerminalCommand> = commands
             .into_iter()
             .zip(exit_codes.into_iter().chain(std::iter::repeat(0)))
             .zip(timestamps.into_iter().chain(std::iter::repeat(0)))
@@ -79,8 +83,21 @@ impl<S: EnvironmentInfra> TerminalContextService<S> {
                 exit_code,
                 timestamp,
             })
-            // FIXME: Use forge_config::Config to control the total number of commands. Make sure its sorted by timestamp - recent should be last
             .collect();
+
+        // Sort by timestamp so the most recent command appears last.
+        entries.sort_by_key(|e| e.timestamp);
+
+        // Limit to the configured maximum number of commands. When the limit is
+        // 0 (the default), all commands are included.
+        let max = self
+            .0
+            .get_config()
+            .map(|c| c.max_terminal_commands)
+            .unwrap_or(0);
+        if max > 0 && entries.len() > max {
+            entries = entries.split_off(entries.len() - max);
+        }
 
         if entries.is_empty() {
             None
@@ -111,6 +128,7 @@ mod tests {
 
     struct MockInfra {
         env_vars: BTreeMap<String, String>,
+        config: forge_config::ForgeConfig,
     }
 
     impl MockInfra {
@@ -120,6 +138,17 @@ mod tests {
                     .iter()
                     .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect(),
+                config: forge_config::ForgeConfig::default(),
+            })
+        }
+
+        fn new_with_config(vars: &[(&str, &str)], config: forge_config::ForgeConfig) -> Arc<Self> {
+            Arc::new(Self {
+                env_vars: vars
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+                config,
             })
         }
     }
@@ -133,7 +162,7 @@ mod tests {
         }
 
         fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
-            Ok(forge_config::ForgeConfig::default())
+            Ok(self.config.clone())
         }
 
         async fn update_environment(
@@ -244,5 +273,84 @@ mod tests {
             "docker run -p 8080:80 nginx".to_string(),
         ];
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_commands_sorted_by_timestamp_oldest_first() {
+        // Supply commands in reverse-timestamp order to confirm sorting is applied.
+        let sep = ENV_LIST_SEPARATOR;
+        let fixture = TerminalContextService::new(MockInfra::new(&[
+            (ENV_TERM_COMMANDS, &format!("git status{sep}cargo test{sep}ls")),
+            (ENV_TERM_EXIT_CODES, &format!("0{sep}1{sep}0")),
+            (ENV_TERM_TIMESTAMPS, &format!("1700000003{sep}1700000002{sep}1700000001")),
+        ]));
+        let actual = fixture.get_terminal_context();
+        let expected = Some(TerminalContext {
+            commands: vec![
+                TerminalCommand {
+                    command: "ls".to_string(),
+                    exit_code: 0,
+                    timestamp: 1700000001,
+                },
+                TerminalCommand {
+                    command: "cargo test".to_string(),
+                    exit_code: 1,
+                    timestamp: 1700000002,
+                },
+                TerminalCommand {
+                    command: "git status".to_string(),
+                    exit_code: 0,
+                    timestamp: 1700000003,
+                },
+            ],
+        });
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_max_terminal_commands_limits_to_most_recent() {
+        let sep = ENV_LIST_SEPARATOR;
+        let config = forge_config::ForgeConfig {
+            max_terminal_commands: 2,
+            ..Default::default()
+        };
+        let fixture = TerminalContextService::new(MockInfra::new_with_config(
+            &[
+                (ENV_TERM_COMMANDS, &format!("ls{sep}cargo test{sep}git status")),
+                (ENV_TERM_EXIT_CODES, &format!("0{sep}1{sep}0")),
+                (ENV_TERM_TIMESTAMPS, &format!("1700000001{sep}1700000002{sep}1700000003")),
+            ],
+            config,
+        ));
+        let actual = fixture.get_terminal_context();
+        // Only the 2 most recent commands (by timestamp) should be kept, oldest first.
+        let expected = Some(TerminalContext {
+            commands: vec![
+                TerminalCommand {
+                    command: "cargo test".to_string(),
+                    exit_code: 1,
+                    timestamp: 1700000002,
+                },
+                TerminalCommand {
+                    command: "git status".to_string(),
+                    exit_code: 0,
+                    timestamp: 1700000003,
+                },
+            ],
+        });
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_max_terminal_commands_zero_includes_all() {
+        // max_terminal_commands = 0 (default) means no limit.
+        let sep = ENV_LIST_SEPARATOR;
+        let fixture = TerminalContextService::new(MockInfra::new(&[
+            (ENV_TERM_COMMANDS, &format!("ls{sep}cargo test{sep}git status")),
+            (ENV_TERM_EXIT_CODES, &format!("0{sep}1{sep}0")),
+            (ENV_TERM_TIMESTAMPS, &format!("1700000001{sep}1700000002{sep}1700000003")),
+        ]));
+        let actual = fixture.get_terminal_context();
+        assert_eq!(actual.unwrap().commands.len(), 3);
     }
 }

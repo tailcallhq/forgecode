@@ -198,6 +198,13 @@
       "default": 0,
       "minimum": 0
     },
+    "max_terminal_commands": {
+      "description": "Maximum number of recent terminal commands included in the terminal\ncontext injected into the user prompt. Commands are sorted by timestamp\nso that the most recent command appears last. When set to `0` (the\ndefault), all captured commands are included.",
+      "type": "integer",
+      "format": "uint",
+      "default": 0,
+      "minimum": 0
+    },
     "max_tokens": {
       "description": "Maximum tokens the model may generate per response for all agents\n(1–100,000).",
       "type": [

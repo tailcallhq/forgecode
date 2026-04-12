@@ -26,7 +26,10 @@ pub struct CommandGenerator<S> {
 
 impl<S> CommandGenerator<S>
 where
-    S: EnvironmentInfra + FileDiscoveryService + ProviderService + AppConfigService,
+    S: EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + FileDiscoveryService
+        + ProviderService
+        + AppConfigService,
 {
     /// Creates a new CommandGenerator instance with the provided services.
     pub fn new(services: Arc<S>) -> Self {

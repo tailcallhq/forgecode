@@ -292,6 +292,13 @@ pub struct ForgeConfig {
     /// keys, and other sensitive data passed as command-line arguments.
     #[serde(default)]
     pub terminal_context: bool,
+
+    /// Maximum number of recent terminal commands included in the terminal
+    /// context injected into the user prompt. Commands are sorted by timestamp
+    /// so that the most recent command appears last. When set to `0` (the
+    /// default), all captured commands are included.
+    #[serde(default)]
+    pub max_terminal_commands: usize,
 }
 
 impl ForgeConfig {
