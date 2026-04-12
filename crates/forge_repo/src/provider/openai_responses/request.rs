@@ -382,7 +382,8 @@ mod tests {
     use pretty_assertions::assert_eq;
     use serde_json::json;
 
-    use crate::provider::{FromDomain, openai_responses::request::codex_tool_parameters};
+    use crate::provider::FromDomain;
+    use crate::provider::openai_responses::request::codex_tool_parameters;
 
     #[test]
     fn test_reasoning_config_conversion_with_effort() -> anyhow::Result<()> {
