@@ -46,7 +46,8 @@ impl<S: EnvironmentInfra<Config = forge_config::ForgeConfig>> TerminalContextSer
     /// Reads the terminal context from environment variables.
     ///
     /// Commands are sorted by timestamp (oldest first, most recent last) and
-    /// limited to the number specified by [`forge_config::ForgeConfig::max_terminal_commands`].
+    /// limited to the number specified by
+    /// [`forge_config::ForgeConfig::max_terminal_commands`].
     /// When `max_terminal_commands` is `0`, all captured commands are included.
     ///
     /// Returns `None` if none of the required variables are set or if no
@@ -214,9 +215,15 @@ mod tests {
     fn test_multiple_commands_with_exit_codes_and_timestamps() {
         let sep = ENV_LIST_SEPARATOR;
         let fixture = TerminalContextService::new(MockInfra::new(&[
-            (ENV_TERM_COMMANDS, &format!("ls{sep}cargo test{sep}git status")),
+            (
+                ENV_TERM_COMMANDS,
+                &format!("ls{sep}cargo test{sep}git status"),
+            ),
             (ENV_TERM_EXIT_CODES, &format!("0{sep}1{sep}0")),
-            (ENV_TERM_TIMESTAMPS, &format!("1700000001{sep}1700000002{sep}1700000003")),
+            (
+                ENV_TERM_TIMESTAMPS,
+                &format!("1700000001{sep}1700000002{sep}1700000003"),
+            ),
         ]));
         let actual = fixture.get_terminal_context();
         let expected = Some(TerminalContext {
@@ -267,7 +274,9 @@ mod tests {
     fn test_split_env_list_command_with_colon() {
         // Commands containing `:` (e.g. URLs, port mappings) must not be split.
         let sep = ENV_LIST_SEPARATOR;
-        let actual = split_env_list(&format!("curl https://example.com{sep}docker run -p 8080:80 nginx"));
+        let actual = split_env_list(&format!(
+            "curl https://example.com{sep}docker run -p 8080:80 nginx"
+        ));
         let expected = vec![
             "curl https://example.com".to_string(),
             "docker run -p 8080:80 nginx".to_string(),
@@ -280,9 +289,15 @@ mod tests {
         // Supply commands in reverse-timestamp order to confirm sorting is applied.
         let sep = ENV_LIST_SEPARATOR;
         let fixture = TerminalContextService::new(MockInfra::new(&[
-            (ENV_TERM_COMMANDS, &format!("git status{sep}cargo test{sep}ls")),
+            (
+                ENV_TERM_COMMANDS,
+                &format!("git status{sep}cargo test{sep}ls"),
+            ),
             (ENV_TERM_EXIT_CODES, &format!("0{sep}1{sep}0")),
-            (ENV_TERM_TIMESTAMPS, &format!("1700000003{sep}1700000002{sep}1700000001")),
+            (
+                ENV_TERM_TIMESTAMPS,
+                &format!("1700000003{sep}1700000002{sep}1700000001"),
+            ),
         ]));
         let actual = fixture.get_terminal_context();
         let expected = Some(TerminalContext {
@@ -310,15 +325,18 @@ mod tests {
     #[test]
     fn test_max_terminal_commands_limits_to_most_recent() {
         let sep = ENV_LIST_SEPARATOR;
-        let config = forge_config::ForgeConfig {
-            max_terminal_commands: 2,
-            ..Default::default()
-        };
+        let config = forge_config::ForgeConfig { max_terminal_commands: 2, ..Default::default() };
         let fixture = TerminalContextService::new(MockInfra::new_with_config(
             &[
-                (ENV_TERM_COMMANDS, &format!("ls{sep}cargo test{sep}git status")),
+                (
+                    ENV_TERM_COMMANDS,
+                    &format!("ls{sep}cargo test{sep}git status"),
+                ),
                 (ENV_TERM_EXIT_CODES, &format!("0{sep}1{sep}0")),
-                (ENV_TERM_TIMESTAMPS, &format!("1700000001{sep}1700000002{sep}1700000003")),
+                (
+                    ENV_TERM_TIMESTAMPS,
+                    &format!("1700000001{sep}1700000002{sep}1700000003"),
+                ),
             ],
             config,
         ));
@@ -346,9 +364,15 @@ mod tests {
         // max_terminal_commands = 0 (default) means no limit.
         let sep = ENV_LIST_SEPARATOR;
         let fixture = TerminalContextService::new(MockInfra::new(&[
-            (ENV_TERM_COMMANDS, &format!("ls{sep}cargo test{sep}git status")),
+            (
+                ENV_TERM_COMMANDS,
+                &format!("ls{sep}cargo test{sep}git status"),
+            ),
             (ENV_TERM_EXIT_CODES, &format!("0{sep}1{sep}0")),
-            (ENV_TERM_TIMESTAMPS, &format!("1700000001{sep}1700000002{sep}1700000003")),
+            (
+                ENV_TERM_TIMESTAMPS,
+                &format!("1700000001{sep}1700000002{sep}1700000003"),
+            ),
         ]));
         let actual = fixture.get_terminal_context();
         assert_eq!(actual.unwrap().commands.len(), 3);
