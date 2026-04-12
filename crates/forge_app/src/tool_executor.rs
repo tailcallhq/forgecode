@@ -144,6 +144,7 @@ impl<
                 content.to_string(),
                 true,
                 forge_domain::UserInputId::default(),
+                forge_domain::ConversationId::generate(),
             )
             .await?;
         Ok(path)
@@ -177,6 +178,7 @@ impl<
                         input.content.clone(),
                         input.overwrite,
                         context.user_input_id,
+                        context.conversation_id,
                     )
                     .await?;
                 (input, output).into()
@@ -236,7 +238,7 @@ impl<
                 let normalized_path = self.normalize_path(input.path.clone());
                 let output = self
                     .services
-                    .remove(normalized_path, context.user_input_id)
+                    .remove(normalized_path, context.user_input_id, context.conversation_id)
                     .await?;
                 (input, output).into()
             }
@@ -250,6 +252,7 @@ impl<
                         input.new_string.clone(),
                         input.replace_all,
                         context.user_input_id,
+                        context.conversation_id,
                     )
                     .await?;
                 (input, output).into()
@@ -258,7 +261,12 @@ impl<
                 let normalized_path = self.normalize_path(input.file_path.clone());
                 let output = self
                     .services
-                    .multi_patch(normalized_path, input.edits.clone(), context.user_input_id)
+                    .multi_patch(
+                        normalized_path,
+                        input.edits.clone(),
+                        context.user_input_id,
+                        context.conversation_id,
+                    )
                     .await?;
                 (input, output).into()
             }

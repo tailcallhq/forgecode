@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use derive_setters::Setters;
 
-use crate::{ArcSender, ChatResponse, Metrics, TitleFormat, Todo, TodoItem, UserInputId};
+use crate::{ArcSender, ChatResponse, ConversationId, Metrics, TitleFormat, Todo, TodoItem, UserInputId};
 
 /// Provides additional context for tool calls.
 #[derive(Debug, Clone, Setters)]
@@ -13,12 +13,25 @@ pub struct ToolCallContext {
     /// Passed to every snapshot created during this turn so all file changes
     /// can be grouped and undone together.
     pub user_input_id: UserInputId,
+    /// The ID of the active conversation during this agent turn.
+    /// Passed to every snapshot so that all snapshots within a conversation
+    /// can be queried together.
+    pub conversation_id: ConversationId,
 }
 
 impl ToolCallContext {
     /// Creates a new ToolCallContext with default values
-    pub fn new(metrics: Metrics, user_input_id: UserInputId) -> Self {
-        Self { sender: None, metrics: Arc::new(Mutex::new(metrics)), user_input_id }
+    pub fn new(
+        metrics: Metrics,
+        user_input_id: UserInputId,
+        conversation_id: ConversationId,
+    ) -> Self {
+        Self {
+            sender: None,
+            metrics: Arc::new(Mutex::new(metrics)),
+            user_input_id,
+            conversation_id,
+        }
     }
 
     /// Send a message through the sender if available
@@ -95,14 +108,16 @@ mod tests {
     #[test]
     fn test_create_context() {
         let metrics = Metrics::default();
-        let context = ToolCallContext::new(metrics, UserInputId::new());
+        let context =
+            ToolCallContext::new(metrics, UserInputId::new(), ConversationId::generate());
         assert!(context.sender.is_none());
     }
 
     #[test]
     fn test_with_sender() {
         let metrics = Metrics::default();
-        let context = ToolCallContext::new(metrics, UserInputId::new());
+        let context =
+            ToolCallContext::new(metrics, UserInputId::new(), ConversationId::generate());
         assert!(context.sender.is_none());
     }
 }

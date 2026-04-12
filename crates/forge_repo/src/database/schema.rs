@@ -16,6 +16,7 @@ diesel::table! {
     snapshot_metadata (snapshot_id) {
         snapshot_id -> Text,
         user_input_id -> Text,
+        conversation_id -> Text,
         file_path -> Text,
         snap_file_path -> Text,
         created_at -> Timestamp,

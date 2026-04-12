@@ -332,6 +332,7 @@ pub trait FsWriteService: Send + Sync {
         content: String,
         overwrite: bool,
         user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<FsWriteOutput>;
 }
 
@@ -356,6 +357,7 @@ pub trait FsPatchService: Send + Sync {
         content: String,
         replace_all: bool,
         user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<PatchOutput>;
 
     /// Applies multiple patches to a single file in sequence
@@ -364,6 +366,7 @@ pub trait FsPatchService: Send + Sync {
         path: String,
         edits: Vec<forge_domain::PatchEdit>,
         user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<PatchOutput>;
 }
 
@@ -391,6 +394,7 @@ pub trait FsRemoveService: Send + Sync {
         &self,
         path: String,
         user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<FsRemoveOutput>;
 }
 
@@ -747,9 +751,10 @@ impl<I: Services> FsWriteService for I {
         content: String,
         overwrite: bool,
         user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<FsWriteOutput> {
         self.fs_create_service()
-            .write(path, content, overwrite, user_input_id)
+            .write(path, content, overwrite, user_input_id, conversation_id)
             .await
     }
 }
@@ -777,9 +782,10 @@ impl<I: Services> FsPatchService for I {
         content: String,
         replace_all: bool,
         user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<PatchOutput> {
         self.fs_patch_service()
-            .patch(path, search, content, replace_all, user_input_id)
+            .patch(path, search, content, replace_all, user_input_id, conversation_id)
             .await
     }
 
@@ -788,9 +794,10 @@ impl<I: Services> FsPatchService for I {
         path: String,
         edits: Vec<forge_domain::PatchEdit>,
         user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<PatchOutput> {
         self.fs_patch_service()
-            .multi_patch(path, edits, user_input_id)
+            .multi_patch(path, edits, user_input_id, conversation_id)
             .await
     }
 }
@@ -821,8 +828,11 @@ impl<I: Services> FsRemoveService for I {
         &self,
         path: String,
         user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<FsRemoveOutput> {
-        self.fs_remove_service().remove(path, user_input_id).await
+        self.fs_remove_service()
+            .remove(path, user_input_id, conversation_id)
+            .await
     }
 }
 

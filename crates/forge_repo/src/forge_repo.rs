@@ -110,10 +110,11 @@ impl<F: Send + Sync> SnapshotRepository for ForgeRepo<F> {
         &self,
         file_path: &Path,
         user_input_id: UserInputId,
+        conversation_id: ConversationId,
     ) -> anyhow::Result<Snapshot> {
         let snapshot = self
             .file_snapshot_service
-            .insert_snapshot(file_path, user_input_id)
+            .insert_snapshot(file_path, user_input_id, conversation_id)
             .await?;
 
         // Persist metadata to SQLite alongside the .snap file on disk.
@@ -151,6 +152,15 @@ impl<F: Send + Sync> SnapshotMetadataRepository for ForgeRepo<F> {
     ) -> anyhow::Result<Vec<(String, String)>> {
         self.snapshot_metadata_repository
             .find_snapshots_by_user_input_id(user_input_id)
+            .await
+    }
+
+    async fn find_snapshots_by_conversation_id(
+        &self,
+        conversation_id: ConversationId,
+    ) -> anyhow::Result<Vec<(String, String, String)>> {
+        self.snapshot_metadata_repository
+            .find_snapshots_by_conversation_id(conversation_id)
             .await
     }
 }

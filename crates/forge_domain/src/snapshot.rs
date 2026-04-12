@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::UserInputId;
+use crate::{ConversationId, UserInputId};
 
 /// A newtype for snapshot IDs, internally using UUID
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -66,6 +66,11 @@ pub struct Snapshot {
     /// The user input that triggered this snapshot, used to group all file
     /// changes from a single prompt together for prompt-level undo.
     pub user_input_id: UserInputId,
+
+    /// The conversation that was active when this snapshot was created.
+    /// Used to retrieve all snapshots belonging to the current conversation
+    /// and to determine the latest `UserInputId` within that conversation.
+    pub conversation_id: ConversationId,
 }
 
 impl Snapshot {
@@ -75,11 +80,16 @@ impl Snapshot {
     /// # Arguments
     /// * `path` - Absolute or canonicalizable file path to snapshot.
     /// * `user_input_id` - ID of the user prompt that caused this mutation.
+    /// * `conversation_id` - ID of the active conversation during this mutation.
     ///
     /// # Errors
     /// Returns an error when the path is relative and cannot be canonicalized,
     /// or when the current system time is earlier than the Unix epoch.
-    pub fn create(path: PathBuf, user_input_id: UserInputId) -> anyhow::Result<Self> {
+    pub fn create(
+        path: PathBuf,
+        user_input_id: UserInputId,
+        conversation_id: ConversationId,
+    ) -> anyhow::Result<Self> {
         let path = match path.canonicalize() {
             Ok(p) => p,
             Err(_) => {
@@ -99,6 +109,7 @@ impl Snapshot {
             timestamp,
             path: path.display().to_string(),
             user_input_id,
+            conversation_id,
         })
     }
 
@@ -146,8 +157,9 @@ mod tests {
     fn test_create_with_nonexistent_absolute_path() {
         let fixture = PathBuf::from("/this/path/does/not/exist/file.txt");
         let user_input_id = UserInputId::new();
+        let conversation_id = ConversationId::generate();
 
-        let actual = Snapshot::create(fixture.clone(), user_input_id).unwrap();
+        let actual = Snapshot::create(fixture.clone(), user_input_id, conversation_id).unwrap();
 
         assert!(!actual.id.to_string().is_empty());
         assert!(actual.timestamp.as_secs() > 0);
@@ -159,7 +171,7 @@ mod tests {
     fn test_create_with_nonexistent_relative_path() {
         let fixture = PathBuf::from("nonexistent/file.txt");
 
-        let actual = Snapshot::create(fixture, UserInputId::new());
+        let actual = Snapshot::create(fixture, UserInputId::new(), ConversationId::generate());
 
         assert!(actual.is_err());
     }
@@ -169,7 +181,8 @@ mod tests {
         let fixture = PathBuf::from("/some/absolute/file.txt");
         let user_input_id = UserInputId::new();
 
-        let snapshot = Snapshot::create(fixture, user_input_id).unwrap();
+        let snapshot =
+            Snapshot::create(fixture, user_input_id, ConversationId::generate()).unwrap();
         let path = snapshot.snapshot_path(None);
         let filename = path.file_name().unwrap().to_string_lossy();
 
@@ -186,7 +199,8 @@ mod tests {
         let fixture = PathBuf::from("C:\\nonexistent\\windows\\path\\file.txt");
         let user_input_id = UserInputId::new();
 
-        let actual = Snapshot::create(fixture.clone(), user_input_id).unwrap();
+        let actual =
+            Snapshot::create(fixture.clone(), user_input_id, ConversationId::generate()).unwrap();
 
         assert!(!actual.id.to_string().is_empty());
         assert!(actual.timestamp.as_secs() > 0);

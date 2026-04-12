@@ -38,6 +38,17 @@ pub trait SnapshotMetadataRepository: Send + Sync {
         &self,
         user_input_id: UserInputId,
     ) -> Result<Vec<(String, String)>>;
+
+    /// Returns all `(user_input_id, file_path, snap_file_path)` tuples for every
+    /// snapshot belonging to the given `ConversationId`, ordered by creation time
+    /// descending so that the latest `UserInputId` appears first.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
+    async fn find_snapshots_by_conversation_id(
+        &self,
+        conversation_id: ConversationId,
+    ) -> Result<Vec<(String, String, String)>>;
 }
 
 /// Repository for managing file snapshots
@@ -47,11 +58,13 @@ pub trait SnapshotMetadataRepository: Send + Sync {
 #[async_trait::async_trait]
 pub trait SnapshotRepository: Send + Sync {
     /// Inserts a new snapshot for the given file path, tagged with the
-    /// `UserInputId` of the prompt that triggered the mutation.
+    /// `UserInputId` of the prompt that triggered the mutation and the
+    /// `ConversationId` of the active conversation.
     ///
     /// # Arguments
     /// * `file_path` - Path to the file to snapshot.
     /// * `user_input_id` - ID of the user prompt causing the mutation.
+    /// * `conversation_id` - ID of the active conversation during the mutation.
     ///
     /// # Errors
     /// Returns an error if the snapshot creation fails
@@ -59,6 +72,7 @@ pub trait SnapshotRepository: Send + Sync {
         &self,
         file_path: &Path,
         user_input_id: UserInputId,
+        conversation_id: ConversationId,
     ) -> Result<Snapshot>;
 
     /// Restores the most recent snapshot for the given file path

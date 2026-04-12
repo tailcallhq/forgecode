@@ -29,6 +29,7 @@ impl<F: FileReaderInfra + FileRemoverInfra + SnapshotRepository> FsRemoveService
         &self,
         input_path: String,
         user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<FsRemoveOutput> {
         let path = Path::new(&input_path);
         assert_absolute_path(path)?;
@@ -36,7 +37,9 @@ impl<F: FileReaderInfra + FileRemoverInfra + SnapshotRepository> FsRemoveService
         let content = self.infra.read_utf8(path).await.unwrap_or_default();
 
         // SNAPSHOT COORDINATION: Always capture snapshot before removing
-        self.infra.insert_snapshot(path, user_input_id).await?;
+        self.infra
+            .insert_snapshot(path, user_input_id, conversation_id)
+            .await?;
 
         self.infra.remove(path).await?;
 

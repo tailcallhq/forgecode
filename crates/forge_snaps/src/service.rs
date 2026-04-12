@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use forge_domain::{Snapshot, UserInputId};
+use forge_domain::{ConversationId, Snapshot, UserInputId};
 use forge_fs::ForgeFS;
 
 /// Implementation of the SnapshotService
@@ -23,8 +23,9 @@ impl SnapshotService {
         &self,
         path: PathBuf,
         user_input_id: UserInputId,
+        conversation_id: ConversationId,
     ) -> Result<Snapshot> {
-        let snapshot = Snapshot::create(path, user_input_id)?;
+        let snapshot = Snapshot::create(path, user_input_id, conversation_id)?;
 
         // Create intermediary directories if they don't exist
         let snapshot_path = snapshot.snapshot_path(Some(self.snapshots_directory.clone()));
@@ -61,7 +62,7 @@ impl SnapshotService {
     pub async fn undo_snapshot(&self, path: PathBuf) -> Result<()> {
         // Derive the per-file storage directory using a throwaway snapshot
         // (UserInputId here is irrelevant — we only need the path hash).
-        let snapshot = Snapshot::create(path.clone(), UserInputId::new())?;
+        let snapshot = Snapshot::create(path.clone(), UserInputId::new(), ConversationId::generate())?;
 
         // All the snaps for `path` are stored in `snapshot.path_hash()` directory.
         let snapshot_dir = self.snapshots_directory.join(snapshot.path_hash());
@@ -132,7 +133,11 @@ mod tests {
 
         async fn create_snapshot(&self) -> Result<Snapshot> {
             self.service
-                .create_snapshot(self.test_file.clone(), UserInputId::new())
+                .create_snapshot(
+                    self.test_file.clone(),
+                    UserInputId::new(),
+                    ConversationId::generate(),
+                )
                 .await
         }
 
@@ -268,7 +273,7 @@ mod tests {
         // Act
         ctx.write_content("some content").await?;
         ctx.service
-            .create_snapshot(ctx.test_file.clone(), user_input_id)
+            .create_snapshot(ctx.test_file.clone(), user_input_id, ConversationId::generate())
             .await?;
 
         // Assert: find the .snap file and verify the UUID is in its name

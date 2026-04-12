@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
-use forge_domain::{Environment, Snapshot, SnapshotRepository, UserInputId};
+use forge_domain::{ConversationId, Environment, Snapshot, SnapshotRepository, UserInputId};
 
 pub struct ForgeFileSnapshotService {
     inner: Arc<forge_snaps::SnapshotService>,
@@ -31,9 +31,10 @@ impl SnapshotRepository for ForgeFileSnapshotService {
         &self,
         file_path: &Path,
         user_input_id: UserInputId,
+        conversation_id: ConversationId,
     ) -> Result<Snapshot> {
         self.inner
-            .create_snapshot(file_path.to_path_buf(), user_input_id)
+            .create_snapshot(file_path.to_path_buf(), user_input_id, conversation_id)
             .await
     }
 
