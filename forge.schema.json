@@ -303,9 +303,9 @@
       ]
     },
     "terminal_context": {
-      "description": "Whether to include terminal context (recent shell commands, exit codes,\nand timestamps) in the user prompt. When enabled, the shell plugin\nexports the captured command history and the Rust service injects it\ninto the rendered prompt via [`EventContext`].",
+      "description": "Whether to include terminal context (recent shell commands, exit codes,\nand timestamps) in the user prompt. When enabled, the shell plugin\nexports the captured command history and the Rust service injects it\ninto the rendered prompt via [`EventContext`].\n\nDefaults to `false` so that users explicitly opt in before their shell\nhistory is sent to the LLM. Shell history can contain passwords, API\nkeys, and other sensitive data passed as command-line arguments.",
       "type": "boolean",
-      "default": true
+      "default": false
     },
     "tool_supported": {
       "description": "Whether tool use is supported in the current environment; when false,\nall tool calls are disabled.",
