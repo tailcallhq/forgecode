@@ -35,8 +35,8 @@ where
 
     /// Generates a shell command from a natural language prompt.
     ///
-    /// Terminal context is read automatically from the `FORGE_TERM_COMMANDS`,
-    /// `FORGE_TERM_EXIT_CODES`, and `FORGE_TERM_TIMESTAMPS` environment
+    /// Terminal context is read automatically from the `_FORGE_TERM_COMMANDS`,
+    /// `_FORGE_TERM_EXIT_CODES`, and `_FORGE_TERM_TIMESTAMPS` environment
     /// variables exported by the zsh plugin, and included in the user
     /// prompt so the LLM can reference recent commands, exit codes, and
     /// timestamps.

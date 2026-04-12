@@ -98,10 +98,6 @@ pub struct ProviderEntry {
     pub auth_methods: Vec<ProviderAuthMethod>,
 }
 
-fn default_true() -> bool {
-    true
-}
-
 /// Top-level Forge configuration merged from all sources (defaults, file,
 /// environment).
 #[derive(Default, Debug, Setters, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Dummy)]
@@ -290,7 +286,11 @@ pub struct ForgeConfig {
     /// and timestamps) in the user prompt. When enabled, the shell plugin
     /// exports the captured command history and the Rust service injects it
     /// into the rendered prompt via [`EventContext`].
-    #[serde(default = "default_true")]
+    ///
+    /// Defaults to `false` so that users explicitly opt in before their shell
+    /// history is sent to the LLM. Shell history can contain passwords, API
+    /// keys, and other sensitive data passed as command-line arguments.
+    #[serde(default)]
     pub terminal_context: bool,
 }
 

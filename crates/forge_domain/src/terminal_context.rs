@@ -13,9 +13,9 @@ pub struct TerminalCommand {
 ///
 /// Each field corresponds to one of the environment variables exported by the
 /// zsh plugin before invoking forge:
-/// - `FORGE_TERM_COMMANDS`   — colon-separated command strings
-/// - `FORGE_TERM_EXIT_CODES` — colon-separated exit codes
-/// - `FORGE_TERM_TIMESTAMPS` — colon-separated Unix timestamps
+/// - `_FORGE_TERM_COMMANDS`   — `\x1F`-separated command strings
+/// - `_FORGE_TERM_EXIT_CODES` — `\x1F`-separated exit codes
+/// - `_FORGE_TERM_TIMESTAMPS` — `\x1F`-separated Unix timestamps
 #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct TerminalContext {
     /// Ordered list of recent commands, from oldest to newest.
@@ -46,5 +46,4 @@ impl TerminalContext {
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
     }
-
 }

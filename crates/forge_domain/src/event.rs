@@ -94,7 +94,6 @@ pub struct EventContext {
     /// or `None` when terminal context is unavailable or disabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     terminal_context: Option<TerminalContext>,
-    
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Setters)]
@@ -118,7 +117,6 @@ impl EventContext {
             current_date: chrono::Local::now().format("%Y-%m-%d").to_string(),
             terminal_context: None,
         }
-
     }
 
     /// Converts this EventContext into a feedback event by setting the event
