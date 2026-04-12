@@ -80,10 +80,14 @@ function _forge_context_preexec() {
 # Captures exit code, pushes to ring buffer, emits OSC 133 D+A markers.
 function _forge_context_precmd() {
     local last_exit=$?  # MUST be first line to capture exit code
-    [[ "$_FORGE_TERM_ENABLED" != "true" ]] && return
 
-    # OSC 133 D: command finished with exit code
+    # OSC 133 D: command finished with exit code.
+    # Emitted unconditionally (before the enabled check) so that terminals
+    # relying on paired A/B/C/D markers never receive an unpaired sequence,
+    # even when context capture is disabled.
     _forge_osc133_emit "D;$last_exit"
+
+    [[ "$_FORGE_TERM_ENABLED" != "true" ]] && return
 
     # Only record if we have a pending command from preexec
     if [[ -n "$_FORGE_TERM_PENDING_CMD" ]]; then

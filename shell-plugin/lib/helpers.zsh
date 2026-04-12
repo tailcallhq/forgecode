@@ -22,6 +22,25 @@ function _forge_exec() {
     local agent_id="${_FORGE_ACTIVE_AGENT:-forge}"
     local -a cmd
     cmd=($_FORGE_BIN --agent "$agent_id")
+
+    # Expose terminal context arrays as US-separated (\x1F) env vars so that
+    # the Rust TerminalContextService can read them via get_env_var.
+    # ASCII Unit Separator (\x1F) is used instead of `:` because commands
+    # can legitimately contain colons (URLs, port mappings, paths, etc.).
+    # Use `local -x` so the variables are exported only to the child forge
+    # process and do not leak into the caller's shell environment.
+    if [[ "$_FORGE_TERM_ENABLED" == "true" && ${#_FORGE_TERM_COMMANDS} -gt 0 ]]; then
+        # Join the ring-buffer arrays with the ASCII Unit Separator (\x1F).
+        # We use IFS-based joining ("${arr[*]}") rather than ${(j.SEP.)arr} because
+        # zsh does NOT expand $'...' ANSI-C escapes inside parameter expansion flags.
+        local _old_ifs="$IFS" _sep=$'\x1f'
+        IFS="$_sep"
+        local -x _FORGE_TERM_COMMANDS="${_FORGE_TERM_COMMANDS[*]}"
+        local -x _FORGE_TERM_EXIT_CODES="${_FORGE_TERM_EXIT_CODES[*]}"
+        local -x _FORGE_TERM_TIMESTAMPS="${_FORGE_TERM_TIMESTAMPS[*]}"
+        IFS="$_old_ifs"
+    fi
+
     cmd+=("$@")
     [[ -n "$_FORGE_SESSION_MODEL" ]] && local -x FORGE_SESSION__MODEL_ID="$_FORGE_SESSION_MODEL"
     [[ -n "$_FORGE_SESSION_PROVIDER" ]] && local -x FORGE_SESSION__PROVIDER_ID="$_FORGE_SESSION_PROVIDER"
@@ -40,15 +59,20 @@ function _forge_exec_interactive() {
     local -a cmd
     cmd=($_FORGE_BIN --agent "$agent_id")
 
-    # Expose terminal context arrays as colon-separated env vars so that the
-    # Rust TerminalContextService can read them via get_env_var.
+    # Expose terminal context arrays as US-separated (\x1F) env vars so that
+    # the Rust TerminalContextService can read them via get_env_var.
+    # ASCII Unit Separator (\x1F) is used instead of `:` because commands
+    # can legitimately contain colons (URLs, port mappings, paths, etc.).
     # Use `local -x` so the variables are exported only for the duration of
     # this function call (i.e. inherited by the child forge process) and do
     # not leak into the caller's shell environment.
     if [[ "$_FORGE_TERM_ENABLED" == "true" && ${#_FORGE_TERM_COMMANDS} -gt 0 ]]; then
-        local -x _FORGE_TERM_COMMANDS="${(j.:.)_FORGE_TERM_COMMANDS}"
-        local -x _FORGE_TERM_EXIT_CODES="${(j.:.)_FORGE_TERM_EXIT_CODES}"
-        local -x _FORGE_TERM_TIMESTAMPS="${(j.:.)_FORGE_TERM_TIMESTAMPS}"
+        local _old_ifs="$IFS" _sep=$'\x1f'
+        IFS="$_sep"
+        local -x _FORGE_TERM_COMMANDS="${_FORGE_TERM_COMMANDS[*]}"
+        local -x _FORGE_TERM_EXIT_CODES="${_FORGE_TERM_EXIT_CODES[*]}"
+        local -x _FORGE_TERM_TIMESTAMPS="${_FORGE_TERM_TIMESTAMPS[*]}"
+        IFS="$_old_ifs"
     fi
 
     cmd+=("$@")

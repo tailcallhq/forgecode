@@ -4,22 +4,29 @@ use forge_domain::{TerminalCommand, TerminalContext};
 
 use crate::EnvironmentInfra;
 
-/// Environment variable exported by the zsh plugin containing colon-separated
-/// command strings.
+/// Environment variable exported by the zsh plugin containing
+/// `\x1F`-separated (ASCII Unit Separator) command strings.
 pub const ENV_TERM_COMMANDS: &str = "_FORGE_TERM_COMMANDS";
 
-/// Environment variable exported by the zsh plugin containing colon-separated
-/// exit codes corresponding to [`ENV_TERM_COMMANDS`].
+/// Environment variable exported by the zsh plugin containing
+/// `\x1F`-separated exit codes corresponding to [`ENV_TERM_COMMANDS`].
 pub const ENV_TERM_EXIT_CODES: &str = "_FORGE_TERM_EXIT_CODES";
 
-/// Environment variable exported by the zsh plugin containing colon-separated
-/// Unix timestamps corresponding to [`ENV_TERM_COMMANDS`].
+/// Environment variable exported by the zsh plugin containing
+/// `\x1F`-separated Unix timestamps corresponding to [`ENV_TERM_COMMANDS`].
 pub const ENV_TERM_TIMESTAMPS: &str = "_FORGE_TERM_TIMESTAMPS";
+
+/// The separator used to join and split environment variable lists.
+///
+/// ASCII Unit Separator (`\x1F`) is chosen because it cannot appear in
+/// shell command strings, paths, URLs, or exit codes — unlike `:` which
+/// is common in all of those.
+pub const ENV_LIST_SEPARATOR: char = '\x1F';
 
 /// Service that reads terminal context from environment variables exported by
 /// the zsh plugin and constructs a structured [`TerminalContext`].
 ///
-/// The zsh plugin exports three colon-separated environment variables before
+/// The zsh plugin exports three `\x1F`-separated environment variables before
 /// invoking forge:
 /// - [`ENV_TERM_COMMANDS`]   — the command strings
 /// - [`ENV_TERM_EXIT_CODES`] — the corresponding exit codes
@@ -60,27 +67,19 @@ impl<S: EnvironmentInfra> TerminalContextService<S> {
             .iter()
             .map(|s| s.parse::<u64>().unwrap_or(0))
             .collect();
-
-        // Zip the three lists together; pad missing exit codes/timestamps with 0
+        // Zip the three lists together; pad missing exit codes/timestamps with 0.
+        // The outer zip() truncates to the length of `commands`, so the
+        // repeat() padding never produces extra entries.
         let entries: Vec<TerminalCommand> = commands
             .into_iter()
-            .zip(
-                exit_codes
-                    .into_iter()
-                    .chain(std::iter::repeat(0))
-                    .take(usize::MAX),
-            )
-            .zip(
-                timestamps
-                    .into_iter()
-                    .chain(std::iter::repeat(0))
-                    .take(usize::MAX),
-            )
+            .zip(exit_codes.into_iter().chain(std::iter::repeat(0)))
+            .zip(timestamps.into_iter().chain(std::iter::repeat(0)))
             .map(|((command, exit_code), timestamp)| TerminalCommand {
                 command,
                 exit_code,
                 timestamp,
             })
+            // FIXME: Use forge_config::Config to control the total number of commands. Make sure its sorted by timestamp - recent should be last
             .collect();
 
         if entries.is_empty() {
@@ -89,14 +88,12 @@ impl<S: EnvironmentInfra> TerminalContextService<S> {
             Some(TerminalContext { commands: entries })
         }
     }
-
 }
 
-/// Splits a colon-separated environment variable value into a list of strings,
-/// filtering out any empty segments produced by leading/trailing/double colons.
+/// Splits an `\x1F`-separated (ASCII Unit Separator) environment variable
+/// value into a list of strings, filtering out any empty segments.
 pub fn split_env_list(raw: &str) -> Vec<String> {
-    raw.split(':')
-        .map(str::trim)
+    raw.split(ENV_LIST_SEPARATOR)
         .filter(|s| !s.is_empty())
         .map(String::from)
         .collect()
@@ -186,10 +183,11 @@ mod tests {
 
     #[test]
     fn test_multiple_commands_with_exit_codes_and_timestamps() {
+        let sep = ENV_LIST_SEPARATOR;
         let fixture = TerminalContextService::new(MockInfra::new(&[
-            (ENV_TERM_COMMANDS, "ls:cargo test:git status"),
-            (ENV_TERM_EXIT_CODES, "0:1:0"),
-            (ENV_TERM_TIMESTAMPS, "1700000001:1700000002:1700000003"),
+            (ENV_TERM_COMMANDS, &format!("ls{sep}cargo test{sep}git status")),
+            (ENV_TERM_EXIT_CODES, &format!("0{sep}1{sep}0")),
+            (ENV_TERM_TIMESTAMPS, &format!("1700000001{sep}1700000002{sep}1700000003")),
         ]));
         let actual = fixture.get_terminal_context();
         let expected = Some(TerminalContext {
@@ -230,8 +228,21 @@ mod tests {
 
     #[test]
     fn test_split_env_list_multiple() {
-        let actual = split_env_list("a:b:c");
+        let sep = ENV_LIST_SEPARATOR;
+        let actual = split_env_list(&format!("a{sep}b{sep}c"));
         let expected = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_split_env_list_command_with_colon() {
+        // Commands containing `:` (e.g. URLs, port mappings) must not be split.
+        let sep = ENV_LIST_SEPARATOR;
+        let actual = split_env_list(&format!("curl https://example.com{sep}docker run -p 8080:80 nginx"));
+        let expected = vec![
+            "curl https://example.com".to_string(),
+            "docker run -p 8080:80 nginx".to_string(),
+        ];
         assert_eq!(actual, expected);
     }
 }
