@@ -241,6 +241,10 @@ function forge-accept-line() {
         provider-login|login|provider)
             _forge_action_login "$input_text"
         ;;
+        paste-image|pv)
+            _forge_action_paste_image "$input_text"
+            return
+        ;;
         logout)
             _forge_action_logout "$input_text"
         ;;

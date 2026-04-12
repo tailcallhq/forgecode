@@ -92,6 +92,7 @@ impl ForgeCommandManager {
                 | "dump"
                 | "model"
                 | "tools"
+                | "paste-image"
                 | "provider"
                 | "login"
                 | "logout"
@@ -276,6 +277,8 @@ impl ForgeCommandManager {
             "/provider" | "/login" => Ok(SlashCommand::Login),
             "/tools" => Ok(SlashCommand::Tools),
             "/agent" => Ok(SlashCommand::Agent),
+            "/pv" | "/paste-image" => Ok(SlashCommand::PasteImage),
+            "/login" => Ok(SlashCommand::Login),
             "/logout" => Ok(SlashCommand::Logout),
             "/retry" => Ok(SlashCommand::Retry),
             "/conversation" | "/conversations" => Ok(SlashCommand::Conversations),
@@ -414,10 +417,14 @@ pub enum SlashCommand {
     Login,
 
     /// Logs out from the configured provider
+    /// Logs out from the configured provider
     #[strum(props(usage = "Logout from configured provider"))]
     Logout,
-
+    /// Paste an image from the clipboard
+    #[strum(props(usage = "Paste an image from the clipboard"))]
+    PasteImage,
     /// Retry without modifying model context
+
     #[strum(props(usage = "Retry the last command"))]
     Retry,
     /// List all conversations for the active workspace
@@ -472,6 +479,7 @@ impl SlashCommand {
             SlashCommand::Custom(event) => &event.name,
             SlashCommand::Shell(_) => "!shell",
             SlashCommand::Agent => "agent",
+            SlashCommand::PasteImage => "paste-image",
             SlashCommand::Login => "login",
             SlashCommand::Logout => "logout",
             SlashCommand::Retry => "retry",

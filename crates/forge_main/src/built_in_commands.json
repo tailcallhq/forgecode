@@ -56,6 +56,10 @@
     "description": "Retry the last command [alias: r]"
   },
   {
+    "command": "paste-image",
+    "description": "Paste image from clipboard [alias: pv]"
+  },
+  {
     "command": "compact",
     "description": "Compact the conversation context"
   },

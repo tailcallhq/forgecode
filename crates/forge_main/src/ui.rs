@@ -386,8 +386,56 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    async fn on_paste_image_core(&mut self, output: Option<PathBuf>) -> Result<PathBuf> {
+        #[cfg(not(target_os = "android"))]
+        {
+            let mut clipboard = arboard::Clipboard::new()
+                .map_err(|e| anyhow::anyhow!("Failed to initialize clipboard: {}", e))?;
+
+            match clipboard.get_image() {
+                Ok(image) => {
+                    let path = if let Some(path) = output {
+                        path
+                    } else {
+                        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+                        let filename = format!("pasted_image_{}.png", timestamp);
+                        self.api.environment().cwd.join(&filename)
+                    };
+
+                    // Use 'image' crate to save the PNG
+                    image::save_buffer(
+                        &path,
+                        &image.bytes,
+                        image.width as u32,
+                        image.height as u32,
+                        image::ColorType::Rgba8,
+                    )
+                    .map_err(|e| {
+                        anyhow::anyhow!("Failed to save image to {}: {}", path.display(), e)
+                    })?;
+                    Ok(path)
+                }
+                Err(arboard::Error::ContentNotAvailable) => {
+                    anyhow::bail!("No image found in clipboard.")
+                }
+                Err(e) => {
+                    anyhow::bail!("Failed to read image from clipboard: {}", e)
+                }
+            }
+        }
+        #[cfg(target_os = "android")]
+        {
+            anyhow::bail!("Clipboard image access not supported on Android")
+        }
+    }
+
     async fn handle_subcommands(&mut self, subcommand: TopLevelCommand) -> anyhow::Result<()> {
         match subcommand {
+            TopLevelCommand::PasteImage { output } => {
+                let path = self.on_paste_image_core(output).await?;
+                println!("@[{}]", path.display());
+                return Ok(());
+            }
             TopLevelCommand::Agent(agent_group) => {
                 match agent_group.command {
                     crate::cli::AgentCommand::List => {
@@ -1940,6 +1988,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             SlashCommand::Usage => {
                 self.on_usage().await?;
             }
+            SlashCommand::PasteImage => {
+                self.handle_paste_image().await?;
+            }
             SlashCommand::Message(ref content) => {
                 self.spinner.start(None)?;
                 self.on_message(Some(content.clone())).await?;
@@ -2124,6 +2175,29 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             name.bold()
         )))?;
         Ok(())
+    }
+
+    async fn handle_paste_image(&mut self) -> anyhow::Result<()> {
+        match self.on_paste_image_core(None).await {
+            Ok(path) => {
+                let filename = path
+                    .file_name()
+                    .and_then(|f| f.to_str())
+                    .unwrap_or("pasted_image.png");
+                let tag = format!("@[{}]", filename);
+                self.console.set_buffer(tag);
+                self.writeln(format!(
+                    "{} Image saved to {} and added to prompt buffer.",
+                    "✓".green(),
+                    filename.yellow()
+                ))?;
+                Ok(())
+            }
+            Err(e) => {
+                self.writeln_title(TitleFormat::error(e.to_string()))?;
+                Ok(())
+            }
+        }
     }
 
     /// Select a model from all configured providers using porcelain-style
