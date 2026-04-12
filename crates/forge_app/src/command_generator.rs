@@ -76,7 +76,7 @@ where
         let user_content = match terminal_service.get_terminal_context() {
             Some(ctx) => {
                 let terminal_elm =
-                    Element::new("terminal_context").append(ctx.commands.iter().map(|cmd| {
+                    Element::new("command_trace").append(ctx.commands.iter().map(|cmd| {
                         Element::new("command")
                             .attr("exit_code", cmd.exit_code.to_string())
                             .text(&cmd.command)
