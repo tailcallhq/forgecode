@@ -1,5 +1,5 @@
 {
-  "image": "mcr.microsoft.com/devcontainers/rust:1-1-bullseye",
+  "image": "mcr.microsoft.com/devcontainers/rust:2-1-bullseye",
   "remoteUser": "vscode",
   "updateRemoteUserUID": true,
   "features": {

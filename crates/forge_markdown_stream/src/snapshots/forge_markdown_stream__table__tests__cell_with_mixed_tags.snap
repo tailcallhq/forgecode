@@ -1,5 +1,5 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
 expression: "render(vec![vec![\"Item\", \"Description\"],\nvec![\"**Bold** and *italic*\", \"Mixed `code` here\"],\nvec![\"Normal\", \"[link](url) text\"],])"
 ---
   ┌───────────────────────────────┬──────────────────────────────┐
