@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use derive_setters::Setters;
@@ -41,6 +42,11 @@ pub struct Walker {
 
     /// Whether to skip binary files
     skip_binary: bool,
+
+    /// Whether to hide hidden files and directories (those starting with `.`).
+    /// When `true` (the default), dotfiles are excluded from results.
+    /// Set to `false` to include them, matching `fd --hidden`.
+    hidden: bool,
 }
 
 const DEFAULT_MAX_FILE_SIZE: u64 = 1024 * 1024; // 1MB
@@ -61,6 +67,7 @@ impl Walker {
             max_files: DEFAULT_MAX_FILES,
             max_total_size: DEFAULT_MAX_TOTAL_SIZE,
             skip_binary: true,
+            hidden: true,
         }
     }
 
@@ -76,6 +83,8 @@ impl Walker {
             max_files: usize::MAX,
             max_total_size: u64::MAX,
             skip_binary: false,
+            // Include hidden files (dotfiles) — matches `fd --hidden`.
+            hidden: false,
         }
     }
 }
@@ -107,99 +116,163 @@ impl Walker {
     /// Blocking function to scan filesystem. Use this when you already have
     /// a runtime or want to avoid spawning a new one.
     pub fn get_blocking(&self) -> Result<Vec<File>> {
-        let mut files = Vec::new();
-        let mut total_size = 0u64;
-        let mut dir_entries: HashMap<String, usize> = HashMap::new();
-        let mut file_count = 0;
+        // Shared state collected across parallel walker threads.
+        let collected: Arc<Mutex<Vec<File>>> = Arc::new(Mutex::new(Vec::new()));
+        // Per-directory entry counters for breadth limiting (shared across threads).
+        let dir_entries: Arc<Mutex<HashMap<String, usize>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        // Global counters protected by a single mutex to enforce total limits.
+        // Layout: (total_size, file_count, quit)
+        let global: Arc<Mutex<(u64, usize, bool)>> = Arc::new(Mutex::new((0, 0, false)));
+
+        let cwd = self.cwd.clone();
+        let max_depth = self.max_depth;
+        let max_breadth = self.max_breadth;
+        let max_file_size = self.max_file_size;
+        let max_files = self.max_files;
+        let max_total_size = self.max_total_size;
+        let skip_binary = self.skip_binary;
 
         // TODO: Convert to async and return a stream
-        let walk = WalkBuilder::new(&self.cwd)
+        let walk_parallel = WalkBuilder::new(&self.cwd)
             .standard_filters(true) // use standard ignore filters.
+            .hidden(self.hidden)
             .require_git(false)
             .max_depth(Some(self.max_depth))
             // Skip files that exceed size limit
             .max_filesize(Some(self.max_file_size))
-            // TODO: use build_parallel() for better performance
-            .build();
+            .filter_entry(|entry| {
+                // Always exclude the `.git` directory, matching `fd --exclude .git`.
+                entry.file_name() != ".git"
+            })
+            .build_parallel();
 
-        'walk_loop: for entry in walk.flatten() {
-            let path = entry.path();
+        walk_parallel.run(|| {
+            // Each thread gets its own clone of the shared state.
+            let collected = Arc::clone(&collected);
+            let dir_entries = Arc::clone(&dir_entries);
+            let global = Arc::clone(&global);
+            let cwd = cwd.clone();
 
-            // Skip symlinks — we only process real files and directories.
-            if entry.path_is_symlink() {
-                continue;
-            }
-
-            // Calculate depth relative to base directory
-            let depth = path
-                .strip_prefix(&self.cwd)
-                .map(|p| p.components().count())
-                .unwrap_or(0);
-
-            if depth > self.max_depth {
-                continue;
-            }
-
-            // Handle breadth limit
-            if let Some(parent) = path.parent() {
-                let parent_path = parent.to_string_lossy().to_string();
-                let entry_count = dir_entries.entry(parent_path).or_insert(0);
-                *entry_count += 1;
-
-                if *entry_count > self.max_breadth {
-                    continue;
+            Box::new(move |result| {
+                // Check if a previous thread already triggered the quit signal.
+                {
+                    let g = global.lock().unwrap();
+                    if g.2 {
+                        return ignore::WalkState::Quit;
+                    }
                 }
-            }
 
-            let is_dir = path.is_dir();
+                let entry = match result {
+                    Ok(e) => e,
+                    Err(_) => return ignore::WalkState::Continue,
+                };
 
-            // Skip binary files if configured
-            if self.skip_binary && !is_dir && Self::is_likely_binary(path) {
-                continue;
-            }
+                let path = entry.path();
 
-            let metadata = match path.metadata() {
-                Ok(meta) => meta,
-                Err(_) => continue, // Skip files we can't read metadata for
-            };
-
-            let file_size = metadata.len();
-
-            // Check total size limit
-            if total_size + file_size > self.max_total_size {
-                break 'walk_loop;
-            }
-
-            // Check if we've hit the file count limit (only count non-directories)
-            if !is_dir {
-                file_count += 1;
-                if file_count > self.max_files {
-                    break 'walk_loop;
+                // Skip symlinks — we only process real files and directories.
+                if entry.path_is_symlink() {
+                    return ignore::WalkState::Continue;
                 }
-            }
 
-            let relative_path = path
-                .strip_prefix(&self.cwd)
-                .with_context(|| format!("Failed to strip prefix from path: {}", path.display()))?;
-            let path_string = relative_path.to_string_lossy().to_string();
+                // Calculate depth relative to base directory.
+                let depth = path
+                    .strip_prefix(&cwd)
+                    .map(|p| p.components().count())
+                    .unwrap_or(0);
 
-            let file_name = path
-                .file_name()
-                .map(|name| name.to_string_lossy().to_string());
+                // Skip the root directory itself (depth 0 = the cwd), matching
+                // `fd` behaviour which never emits the starting directory.
+                if depth == 0 {
+                    return ignore::WalkState::Continue;
+                }
 
-            // Ensure directory paths end with '/' for is_dir() function
-            let path_string = if is_dir {
-                format!("{path_string}/")
-            } else {
-                path_string
-            };
+                if depth > max_depth {
+                    return ignore::WalkState::Continue;
+                }
 
-            files.push(File { path: path_string, file_name, size: file_size });
+                // Handle breadth limit — uses a shared mutex.
+                if let Some(parent) = path.parent() {
+                    let parent_path = parent.to_string_lossy().to_string();
+                    let mut de = dir_entries.lock().unwrap();
+                    let entry_count = de.entry(parent_path).or_insert(0);
+                    *entry_count += 1;
+                    if *entry_count > max_breadth {
+                        return ignore::WalkState::Continue;
+                    }
+                }
 
-            if !is_dir {
-                total_size += file_size;
-            }
-        }
+                let is_dir = path.is_dir();
+
+                // Skip binary files if configured.
+                if skip_binary && !is_dir && Walker::is_likely_binary(path) {
+                    return ignore::WalkState::Continue;
+                }
+
+                let metadata = match path.metadata() {
+                    Ok(meta) => meta,
+                    Err(_) => return ignore::WalkState::Continue,
+                };
+
+                let file_size = metadata.len();
+
+                // Enforce global total-size and file-count limits atomically.
+                {
+                    let mut g = global.lock().unwrap();
+                    if g.2 {
+                        return ignore::WalkState::Quit;
+                    }
+                    if g.0 + file_size > max_total_size {
+                        g.2 = true;
+                        return ignore::WalkState::Quit;
+                    }
+                    if !is_dir {
+                        if g.1 >= max_files {
+                            g.2 = true;
+                            return ignore::WalkState::Quit;
+                        }
+                        g.1 += 1;
+                        g.0 += file_size;
+                    }
+                }
+
+                // Build relative path string.
+                let relative_path = match path.strip_prefix(&cwd) {
+                    Ok(p) => p,
+                    Err(_) => return ignore::WalkState::Continue,
+                };
+                let path_string = relative_path.to_string_lossy().to_string();
+
+                let file_name = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string());
+
+                // Ensure directory paths end with '/' for is_dir().
+                let path_string = if is_dir {
+                    format!("{path_string}/")
+                } else {
+                    path_string
+                };
+
+                // Filter out entries whose file_size exceeds the per-file limit.
+                // (WalkBuilder::max_filesize only applies to regular files; double-check.)
+                if !is_dir && file_size > max_file_size {
+                    return ignore::WalkState::Continue;
+                }
+
+                collected
+                    .lock()
+                    .unwrap()
+                    .push(File { path: path_string, file_name, size: file_size });
+
+                ignore::WalkState::Continue
+            })
+        });
+
+        let files = Arc::try_unwrap(collected)
+            .expect("all walker threads finished")
+            .into_inner()
+            .unwrap();
 
         Ok(files)
     }
@@ -383,10 +456,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_name_and_is_dir() {
-        let fixture = fixtures::create_sized_files(&[("test.txt".into(), 100)]).unwrap();
+        // Use a file inside a subdirectory so the walker emits both a directory
+        // entry ("subdir/") and a file entry ("subdir/test.txt").
+        // The root directory itself is never emitted (matching `fd` behaviour).
+        let fixture = fixtures::Fixture::default();
+        fixture.add_file("subdir/test.txt", "hello").unwrap();
 
         let actual = Walker::min_all()
-            .cwd(fixture.path().to_path_buf())
+            .cwd(fixture.as_path().to_path_buf())
             .get()
             .await
             .unwrap();
@@ -443,7 +520,8 @@ mod tests {
             .await
             .unwrap();
 
-        let mut expected = vec!["included/main.rs", "included/test.rs", "base.rs"];
+        // .ignore itself is a dotfile and is visible when hidden: false (matches fd --hidden).
+        let mut expected = vec![".ignore", "included/main.rs", "included/test.rs", "base.rs"];
         expected.sort();
 
         let mut actual_files: Vec<_> = actual
@@ -577,7 +655,8 @@ mod tests {
             .map(|f| f.path.as_str())
             .collect();
         actual.sort();
-        let expected = vec!["frontend/src/main.ts", "src/main.rs"];
+        // .gitignore files are dotfiles and visible when hidden: false (matches fd --hidden).
+        let expected = vec![".gitignore", "frontend/.gitignore", "frontend/src/main.ts", "src/main.rs"];
         assert_eq!(actual, expected, "should respect nested .gitignore files");
     }
 
@@ -615,7 +694,9 @@ mod tests {
             .map(|f| f.path.as_str())
             .collect();
         actual.sort();
-        let expected = vec!["frontend/src/main.ts", "src/main.rs"];
+        // .gitignore files are dotfiles and visible when hidden: false (matches fd --hidden).
+        // .git directory is always excluded (matching fd --exclude .git).
+        let expected = vec![".gitignore", "frontend/.gitignore", "frontend/src/main.ts", "src/main.rs"];
         assert_eq!(
             actual, expected,
             "should respect nested .gitignore in git repos"

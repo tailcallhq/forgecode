@@ -16,7 +16,8 @@ impl ForgeWalkerService {
             && config.max_files.is_none()
             && config.max_total_size.is_none()
         {
-            forge_walker::Walker::max_all()
+            // Agent-facing walker: keep hidden files excluded by default.
+            forge_walker::Walker::max_all().hidden(true)
         } else {
             forge_walker::Walker::min_all()
         };

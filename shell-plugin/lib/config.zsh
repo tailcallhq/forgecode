@@ -10,6 +10,7 @@ typeset -h _FORGE_DELIMITER='\s\s+'
 typeset -h _FORGE_PREVIEW_WINDOW="--preview-window=bottom:75%:wrap:border-sharp"
 
 # Detect fd command - Ubuntu/Debian use 'fdfind', others use 'fd'
+# FIXME: Can drop FD requirement if it remains unused
 typeset -h _FORGE_FD_CMD="$(command -v fdfind 2>/dev/null || command -v fd 2>/dev/null || echo 'fd')"
 
 # Detect bat command - use bat if available, otherwise fall back to cat

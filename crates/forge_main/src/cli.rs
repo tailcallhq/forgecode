@@ -366,6 +366,13 @@ pub enum ListCommand {
         #[arg(long)]
         custom: bool,
     },
+
+    /// List files and directories in the current workspace.
+    ///
+    /// Includes hidden files and directories (dotfiles), respects .gitignore,
+    /// and outputs one path per line. Directories are suffixed with `/`.
+    #[command(alias = "files")]
+    File,
 }
 
 /// Shell extension commands.

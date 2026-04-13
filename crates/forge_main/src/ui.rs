@@ -25,6 +25,7 @@ use forge_fs::ForgeFS;
 use forge_select::ForgeWidget;
 use forge_spinner::SpinnerManager;
 use forge_tracker::ToolCallPayload;
+use forge_walker::Walker;
 use futures::future;
 use tokio_stream::StreamExt;
 use url::Url;
@@ -438,6 +439,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     }
                     ListCommand::Skill { custom } => {
                         self.on_show_skills(porcelain, custom).await?;
+                    }
+                    ListCommand::File => {
+                        self.on_list_files(porcelain).await?;
                     }
                 }
                 return Ok(());
@@ -1445,6 +1449,34 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 .uppercase_headers();
             self.writeln(porcelain)?;
         } else {
+            self.writeln(info)?;
+        }
+
+        Ok(())
+    }
+
+    /// Lists files and directories in the current workspace.
+    ///
+    /// Uses the same `Walker::max_all()` configuration as the REPL file picker
+    /// and the shell plugin (`fd --type f --type d --hidden --exclude .git`):
+    /// hidden files included, respects `.gitignore`, directories suffixed with `/`.
+    async fn on_list_files(&mut self, porcelain: bool) -> anyhow::Result<()> {
+        let env = self.api.environment();
+        let files = Walker::max_all()
+            .cwd(env.cwd.clone())
+            .get()
+            .await
+            .context("Failed to walk workspace files")?;
+
+        if porcelain {
+            for file in files {
+                self.writeln(file.path)?;
+            }
+        } else {
+            let mut info = Info::new();
+            for file in &files {
+                info = info.add_key_value("path", file.path.clone());
+            }
             self.writeln(info)?;
         }
 

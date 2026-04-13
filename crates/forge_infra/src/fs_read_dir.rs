@@ -37,6 +37,7 @@ impl ForgeDirectoryReaderService {
             .cwd(directory.to_path_buf())
             .max_depth(1)
             .skip_binary(true)
+            .hidden(true)
             .get()
             .await?;
 
