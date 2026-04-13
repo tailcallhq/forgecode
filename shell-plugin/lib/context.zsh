@@ -96,7 +96,7 @@ function _forge_context_precmd() {
         _FORGE_TERM_TIMESTAMPS+=("$_FORGE_TERM_PENDING_TS")
 
         # Trim ring buffer to max size
-        while (( ${#_FORGE_TERM_COMMANDS} > _FORGE_TERM_MAX_ENTRIES )); do
+        while (( ${#_FORGE_TERM_COMMANDS} > _FORGE_TERM_MAX_COMMANDS )); do
             shift _FORGE_TERM_COMMANDS
             shift _FORGE_TERM_EXIT_CODES
             shift _FORGE_TERM_TIMESTAMPS

@@ -43,7 +43,7 @@ typeset -h _FORGE_SESSION_REASONING_EFFORT
 # Master switch for terminal context capture (preexec/precmd hooks)
 typeset -h _FORGE_TERM_ENABLED="${FORGE_TERM_ENABLED:-true}"
 # Maximum number of commands to keep in the ring buffer (metadata: cmd + exit code)
-typeset -h _FORGE_TERM_MAX_ENTRIES="${FORGE_TERM_MAX_ENTRIES:-100}"
+typeset -h _FORGE_TERM_MAX_COMMANDS="${FORGE_TERM_MAX_COMMANDS:-5}"
 # OSC 133 semantic prompt marker emission: "auto", "on", or "off"
 typeset -h _FORGE_TERM_OSC133="${FORGE_TERM_OSC133:-auto}"
 # Ring buffer arrays for context capture
