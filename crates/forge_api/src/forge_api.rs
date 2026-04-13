@@ -311,7 +311,6 @@ impl<
     async fn get_skills(&self) -> Result<Vec<Skill>> {
         self.infra.load_skills().await
     }
-
     async fn generate_command(&self, prompt: UserPrompt) -> Result<String> {
         use forge_app::CommandGenerator;
         let generator = CommandGenerator::new(self.services.clone());
