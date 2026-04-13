@@ -250,11 +250,19 @@ impl ForgeCommandManager {
         let command = tokens.next().unwrap();
         let parameters = tokens.collect::<Vec<_>>();
 
-        // Check if it's a system command (starts with /)
-        let is_command = command.starts_with("/");
+        // Check if it's a system command (starts with / or :)
+        let is_command = command.starts_with('/') || command.starts_with(':');
         if !is_command {
             return Ok(SlashCommand::Message(input.to_string()));
         }
+
+        // Normalise `:cmd` → `/cmd` so the match below only needs `/` prefixes.
+        let normalised_command = if command.starts_with(':') {
+            format!("/{}", &command[1..])
+        } else {
+            command.to_string()
+        };
+        let command = normalised_command.as_str();
 
         // TODO: Can leverage Clap to parse commands and provide correct error messages
         match command {
@@ -292,7 +300,7 @@ impl ForgeCommandManager {
                 let name = name.trim().to_string();
                 if name.is_empty() {
                     return Err(anyhow::anyhow!(
-                        "Usage: /rename <name>. Please provide a name for the conversation."
+                        "Usage: :rename <name>. Please provide a name for the conversation."
                     ));
                 }
                 Ok(SlashCommand::Rename(name))
@@ -429,7 +437,7 @@ pub enum SlashCommand {
     Delete,
 
     /// Rename the current conversation
-    #[strum(props(usage = "Rename the current conversation. Usage: /rename <name>"))]
+    #[strum(props(usage = "Rename the current conversation. Usage: :rename <name>"))]
     Rename(String),
 
     /// Switch directly to a specific agent by ID
@@ -439,10 +447,10 @@ pub enum SlashCommand {
     /// Generate and optionally commit changes with AI-generated message
     ///
     /// Examples:
-    /// - `/commit` - Generate message and commit
-    /// - `/commit 5000` - Commit with max diff of 5000 bytes
+    /// - `:commit` - Generate message and commit
+    /// - `:commit 5000` - Commit with max diff of 5000 bytes
     #[strum(props(
-        usage = "Generate AI commit message and commit changes. Format: /commit <max-diff|preview>"
+        usage = "Generate AI commit message and commit changes. Format: :commit <max-diff|preview>"
     ))]
     Commit { max_diff_size: Option<usize> },
 

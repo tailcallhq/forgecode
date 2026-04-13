@@ -46,8 +46,8 @@ impl fmt::Display for DisplayBox {
 ///
 /// # Arguments
 ///
-/// * `cli_mode` - If true, shows CLI-relevant commands with `:` prefix. If
-///   false, shows all interactive commands with `/` prefix.
+/// * `cli_mode` - If true, shows CLI-relevant commands. Both interactive and
+///   CLI modes use `:` as the canonical command prefix.
 ///
 /// # Environment Variables
 ///
@@ -76,12 +76,12 @@ pub fn display(cli_mode: bool) -> io::Result<()> {
     } else {
         // Interactive mode: show all commands
         vec![
-            ("New conversation:", "/new"),
-            ("Get started:", "/info, /usage, /help, /conversation"),
-            ("Switch model:", "/model"),
-            ("Switch agent:", "/forge or /muse or /agent"),
-            ("Update:", "/update"),
-            ("Quit:", "/exit or <CTRL+D>"),
+            ("New conversation:", ":new"),
+            ("Get started:", ":info, :usage, :help, :conversation"),
+            ("Switch model:", ":model"),
+            ("Switch agent:", ":forge or :muse or :agent"),
+            ("Update:", ":update"),
+            ("Quit:", ":exit or <CTRL+D>"),
         ]
     };
 

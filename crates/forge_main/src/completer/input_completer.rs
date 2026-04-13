@@ -22,8 +22,8 @@ impl InputCompleter {
 
 impl Completer for InputCompleter {
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
-        if line.starts_with("/") {
-            // if the line starts with '/' it's probably a command, so we delegate to the
+        if line.starts_with('/') || line.starts_with(':') {
+            // if the line starts with '/' or ':' it's probably a command, so we delegate to the
             // command completer.
             let result = self.command.complete(line, pos);
             if !result.is_empty() {

@@ -45,7 +45,7 @@
   },
   {
     "command": "dump",
-    "description": "Save conversation as JSON or HTML (use /dump html for HTML format) [alias: d]"
+    "description": "Save conversation as JSON or HTML (use :dump html for HTML format) [alias: d]"
   },
   {
     "command": "conversation",

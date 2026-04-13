@@ -27,7 +27,10 @@ impl CommandCompleter {
 
 impl Completer for CommandCompleter {
     fn complete(&mut self, line: &str, _: usize) -> Vec<reedline::Suggestion> {
-        // Build the list of display names prefixed with `/` or `!`.
+        // Determine which sentinel the user typed (`:` or `/`), defaulting to `/`.
+        let sentinel = if line.starts_with(':') { ':' } else { '/' };
+
+        // Build the list of display names using the same sentinel the user typed.
         let commands: Vec<CommandRow> = self
             .0
             .list()
@@ -36,7 +39,7 @@ impl Completer for CommandCompleter {
                 let display_name = if cmd.name.starts_with('!') {
                     cmd.name.clone()
                 } else {
-                    format!("/{}", cmd.name)
+                    format!("{}{}", sentinel, cmd.name)
                 };
 
                 // Only include commands that match what the user has typed so far.
@@ -56,9 +59,10 @@ impl Completer for CommandCompleter {
             return vec![];
         }
 
-        // Extract the initial query text (everything after the leading `/` or `!`).
+        // Extract the initial query text (everything after the leading sentinel or `!`).
         let initial_query = line
             .strip_prefix('/')
+            .or_else(|| line.strip_prefix(':'))
             .or_else(|| line.strip_prefix('!'))
             .unwrap_or(line);
 

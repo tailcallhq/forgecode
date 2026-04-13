@@ -4,7 +4,7 @@ use reedline::{Highlighter, StyledText};
 /// Syntax highlighter for the forge readline prompt.
 ///
 /// Applies visual styles to recognised input patterns as the user types:
-/// - Slash commands (`/foo`) are rendered in yellow bold.
+/// - Commands (`:foo` or `/foo` for backward compatibility) are rendered in yellow bold.
 /// - File mentions (`@[path]`) are rendered in cyan bold.
 /// - Shell pass-through commands (`!cmd`) are rendered in magenta.
 /// - All other text is rendered in the default terminal style.
@@ -18,9 +18,9 @@ impl Highlighter for ForgeHighlighter {
             return styled;
         }
 
-        // Slash command: highlight the command token (e.g. `/compact`) in yellow bold,
-        // then the remainder (arguments) without special styling.
-        if line.starts_with('/') {
+        // Command: highlight the command token (e.g. `:compact` or `/compact` for compat)
+        // in yellow bold, then the remainder (arguments) without special styling.
+        if line.starts_with('/') || line.starts_with(':') {
             let end = line
                 .find(|c: char| c.is_whitespace())
                 .unwrap_or(line.len());
@@ -118,6 +118,23 @@ mod tests {
         let actual = fixture.highlight("/compact", 0);
         assert_eq!(render(&actual), "/compact");
         assert_eq!(styles(&actual)[0], Style::new().bold().fg(Color::Yellow));
+    }
+
+    #[test]
+    fn test_colon_command_highlighted() {
+        let fixture = ForgeHighlighter;
+        let actual = fixture.highlight(":compact", 0);
+        assert_eq!(render(&actual), ":compact");
+        assert_eq!(styles(&actual)[0], Style::new().bold().fg(Color::Yellow));
+    }
+
+    #[test]
+    fn test_colon_command_with_args() {
+        let fixture = ForgeHighlighter;
+        let actual = fixture.highlight(":commit some message", 0);
+        let parts: Vec<_> = actual.buffer.iter().map(|(s, t)| (*s, t.as_str())).collect();
+        assert_eq!(parts[0], (Style::new().bold().fg(Color::Yellow), ":commit"));
+        assert_eq!(parts[1].1, " some message");
     }
 
     #[test]
