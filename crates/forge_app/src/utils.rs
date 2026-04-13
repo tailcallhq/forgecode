@@ -253,6 +253,38 @@ fn normalize_schema_keywords(
     }
 }
 
+fn is_supported_openai_string_format(format: &str) -> bool {
+    matches!(
+        format,
+        "date-time"
+            | "time"
+            | "date"
+            | "duration"
+            | "email"
+            | "hostname"
+            | "ipv4"
+            | "ipv6"
+            | "uuid"
+    )
+}
+
+fn normalize_string_format_keyword(
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    strict_mode: bool,
+) {
+    if !strict_mode {
+        return;
+    }
+
+    let Some(format) = map.get("format").and_then(|value| value.as_str()) else {
+        return;
+    };
+
+    if !is_supported_openai_string_format(format) {
+        map.remove("format");
+    }
+}
+
 fn is_object_schema(map: &serde_json::Map<String, serde_json::Value>) -> bool {
     map.get("type")
         .and_then(|value| value.as_str())
@@ -324,6 +356,8 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
                 // Remove unsupported keywords that OpenAI/Codex doesn't allow
                 map.remove("propertyNames");
             }
+
+            normalize_string_format_keyword(map, strict_mode);
 
             let is_object = is_object_schema(map);
 
@@ -1200,6 +1234,63 @@ mod tests {
             schema["properties"]["dynamic"]["additionalProperties"]["type"],
             "string"
         );
+    }
+
+    #[test]
+    fn test_unsupported_format_is_removed_in_strict_mode() {
+        let mut fixture = json!({
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "format": "uri"
+                }
+            }
+        });
+
+        enforce_strict_schema(&mut fixture, true);
+
+        let expected = json!({
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false,
+            "required": ["url"]
+        });
+
+        assert_eq!(fixture, expected);
+    }
+
+    #[test]
+    fn test_supported_format_is_preserved_in_strict_mode() {
+        let mut fixture = json!({
+            "type": "object",
+            "properties": {
+                "timestamp": {
+                    "type": "string",
+                    "format": "date-time"
+                }
+            }
+        });
+
+        enforce_strict_schema(&mut fixture, true);
+
+        let expected = json!({
+            "type": "object",
+            "properties": {
+                "timestamp": {
+                    "type": "string",
+                    "format": "date-time"
+                }
+            },
+            "additionalProperties": false,
+            "required": ["timestamp"]
+        });
+
+        assert_eq!(fixture, expected);
     }
 
     /// Integration test that simulates the full Notion MCP workflow:
