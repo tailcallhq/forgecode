@@ -42,6 +42,16 @@
         }
       ]
     },
+    "currency_conversion_rate": {
+      "description": "Conversion rate applied to costs before display in the shell rprompt.\nThe raw USD cost is multiplied by this value, allowing costs to be shown\nin a local currency. Defaults to `1.0` (no conversion).",
+      "$ref": "#/$defs/double",
+      "default": 0.0
+    },
+    "currency_symbol": {
+      "description": "Currency symbol displayed in the shell rprompt next to the session cost\n(e.g. `\"$\"`, `\"€\"`, `\"₹\"`). Defaults to `\"$\"`.",
+      "type": "string",
+      "default": ""
+    },
     "custom_history_path": {
       "description": "Path to the conversation history file; defaults to the global history\nlocation when absent.",
       "type": [
@@ -334,6 +344,11 @@
           "type": "null"
         }
       ]
+    },
+    "verify_todos": {
+      "description": "Enables the pending todos hook that checks for incomplete todo items\nwhen a task ends and reminds the LLM about them.",
+      "type": "boolean",
+      "default": false
     }
   },
   "$defs": {
@@ -575,19 +590,17 @@
       "properties": {
         "model_id": {
           "description": "The model to use for this operation.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         },
         "provider_id": {
           "description": "The provider to use for this operation.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         }
-      }
+      },
+      "required": [
+        "provider_id",
+        "model_id"
+      ]
     },
     "ProviderAuthMethod": {
       "description": "Authentication method supported by a provider.\n\nOnly the simple (non-OAuth) methods are available here; providers that\nrequire OAuth device or authorization-code flows must be configured via the\nfile-based `provider.json` override instead.",

@@ -5,20 +5,7 @@ use derive_more::Display;
 use derive_setters::Setters;
 use serde::{Deserialize, Serialize};
 
-use crate::{Effort, ModelId, ProviderId};
-
-/// Domain-level session configuration pairing a provider with a model.
-///
-/// Used to represent an active session, decoupled from the on-disk
-/// configuration format.
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, Setters)]
-#[setters(strip_option, into)]
-pub struct SessionConfig {
-    /// The active provider ID (e.g. `"anthropic"`).
-    pub provider_id: Option<String>,
-    /// The model ID to use with this provider.
-    pub model_id: Option<String>,
-}
+use crate::{Effort, ModelConfig};
 
 /// All discrete mutations that can be applied to the application configuration.
 ///
@@ -27,14 +14,19 @@ pub struct SessionConfig {
 /// each in order, and persist the result atomically.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigOperation {
-    /// Set the active provider.
-    SetProvider(ProviderId),
-    /// Set the model for the given provider.
-    SetModel(ProviderId, ModelId),
+    /// Set the active session provider and model atomically.
+    ///
+    /// When the provider differs from the current session provider the entire
+    /// session (provider + model) is replaced atomically. When they match only
+    /// the model field is updated.
+    SetSessionConfig(ModelConfig),
     /// Set the commit-message generation configuration.
-    SetCommitConfig(crate::CommitConfig),
+    ///
+    /// `None` clears the commit configuration so the active session
+    /// provider/model is used for commit message generation.
+    SetCommitConfig(Option<ModelConfig>),
     /// Set the shell-command suggestion configuration.
-    SetSuggestConfig(crate::SuggestConfig),
+    SetSuggestConfig(ModelConfig),
     /// Set the reasoning effort level for all agents.
     SetReasoningEffort(Effort),
 }
@@ -47,8 +39,8 @@ const VERSION: &str = match option_env!("APP_VERSION") {
 /// Represents the minimal runtime environment in which the application is
 /// running.
 ///
-/// Contains only the six fields that cannot be sourced from [`ForgeConfig`]:
-/// `os`, `pid`, `cwd`, `home`, `shell`, and `base_path`. All configuration
+/// Contains only the five fields that cannot be sourced from [`ForgeConfig`]:
+/// `os`, `cwd`, `home`, `shell`, and `base_path`. All configuration
 /// values previously carried here are now accessed through
 /// `EnvironmentInfra::get_config()`.
 #[derive(Debug, Setters, Clone, PartialEq, Serialize, Deserialize, fake::Dummy)]
@@ -57,8 +49,6 @@ const VERSION: &str = match option_env!("APP_VERSION") {
 pub struct Environment {
     /// The operating system of the environment.
     pub os: String,
-    /// The process ID of the current process.
-    pub pid: u32,
     /// The current working directory.
     pub cwd: PathBuf,
     /// The home directory.
@@ -127,6 +117,13 @@ impl Environment {
     /// Returns the global skills directory path (~/forge/skills)
     pub fn global_skills_path(&self) -> PathBuf {
         self.base_path.join("skills")
+    }
+
+    /// Returns the agents skills directory path (~/.agents/skills)
+    ///
+    /// Returns `None` when the home directory cannot be determined.
+    pub fn agents_skills_path(&self) -> Option<PathBuf> {
+        self.home.as_ref().map(|home| home.join(".agents/skills"))
     }
 
     /// Returns the project-local skills directory path (.forge/skills)
@@ -241,6 +238,29 @@ mod tests {
         let expected = PathBuf::from("/home/user/.forge/skills");
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_agents_skills_path_with_home() {
+        let fixture: Environment = Faker.fake();
+        let fixture = fixture.home(PathBuf::from("/home/user"));
+
+        let actual = fixture.agents_skills_path();
+        let expected = Some(PathBuf::from("/home/user/.agents/skills"));
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_agents_skills_path_without_home() {
+        let fixture: Environment = Faker.fake();
+        // Explicitly clear the home field
+        let mut fixture = fixture;
+        fixture.home = None;
+
+        let actual = fixture.agents_skills_path();
+
+        assert_eq!(actual, None);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use forge_app::McpServerInfra;
-use forge_domain::McpServerConfig;
+use forge_domain::{Environment, McpServerConfig};
 
 use crate::mcp_client::ForgeMcpClient;
 
@@ -16,7 +16,8 @@ impl McpServerInfra for ForgeMcpServer {
         &self,
         config: McpServerConfig,
         env_vars: &BTreeMap<String, String>,
+        environment: &Environment,
     ) -> anyhow::Result<Self::Client> {
-        Ok(ForgeMcpClient::new(config, env_vars))
+        Ok(ForgeMcpClient::new(config, env_vars, environment.clone()))
     }
 }

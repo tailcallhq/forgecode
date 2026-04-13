@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use forge_app::domain::{AgentId, Error, ModelId, ProviderId};
+use forge_app::domain::AgentId;
 use forge_app::{AgentRepository, EnvironmentInfra};
-use forge_config::ForgeConfig;
-use forge_domain::Agent;
+use forge_domain::{Agent, AgentInfo};
 use tokio::sync::RwLock;
 
 /// AgentRegistryService manages the active-agent ID and a registry of runtime
@@ -13,9 +12,6 @@ use tokio::sync::RwLock;
 pub struct ForgeAgentRegistryService<R> {
     // Infrastructure dependency for loading agents
     repository: Arc<R>,
-
-    // Startup configuration snapshot used to resolve default provider/model
-    config: ForgeConfig,
 
     // In-memory storage for agents keyed by AgentId string
     // Lazily initialized on first access
@@ -28,17 +24,18 @@ pub struct ForgeAgentRegistryService<R> {
 
 impl<R> ForgeAgentRegistryService<R> {
     /// Creates a new AgentRegistryService with the given repository
-    pub fn new(repository: Arc<R>, config: ForgeConfig) -> Self {
+    pub fn new(repository: Arc<R>) -> Self {
         Self {
             repository,
-            config,
             agents: RwLock::new(None),
             active_agent_id: RwLock::new(None),
         }
     }
 }
 
-impl<R: AgentRepository + EnvironmentInfra> ForgeAgentRegistryService<R> {
+impl<R: AgentRepository + EnvironmentInfra<Config = forge_config::ForgeConfig>>
+    ForgeAgentRegistryService<R>
+{
     /// Lazily initializes and returns the agents map
     /// Loads agents from repository on first call, subsequent calls return
     /// cached value
@@ -70,30 +67,12 @@ impl<R: AgentRepository + EnvironmentInfra> ForgeAgentRegistryService<R> {
 
     /// Load agents from repository and populate the in-memory map.
     ///
-    /// Reads the default provider and model from [`ForgeConfig`] and passes
-    /// them to the repository so agents that do not specify their own
-    /// provider/model receive the session-level defaults.
+    /// Reads the default provider and model from the latest [`ForgeConfig`]
+    /// (via `get_config()`) and passes them to the repository so agents that
+    /// do not specify their own provider/model receive the session-level
+    /// defaults.
     async fn load_agents(&self) -> anyhow::Result<DashMap<String, Agent>> {
-        let session = self
-            .config
-            .session
-            .as_ref()
-            .ok_or(Error::NoDefaultProvider)?;
-        let provider_id = session
-            .provider_id
-            .as_ref()
-            .map(|id| ProviderId::from(id.clone()))
-            .ok_or(Error::NoDefaultProvider)?;
-        let model_id = session
-            .model_id
-            .as_ref()
-            .map(|id| ModelId::new(id.clone()))
-            .ok_or_else(|| {
-                anyhow::anyhow!("No default model configured for provider {}", provider_id)
-            })?;
-
-        let agents = self.repository.get_agents(provider_id, model_id).await?;
-
+        let agents = self.repository.get_agents().await?;
         let agents_map = DashMap::new();
         for agent in agents {
             agents_map.insert(agent.id.as_str().to_string(), agent);
@@ -104,8 +83,8 @@ impl<R: AgentRepository + EnvironmentInfra> ForgeAgentRegistryService<R> {
 }
 
 #[async_trait::async_trait]
-impl<R: AgentRepository + EnvironmentInfra + Send + Sync> forge_app::AgentRegistry
-    for ForgeAgentRegistryService<R>
+impl<R: AgentRepository + EnvironmentInfra<Config = forge_config::ForgeConfig> + Send + Sync>
+    forge_app::AgentRegistry for ForgeAgentRegistryService<R>
 {
     async fn get_active_agent_id(&self) -> anyhow::Result<Option<AgentId>> {
         let agent_id = self.active_agent_id.read().await;
@@ -121,6 +100,10 @@ impl<R: AgentRepository + EnvironmentInfra + Send + Sync> forge_app::AgentRegist
     async fn get_agents(&self) -> anyhow::Result<Vec<Agent>> {
         let agents = self.ensure_agents_loaded().await?;
         Ok(agents.iter().map(|entry| entry.value().clone()).collect())
+    }
+
+    async fn get_agent_infos(&self) -> anyhow::Result<Vec<AgentInfo>> {
+        self.repository.get_agent_infos().await
     }
 
     async fn get_agent(&self, agent_id: &AgentId) -> anyhow::Result<Option<Agent>> {

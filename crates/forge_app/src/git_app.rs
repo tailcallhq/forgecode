@@ -10,7 +10,7 @@ use crate::services::{
     AgentRegistry, AppConfigService, ProviderAuthService, ProviderService, ShellService,
     TemplateService,
 };
-use crate::{AgentProviderResolver, Services};
+use crate::{AgentProviderResolver, EnvironmentInfra, Services};
 
 /// Errors specific to GitApp operations
 #[derive(thiserror::Error, Debug)]
@@ -22,7 +22,6 @@ pub enum GitAppError {
 /// GitApp handles git-related operations like commit message generation.
 pub struct GitApp<S> {
     services: Arc<S>,
-    config: forge_config::ForgeConfig,
 }
 
 /// Result of a commit operation
@@ -67,9 +66,9 @@ struct DiffContext {
 }
 
 impl<S> GitApp<S> {
-    /// Creates a new GitApp instance with the provided services and config.
-    pub fn new(services: Arc<S>, config: forge_config::ForgeConfig) -> Self {
-        Self { services, config }
+    /// Creates a new GitApp instance with the provided services.
+    pub fn new(services: Arc<S>) -> Self {
+        Self { services }
     }
 
     /// Truncates diff content if it exceeds the maximum size
@@ -94,7 +93,7 @@ impl<S> GitApp<S> {
     }
 }
 
-impl<S: Services> GitApp<S> {
+impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> GitApp<S> {
     /// Generates a commit message without committing
     ///
     /// # Arguments
@@ -213,7 +212,7 @@ impl<S: Services> GitApp<S> {
             additional_context,
         };
 
-        let retry_config = self.config.retry.clone().unwrap_or_default();
+        let retry_config = self.services.get_config()?.retry.unwrap_or_default();
         crate::retry::retry_with_config(
             &retry_config,
             || self.generate_message_from_diff(ctx.clone()),
@@ -224,7 +223,7 @@ impl<S: Services> GitApp<S> {
 
     /// Fetches git context (branch name and recent commits)
     async fn fetch_git_context(&self, cwd: &Path) -> Result<(String, String)> {
-        let max_commit_count = self.config.max_commit_count;
+        let max_commit_count = self.services.get_config()?.max_commit_count;
         let git_log_cmd =
             format!("git log --pretty=format:%s --abbrev-commit --max-count={max_commit_count}");
         let (recent_commits, branch_name) = tokio::join!(
@@ -312,35 +311,28 @@ impl<S: Services> GitApp<S> {
         // Resolve provider and model: commit config takes priority over agent defaults.
         // If the configured provider is unavailable (e.g. logged out), fall back to the
         // agent's provider/model with a warning.
-        let (provider, model) = match commit_config.and_then(|c| c.provider.zip(c.model)) {
-            Some((provider_id, commit_model)) => {
-                match self.services.get_provider(provider_id).await {
-                    Ok(provider) => {
-                        match self.services.refresh_provider_credential(provider).await {
-                            Ok(provider) => (provider, commit_model),
-                            Err(err) => {
-                                tracing::warn!(
-                                    error = %err,
-                                    "Failed to refresh credentials for configured commit provider. Falling back to the active provider."
-                                );
-                                self.resolve_agent_provider_and_model(
-                                    &agent_provider_resolver,
-                                    agent_id,
-                                )
-                                .await?
-                            }
-                        }
-                    }
+        let (provider, model) = match commit_config {
+            Some(mc) => match self.services.get_provider(mc.provider).await {
+                Ok(provider) => match self.services.refresh_provider_credential(provider).await {
+                    Ok(provider) => (provider, mc.model),
                     Err(err) => {
                         tracing::warn!(
                             error = %err,
-                            "Configured commit provider unavailable. Falling back to the active provider."
+                            "Failed to refresh credentials for configured commit provider. Falling back to the active provider."
                         );
                         self.resolve_agent_provider_and_model(&agent_provider_resolver, agent_id)
                             .await?
                     }
+                },
+                Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        "Configured commit provider unavailable. Falling back to the active provider."
+                    );
+                    self.resolve_agent_provider_and_model(&agent_provider_resolver, agent_id)
+                        .await?
                 }
-            }
+            },
             None => {
                 self.resolve_agent_provider_and_model(&agent_provider_resolver, agent_id)
                     .await?

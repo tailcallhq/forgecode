@@ -1,19 +1,23 @@
 run:
   # Clone into `tmp/task` dir
-  - git clone --depth=1 --branch main https://github.com/antinomyhq/forge .
-  - forgee workspace sync
-  - FORGE_DEBUG_REQUESTS='{{dir}}/context.json' forgee --provider open_router --model {{model}} -p '{{task}}'
-parallelism: 50
-timeout: 120
+  - git clone --depth=1 --branch main https://github.com/tailcallhq/forgecode .
+  - forge workspace init --yes
+  - forge workspace sync
+  - FORGE_DEBUG_REQUESTS='{{dir}}/context.jsonl' FORGE_SESSION__PROVIDER_ID=open_router FORGE_SESSION__MODEL_ID={{model}} forge -p '{{task}}'
+parallelism: 8
+timeout: 60
 early_exit: true
 validations:
   - name: "Uses codebase search tool"
     type: shell
-    command: cat '{{dir}}/context.json' | jq -e '[.messages[]?.tool_calls[]? | select(.function.name == "sem_search")] | any'
+    command: grep -q "Codebase Search" '{{dir}}/task.log'
+  - name: "Does not call task tool before sem_search"
+    type: shell
+    command: "python3 -c \"\nimport sys\nlog = open('{{dir}}/task.log').read().splitlines()\ntask_line = next((i for i, l in enumerate(log) if '[Agent]' in l), None)\nsearch_line = next((i for i, l in enumerate(log) if 'Codebase Search' in l), None)\nif task_line is None: sys.exit(0)\nif search_line is None: sys.exit(1)\nsys.exit(0 if search_line < task_line else 1)\n\""
 sources:
   - value:
       # - model: "x-ai/grok-code-fast-1"
-      - model: "anthropic/claude-sonnet-4.5"
+      - model: "anthropic/claude-sonnet-4.6"
   - value:
       # # Location questions - "where is"
       # - task: "Where is the code that transforms messages between different AI provider formats?"
@@ -114,7 +118,7 @@ sources:
       - task: "Lets have upload take a glob pattern for upload"      
       - task: "Check this for security issues: eval(user_input)"
       - task: "Update the vector dimension to be 4096"
-      - task: "Fix this - 'docker run antinomyhq/forge-ce'"      
+      - task: "Fix this - 'docker run tailcallhq/forgecode'"      
       - task: "Document the adapter registration and discovery mechanism"
       - task: "There are multiple places where we throw - \"Conversation not found\" how do u suggest we consolidate and reuse."      
       - task: "Is there a crate for humanizing date time format that we are using?"            

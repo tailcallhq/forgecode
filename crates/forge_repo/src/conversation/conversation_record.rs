@@ -960,7 +960,7 @@ impl ConversationRecord {
         let context = conversation
             .context
             .as_ref()
-            .filter(|ctx| !ctx.messages.is_empty())
+            .filter(|ctx| !ctx.messages.is_empty() || ctx.initiator.is_some())
             .map(ContextRecord::from)
             .and_then(|ctx_record| serde_json::to_string(&ctx_record).ok());
         let updated_at = context.as_ref().map(|_| chrono::Utc::now().naive_utc());

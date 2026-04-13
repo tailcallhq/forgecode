@@ -45,6 +45,7 @@ impl McpServerConfig {
             headers: BTreeMap::new(),
             timeout: None,
             disable: false,
+            oauth: McpOAuthSetting::AutoDetect,
         })
     }
 
@@ -110,9 +111,154 @@ pub struct McpHttpServer {
     /// remove it from the config.
     #[serde(default)]
     pub disable: bool,
+
+    /// OAuth 2.0 configuration for MCP server authentication.
+    /// Supports three formats:
+    /// - Absent/null: OAuth auto-detection via server 401 response
+    /// - `false`: Explicitly disable OAuth (use API key/headers instead)
+    /// - `{ ... }`: Explicit OAuth configuration (client_id, scopes, etc.)
+    #[serde(
+        default,
+        skip_serializing_if = "McpOAuthSetting::is_default",
+        deserialize_with = "McpOAuthSetting::deserialize_flexible",
+        serialize_with = "McpOAuthSetting::serialize_flexible"
+    )]
+    pub oauth: McpOAuthSetting,
 }
 
-impl McpHttpServer {}
+impl McpHttpServer {
+    /// Returns true if OAuth is explicitly disabled for this server.
+    pub fn is_oauth_disabled(&self) -> bool {
+        matches!(self.oauth, McpOAuthSetting::Disabled)
+    }
+
+    /// Returns the OAuth config if OAuth is explicitly configured.
+    pub fn oauth_config(&self) -> Option<&McpOAuthConfig> {
+        match &self.oauth {
+            McpOAuthSetting::Configured(config) => Some(config),
+            _ => None,
+        }
+    }
+}
+
+/// Represents the OAuth setting for an MCP server.
+/// Supports three states: auto-detect (default), explicitly disabled, or
+/// explicitly configured.
+#[derive(Debug, Clone, PartialEq, Hash, Default)]
+pub enum McpOAuthSetting {
+    /// No explicit OAuth config - auto-detect via server 401 response
+    #[default]
+    AutoDetect,
+    /// OAuth explicitly disabled (`oauth: false`)
+    Disabled,
+    /// OAuth explicitly configured with parameters
+    Configured(McpOAuthConfig),
+}
+
+impl McpOAuthSetting {
+    /// Returns true if the setting is the default (AutoDetect).
+    pub fn is_default(&self) -> bool {
+        matches!(self, Self::AutoDetect)
+    }
+
+    /// Custom deserializer that accepts:
+    /// - boolean `false` -> Disabled
+    /// - boolean `true` -> AutoDetect
+    /// - null/absent -> AutoDetect
+    /// - object `{ ... }` -> Configured(McpOAuthConfig)
+    fn deserialize_flexible<'de, D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de;
+
+        struct McpOAuthSettingVisitor;
+
+        impl<'de> de::Visitor<'de> for McpOAuthSettingVisitor {
+            type Value = McpOAuthSetting;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a boolean or an OAuth config object")
+            }
+
+            fn visit_bool<E: de::Error>(self, v: bool) -> Result<Self::Value, E> {
+                if v {
+                    Ok(McpOAuthSetting::AutoDetect)
+                } else {
+                    Ok(McpOAuthSetting::Disabled)
+                }
+            }
+
+            fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(McpOAuthSetting::AutoDetect)
+            }
+
+            fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(McpOAuthSetting::AutoDetect)
+            }
+
+            fn visit_map<M: de::MapAccess<'de>>(self, map: M) -> Result<Self::Value, M::Error> {
+                let config =
+                    McpOAuthConfig::deserialize(de::value::MapAccessDeserializer::new(map))?;
+                Ok(McpOAuthSetting::Configured(config))
+            }
+        }
+
+        deserializer.deserialize_any(McpOAuthSettingVisitor)
+    }
+
+    /// Custom serializer:
+    /// - AutoDetect -> skip (handled by skip_serializing_if)
+    /// - Disabled -> `false`
+    /// - Configured -> serialize the config object
+    fn serialize_flexible<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::AutoDetect => serializer.serialize_none(),
+            Self::Disabled => serializer.serialize_bool(false),
+            Self::Configured(config) => config.serialize(serializer),
+        }
+    }
+}
+
+/// MCP OAuth 2.0 configuration.
+/// Supports automatic OAuth configuration discovery from server metadata.
+/// When auth_url/token_url are not provided, Forge will automatically
+/// discover them using RFC 8414 OAuth 2.0 Authorization Server Metadata.
+#[derive(Default, Debug, Clone, Serialize, Deserialize, Setters, PartialEq, Hash)]
+#[setters(strip_option, into)]
+#[serde(rename_all = "camelCase")]
+pub struct McpOAuthConfig {
+    /// Pre-registered OAuth client ID (optional for dynamic registration).
+    /// If not provided, dynamic client registration will be attempted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+
+    /// Client secret for confidential clients.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_secret: Option<String>,
+
+    /// OAuth scopes to request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
+
+    /// Authorization endpoint URL.
+    /// If not provided, discovered automatically from server metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_url: Option<String>,
+
+    /// Token endpoint URL.
+    /// If not provided, discovered automatically from server metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_url: Option<String>,
+
+    /// Redirect URI for OAuth callback.
+    /// Defaults to http://127.0.0.1:8765/callback.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect_uri: Option<String>,
+}
 
 #[derive(
     Clone, Display, Serialize, Deserialize, Debug, PartialEq, Hash, Eq, From, PartialOrd, Ord, Deref,

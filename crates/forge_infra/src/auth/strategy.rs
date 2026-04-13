@@ -1049,17 +1049,17 @@ impl AuthStrategy for AnyAuthStrategy {
 }
 
 /// Factory for creating authentication strategies
-pub struct ForgeAuthStrategyFactory {}
+pub struct ForgeAuthStrategyFactory;
 
 impl Default for ForgeAuthStrategyFactory {
     fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
 impl ForgeAuthStrategyFactory {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(_environment: forge_domain::Environment) -> Self {
+        Self
     }
 }
 
@@ -1134,7 +1134,7 @@ mod tests {
 
     #[test]
     fn test_create_auth_strategy_api_key() {
-        let factory = ForgeAuthStrategyFactory::new();
+        let factory = ForgeAuthStrategyFactory;
         let strategy = factory.create_auth_strategy(
             ProviderId::OPENAI,
             forge_domain::AuthMethod::ApiKey,
@@ -1157,7 +1157,7 @@ mod tests {
             custom_headers: None,
         };
 
-        let factory = ForgeAuthStrategyFactory::new();
+        let factory = ForgeAuthStrategyFactory;
         let strategy = factory.create_auth_strategy(
             ProviderId::OPENAI,
             forge_domain::AuthMethod::OAuthCode(config),
@@ -1180,7 +1180,7 @@ mod tests {
             custom_headers: None,
         };
 
-        let factory = ForgeAuthStrategyFactory::new();
+        let factory = ForgeAuthStrategyFactory;
         let strategy = factory.create_auth_strategy(
             ProviderId::OPENAI,
             forge_domain::AuthMethod::OAuthDevice(config),
@@ -1203,7 +1203,7 @@ mod tests {
             custom_headers: None,
         };
 
-        let factory = ForgeAuthStrategyFactory::new();
+        let factory = ForgeAuthStrategyFactory;
         let strategy = factory.create_auth_strategy(
             ProviderId::GITHUB_COPILOT,
             forge_domain::AuthMethod::OAuthDevice(config),
@@ -1227,7 +1227,7 @@ mod tests {
             custom_headers: None,
         };
 
-        let factory = ForgeAuthStrategyFactory::new();
+        let factory = ForgeAuthStrategyFactory;
         let actual = factory.create_auth_strategy(
             ProviderId::CODEX,
             forge_domain::AuthMethod::CodexDevice(config),

@@ -38,7 +38,7 @@ mod tests {
             min_delay_ms: 1000,
             backoff_factor: 2,
             max_attempts: 8,
-            status_codes: vec![429, 500, 502, 503, 504, 408, 522, 520, 529],
+            status_codes: vec![429, 500, 502, 503, 504, 408, 522, 524, 520, 529],
             max_delay_secs: None,
             suppress_errors: false,
         };

@@ -72,7 +72,9 @@ impl Transformer for ProviderPipeline<'_> {
         let strict_schema = EnforceStrictToolSchema
             .pipe(EnforceStrictResponseFormatSchema)
             .when(move |_| {
-                provider.id == ProviderId::FIREWORKS_AI || provider.id == ProviderId::OPENCODE_ZEN
+                provider.id == ProviderId::FIREWORKS_AI
+                    || provider.id == ProviderId::OPENCODE_ZEN
+                    || provider.id == ProviderId::OPENCODE_GO
             });
 
         let mut combined = zai_thinking

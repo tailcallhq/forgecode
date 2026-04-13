@@ -6,8 +6,8 @@ use derive_setters::Setters;
 use forge_config::ForgeConfig;
 use forge_domain::{
     Agent, AgentId, Attachment, ChatCompletionMessage, ChatResponse, Conversation, Environment,
-    Event, File, MessageEntry, ModelId, ProviderId, Role, Template, ToolCallFull, ToolDefinition,
-    ToolResult,
+    Event, File, MessageEntry, Metrics, ModelId, ProviderId, Role, Template, ToolCallFull,
+    ToolDefinition, ToolResult,
 };
 
 use crate::ShellOutput;
@@ -33,6 +33,9 @@ pub struct TestContext {
     pub model: ModelId,
     pub attachments: Vec<Attachment>,
 
+    // Initial metrics to apply to the conversation
+    pub initial_metrics: Option<Metrics>,
+
     // Final output of the test is store in the context
     pub output: TestOutput,
     pub agent: Agent,
@@ -54,9 +57,9 @@ impl Default for TestContext {
             templates: Default::default(),
             files: Default::default(),
             attachments: Default::default(),
+            initial_metrics: None,
             env: Environment {
                 os: "MacOS".to_string(),
-                pid: 1234,
                 cwd: PathBuf::from("/Users/tushar"),
                 home: Some(PathBuf::from("/Users/tushar")),
                 shell: "bash".to_string(),

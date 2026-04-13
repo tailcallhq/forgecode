@@ -1,5 +1,5 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
 expression: "render(vec![vec![\"言語\", \"説明\"], vec![\"**日本語**\", \"*Japanese*\"],\nvec![\"`中文`\", \"Chinese\"],])"
 ---
   ┌───────────────────┬─────────────────┐

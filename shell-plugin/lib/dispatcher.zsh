@@ -148,9 +148,6 @@ function forge-accept-line() {
         info|i)
             _forge_action_info
         ;;
-        env|e)
-            _forge_action_env
-        ;;
         dump|d)
             _forge_action_dump "$input_text"
         ;;
@@ -190,7 +187,7 @@ function forge-accept-line() {
         tools|t)
             _forge_action_tools
         ;;
-        config)
+        config|env|e)
             _forge_action_config
         ;;
         config-edit|ce)

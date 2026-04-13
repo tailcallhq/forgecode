@@ -1,9 +1,9 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use forge_domain::{
-    Attachment, ChatCompletionMessage, ChatResponse, Conversation, ConversationId, Event, Hook,
-    ProviderId, ToolCallFull, ToolErrorTracker, ToolResult,
+    Attachment, ChatCompletionMessage, ChatResponse, Conversation, ConversationId, Environment,
+    Event, Hook, ProviderId, ToolCallFull, ToolErrorTracker, ToolResult,
 };
 use handlebars::{Handlebars, no_escape};
 use include_dir::{Dir, include_dir};
@@ -12,15 +12,15 @@ use tokio::sync::Mutex;
 pub use super::orch_setup::TestContext;
 use crate::app::build_template_config;
 use crate::apply_tunable_parameters::ApplyTunableParameters;
-use crate::hooks::DoomLoopDetector;
+use crate::hooks::{DoomLoopDetector, PendingTodosHandler};
 use crate::init_conversation_metrics::InitConversationMetrics;
 use crate::orch::Orchestrator;
 use crate::set_conversation_id::SetConversationId;
 use crate::system_prompt::SystemPrompt;
 use crate::user_prompt::UserPromptGenerator;
 use crate::{
-    AgentExt, AgentService, AttachmentService, ShellOutput, ShellService, SkillFetchService,
-    TemplateService,
+    AgentExt, AgentService, AttachmentService, EnvironmentInfra, ShellOutput, ShellService,
+    SkillFetchService, TemplateService,
 };
 
 static TEMPLATE_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/../../templates");
@@ -40,6 +40,8 @@ pub struct Runner {
     test_shell_outputs: Mutex<VecDeque<ShellOutput>>,
 
     attachments: Vec<Attachment>,
+    config: forge_config::ForgeConfig,
+    env: Environment,
 }
 
 impl Runner {
@@ -57,6 +59,8 @@ impl Runner {
         Self {
             hb,
             attachments: setup.attachments.clone(),
+            config: setup.config.clone(),
+            env: setup.env.clone(),
             conversation_history: Mutex::new(Vec::new()),
             test_tool_calls: Mutex::new(VecDeque::from(setup.mock_tool_call_responses.clone())),
             test_completions: Mutex::new(VecDeque::from(setup.mock_assistant_responses.clone())),
@@ -115,24 +119,25 @@ impl Runner {
         .await?;
 
         let conversation = InitConversationMetrics::new(setup.current_time).apply(conversation);
+        // Apply initial metrics (including todos) if provided by the test
+        let conversation = if let Some(ref metrics) = setup.initial_metrics {
+            conversation.metrics(metrics.clone())
+        } else {
+            conversation
+        };
         let conversation =
             ApplyTunableParameters::new(agent.clone(), system_tools.clone()).apply(conversation);
         let conversation = SetConversationId.apply(conversation);
 
-        let retry_config = setup.config.retry.clone().unwrap_or_default();
-        let orch = Orchestrator::new(
-            services.clone(),
-            retry_config,
-            conversation,
-            agent,
-            setup.config.clone(),
-        )
-        .error_tracker(ToolErrorTracker::new(3))
-        .tool_definitions(system_tools)
-        .hook(Arc::new(
-            Hook::default().on_request(DoomLoopDetector::default()),
-        ))
-        .sender(tx);
+        let orch = Orchestrator::new(services.clone(), conversation, agent, setup.config.clone())
+            .error_tracker(ToolErrorTracker::new(3))
+            .tool_definitions(system_tools)
+            .hook(Arc::new(
+                Hook::default()
+                    .on_request(DoomLoopDetector::default())
+                    .on_end(PendingTodosHandler::new()),
+            ))
+            .sender(tx);
 
         let (mut orch, runner) = (orch, services);
 
@@ -177,7 +182,6 @@ impl AgentService for Runner {
         _: &forge_domain::Agent,
         _: &forge_domain::ToolCallContext,
         test_call: forge_domain::ToolCallFull,
-        _: &forge_config::ForgeConfig,
     ) -> forge_domain::ToolResult {
         let name = test_call.name.clone();
         let mut guard = self.test_tool_calls.lock().await;
@@ -257,5 +261,32 @@ impl ShellService for Runner {
                 description: None,
             })
         }
+    }
+}
+
+impl EnvironmentInfra for Runner {
+    type Config = forge_config::ForgeConfig;
+
+    fn get_env_var(&self, _key: &str) -> Option<String> {
+        None
+    }
+
+    fn get_env_vars(&self) -> BTreeMap<String, String> {
+        BTreeMap::new()
+    }
+
+    fn get_environment(&self) -> forge_domain::Environment {
+        self.env.clone()
+    }
+
+    fn get_config(&self) -> anyhow::Result<Self::Config> {
+        Ok(self.config.clone())
+    }
+
+    async fn update_environment(
+        &self,
+        _ops: Vec<forge_domain::ConfigOperation>,
+    ) -> anyhow::Result<()> {
+        Ok(())
     }
 }

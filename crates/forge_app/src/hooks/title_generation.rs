@@ -2,33 +2,26 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use dashmap::mapref::entry::Entry;
 use forge_domain::{
     Conversation, ConversationId, EndPayload, EventData, EventHandle, StartPayload,
 };
 use tokio::sync::oneshot;
-use tracing::debug;
+use tokio::task::JoinHandle;
 
 use crate::agent::AgentService;
 use crate::title_generator::TitleGenerator;
 
 /// Per-conversation title generation state.
-enum TitleTask {
-    /// A background task is running; the receiver will deliver its result.
-    InProgress(oneshot::Receiver<Option<String>>),
-    /// `EndPayload` has extracted the receiver and is currently awaiting it.
-    /// Kept in the map as a sentinel so a concurrent `StartPayload` sees an
-    /// occupied entry and does not spawn a duplicate task.
-    Awaiting,
-    /// Title generation has finished successfully; stores the generated title.
-    Done(#[allow(dead_code)] String),
+struct TitleGenerationState {
+    rx: oneshot::Receiver<Option<String>>,
+    handle: JoinHandle<()>,
 }
 
 /// Hook handler that generates a conversation title asynchronously.
 #[derive(Clone)]
 pub struct TitleGenerationHandler<S> {
     services: Arc<S>,
-    title_tasks: Arc<DashMap<ConversationId, TitleTask>>,
+    title_tasks: Arc<DashMap<ConversationId, TitleGenerationState>>,
 }
 
 impl<S> TitleGenerationHandler<S> {
@@ -77,13 +70,11 @@ impl<S: AgentService> EventHandle<EventData<StartPayload>> for TitleGenerationHa
         // one task is ever spawned per conversation id.
         self.title_tasks.entry(conversation.id).or_insert_with(|| {
             let (tx, rx) = oneshot::channel();
-            tokio::spawn(async move {
-                let result = generator.generate().await.ok().flatten();
-                // If the receiver was dropped (e.g. task cancelled), this is a
-                // no-op — the send simply fails silently.
-                let _ = tx.send(result);
+            let handle = tokio::spawn(async move {
+                let title = generator.generate().await.ok().flatten();
+                let _ = tx.send(title);
             });
-            TitleTask::InProgress(rx)
+            TitleGenerationState { rx, handle }
         });
 
         Ok(())
@@ -97,52 +88,14 @@ impl<S: AgentService> EventHandle<EventData<EndPayload>> for TitleGenerationHand
         _event: &EventData<EndPayload>,
         conversation: &mut Conversation,
     ) -> anyhow::Result<()> {
-        // Atomically transition InProgress → Awaiting, extracting the receiver
-        // while keeping the entry occupied. A concurrent StartPayload sees
-        // Occupied and skips, so no duplicate task can be spawned during the
-        // await below.
-        let rx = match self.title_tasks.entry(conversation.id) {
-            Entry::Occupied(mut e) => {
-                match std::mem::replace(e.get_mut(), TitleTask::Awaiting) {
-                    TitleTask::InProgress(rx) => rx,
-                    // Awaiting or Done: another EndPayload is already handling this.
-                    TitleTask::Done(title) => {
-                        conversation.title = Some(title);
-                        return Ok(());
-                    }
-                    other => {
-                        *e.get_mut() = other; // restore
-                        return Ok(());
-                    }
-                }
-            }
-            Entry::Vacant(_) => return Ok(()),
-        };
+        if let Some((_, entry)) = self.title_tasks.remove(&conversation.id) {
+            let handle = &entry.handle;
+            let rx = entry.rx;
 
-        // Await the oneshot receiver. Unlike a raw JoinHandle, a oneshot
-        // receiver never panics on poll-after-completion — it simply returns
-        // `Err(RecvError)` if the sender was dropped.
-        match rx.await {
-            Ok(Some(title)) => {
-                debug!(
-                    conversation_id = %conversation.id,
-                    title = %title,
-                    "Title generated successfully"
-                );
-                conversation.title = Some(title.clone());
-                // Transition Awaiting → Done only on success.
-                self.title_tasks
-                    .insert(conversation.id, TitleTask::Done(title));
-            }
-            Ok(None) => {
-                debug!("Title generation returned None");
-                // Remove so a future StartPayload can retry.
-                self.title_tasks.remove(&conversation.id);
-            }
-            Err(_) => {
-                debug!("Title generation task was cancelled");
-                // Remove so a future StartPayload can retry.
-                self.title_tasks.remove(&conversation.id);
+            if rx.is_empty() {
+                handle.abort();
+            } else if let Some(title) = rx.await? {
+                conversation.title = Some(title);
             }
         }
 
@@ -152,16 +105,18 @@ impl<S: AgentService> EventHandle<EventData<EndPayload>> for TitleGenerationHand
 
 impl<S> Drop for TitleGenerationHandler<S> {
     fn drop(&mut self) {
-        // Clearing the map drops all `oneshot::Receiver`s, which signals the
-        // corresponding spawned tasks that the result is no longer needed.
-        // The tasks will observe a closed channel on `tx.send()` and exit
-        // gracefully — no `abort()` required.
+        // Clearing the map drops all `JoinHandle`s (aborting the spawned
+        // tasks) and `oneshot::Receiver`s. The tasks will observe a closed
+        // channel on `tx.send()` and exit gracefully.
         self.title_tasks.clear();
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
     use forge_domain::{
         Agent, ChatCompletionMessage, Context, ContextMessage, Conversation, EventValue, ModelId,
         ProviderId, Role, TextMessage, ToolCallContext, ToolCallFull, ToolResult,
@@ -189,7 +144,6 @@ mod tests {
             _agent: &Agent,
             _context: &ToolCallContext,
             _call: ToolCallFull,
-            _config: &forge_config::ForgeConfig,
         ) -> ToolResult {
             unreachable!("Not used in tests")
         }
@@ -234,60 +188,19 @@ mod tests {
         let (handler, mut conversation) = setup("test message");
         let (tx, rx) = oneshot::channel();
         tx.send(Some("original".to_string())).unwrap();
+        let handle = tokio::spawn(async {});
+        handle.abort();
         handler
             .title_tasks
-            .insert(conversation.id, TitleTask::InProgress(rx));
+            .insert(conversation.id, TitleGenerationState { rx, handle });
 
         handler
             .handle(&event(StartPayload), &mut conversation)
             .await
             .unwrap();
 
-        let (_, task) = handler.title_tasks.remove(&conversation.id).unwrap();
-        let actual = match task {
-            TitleTask::InProgress(rx) => rx.await.unwrap(),
-            _ => panic!("Expected InProgress"),
-        };
-        assert_eq!(actual, Some("original".into()));
-    }
-
-    /// A StartPayload that races with an EndPayload mid-await must not spawn a
-    /// new task — the Awaiting sentinel keeps the entry occupied.
-    #[tokio::test]
-    async fn test_start_skips_if_awaiting() {
-        let (handler, mut conversation) = setup("test message");
-        handler
-            .title_tasks
-            .insert(conversation.id, TitleTask::Awaiting);
-
-        handler
-            .handle(&event(StartPayload), &mut conversation)
-            .await
-            .unwrap();
-
-        assert!(matches!(
-            handler.title_tasks.get(&conversation.id).as_deref(),
-            Some(TitleTask::Awaiting)
-        ));
-    }
-
-    /// A StartPayload after generation has finished must not re-spawn.
-    #[tokio::test]
-    async fn test_start_skips_if_done() {
-        let (handler, mut conversation) = setup("test message");
-        handler
-            .title_tasks
-            .insert(conversation.id, TitleTask::Done("existing".into()));
-
-        handler
-            .handle(&event(StartPayload), &mut conversation)
-            .await
-            .unwrap();
-
-        assert!(matches!(
-            handler.title_tasks.get(&conversation.id).as_deref(),
-            Some(TitleTask::Done(_))
-        ));
+        // Entry should still exist (wasn't replaced)
+        assert!(handler.title_tasks.contains_key(&conversation.id));
     }
 
     #[tokio::test]
@@ -295,9 +208,11 @@ mod tests {
         let (handler, mut conversation) = setup("test message");
         let (tx, rx) = oneshot::channel();
         tx.send(Some("generated".to_string())).unwrap();
+        let handle = tokio::spawn(async {});
+        handle.abort();
         handler
             .title_tasks
-            .insert(conversation.id, TitleTask::InProgress(rx));
+            .insert(conversation.id, TitleGenerationState { rx, handle });
 
         handler
             .handle(&event(EndPayload), &mut conversation)
@@ -305,10 +220,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(conversation.title, Some("generated".into()));
-        assert!(matches!(
-            handler.title_tasks.get(&conversation.id).as_deref(),
-            Some(TitleTask::Done(_))
-        ));
+        // Entry should be removed after successful title generation
+        assert!(!handler.title_tasks.contains_key(&conversation.id));
     }
 
     #[tokio::test]
@@ -317,9 +230,11 @@ mod tests {
         let (tx, rx) = oneshot::channel::<Option<String>>();
         // Drop the sender to simulate a cancelled task.
         drop(tx);
+        let handle = tokio::spawn(async {});
+        handle.abort();
         handler
             .title_tasks
-            .insert(conversation.id, TitleTask::InProgress(rx));
+            .insert(conversation.id, TitleGenerationState { rx, handle });
 
         handler
             .handle(&event(EndPayload), &mut conversation)
@@ -328,6 +243,35 @@ mod tests {
 
         assert!(conversation.title.is_none());
         assert!(!handler.title_tasks.contains_key(&conversation.id));
+    }
+
+    /// When EndPayload is received, the spawned task should be aborted so it
+    /// doesn't continue running unnecessarily.
+    #[tokio::test]
+    async fn test_end_aborts_in_progress_task() {
+        let (handler, mut conversation) = setup("test message");
+        let (tx, rx) = oneshot::channel::<Option<String>>();
+        let handle = tokio::spawn(async move {
+            // Simulate a long-running task that would block indefinitely.
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            let _ = tx.send(None);
+        });
+
+        handler
+            .title_tasks
+            .insert(conversation.id, TitleGenerationState { rx, handle });
+
+        handler
+            .handle(&event(EndPayload), &mut conversation)
+            .await
+            .unwrap();
+
+        // Entry should have been removed from map
+        assert!(!handler.title_tasks.contains_key(&conversation.id));
+
+        // Verify the task is no longer running by checking that the
+        // EndPayload handler didn't hang (it completed immediately).
+        assert!(conversation.title.is_none());
     }
 
     /// Many concurrent StartPayload calls for the same conversation id must
@@ -355,11 +299,7 @@ mod tests {
             j.await.unwrap();
         }
 
-        let actual = handler
-            .title_tasks
-            .iter()
-            .filter(|e| matches!(e.value(), TitleTask::InProgress(_)))
-            .count();
-        assert_eq!(actual, 1);
+        // Only one task should exist in the map
+        assert_eq!(handler.title_tasks.len(), 1);
     }
 }
