@@ -387,11 +387,9 @@ impl From<Context> for Request {
             }),
             response_schema: context.response_format.and_then(|rf| match rf {
                 forge_domain::ResponseFormat::JsonSchema(schema) => {
-                    // Convert schema to JSON and strip $schema field (Google API doesn't accept it)
                     let mut schema_value = serde_json::to_value(*schema).ok()?;
-                    if let Some(obj) = schema_value.as_object_mut() {
-                        obj.remove("$schema");
-                    }
+                    // Sanitize schema for Gemini API compatibility
+                    crate::utils::sanitize_gemini_schema(&mut schema_value);
                     Some(schema_value)
                 }
                 _ => None,
@@ -452,14 +450,13 @@ impl From<forge_domain::ToolChoice> for ToolConfig {
 
 impl From<forge_domain::ToolDefinition> for FunctionDeclaration {
     fn from(tool: forge_domain::ToolDefinition) -> Self {
-        // Convert input_schema to JSON value and strip $schema field
         let mut parameters =
             serde_json::to_value(tool.input_schema).unwrap_or(serde_json::json!({}));
 
-        // Remove $schema field if present (Google API doesn't accept it)
-        if let Some(obj) = parameters.as_object_mut() {
-            obj.remove("$schema");
-        }
+        // Sanitize schema for Gemini API compatibility (strips $schema,
+        // removes additionalProperties, converts integer enums, ensures
+        // arrays have items, removes properties from non-objects, etc.)
+        crate::utils::sanitize_gemini_schema(&mut parameters);
 
         FunctionDeclaration {
             name: tool.name.to_string(),
@@ -830,11 +827,18 @@ mod tests {
         assert_eq!(decl.name, "test_tool");
         assert_eq!(decl.description.unwrap(), "A test tool");
 
-        // Check schema stripping
+        // Check Gemini schema sanitization
         let params = decl.parameters;
         assert!(params.is_object());
         assert!(!params.as_object().unwrap().contains_key("$schema"));
         assert!(params.as_object().unwrap().contains_key("type"));
+        // additionalProperties should be removed by Gemini sanitization
+        assert!(
+            !params
+                .as_object()
+                .unwrap()
+                .contains_key("additionalProperties")
+        );
     }
 
     #[test]
@@ -933,6 +937,12 @@ mod tests {
                     || obj.contains_key("properties")
                     || obj.contains_key("title"),
                 "Schema should still contain other properties"
+            );
+
+            // Verify additionalProperties is also removed by Gemini sanitization
+            assert!(
+                !obj.contains_key("additionalProperties"),
+                "additionalProperties should be removed by Gemini sanitization"
             );
         } else {
             panic!("response_schema should be an object");

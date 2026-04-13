@@ -1,5 +1,5 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
 expression: "render(vec![vec![\"ID\", \"Value\"], vec![\"1\", \"one\"], vec![\"2\", \"two\"],\nvec![\"3\", \"three\"], vec![\"4\", \"four\"],])"
 ---
   ┌────┬───────┐

@@ -1,5 +1,5 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
 expression: "render_with_width(vec![vec![\"Name\", \"Bio\"],\nvec![\"Alice\", \"Software engineer with 10 years of experience\"],\nvec![\"Bob\", \"Data scientist specializing in machine learning\"],], 50)"
 ---
   ┌───────┬───────────────────────────────────────┐

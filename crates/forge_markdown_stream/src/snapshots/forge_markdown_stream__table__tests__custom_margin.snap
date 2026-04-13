@@ -1,5 +1,5 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
 expression: "render_with_margin(vec![vec![\"A\", \"B\"], vec![\"1\", \"2\"],], \"    \")"
 ---
     ┌───┬───┐

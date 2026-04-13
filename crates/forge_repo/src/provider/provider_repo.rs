@@ -460,7 +460,7 @@ impl<
         );
         tracing::debug!(
             "Token starts with: {}",
-            &access_token.token[..access_token.token.len().min(20)]
+            access_token.token.chars().take(20).collect::<String>()
         );
 
         // Create new credential with fresh token, preserving url_params and provider ID
