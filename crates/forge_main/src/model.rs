@@ -101,16 +101,47 @@ impl ForgeCommandManager {
                 | "commit"
                 | "rename"
                 | "rn"
+                | "config"
+                | "env"
+                | "config-model"
+                | "cm"
+                | "config-reload"
+                | "cr"
+                | "model-reset"
+                | "mr"
+                | "reasoning-effort"
+                | "re"
+                | "config-reasoning-effort"
+                | "cre"
+                | "config-commit-model"
+                | "ccm"
+                | "config-suggest-model"
+                | "csm"
+                | "config-edit"
+                | "ce"
+                | "skill"
+                | "edit"
+                | "ed"
+                | "commit-preview"
+                | "suggest"
+                | "s"
+                | "clone"
+                | "conversation-rename"
+                | "copy"
+                | "workspace-sync"
+                | "sync"
+                | "workspace-status"
+                | "sync-status"
+                | "workspace-info"
+                | "sync-info"
+                | "workspace-init"
+                | "sync-init"
         )
     }
 
     fn default_commands() -> Vec<ForgeCommand> {
         SlashCommand::iter()
-            .filter(|command| !matches!(command, SlashCommand::Message(_)))
-            .filter(|command| !matches!(command, SlashCommand::Custom(_)))
-            .filter(|command| !matches!(command, SlashCommand::Shell(_)))
-            .filter(|command| !matches!(command, SlashCommand::AgentSwitch(_)))
-            .filter(|command| !matches!(command, SlashCommand::Rename(_)))
+            .filter(|command| !command.is_internal())
             .map(|command| ForgeCommand {
                 name: command.name().to_string(),
                 description: command.usage().to_string(),
@@ -280,13 +311,60 @@ impl ForgeCommandManager {
             "/plan" | "/muse" => Ok(SlashCommand::Muse),
             "/sage" => Ok(SlashCommand::Sage),
             "/help" => Ok(SlashCommand::Help),
-            "/model" => Ok(SlashCommand::Model),
-            "/provider" | "/login" => Ok(SlashCommand::Login),
-            "/tools" => Ok(SlashCommand::Tools),
-            "/agent" => Ok(SlashCommand::Agent),
+            "/model" | "/m" => Ok(SlashCommand::Model),
+            "/config-model" | "/cm" => Ok(SlashCommand::ConfigModel),
+            "/config" | "/env" | "/e" => Ok(SlashCommand::Config),
+            "/config-reload" | "/cr" | "/model-reset" | "/mr" => Ok(SlashCommand::ConfigReload),
+            "/reasoning-effort" | "/re" => Ok(SlashCommand::ReasoningEffort),
+            "/config-reasoning-effort" | "/cre" => Ok(SlashCommand::ConfigReasoningEffort),
+            "/config-commit-model" | "/ccm" => Ok(SlashCommand::ConfigCommitModel),
+            "/config-suggest-model" | "/csm" => Ok(SlashCommand::ConfigSuggestModel),
+            "/config-edit" | "/ce" => Ok(SlashCommand::ConfigEdit),
+            "/skill" => Ok(SlashCommand::Skill),
+            "/edit" | "/ed" => {
+                let initial = if parameters.is_empty() {
+                    None
+                } else {
+                    Some(parameters.join(" ").trim().to_string())
+                };
+                Ok(SlashCommand::Edit(initial))
+            }
+            "/commit-preview" => Ok(SlashCommand::CommitPreview),
+            "/suggest" | "/s" => {
+                let description = if parameters.is_empty() {
+                    None
+                } else {
+                    Some(parameters.join(" ").trim().to_string())
+                };
+                Ok(SlashCommand::Suggest(description))
+            }
+            "/clone" => {
+                let id = if parameters.is_empty() {
+                    None
+                } else {
+                    Some(parameters.join(" ").trim().to_string())
+                };
+                Ok(SlashCommand::Clone(id))
+            }
+            "/conversation-rename" => {
+                let args = if parameters.is_empty() {
+                    None
+                } else {
+                    Some(parameters.join(" ").trim().to_string())
+                };
+                Ok(SlashCommand::ConversationRename(args))
+            }
+            "/copy" => Ok(SlashCommand::Copy),
+            "/workspace-sync" | "/sync" => Ok(SlashCommand::WorkspaceSync),
+            "/workspace-status" | "/sync-status" => Ok(SlashCommand::WorkspaceStatus),
+            "/workspace-info" | "/sync-info" => Ok(SlashCommand::WorkspaceInfo),
+            "/workspace-init" | "/sync-init" => Ok(SlashCommand::WorkspaceInit),
+            "/provider" | "/login" | "/provider-login" => Ok(SlashCommand::Login),
+            "/tools" | "/t" => Ok(SlashCommand::Tools),
+            "/agent" | "/a" => Ok(SlashCommand::Agent),
             "/logout" => Ok(SlashCommand::Logout),
-            "/retry" => Ok(SlashCommand::Retry),
-            "/conversation" | "/conversations" => Ok(SlashCommand::Conversations),
+            "/retry" | "/r" => Ok(SlashCommand::Retry),
+            "/conversation" | "/conversations" | "/c" => Ok(SlashCommand::Conversations),
             "/commit" => {
                 // Support flexible syntax:
                 // /commit              -> commit with AI message
@@ -352,6 +430,101 @@ impl ForgeCommandManager {
 /// - File content
 #[derive(Debug, Clone, PartialEq, Eq, EnumProperty, EnumIter)]
 pub enum SlashCommand {
+    /// Display the effective resolved configuration.
+    /// This can be triggered with the '/config' command (aliases: env, e).
+    #[strum(props(usage = "Display effective resolved configuration"))]
+    Config,
+
+    /// Set the global model via interactive selection.
+    /// This can be triggered with the '/config-model' command (alias: cm).
+    #[strum(props(usage = "Set the global model [alias: cm]"))]
+    ConfigModel,
+
+    /// Reset session overrides to global config.
+    /// This can be triggered with the '/config-reload' command (aliases: cr, model-reset, mr).
+    #[strum(props(usage = "Reset session overrides to global config [alias: cr]"))]
+    ConfigReload,
+
+    /// Set the reasoning effort level.
+    /// This can be triggered with the '/reasoning-effort' command (alias: re).
+    #[strum(props(usage = "Set reasoning effort for current session [alias: re]"))]
+    ReasoningEffort,
+
+    /// Set the reasoning effort level in global config.
+    /// This can be triggered with the '/config-reasoning-effort' command (alias: cre).
+    #[strum(props(usage = "Set reasoning effort in global config [alias: cre]"))]
+    ConfigReasoningEffort,
+
+    /// Set the model used for commit message generation.
+    /// This can be triggered with the '/config-commit-model' command (alias: ccm).
+    #[strum(props(usage = "Set the model used for commit message generation [alias: ccm]"))]
+    ConfigCommitModel,
+
+    /// Set the model used for command suggestion generation.
+    /// This can be triggered with the '/config-suggest-model' command (alias: csm).
+    #[strum(props(usage = "Set the model used for suggest generation [alias: csm]"))]
+    ConfigSuggestModel,
+
+    /// Open the global config file in an editor.
+    /// This can be triggered with the '/config-edit' command (alias: ce).
+    #[strum(props(usage = "Open global config file in an editor [alias: ce]"))]
+    ConfigEdit,
+
+    /// List all available skills.
+    /// This can be triggered with the '/skill' command.
+    #[strum(props(usage = "List all available skills"))]
+    Skill,
+
+    /// Open an external editor to write a prompt.
+    /// This can be triggered with the '/edit' command (alias: ed).
+    #[strum(props(usage = "Open external editor to write a prompt [alias: ed]"))]
+    Edit(Option<String>),
+
+    /// Preview the AI-generated commit message without committing.
+    /// This can be triggered with the '/commit-preview' command.
+    #[strum(props(usage = "Preview AI-generated commit message"))]
+    CommitPreview,
+
+    /// Generate a shell command from a natural language description.
+    /// This can be triggered with the '/suggest' command (alias: s).
+    #[strum(props(usage = "Generate shell command from natural language [alias: s]"))]
+    Suggest(Option<String>),
+
+    /// Clone the current or a selected conversation.
+    /// This can be triggered with the '/clone' command.
+    #[strum(props(usage = "Clone current or selected conversation"))]
+    Clone(Option<String>),
+
+    /// Rename any conversation interactively.
+    /// This can be triggered with the '/conversation-rename' command.
+    #[strum(props(usage = "Rename a conversation interactively"))]
+    ConversationRename(Option<String>),
+
+    /// Copy the last AI response to the clipboard.
+    /// This can be triggered with the '/copy' command.
+    #[strum(props(usage = "Copy last AI response to clipboard"))]
+    Copy,
+
+    /// Sync the current workspace for semantic search.
+    /// This can be triggered with the '/workspace-sync' command (alias: sync).
+    #[strum(props(usage = "Sync current workspace for semantic search [alias: sync]"))]
+    WorkspaceSync,
+
+    /// Show sync status of all workspace files.
+    /// This can be triggered with the '/workspace-status' command.
+    #[strum(props(usage = "Show sync status of all workspace files"))]
+    WorkspaceStatus,
+
+    /// Show workspace information with sync details.
+    /// This can be triggered with the '/workspace-info' command.
+    #[strum(props(usage = "Show workspace information with sync details"))]
+    WorkspaceInfo,
+
+    /// Initialize a new workspace without syncing files.
+    /// This can be triggered with the '/workspace-init' command.
+    #[strum(props(usage = "Initialize a new workspace without syncing files"))]
+    WorkspaceInit,
+
     /// Compact the conversation context. This can be triggered with the
     /// '/compact' command.
     #[strum(props(usage = "Compact the conversation context"))]
@@ -488,12 +661,44 @@ impl SlashCommand {
             SlashCommand::Rename(_) => "rename",
             SlashCommand::AgentSwitch(agent_id) => agent_id,
             SlashCommand::Index => "index",
+            SlashCommand::Config => "config",
+            SlashCommand::ConfigModel => "config-model",
+            SlashCommand::ConfigReload => "config-reload",
+            SlashCommand::ReasoningEffort => "reasoning-effort",
+            SlashCommand::ConfigReasoningEffort => "config-reasoning-effort",
+            SlashCommand::ConfigCommitModel => "config-commit-model",
+            SlashCommand::ConfigSuggestModel => "config-suggest-model",
+            SlashCommand::ConfigEdit => "config-edit",
+            SlashCommand::Skill => "skill",
+            SlashCommand::Edit(_) => "edit",
+            SlashCommand::CommitPreview => "commit-preview",
+            SlashCommand::Suggest(_) => "suggest",
+            SlashCommand::Clone(_) => "clone",
+            SlashCommand::ConversationRename(_) => "conversation-rename",
+            SlashCommand::Copy => "copy",
+            SlashCommand::WorkspaceSync => "workspace-sync",
+            SlashCommand::WorkspaceStatus => "workspace-status",
+            SlashCommand::WorkspaceInfo => "workspace-info",
+            SlashCommand::WorkspaceInit => "workspace-init",
         }
     }
 
     /// Returns the usage description for the command.
     pub fn usage(&self) -> &str {
         self.get_str("usage").unwrap()
+    }
+
+    /// Returns true for internal/meta variants that should not appear in the
+    /// public `forge list commands` output or the REPL help listing.
+    pub fn is_internal(&self) -> bool {
+        matches!(
+            self,
+            SlashCommand::Message(_)
+                | SlashCommand::Custom(_)
+                | SlashCommand::Shell(_)
+                | SlashCommand::AgentSwitch(_)
+                | SlashCommand::Rename(_)
+        )
     }
 }
 

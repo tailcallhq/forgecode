@@ -39,6 +39,7 @@ use crate::editor::ReadLineError;
 use crate::info::Info;
 use crate::input::Console;
 use crate::model::{ForgeCommandManager, SlashCommand};
+use strum::IntoEnumIterator;
 use crate::porcelain::Porcelain;
 use crate::prompt::ForgePrompt;
 use crate::state::UIState;
@@ -1313,25 +1314,32 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_show_commands(&mut self, porcelain: bool) -> anyhow::Result<()> {
         let mut info = Info::new();
 
-        // Load built-in commands from JSON
-        // NOTE: When adding a new command, update built_in_commands.json AND
-        //       shell-plugin/forge.plugin.zsh (case statement around line 745)
-        const COMMANDS_JSON: &str = include_str!("built_in_commands.json");
-
-        #[derive(serde::Deserialize)]
-        struct Command<'a> {
-            command: &'a str,
-            description: &'a str,
+        // Generate built-in commands directly from the SlashCommand enum so
+        // the list always stays in sync with what the REPL actually supports.
+        // Internal/meta variants (Message, Custom, Shell, AgentSwitch, Rename)
+        // are excluded via is_internal().
+        for cmd in SlashCommand::iter().filter(|c| !c.is_internal()) {
+            info = info
+                .add_title(cmd.name())
+                .add_key_value("type", CommandType::Command)
+                .add_key_value("description", cmd.usage());
         }
 
-        let built_in_commands: Vec<Command> =
-            serde_json::from_str(COMMANDS_JSON).expect("Failed to parse built_in_commands.json");
-
-        for cmd in &built_in_commands {
+        // ZSH-only commands that have no REPL equivalent but must appear in
+        // `forge list commands` for shell tab-completion.
+        let zsh_only: &[(&str, &str)] = &[
+            ("doctor", "Run environment diagnostics for the shell plugin"),
+            (
+                "keyboard-shortcuts",
+                "Display ZSH keyboard shortcuts [alias: kb]",
+            ),
+            ("setup", "Setup zsh integration by updating .zshrc"),
+        ];
+        for (name, description) in zsh_only {
             info = info
-                .add_title(cmd.command)
+                .add_title(*name)
                 .add_key_value("type", CommandType::Command)
-                .add_key_value("description", cmd.description);
+                .add_key_value("description", *description);
         }
 
         // Add agent aliases
@@ -2131,6 +2139,78 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     ));
                 }
             }
+            SlashCommand::Config => {
+                self.on_show_config(false).await?;
+            }
+            SlashCommand::ConfigModel => {
+                self.on_model_selection(None).await?;
+            }
+            SlashCommand::ConfigReload => {
+                self.writeln_title(TitleFormat::info(
+                    "No session overrides in REPL mode. Use :model to switch the active model.",
+                ))?;
+            }
+            SlashCommand::ReasoningEffort => {
+                self.on_reasoning_effort_selection(false).await?;
+            }
+            SlashCommand::ConfigReasoningEffort => {
+                self.on_reasoning_effort_selection(true).await?;
+            }
+            SlashCommand::ConfigCommitModel => {
+                self.on_config_commit_model().await?;
+            }
+            SlashCommand::ConfigSuggestModel => {
+                self.on_config_suggest_model().await?;
+            }
+            SlashCommand::ConfigEdit => {
+                self.on_config_edit().await?;
+            }
+            SlashCommand::Skill => {
+                self.on_show_skills(false, false).await?;
+            }
+            SlashCommand::Edit(initial) => {
+                self.on_edit_buffer(initial).await?;
+            }
+            SlashCommand::CommitPreview => {
+                let args = CommitCommandGroup {
+                    preview: true,
+                    max_diff_size: Some(100_000),
+                    diff: None,
+                    text: Vec::new(),
+                };
+                let result = self.handle_commit_command(args).await?;
+                let flags = if result.has_staged_files { "" } else { " -a" };
+                let commit_command = format!("!git commit{flags} -m '{}'", result.message);
+                self.console.set_buffer(commit_command);
+            }
+            SlashCommand::Suggest(description) => {
+                self.on_suggest(description).await?;
+            }
+            SlashCommand::Clone(id) => {
+                self.on_slash_clone(id).await?;
+            }
+            SlashCommand::ConversationRename(args) => {
+                self.on_slash_conversation_rename(args).await?;
+            }
+            SlashCommand::Copy => {
+                self.on_copy().await?;
+            }
+            SlashCommand::WorkspaceSync => {
+                let working_dir = self.state.cwd.clone();
+                self.on_index(working_dir, true).await?;
+            }
+            SlashCommand::WorkspaceStatus => {
+                let cwd = self.state.cwd.clone();
+                self.on_workspace_status(cwd, false).await?;
+            }
+            SlashCommand::WorkspaceInfo => {
+                let cwd = self.state.cwd.clone();
+                self.on_workspace_info(cwd).await?;
+            }
+            SlashCommand::WorkspaceInit => {
+                let cwd = self.state.cwd.clone();
+                self.on_workspace_init(cwd, false).await?;
+            }
         }
 
         Ok(false)
@@ -2162,6 +2242,442 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             "Conversation renamed to '{}'",
             name.bold()
         )))?;
+        Ok(())
+    }
+
+    /// Selects and sets the reasoning effort level interactively.
+    ///
+    /// # Arguments
+    /// * `global` - If true, persists the change to the global config file.
+    ///   If false, applies to the session (REPL has no separate session scope,
+    ///   so this always writes to the config).
+    async fn on_reasoning_effort_selection(&mut self, global: bool) -> anyhow::Result<()> {
+        use std::str::FromStr;
+
+        let effort_levels: Vec<String> = vec![
+            "none".to_string(),
+            "minimal".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+            "max".to_string(),
+        ];
+
+        let current_effort = self.api.get_reasoning_effort().await.ok().flatten();
+        let current_str = current_effort.as_ref().map(|e| e.to_string());
+
+        let starting_cursor = current_str
+            .as_ref()
+            .and_then(|c| effort_levels.iter().position(|e| e == c))
+            .unwrap_or(0);
+
+        let prompt = if global {
+            "Config Reasoning Effort"
+        } else {
+            "Reasoning Effort"
+        };
+
+        let selected = ForgeWidget::select(prompt, effort_levels)
+            .with_starting_cursor(starting_cursor)
+            .prompt()?;
+
+        if let Some(effort_str) = selected {
+            let effort = forge_domain::Effort::from_str(&effort_str)
+                .map_err(|_| anyhow::anyhow!("Invalid effort level: {effort_str}"))?;
+            self.api
+                .update_config(vec![ConfigOperation::SetReasoningEffort(effort.clone())])
+                .await?;
+            self.writeln_title(
+                TitleFormat::action(effort_str).sub_title("is now the reasoning effort"),
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Selects and sets the commit model via interactive model picker.
+    async fn on_config_commit_model(&mut self) -> anyhow::Result<()> {
+        let selection = self.select_model(None).await?;
+        if let Some((model, provider_id)) = selection {
+            let commit_config = forge_domain::ModelConfig::new(provider_id.clone(), model.clone());
+            self.api
+                .update_config(vec![ConfigOperation::SetCommitConfig(Some(commit_config))])
+                .await?;
+            self.writeln_title(
+                TitleFormat::action(model.as_str())
+                    .sub_title(format!("is now the commit model for provider '{provider_id}'")),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Selects and sets the suggest model via interactive model picker.
+    async fn on_config_suggest_model(&mut self) -> anyhow::Result<()> {
+        let selection = self.select_model(None).await?;
+        if let Some((model, provider_id)) = selection {
+            let suggest_config =
+                forge_domain::ModelConfig::new(provider_id.clone(), model.clone());
+            self.api
+                .update_config(vec![ConfigOperation::SetSuggestConfig(suggest_config)])
+                .await?;
+            self.writeln_title(
+                TitleFormat::action(model.as_str())
+                    .sub_title(format!("is now the suggest model for provider '{provider_id}'")),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Opens the global config file in the system editor.
+    async fn on_config_edit(&mut self) -> anyhow::Result<()> {
+        let config_path = forge_config::ConfigReader::config_path();
+
+        // Ensure parent directory exists
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // Create config file if it does not exist
+        if !config_path.exists() {
+            std::fs::File::create(&config_path)?;
+        }
+
+        let editor = std::env::var("FORGE_EDITOR")
+            .or_else(|_| std::env::var("EDITOR"))
+            .unwrap_or_else(|_| "nano".to_string());
+        let editor_binary = editor
+            .split_whitespace()
+            .next()
+            .unwrap_or("nano")
+            .to_string();
+
+        let status = std::process::Command::new(&editor_binary)
+            .arg(&config_path)
+            .status()
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to open editor '{}': {}. Set FORGE_EDITOR or EDITOR.",
+                    editor_binary,
+                    e
+                )
+            })?;
+
+        if !status.success() {
+            return Err(anyhow::anyhow!(
+                "Editor exited with error code: {}",
+                status
+            ));
+        }
+
+        self.writeln_title(TitleFormat::info(format!(
+            "Config saved: {}",
+            config_path.display()
+        )))?;
+
+        Ok(())
+    }
+
+    /// Opens an external editor to compose a prompt and sets it in the REPL
+    /// buffer on exit.
+    ///
+    /// # Arguments
+    /// * `initial` - Optional text to pre-populate the editor with.
+    async fn on_edit_buffer(&mut self, initial: Option<String>) -> anyhow::Result<()> {
+        use std::io::Write as _;
+
+        let editor = std::env::var("FORGE_EDITOR")
+            .or_else(|_| std::env::var("EDITOR"))
+            .unwrap_or_else(|_| "nano".to_string());
+        let editor_binary = editor
+            .split_whitespace()
+            .next()
+            .unwrap_or("nano")
+            .to_string();
+
+        // Create .forge directory for the temp file
+        let forge_dir = self.state.cwd.join(".forge");
+        std::fs::create_dir_all(&forge_dir)?;
+        let temp_file = forge_dir.join("FORGE_EDITMSG.md");
+
+        // Write initial content
+        let mut file = std::fs::File::create(&temp_file)?;
+        if let Some(text) = initial {
+            file.write_all(text.as_bytes())?;
+        }
+        drop(file);
+
+        let status = std::process::Command::new(&editor_binary)
+            .arg(&temp_file)
+            .status()
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to open editor '{}': {}. Set FORGE_EDITOR or EDITOR.",
+                    editor_binary,
+                    e
+                )
+            })?;
+
+        if !status.success() {
+            return Err(anyhow::anyhow!(
+                "Editor exited with error code: {}",
+                status
+            ));
+        }
+
+        let content = std::fs::read_to_string(&temp_file)?;
+        let content = content.trim().to_string();
+
+        if content.is_empty() {
+            self.writeln_title(TitleFormat::info("Editor closed with no content"))?;
+            return Ok(());
+        }
+
+        // Pre-fill the REPL buffer so the user can review/edit before sending
+        self.console.set_buffer(format!(": {content}"));
+
+        Ok(())
+    }
+
+    /// Generates a shell command from a natural language description and sets
+    /// it in the REPL buffer.
+    ///
+    /// # Arguments
+    /// * `description` - Optional natural language description. If `None`, an
+    ///   interactive prompt is shown.
+    async fn on_suggest(&mut self, description: Option<String>) -> anyhow::Result<()> {
+        let description = match description {
+            Some(d) if !d.is_empty() => d,
+            _ => {
+                let input = ForgeWidget::input("Describe the command you want")
+                    .allow_empty(false)
+                    .prompt()?;
+                match input {
+                    Some(d) if !d.is_empty() => d,
+                    _ => {
+                        self.writeln_title(TitleFormat::error(
+                            "No description provided. Usage: :suggest <description>",
+                        ))?;
+                        return Ok(());
+                    }
+                }
+            }
+        };
+
+        self.spinner.start(Some("Generating"))?;
+
+        let prompt = UserPrompt::from(description);
+        match self.api.generate_command(prompt).await {
+            Ok(command) => {
+                self.spinner.stop(None)?;
+                self.writeln(command.clone())?;
+                // Set the generated command in the buffer for review
+                self.console.set_buffer(command);
+                Ok(())
+            }
+            Err(err) => {
+                self.spinner.stop(None)?;
+                Err(err)
+            }
+        }
+    }
+
+    /// Clones a conversation (current or selected) and switches to the clone.
+    ///
+    /// # Arguments
+    /// * `id` - Optional conversation ID to clone. If `None`, the current
+    ///   conversation is used; if no active conversation, an interactive picker
+    ///   is shown.
+    async fn on_slash_clone(&mut self, id: Option<String>) -> anyhow::Result<()> {
+        let target_id = if let Some(id_str) = id {
+            ConversationId::parse(&id_str)
+                .map_err(|_| anyhow::anyhow!("Invalid conversation ID: {id_str}"))?
+        } else {
+            // Show conversation picker
+            let conversations = self
+                .api
+                .get_conversations(Some(self.config.max_conversations))
+                .await?;
+
+            if conversations.is_empty() {
+                self.writeln_title(TitleFormat::error(
+                    "No conversations found. Start a conversation first.",
+                ))?;
+                return Ok(());
+            }
+
+            let selected = ConversationSelector::select_conversation(
+                &conversations,
+                self.state.conversation_id,
+            )
+            .await?;
+
+            match selected {
+                Some(conv) => conv.id,
+                None => return Ok(()),
+            }
+        };
+
+        // Fetch the conversation to clone
+        let original = self
+            .api
+            .conversation(&target_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Conversation '{target_id}' not found"))?;
+
+        let original_id = original.id;
+
+        // Create the clone
+        let new_id = ConversationId::generate();
+        let mut cloned = original;
+        cloned.id = new_id;
+        self.api.upsert_conversation(cloned).await?;
+
+        // Switch to the cloned conversation
+        self.state.conversation_id = Some(new_id);
+
+        self.writeln_title(
+            TitleFormat::info("Cloned").sub_title(format!("[{original_id} → {new_id}]")),
+        )?;
+
+        Ok(())
+    }
+
+    /// Renames any conversation interactively or by explicit ID and name.
+    ///
+    /// # Arguments
+    /// * `args` - Optional `"<id> <name>"` string. If `None`, shows a
+    ///   conversation picker and prompts for a new name.
+    async fn on_slash_conversation_rename(&mut self, args: Option<String>) -> anyhow::Result<()> {
+        if let Some(args) = args {
+            // Parse as "<id> <name>"
+            let mut parts = args.splitn(2, ' ');
+            let id_str = parts.next().unwrap_or("").trim();
+            let name = parts.next().unwrap_or("").trim();
+
+            if id_str.is_empty() || name.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "Usage: :conversation-rename <id> <name>"
+                ));
+            }
+
+            let conversation_id = ConversationId::parse(id_str)
+                .map_err(|_| anyhow::anyhow!("Invalid conversation ID: {id_str}"))?;
+
+            self.api
+                .rename_conversation(&conversation_id, name.to_string())
+                .await?;
+            self.writeln_title(TitleFormat::info(format!(
+                "Conversation '{}' renamed to '{}'",
+                conversation_id.into_string().bold(),
+                name.bold()
+            )))?;
+        } else {
+            // Interactive: show picker then prompt for new name
+            let conversations = self
+                .api
+                .get_conversations(Some(self.config.max_conversations))
+                .await?;
+
+            if conversations.is_empty() {
+                self.writeln_title(TitleFormat::error("No conversations found."))?;
+                return Ok(());
+            }
+
+            let selected = ConversationSelector::select_conversation(
+                &conversations,
+                self.state.conversation_id,
+            )
+            .await?;
+
+            if let Some(conv) = selected {
+                let name_result = ForgeWidget::input("New name")
+                    .allow_empty(false)
+                    .prompt()?;
+
+                if let Some(name) = name_result {
+                    if !name.is_empty() {
+                        self.api.rename_conversation(&conv.id, name.clone()).await?;
+                        self.writeln_title(TitleFormat::info(format!(
+                            "Conversation renamed to '{}'",
+                            name.bold()
+                        )))?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Copies the last AI response from the active conversation to the
+    /// system clipboard.
+    async fn on_copy(&mut self) -> anyhow::Result<()> {
+        let conversation_id = match &self.state.conversation_id {
+            Some(cid) => *cid,
+            None => {
+                self.writeln_title(TitleFormat::error(
+                    "No active conversation. Start a conversation first.",
+                ))?;
+                return Ok(());
+            }
+        };
+
+        let conversation = match self.api.conversation(&conversation_id).await? {
+            Some(conv) => conv,
+            None => {
+                self.writeln_title(TitleFormat::error("Conversation not found."))?;
+                return Ok(());
+            }
+        };
+
+        let context = match &conversation.context {
+            Some(ctx) => ctx.clone(),
+            None => {
+                self.writeln_title(TitleFormat::error("Conversation has no messages."))?;
+                return Ok(());
+            }
+        };
+
+        // Find the last assistant message
+        let content = context.messages.iter().rev().find_map(|msg| match &**msg {
+            forge_domain::ContextMessage::Text(forge_api::TextMessage {
+                content,
+                role: forge_domain::Role::Assistant,
+                ..
+            }) => Some(content.clone()),
+            _ => None,
+        });
+
+        match content {
+            None => {
+                self.writeln_title(TitleFormat::error(
+                    "No assistant message found in this conversation.",
+                ))?;
+            }
+            Some(content) => {
+                #[cfg(not(target_os = "android"))]
+                let copied = arboard::Clipboard::new()
+                    .and_then(|mut cb| cb.set_text(content.clone()))
+                    .is_ok();
+
+                #[cfg(target_os = "android")]
+                let copied = false;
+
+                if copied {
+                    let line_count = content.lines().count();
+                    let byte_count = content.len();
+                    self.writeln_title(TitleFormat::info(format!(
+                        "Copied to clipboard [{line_count} lines, {byte_count} bytes]"
+                    )))?;
+                } else {
+                    self.writeln_title(TitleFormat::error(
+                        "Failed to copy to clipboard. Ensure xclip/xsel (Linux) or pbcopy (macOS) is available.",
+                    ))?;
+                }
+            }
+        }
+
         Ok(())
     }
 
