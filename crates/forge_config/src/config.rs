@@ -282,23 +282,6 @@ pub struct ForgeConfig {
     #[serde(default)]
     pub verify_todos: bool,
 
-    /// Whether to include terminal context (recent shell commands, exit codes,
-    /// and timestamps) in the user prompt. When enabled, the shell plugin
-    /// exports the captured command history and the Rust service injects it
-    /// into the rendered prompt via [`EventContext`].
-    ///
-    /// Defaults to `false` so that users explicitly opt in before their shell
-    /// history is sent to the LLM. Shell history can contain passwords, API
-    /// keys, and other sensitive data passed as command-line arguments.
-    #[serde(default)]
-    pub terminal_context: bool,
-
-    /// Maximum number of recent terminal commands included in the terminal
-    /// context injected into the user prompt. Commands are sorted by timestamp
-    /// so that the most recent command appears last. When set to `0` (the
-    /// default), all captured commands are included.
-    #[serde(default)]
-    pub max_terminal_commands: usize,
 }
 
 impl ForgeConfig {

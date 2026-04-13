@@ -178,17 +178,12 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
                 None => event_context,
             };
 
-            // Inject terminal context into the event context if enabled in config.
-            let event_context = match self.services.get_config().map(|c| c.terminal_context) {
-                Ok(true) => {
-                    match TerminalContextService::new(self.services.clone()).get_terminal_context()
-                    {
-                        Some(ctx) => event_context.terminal_context(Some(ctx)),
-                        None => event_context,
-                    }
-                }
-                _ => event_context,
-            };
+            // Inject terminal context into the event context when available.
+            let event_context =
+                match TerminalContextService::new(self.services.clone()).get_terminal_context() {
+                    Some(ctx) => event_context.terminal_context(Some(ctx)),
+                    None => event_context,
+                };
 
             // Render the event value into agent's user prompt template.
             Some(
