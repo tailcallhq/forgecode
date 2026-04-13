@@ -349,9 +349,10 @@ impl ForgeCommandManager {
                 // Check if it's an agent command pattern (agent-*)
                 if command_name.starts_with("agent-") {
                     if let Some(found_command) = self.find(command_name)
-                        && let Some(agent_id) = &found_command.value {
-                            return Ok(AppCommand::AgentSwitch(agent_id.clone()));
-                        }
+                        && let Some(agent_id) = &found_command.value
+                    {
+                        return Ok(AppCommand::AgentSwitch(agent_id.clone()));
+                    }
                     return Err(anyhow::anyhow!(
                         "/{command_name} is not a valid agent command"
                     ));
