@@ -198,13 +198,6 @@
       "default": 0,
       "minimum": 0
     },
-    "max_terminal_commands": {
-      "description": "Maximum number of recent terminal commands included in the terminal\ncontext injected into the user prompt. Commands are sorted by timestamp\nso that the most recent command appears last. When set to `0` (the\ndefault), all captured commands are included.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
     "max_tokens": {
       "description": "Maximum tokens the model may generate per response for all agents\n(1–100,000).",
       "type": [
@@ -308,11 +301,6 @@
           "type": "null"
         }
       ]
-    },
-    "terminal_context": {
-      "description": "Whether to include terminal context (recent shell commands, exit codes,\nand timestamps) in the user prompt. When enabled, the shell plugin\nexports the captured command history and the Rust service injects it\ninto the rendered prompt via [`EventContext`].\n\nDefaults to `false` so that users explicitly opt in before their shell\nhistory is sent to the LLM. Shell history can contain passwords, API\nkeys, and other sensitive data passed as command-line arguments.",
-      "type": "boolean",
-      "default": false
     },
     "tool_supported": {
       "description": "Whether tool use is supported in the current environment; when false,\nall tool calls are disabled.",
