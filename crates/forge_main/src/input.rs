@@ -27,10 +27,11 @@ impl Console {
 }
 
 impl Console {
-    pub async fn prompt(&self, prompt: ForgePrompt) -> anyhow::Result<SlashCommand> {
+    pub async fn prompt(&self, prompt: &mut ForgePrompt) -> anyhow::Result<SlashCommand> {
         loop {
             let mut forge_editor = self.editor.lock().unwrap();
-            let user_input = forge_editor.prompt(&prompt)?;
+            let user_input = forge_editor.prompt(prompt)?;
+            
             drop(forge_editor);
             match user_input {
                 ReadResult::Continue => continue,

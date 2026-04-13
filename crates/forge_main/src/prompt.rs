@@ -23,6 +23,21 @@ pub struct ForgePrompt {
     pub usage: Option<Usage>,
     pub agent_id: AgentId,
     pub model: Option<ModelId>,
+    pub git_branch: Option<String>,
+}
+
+impl ForgePrompt {
+    /// Creates a new `ForgePrompt`, resolving the git branch once at construction time.
+    pub fn new(cwd: PathBuf, agent_id: AgentId) -> Self {
+        let git_branch = get_git_branch();
+        Self { cwd, usage: None, agent_id, model: None, git_branch }
+    }
+
+    pub fn refresh(&mut self) -> &mut Self {
+        let git_branch = get_git_branch();
+        self.git_branch = git_branch;
+        self
+    }
 }
 
 impl Prompt for ForgePrompt {
@@ -40,9 +55,6 @@ impl Prompt for ForgePrompt {
             .map(String::from)
             .unwrap_or_else(|| markers::EMPTY.to_string());
 
-        // Get git branch (only if we're in a git repo)
-        let branch_opt = get_git_branch();
-
         // Use a string buffer to reduce allocations
         let mut result = String::with_capacity(64); // Pre-allocate a reasonable size
 
@@ -56,7 +68,7 @@ impl Prompt for ForgePrompt {
         .unwrap();
 
         // Only append branch info if present
-        if let Some(branch) = branch_opt
+        if let Some(branch) = self.git_branch.as_deref()
             && branch != current_dir
         {
             write!(result, " {} ", branch_style.paint(branch)).unwrap();
@@ -158,6 +170,7 @@ mod tests {
                 usage: None,
                 agent_id: AgentId::default(),
                 model: None,
+                git_branch: None,
             }
         }
     }
