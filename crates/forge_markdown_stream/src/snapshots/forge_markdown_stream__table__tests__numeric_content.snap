@@ -1,5 +1,5 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
 expression: "render(vec![vec![\"ID\", \"Price\", \"Quantity\"], vec![\"1001\", \"$19.99\", \"150\"],\nvec![\"1002\", \"$249.50\", \"25\"], vec![\"1003\", \"$5.00\", \"1000\"],])"
 ---
   ┌──────┬─────────┬──────────┐

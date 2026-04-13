@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn test_empty_content() {
-        insta::assert_snapshot!(render(0, ListBullet::Dash, ""), @"  <dash>•</dash> ");
+        insta::assert_snapshot!(render(0, ListBullet::Dash, ""), @"  <dash>•</dash>");
     }
 
     #[test]
@@ -332,7 +332,7 @@ mod tests {
             "This is a very long list item that should wrap to multiple lines",
             40,
         );
-        insta::assert_snapshot!(result, @r"
+        insta::assert_snapshot!(result, @"
         <dash>•</dash> This is a very long list item that
           should wrap to multiple lines
         ");

@@ -31,18 +31,25 @@ impl<A, F> ForgeAPI<A, F> {
         Self { services, infra }
     }
 
-    /// Creates a ForgeApp instance with the current services
+    /// Creates a ForgeApp instance with the current services and latest config.
     fn app(&self) -> ForgeApp<A>
     where
-        A: Services,
+        A: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>,
+        F: EnvironmentInfra<Config = forge_config::ForgeConfig>,
     {
         ForgeApp::new(self.services.clone())
     }
 }
 
 impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
-    pub fn init(cwd: PathBuf) -> Self {
-        let infra = Arc::new(ForgeInfra::new(cwd));
+    /// Creates a fully-initialized [`ForgeAPI`] from a pre-read configuration.
+    ///
+    /// # Arguments
+    /// * `cwd` - The working directory path for environment and file resolution
+    /// * `config` - Pre-read application configuration (from startup)
+    /// * `services_url` - Pre-validated URL for the gRPC workspace server
+    pub fn init(cwd: PathBuf, config: ForgeConfig) -> Self {
+        let infra = Arc::new(ForgeInfra::new(cwd, config));
         let repo = Arc::new(ForgeRepo::new(infra.clone()));
         let app = Arc::new(ForgeServices::new(repo.clone()));
         ForgeAPI::new(app, repo)
@@ -55,8 +62,13 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
 }
 
 #[async_trait::async_trait]
-impl<A: Services, F: CommandInfra + EnvironmentInfra + SkillRepository + GrpcInfra> API
-    for ForgeAPI<A, F>
+impl<
+    A: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>,
+    F: CommandInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + SkillRepository
+        + GrpcInfra,
+> API for ForgeAPI<A, F>
 {
     async fn discover(&self) -> Result<Vec<File>> {
         let environment = self.services.get_environment();
@@ -78,6 +90,10 @@ impl<A: Services, F: CommandInfra + EnvironmentInfra + SkillRepository + GrpcInf
 
     async fn get_agents(&self) -> Result<Vec<Agent>> {
         self.services.get_agents().await
+    }
+
+    async fn get_agent_infos(&self) -> Result<Vec<AgentInfo>> {
+        self.services.get_agent_infos().await
     }
 
     async fn get_providers(&self) -> Result<Vec<AnyProvider>> {
@@ -145,10 +161,6 @@ impl<A: Services, F: CommandInfra + EnvironmentInfra + SkillRepository + GrpcInf
 
     fn environment(&self) -> Environment {
         self.services.get_environment().clone()
-    }
-
-    fn get_config(&self) -> ForgeConfig {
-        self.infra.get_config()
     }
 
     async fn conversation(
@@ -222,11 +234,29 @@ impl<A: Services, F: CommandInfra + EnvironmentInfra + SkillRepository + GrpcInf
         agent_provider_resolver.get_provider(Some(agent_id)).await
     }
 
-    async fn set_default_provider(&self, provider_id: ProviderId) -> anyhow::Result<()> {
-        let result = self.services.set_default_provider(provider_id).await;
-        // Invalidate cache for agents
-        let _ = self.services.reload_agents().await;
+    async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()> {
+        // Determine whether any op affects provider/model resolution before writing,
+        // so we can invalidate the agent cache afterwards.
+        let needs_agent_reload = ops
+            .iter()
+            .any(|op| matches!(op, forge_domain::ConfigOperation::SetSessionConfig(_)));
+        let result = self.services.update_config(ops).await;
+        if needs_agent_reload {
+            let _ = self.services.reload_agents().await;
+        }
         result
+    }
+
+    async fn get_commit_config(&self) -> anyhow::Result<Option<ModelConfig>> {
+        self.services.get_commit_config().await
+    }
+
+    async fn get_suggest_config(&self) -> anyhow::Result<Option<ModelConfig>> {
+        self.services.get_suggest_config().await
+    }
+
+    async fn get_reasoning_effort(&self) -> anyhow::Result<Option<Effort>> {
+        self.services.get_reasoning_effort().await
     }
 
     async fn user_info(&self) -> Result<Option<User>> {
@@ -270,37 +300,6 @@ impl<A: Services, F: CommandInfra + EnvironmentInfra + SkillRepository + GrpcInf
     async fn get_default_model(&self) -> Option<ModelId> {
         self.services.get_provider_model(None).await.ok()
     }
-    async fn set_default_model(&self, model_id: ModelId) -> anyhow::Result<()> {
-        let result = self.services.set_default_model(model_id).await;
-        // Invalidate cache for agents
-        let _ = self.services.reload_agents().await;
-
-        result
-    }
-
-    async fn get_commit_config(&self) -> anyhow::Result<Option<CommitConfig>> {
-        self.services.get_commit_config().await
-    }
-
-    async fn set_commit_config(&self, config: CommitConfig) -> anyhow::Result<()> {
-        self.services.set_commit_config(config).await
-    }
-
-    async fn get_suggest_config(&self) -> anyhow::Result<Option<SuggestConfig>> {
-        self.services.get_suggest_config().await
-    }
-
-    async fn set_suggest_config(&self, config: SuggestConfig) -> anyhow::Result<()> {
-        self.services.set_suggest_config(config).await
-    }
-
-    async fn get_reasoning_effort(&self) -> anyhow::Result<Option<Effort>> {
-        self.services.get_reasoning_effort().await
-    }
-
-    async fn set_reasoning_effort(&self, effort: Effort) -> anyhow::Result<()> {
-        self.services.set_reasoning_effort(effort).await
-    }
 
     async fn reload_mcp(&self) -> Result<()> {
         self.services.mcp_service().reload_mcp().await
@@ -312,7 +311,6 @@ impl<A: Services, F: CommandInfra + EnvironmentInfra + SkillRepository + GrpcInf
     async fn get_skills(&self) -> Result<Vec<Skill>> {
         self.infra.load_skills().await
     }
-
     async fn generate_command(&self, prompt: UserPrompt) -> Result<String> {
         use forge_app::CommandGenerator;
         let generator = CommandGenerator::new(self.services.clone());
@@ -407,6 +405,24 @@ impl<A: Services, F: CommandInfra + EnvironmentInfra + SkillRepository + GrpcInf
     async fn get_default_provider(&self) -> Result<Provider<Url>> {
         let provider_id = self.services.get_default_provider().await?;
         self.services.get_provider(provider_id).await
+    }
+
+    async fn mcp_auth(&self, server_url: &str) -> Result<()> {
+        let env = self.services.get_environment().clone();
+        forge_infra::mcp_auth(server_url, &env).await
+    }
+
+    async fn mcp_logout(&self, server_url: Option<&str>) -> Result<()> {
+        let env = self.services.get_environment().clone();
+        match server_url {
+            Some(url) => forge_infra::mcp_logout(url, &env).await,
+            None => forge_infra::mcp_logout_all(&env).await,
+        }
+    }
+
+    async fn mcp_auth_status(&self, server_url: &str) -> Result<String> {
+        let env = self.services.get_environment().clone();
+        Ok(forge_infra::mcp_auth_status(server_url, &env).await)
     }
 
     fn hydrate_channel(&self) -> Result<()> {

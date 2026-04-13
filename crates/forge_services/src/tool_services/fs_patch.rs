@@ -411,6 +411,86 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
             content_hash,
         })
     }
+
+    async fn multi_patch(
+        &self,
+        input_path: String,
+        edits: Vec<forge_domain::PatchEdit>,
+    ) -> anyhow::Result<PatchOutput> {
+        let path = Path::new(&input_path);
+        assert_absolute_path(path)?;
+
+        // Read the original content once
+        let mut current_content = fs::read_to_string(path)
+            .await
+            .map_err(Error::FileOperation)?;
+        // Save the old content before modification for diff generation
+        let old_content = current_content.clone();
+
+        // Apply each edit sequentially
+        for edit in &edits {
+            // Convert replace_all boolean to PatchOperation
+            let operation = if edit.replace_all {
+                PatchOperation::ReplaceAll
+            } else {
+                PatchOperation::Replace
+            };
+
+            // Compute range from search if provided
+            let range = match compute_range(&current_content, Some(&edit.old_string), &operation) {
+                Ok(r) => r,
+                Err(Error::NoMatch(search_text))
+                    if matches!(
+                        operation,
+                        PatchOperation::Replace | PatchOperation::ReplaceAll | PatchOperation::Swap
+                    ) =>
+                {
+                    // Try fuzzy search as fallback
+                    match self
+                        .infra
+                        .fuzzy_search(&search_text, &current_content, false)
+                        .await
+                    {
+                        Ok(matches) if !matches.is_empty() => {
+                            // Use the first fuzzy match
+                            Some(Range::from_search_match(&current_content, &matches[0]))
+                        }
+                        _ => return Err(Error::NoMatch(search_text).into()),
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            };
+
+            // Apply the replacement
+            current_content =
+                apply_replacement(current_content, range, &operation, &edit.new_string)?;
+        }
+
+        // SNAPSHOT COORDINATION: Always capture snapshot before modifying
+        self.infra.insert_snapshot(path).await?;
+
+        // Write final content to file after all patches are applied
+        self.infra
+            .write(path, Bytes::from(current_content.clone()))
+            .await?;
+
+        // Compute hash of the final file content
+        let content_hash = compute_hash(&current_content);
+
+        // Validate file syntax using remote validation API (graceful failure)
+        let errors = self
+            .infra
+            .validate_file(path, &current_content)
+            .await
+            .unwrap_or_default();
+
+        Ok(PatchOutput {
+            errors,
+            before: old_content,
+            after: current_content,
+            content_hash,
+        })
+    }
 }
 
 #[cfg(test)]

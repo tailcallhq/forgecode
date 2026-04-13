@@ -117,11 +117,21 @@ impl ForgeCommandExecutorService {
         } else {
             let stdout_writer = OutputPrinterWriter::stdout(self.output_printer.clone());
             let stderr_writer = OutputPrinterWriter::stderr(self.output_printer.clone());
-            tokio::try_join!(
+            let result = tokio::try_join!(
                 child.wait(),
                 stream(&mut stdout_pipe, stdout_writer),
                 stream(&mut stderr_pipe, stderr_writer)
-            )?
+            )?;
+
+            // If the command's stdout did not end with a newline, the terminal
+            // cursor is left mid-line. Write a newline so that subsequent output
+            // (e.g. the LLM response) starts on a fresh line.
+            if result.1.last() != Some(&b'\n') && !result.1.is_empty() {
+                let _ = self.output_printer.write(b"\n");
+                let _ = self.output_printer.flush();
+            }
+
+            result
         };
 
         // Drop happens after `try_join` due to <https://github.com/tokio-rs/tokio/issues/4309>

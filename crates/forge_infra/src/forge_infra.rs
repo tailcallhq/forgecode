@@ -18,7 +18,7 @@ use reqwest_eventsource::EventSource;
 
 use crate::auth::{AnyAuthStrategy, ForgeAuthStrategyFactory};
 use crate::console::StdConsoleWriter;
-use crate::env::ForgeEnvironmentInfra;
+use crate::env::{ForgeEnvironmentInfra, to_environment};
 use crate::executor::ForgeCommandExecutorService;
 use crate::fs_create_dirs::ForgeCreateDirsService;
 use crate::fs_meta::ForgeFileMetaService;
@@ -55,12 +55,21 @@ pub struct ForgeInfra {
 }
 
 impl ForgeInfra {
-    pub fn new(cwd: PathBuf) -> Self {
-        let config_infra = Arc::new(ForgeEnvironmentInfra::new(cwd));
-        let env = config_infra.get_environment();
-        let config = config_infra.get_config();
-
+    /// Creates a new [`ForgeInfra`] with all infrastructure services
+    /// initialized.
+    ///
+    /// # Arguments
+    /// * `cwd` - The working directory for command execution and environment
+    ///   resolution
+    /// * `config` - Pre-read application configuration; used only at
+    ///   construction time to initialize infrastructure services
+    /// * `services_url` - Pre-validated URL for the gRPC workspace server
+    pub fn new(cwd: PathBuf, config: forge_config::ForgeConfig) -> Self {
+        let env = to_environment(cwd.clone());
+        let config_infra = Arc::new(ForgeEnvironmentInfra::new(cwd, config.clone()));
         let file_write_service = Arc::new(ForgeFileWriteService::new());
+        let config = config_infra.cached_config().unwrap_or(config);
+
         let http_service = Arc::new(ForgeHttpInfra::new(
             config.clone(),
             file_write_service.clone(),
@@ -68,14 +77,12 @@ impl ForgeInfra {
         let file_read_service = Arc::new(ForgeFileReadService::new());
         let file_meta_service = Arc::new(ForgeFileMetaService);
         let directory_reader_service = Arc::new(ForgeDirectoryReaderService::new(
-            config.max_parallel_file_reads,
+            config_infra
+                .cached_config()
+                .map(|c| c.max_parallel_file_reads)
+                .unwrap_or(4),
         ));
-        let grpc_client = Arc::new(ForgeGrpcClient::new(
-            config
-                .services_url
-                .parse()
-                .expect("services_url must be a valid URL"),
-        ));
+        let grpc_client = Arc::new(ForgeGrpcClient::new(config.services_url.clone()));
         let output_printer = Arc::new(StdConsoleWriter::default());
 
         Self {
@@ -93,11 +100,23 @@ impl ForgeInfra {
             inquire_service: Arc::new(ForgeInquire::new()),
             mcp_server: ForgeMcpServer,
             walker_service: Arc::new(ForgeWalkerService::new()),
-            strategy_factory: Arc::new(ForgeAuthStrategyFactory::new()),
+            strategy_factory: Arc::new(ForgeAuthStrategyFactory::new(env.clone())),
             http_service,
             grpc_client,
             output_printer,
         }
+    }
+}
+
+impl ForgeInfra {
+    /// Returns the current application configuration, re-reading from disk if
+    /// the cache was invalidated by a prior `update_environment` call.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the disk read fails.
+    pub fn config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+        self.config_infra.cached_config()
     }
 }
 
@@ -116,7 +135,7 @@ impl EnvironmentInfra for ForgeInfra {
         self.config_infra.get_environment()
     }
 
-    fn get_config(&self) -> forge_config::ForgeConfig {
+    fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
         self.config_infra.get_config()
     }
 
@@ -162,6 +181,10 @@ impl FileReaderInfra for ForgeInfra {
 impl FileWriterInfra for ForgeInfra {
     async fn write(&self, path: &Path, contents: Bytes) -> anyhow::Result<()> {
         self.file_write_service.write(path, contents).await
+    }
+
+    async fn append(&self, path: &Path, contents: Bytes) -> anyhow::Result<()> {
+        self.file_write_service.append(path, contents).await
     }
 
     async fn write_temp(&self, prefix: &str, ext: &str, content: &str) -> anyhow::Result<PathBuf> {
@@ -260,8 +283,9 @@ impl McpServerInfra for ForgeInfra {
         &self,
         config: McpServerConfig,
         env_vars: &BTreeMap<String, String>,
+        environment: &forge_domain::Environment,
     ) -> anyhow::Result<Self::Client> {
-        self.mcp_server.connect(config, env_vars).await
+        self.mcp_server.connect(config, env_vars, environment).await
     }
 }
 
@@ -336,7 +360,7 @@ impl StrategyFactory for ForgeInfra {
 }
 
 impl GrpcInfra for ForgeInfra {
-    fn channel(&self) -> tonic::transport::Channel {
+    fn channel(&self) -> anyhow::Result<tonic::transport::Channel> {
         self.grpc_client.channel()
     }
 
