@@ -439,6 +439,279 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
     }
 }
 
+/// Sanitizes a JSON schema for Google/Gemini API compatibility.
+///
+/// The Gemini API uses OpenAPI 3.0-style function declarations rather than raw
+/// JSON Schema, and has several restrictions that differ from standard JSON
+/// Schema:
+///
+/// - **Integer/number enums are rejected**: Gemini requires all enum values to
+///   be strings. Integer and number type enums are converted to string enums.
+/// - **Arrays require `items`**: Gemini rejects array schemas without an
+///   `items` field. A default `{ "type": "string" }` is added if missing,
+///   unless the array has a combiner (`anyOf`/`oneOf`/`allOf`).
+/// - **Non-object types must not have `properties`/`required`**: Gemini rejects
+///   `properties` and `required` fields on non-object schemas (e.g., strings
+///   with properties). These are stripped.
+/// - **`required` must reference existing `properties`**: Gemini rejects
+///   `required` entries that don't have corresponding entries in `properties`.
+///   The `required` array is filtered to only include fields present in
+///   `properties`.
+/// - **`$schema` is rejected**: Removed if present.
+/// - **`additionalProperties` is rejected**: OpenAPI 3.0 doesn't support this
+///   keyword. It is removed from all object schemas.
+/// - **`const` is rejected**: Converted to single-value `enum` (OpenAPI 3.0
+///   style).
+/// - **Nullable types**: `{ "type": ["string", "null"] }` is converted to `{
+///   "type": "string", "nullable": true }` (OpenAPI 3.0 style).
+pub fn sanitize_gemini_schema(schema: &mut serde_json::Value) {
+    match schema {
+        serde_json::Value::Object(map) => {
+            // Remove $schema field (Gemini API doesn't accept it)
+            map.remove("$schema");
+
+            // Remove additionalProperties (OpenAPI 3.0 doesn't support it)
+            map.remove("additionalProperties");
+
+            // Convert const to enum
+            if let Some(const_value) = map.remove("const")
+                && !map.contains_key("enum")
+            {
+                map.insert(
+                    "enum".to_string(),
+                    serde_json::Value::Array(vec![const_value]),
+                );
+            }
+
+            // Handle type arrays — convert to OpenAPI 3.0 compatible format.
+            // OpenAPI 3.0 doesn't support type arrays, so we convert them:
+            // - ["string", "null"] -> type: "string", nullable: true
+            // - ["string", "number"] -> anyOf: [{type: string}, {type: number}]
+            // - ["string", "number", "null"] -> anyOf: [{type: string}, {type: number}],
+            //   nullable: true
+            if map.contains_key("type") && map["type"].is_array() {
+                let types = map.remove("type").unwrap();
+                if let serde_json::Value::Array(type_arr) = types {
+                    let has_null = type_arr.iter().any(|t| t == "null");
+                    let non_null_types: Vec<serde_json::Value> =
+                        type_arr.into_iter().filter(|t| *t != "null").collect();
+
+                    if non_null_types.is_empty() {
+                        // Only null type
+                        map.insert(
+                            "type".to_string(),
+                            serde_json::Value::String("null".to_string()),
+                        );
+                    } else if non_null_types.len() == 1 {
+                        // Single non-null type: ["string", "null"] -> type: "string", nullable:
+                        // true
+                        map.insert(
+                            "type".to_string(),
+                            non_null_types.into_iter().next().unwrap(),
+                        );
+                        if has_null {
+                            map.insert("nullable".to_string(), serde_json::Value::Bool(true));
+                        }
+                    } else {
+                        // Multiple non-null types: convert to anyOf
+                        let any_of_items: Vec<serde_json::Value> = non_null_types
+                            .into_iter()
+                            .map(|t| serde_json::json!({ "type": t }))
+                            .collect();
+                        map.insert("anyOf".to_string(), serde_json::Value::Array(any_of_items));
+                        if has_null {
+                            map.insert("nullable".to_string(), serde_json::Value::Bool(true));
+                        }
+                    }
+                }
+            }
+
+            // Handle anyOf with null type — elevate null to nullable.
+            // { anyOf: [{type: string, ...}, {type: null}] } -> { type: string, nullable:
+            // true, ... } { anyOf: [{type: string, ...}, {type: number, ...},
+            // {type: null}] } -> { anyOf: [{type: string}, {type: number}], nullable: true
+            // }
+            if let Some(serde_json::Value::Array(any_of)) = map.remove("anyOf") {
+                let (null_schemas, non_null_schemas): (Vec<_>, Vec<_>) =
+                    any_of.into_iter().partition(|s| {
+                        s.as_object().is_some_and(|o| {
+                            o.len() == 1 && o.get("type").is_some_and(|t| t == "null")
+                        })
+                    });
+
+                if !null_schemas.is_empty() && non_null_schemas.len() == 1 {
+                    // Single non-null branch with nullable: merge into this schema
+                    let mut merged = non_null_schemas.into_iter().next().unwrap();
+                    if let serde_json::Value::Object(merged_map) = &mut merged {
+                        // Copy current schema's keys into the merged branch
+                        // (anyOf was already removed, so we copy everything else)
+                        let current_keys: Vec<(String, serde_json::Value)> =
+                            map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                        for (key, value) in current_keys {
+                            merged_map.entry(key).or_insert(value);
+                        }
+                    }
+                    map.insert("nullable".to_string(), serde_json::Value::Bool(true));
+                    // Put the merged schema back into map
+                    if let serde_json::Value::Object(merged_map) = merged {
+                        for (key, value) in merged_map {
+                            map.insert(key, value);
+                        }
+                    }
+                } else {
+                    // Either no null schemas, or multiple non-null schemas:
+                    // put anyOf back, possibly with nullable
+                    if !null_schemas.is_empty() {
+                        map.insert("nullable".to_string(), serde_json::Value::Bool(true));
+                    }
+                    map.insert(
+                        "anyOf".to_string(),
+                        serde_json::Value::Array(non_null_schemas),
+                    );
+                }
+            }
+
+            // Convert integer/number enum values to strings (Gemini rejects integer
+            // enums). Only change the type when there's an enum — a bare integer/number
+            // type without enum is valid for Gemini.
+            let has_numeric_type_with_enum = map
+                .get("type")
+                .and_then(|v| v.as_str())
+                .is_some_and(|t| t == "integer" || t == "number")
+                && map.contains_key("enum");
+
+            if has_numeric_type_with_enum {
+                map.insert(
+                    "type".to_string(),
+                    serde_json::Value::String("string".to_string()),
+                );
+            }
+
+            // Convert any numeric enum values to strings
+            if let Some(serde_json::Value::Array(enum_values)) = map.get_mut("enum") {
+                *enum_values = enum_values
+                    .iter()
+                    .map(|v| match v {
+                        serde_json::Value::Number(n) => serde_json::Value::String(n.to_string()),
+                        other => other.clone(),
+                    })
+                    .collect();
+            }
+
+            // Handle array schemas: ensure items field is present
+            let is_array_type = map
+                .get("type")
+                .and_then(|v| v.as_str())
+                .is_some_and(|t| t == "array");
+
+            let has_combiner =
+                map.contains_key("anyOf") || map.contains_key("oneOf") || map.contains_key("allOf");
+
+            if is_array_type && !has_combiner {
+                match map.get_mut("items") {
+                    None => {
+                        // No items at all — add a default string items schema
+                        map.insert("items".to_string(), serde_json::json!({ "type": "string" }));
+                    }
+                    Some(serde_json::Value::Object(items_map)) => {
+                        // Items exists but may be empty — ensure it has at least a
+                        // type if it has no schema-defining keywords
+                        let has_schema_intent = items_map.contains_key("type")
+                            || items_map.contains_key("$ref")
+                            || items_map.contains_key("enum")
+                            || items_map.contains_key("const")
+                            || items_map.contains_key("anyOf")
+                            || items_map.contains_key("oneOf")
+                            || items_map.contains_key("allOf")
+                            || items_map.contains_key("properties")
+                            || items_map.contains_key("additionalProperties")
+                            || items_map.contains_key("patternProperties")
+                            || items_map.contains_key("required")
+                            || items_map.contains_key("not")
+                            || items_map.contains_key("if")
+                            || items_map.contains_key("then")
+                            || items_map.contains_key("else");
+
+                        if !has_schema_intent {
+                            items_map.insert(
+                                "type".to_string(),
+                                serde_json::Value::String("string".to_string()),
+                            );
+                        }
+                    }
+                    _ => {} // items is an array or other — leave as-is
+                }
+            }
+
+            // Remove properties/required from non-object types (unless it has a
+            // combiner, which overrides the type)
+            let has_explicit_type = map.contains_key("type");
+            let type_is_not_object = map
+                .get("type")
+                .and_then(|v| v.as_str())
+                .is_some_and(|t| t != "object");
+
+            if has_explicit_type && type_is_not_object && !has_combiner {
+                map.remove("properties");
+                map.remove("required");
+            }
+
+            // Filter required array to only include fields present in properties
+            let property_keys: Option<Vec<String>> = map
+                .get("properties")
+                .and_then(|v| v.as_object())
+                .map(|props| props.keys().cloned().collect());
+
+            if let (Some(property_keys), Some(serde_json::Value::Array(required))) =
+                (property_keys, map.get_mut("required"))
+            {
+                required.retain(|v| {
+                    v.as_str()
+                        .is_some_and(|field| property_keys.iter().any(|k| k == field))
+                });
+            }
+
+            // Recursively sanitize all nested schemas
+            for key in ["properties", "$defs", "definitions", "patternProperties"] {
+                if let Some(serde_json::Value::Object(named_schemas)) = map.get_mut(key) {
+                    for value in named_schemas.values_mut() {
+                        sanitize_gemini_schema(value);
+                    }
+                }
+            }
+
+            for key in [
+                "items",
+                "contains",
+                "not",
+                "if",
+                "then",
+                "else",
+                "additionalItems",
+                "unevaluatedProperties",
+            ] {
+                if let Some(value) = map.get_mut(key) {
+                    sanitize_gemini_schema(value);
+                }
+            }
+
+            for key in ["allOf", "anyOf", "oneOf", "prefixItems"] {
+                if let Some(serde_json::Value::Array(items)) = map.get_mut(key) {
+                    for value in items.iter_mut() {
+                        sanitize_gemini_schema(value);
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for value in items.iter_mut() {
+                sanitize_gemini_schema(value);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Returns true if the Content-Type header indicates binary (non-text) content.
 ///
 /// This utility helps detect binary content types commonly returned by HTTP
@@ -1091,5 +1364,1077 @@ mod tests {
         // Verify: Required fields are set
         let required = schema["required"].as_array().unwrap();
         assert!(required.contains(&json!("pages")));
+    }
+
+    // === sanitize_gemini_schema tests ===
+
+    #[test]
+    fn test_gemini_strips_dollar_schema() {
+        let mut schema = json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        assert!(!schema.as_object().unwrap().contains_key("$schema"));
+    }
+
+    #[test]
+    fn test_gemini_removes_additional_properties() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" }
+            },
+            "additionalProperties": false
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        assert!(
+            !schema
+                .as_object()
+                .unwrap()
+                .contains_key("additionalProperties")
+        );
+    }
+
+    #[test]
+    fn test_gemini_removes_nested_additional_properties() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let metadata = &schema["properties"]["metadata"];
+        assert!(
+            !metadata
+                .as_object()
+                .unwrap()
+                .contains_key("additionalProperties")
+        );
+    }
+
+    #[test]
+    fn test_gemini_converts_integer_enum_to_string() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "priority": {
+                    "type": "integer",
+                    "enum": [1, 2, 3]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let priority = &schema["properties"]["priority"];
+        assert_eq!(priority["type"], "string");
+        assert_eq!(priority["enum"], json!(["1", "2", "3"]));
+    }
+
+    #[test]
+    fn test_gemini_converts_number_enum_to_string() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "rate": {
+                    "type": "number",
+                    "enum": [1.5, 2.5, 3.5]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let rate = &schema["properties"]["rate"];
+        assert_eq!(rate["type"], "string");
+        assert_eq!(rate["enum"], json!(["1.5", "2.5", "3.5"]));
+    }
+
+    #[test]
+    fn test_gemini_preserves_string_enum() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["fast", "slow"]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        assert_eq!(schema["properties"]["mode"]["type"], "string");
+        assert_eq!(
+            schema["properties"]["mode"]["enum"],
+            json!(["fast", "slow"])
+        );
+    }
+
+    #[test]
+    fn test_gemini_adds_items_to_array_without_items() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "tags": {
+                    "type": "array"
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        assert_eq!(schema["properties"]["tags"]["items"]["type"], "string");
+    }
+
+    #[test]
+    fn test_gemini_adds_type_to_empty_items() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {}
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        // Empty items should get type: "string"
+        assert_eq!(schema["properties"]["items"]["items"]["type"], "string");
+    }
+
+    #[test]
+    fn test_gemini_preserves_items_with_schema_intent() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string" }
+                        }
+                    }
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        // Items should still have its own type, not replaced with "string"
+        assert_eq!(schema["properties"]["items"]["items"]["type"], "object");
+    }
+
+    #[test]
+    fn test_gemini_removes_properties_from_non_object_types() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "properties": {
+                        "invalid": { "type": "string" }
+                    },
+                    "required": ["invalid"]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let name = &schema["properties"]["name"];
+        assert!(!name.as_object().unwrap().contains_key("properties"));
+        assert!(!name.as_object().unwrap().contains_key("required"));
+    }
+
+    #[test]
+    fn test_gemini_preserves_properties_on_object_type() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "properties": {
+                        "key": { "type": "string" }
+                    },
+                    "required": ["key"]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let config = &schema["properties"]["config"];
+        assert!(config.as_object().unwrap().contains_key("properties"));
+        assert!(config.as_object().unwrap().contains_key("required"));
+    }
+
+    #[test]
+    fn test_gemini_filters_required_to_existing_properties() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" },
+                "age": { "type": "integer" }
+            },
+            "required": ["name", "age", "nonexistent"]
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let required = schema["required"].as_array().unwrap();
+        assert!(required.contains(&json!("name")));
+        assert!(required.contains(&json!("age")));
+        assert!(!required.contains(&json!("nonexistent")));
+    }
+
+    #[test]
+    fn test_gemini_converts_const_to_enum() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "role": {
+                    "const": "admin"
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let role = &schema["properties"]["role"];
+        assert!(!role.as_object().unwrap().contains_key("const"));
+        assert_eq!(role["enum"], json!(["admin"]));
+    }
+
+    #[test]
+    fn test_gemini_does_not_override_existing_enum_with_const() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "role": {
+                    "const": "admin",
+                    "enum": ["admin", "user"]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let role = &schema["properties"]["role"];
+        // Existing enum should be preserved, const removed
+        assert!(!role.as_object().unwrap().contains_key("const"));
+        assert_eq!(role["enum"], json!(["admin", "user"]));
+    }
+
+    #[test]
+    fn test_gemini_converts_nullable_type_array() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": ["string", "null"]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let name = &schema["properties"]["name"];
+        assert_eq!(name["type"], "string");
+        assert_eq!(name["nullable"], true);
+    }
+
+    #[test]
+    fn test_gemini_array_with_anyof_does_not_get_default_items() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "anyOf": [
+                        { "type": "string" }
+                    ]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        // Should NOT add items since it has anyOf
+        let values = &schema["properties"]["values"];
+        assert!(!values.as_object().unwrap().contains_key("items"));
+    }
+
+    #[test]
+    fn test_gemini_full_complex_schema() {
+        let mut schema = json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "priority": {
+                    "type": "integer",
+                    "enum": [1, 2, 3]
+                },
+                "tags": {
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string",
+                    "properties": {
+                        "invalid": { "type": "string" }
+                    }
+                },
+                "status": {
+                    "const": "active"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            },
+            "required": ["priority", "tags", "nonexistent_field"],
+            "additionalProperties": false
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        // $schema removed
+        assert!(!schema.as_object().unwrap().contains_key("$schema"));
+
+        // additionalProperties removed at all levels
+        assert!(
+            !schema
+                .as_object()
+                .unwrap()
+                .contains_key("additionalProperties")
+        );
+        // metadata's additionalProperties also removed
+        assert!(
+            !schema["properties"]["metadata"]
+                .as_object()
+                .unwrap()
+                .contains_key("additionalProperties")
+        );
+
+        // integer enum converted to string
+        assert_eq!(schema["properties"]["priority"]["type"], "string");
+        assert_eq!(
+            schema["properties"]["priority"]["enum"],
+            json!(["1", "2", "3"])
+        );
+
+        // array without items gets default items
+        assert_eq!(schema["properties"]["tags"]["items"]["type"], "string");
+
+        // properties removed from non-object type (string)
+        assert!(
+            !schema["properties"]["name"]
+                .as_object()
+                .unwrap()
+                .contains_key("properties")
+        );
+
+        // const converted to enum
+        assert!(
+            !schema["properties"]["status"]
+                .as_object()
+                .unwrap()
+                .contains_key("const")
+        );
+        assert_eq!(schema["properties"]["status"]["enum"], json!(["active"]));
+
+        // required filtered to only existing properties
+        let required = schema["required"].as_array().unwrap();
+        assert!(required.contains(&json!("priority")));
+        assert!(required.contains(&json!("tags")));
+        assert!(!required.contains(&json!("nonexistent_field")));
+    }
+
+    #[test]
+    fn test_gemini_nested_integer_enum_in_array_items() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "level": {
+                                "type": "integer",
+                                "enum": [1, 2, 3]
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let level = &schema["properties"]["items"]["items"]["properties"]["level"];
+        assert_eq!(level["type"], "string");
+        assert_eq!(level["enum"], json!(["1", "2", "3"]));
+    }
+
+    #[test]
+    fn test_gemini_converts_multi_type_array_with_null() {
+        // Should become: anyOf: [{type: string}, {type: number}], nullable: true
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "multiTypeField": {
+                    "type": ["string", "number", "null"]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let field = &schema["properties"]["multiTypeField"];
+        assert!(field.as_object().unwrap().contains_key("anyOf"));
+        assert_eq!(field["nullable"], true);
+        let any_of = field["anyOf"].as_array().unwrap();
+        assert_eq!(any_of.len(), 2);
+        assert_eq!(any_of[0]["type"], "string");
+        assert_eq!(any_of[1]["type"], "number");
+    }
+
+    #[test]
+    fn test_gemini_converts_multi_type_array_without_null() {
+        // Should become: anyOf: [{type: string}, {type: number}]
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "multiTypeField": {
+                    "type": ["string", "number"]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let field = &schema["properties"]["multiTypeField"];
+        assert!(field.as_object().unwrap().contains_key("anyOf"));
+        assert!(!field.as_object().unwrap().contains_key("nullable"));
+        let any_of = field["anyOf"].as_array().unwrap();
+        assert_eq!(any_of.len(), 2);
+        assert_eq!(any_of[0]["type"], "string");
+        assert_eq!(any_of[1]["type"], "number");
+    }
+
+    #[test]
+    fn test_gemini_anyof_null_elevation_single_branch() {
+        // Should become: type: string, nullable: true, enum: [a,b,c]
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "field": {
+                    "anyOf": [
+                        { "type": "string", "enum": ["a", "b", "c"] },
+                        { "type": "null" }
+                    ]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let field = &schema["properties"]["field"];
+        assert_eq!(field["type"], "string");
+        assert_eq!(field["nullable"], true);
+        assert_eq!(field["enum"], json!(["a", "b", "c"]));
+        assert!(!field.as_object().unwrap().contains_key("anyOf"));
+    }
+
+    #[test]
+    fn test_gemini_anyof_null_elevation_multiple_branches() {
+        // Should become: anyOf: [{...non-null...}], nullable: true
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "field": {
+                    "anyOf": [
+                        { "type": "string" },
+                        { "type": "number" },
+                        { "type": "null" }
+                    ]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let field = &schema["properties"]["field"];
+        assert!(field.as_object().unwrap().contains_key("anyOf"));
+        assert_eq!(field["nullable"], true);
+        let any_of = field["anyOf"].as_array().unwrap();
+        assert_eq!(any_of.len(), 2);
+        assert_eq!(any_of[0]["type"], "string");
+        assert_eq!(any_of[1]["type"], "number");
+    }
+
+    #[test]
+    fn test_gemini_deeply_nested_const_in_anyof() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "nested": {
+                    "type": "object",
+                    "properties": {
+                        "deeplyNested": {
+                            "anyOf": [
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "value": { "const": "specific value" }
+                                    }
+                                },
+                                { "type": "string" }
+                            ]
+                        }
+                    }
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let deep_value = &schema["properties"]["nested"]["properties"]["deeplyNested"];
+        // The anyOf with null should be preserved, and const converted to enum
+        let first_branch = &deep_value["anyOf"][0];
+        assert!(!first_branch.as_object().unwrap().contains_key("const"));
+        assert_eq!(
+            first_branch["properties"]["value"]["enum"],
+            json!(["specific value"])
+        );
+    }
+
+    #[test]
+    fn test_gemini_preserves_description_and_format() {
+        let mut schema = json!({
+            "type": "object",
+            "description": "A user object",
+            "properties": {
+                "id": {
+                    "type": "number",
+                    "description": "The user ID"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "The user's full name"
+                },
+                "email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "The user's email address"
+                }
+            },
+            "required": ["id", "name"]
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        assert_eq!(schema["description"], "A user object");
+        assert_eq!(schema["properties"]["id"]["description"], "The user ID");
+        assert_eq!(
+            schema["properties"]["name"]["description"],
+            "The user's full name"
+        );
+        assert_eq!(schema["properties"]["email"]["format"], "email");
+        assert_eq!(
+            schema["properties"]["email"]["description"],
+            "The user's email address"
+        );
+    }
+
+    #[test]
+    fn test_gemini_nested_const_in_anyof_complex() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" },
+                "age": { "type": "number" },
+                "contact": {
+                    "anyOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "type": { "type": "string", "const": "email" },
+                                "value": { "type": "string" }
+                            },
+                            "required": ["type", "value"],
+                            "additionalProperties": false
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "type": { "type": "string", "const": "phone" },
+                                "value": { "type": "string" }
+                            },
+                            "required": ["type", "value"],
+                            "additionalProperties": false
+                        }
+                    ]
+                }
+            },
+            "required": ["name", "age", "contact"],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        // $schema removed
+        assert!(!schema.as_object().unwrap().contains_key("$schema"));
+        // Root additionalProperties removed
+        assert!(
+            !schema
+                .as_object()
+                .unwrap()
+                .contains_key("additionalProperties")
+        );
+        // const converted to enum inside anyOf
+        let contact = &schema["properties"]["contact"];
+        assert!(contact.as_object().unwrap().contains_key("anyOf"));
+        // anyOf branch additionalProperties removed
+        let first_branch = &contact["anyOf"][0];
+        assert!(
+            !first_branch
+                .as_object()
+                .unwrap()
+                .contains_key("additionalProperties")
+        );
+        // const in anyOf branches converted to enum
+        assert!(
+            !first_branch["properties"]["type"]
+                .as_object()
+                .unwrap()
+                .contains_key("const")
+        );
+        assert_eq!(first_branch["properties"]["type"]["enum"], json!(["email"]));
+    }
+
+    #[test]
+    fn test_gemini_empty_object_preserved_when_nested() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "url": { "type": "string", "description": "URL to navigate to" },
+                "launchOptions": {
+                    "type": "object",
+                    "description": "PuppeteerJS LaunchOptions"
+                },
+                "allowDangerous": {
+                    "type": "boolean",
+                    "description": "Allow dangerous options"
+                }
+            },
+            "required": ["url", "launchOptions"]
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let launch_options = &schema["properties"]["launchOptions"];
+        assert_eq!(launch_options["type"], "object");
+        assert_eq!(launch_options["description"], "PuppeteerJS LaunchOptions");
+    }
+
+    #[test]
+    fn test_gemini_removes_required_from_non_object_types() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "required": ["invalid"]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let data = &schema["properties"]["data"];
+        assert!(!data.as_object().unwrap().contains_key("required"));
+    }
+
+    #[test]
+    fn test_gemini_nested_non_object_removal() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "outer": {
+                    "type": "object",
+                    "properties": {
+                        "inner": {
+                            "type": "number",
+                            "properties": { "bad": { "type": "string" } },
+                            "required": ["bad"]
+                        }
+                    }
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let inner = &schema["properties"]["outer"]["properties"]["inner"];
+        assert_eq!(inner["type"], "number");
+        assert!(!inner.as_object().unwrap().contains_key("properties"));
+        assert!(!inner.as_object().unwrap().contains_key("required"));
+    }
+
+    #[test]
+    fn test_gemini_2d_array_empty_inner_items() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {}
+                    }
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        // Inner items should get default type: "string"
+        assert_eq!(
+            schema["properties"]["values"]["items"]["items"]["type"],
+            "string"
+        );
+    }
+
+    #[test]
+    fn test_gemini_2d_array_missing_inner_items() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "array"
+                    }
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        // Inner array should get items with default type
+        assert_eq!(
+            schema["properties"]["data"]["items"]["items"]["type"],
+            "string"
+        );
+    }
+
+    #[test]
+    fn test_gemini_3d_nested_arrays() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "matrix": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "array"
+                        }
+                    }
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        // Deepest array should get items with default type
+        assert_eq!(
+            schema["properties"]["matrix"]["items"]["items"]["items"]["type"],
+            "string"
+        );
+    }
+
+    #[test]
+    fn test_gemini_nested_array_preserves_existing_item_types() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "numbers": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": { "type": "number" }
+                    }
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        // Should preserve the explicit type
+        assert_eq!(
+            schema["properties"]["numbers"]["items"]["items"]["type"],
+            "number"
+        );
+    }
+
+    #[test]
+    fn test_gemini_mixed_nested_structures() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "spreadsheetData": {
+                    "type": "object",
+                    "properties": {
+                        "rows": {
+                            "type": "array",
+                            "items": {
+                                "type": "array",
+                                "items": {}
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        assert_eq!(
+            schema["properties"]["spreadsheetData"]["properties"]["rows"]["items"]["items"]["type"],
+            "string"
+        );
+    }
+
+    #[test]
+    fn test_gemini_combiner_nodes_no_sibling_type_or_items() {
+        // sibling type or items added during sanitize
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "edits": {
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "old_string": { "type": "string" },
+                                    "new_string": { "type": "string" }
+                                },
+                                "required": ["old_string", "new_string"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "old_string": { "type": "string" },
+                                    "new_string": { "type": "string" },
+                                    "replace_all": { "type": "boolean" }
+                                },
+                                "required": ["old_string", "new_string"]
+                            }
+                        ]
+                    }
+                }
+            },
+            "required": ["edits"]
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let edits = &schema["properties"]["edits"]["items"];
+        // Items with anyOf should NOT have a type added
+        assert!(!edits.as_object().unwrap().contains_key("type"));
+        // The anyOf should still be present
+        assert!(edits.as_object().unwrap().contains_key("anyOf"));
+    }
+
+    #[test]
+    fn test_gemini_combiner_nodes_no_extra_keys() {
+        // during sanitize beyond what was originally there
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "value": {
+                    "oneOf": [{ "type": "string" }, { "type": "boolean" }]
+                },
+                "meta": {
+                    "allOf": [
+                        { "type": "object", "properties": { "a": { "type": "string" } } },
+                        { "type": "object", "properties": { "b": { "type": "string" } } }
+                    ]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let value = &schema["properties"]["value"];
+        // oneOf should not have extra type or items added
+        assert!(!value.as_object().unwrap().contains_key("type"));
+        assert!(!value.as_object().unwrap().contains_key("items"));
+        assert!(value.as_object().unwrap().contains_key("oneOf"));
+    }
+
+    #[test]
+    fn test_gemini_nested_objects_and_arrays() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "number" },
+                            "name": { "type": "string" }
+                        },
+                        "additionalProperties": false
+                    }
+                }
+            },
+            "additionalProperties": false
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        // Root additionalProperties removed
+        assert!(
+            !schema
+                .as_object()
+                .unwrap()
+                .contains_key("additionalProperties")
+        );
+        // Nested additionalProperties in items removed
+        let items = &schema["properties"]["users"]["items"];
+        assert!(
+            !items
+                .as_object()
+                .unwrap()
+                .contains_key("additionalProperties")
+        );
+        // But properties should be preserved
+        assert!(items["properties"]["id"]["type"] == "number");
+        assert!(items["properties"]["name"]["type"] == "string");
+    }
+
+    #[test]
+    fn test_gemini_explicit_null_type() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "nullableField": {
+                    "type": ["string", "null"]
+                },
+                "explicitNullField": {
+                    "type": "null"
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        // nullableField: ["string", "null"] -> type: "string", nullable: true
+        assert_eq!(schema["properties"]["nullableField"]["type"], "string");
+        assert_eq!(schema["properties"]["nullableField"]["nullable"], true);
+        // explicitNullField: type "null" should stay as-is
+        assert_eq!(schema["properties"]["explicitNullField"]["type"], "null");
+    }
+
+    #[test]
+    fn test_gemini_required_filter_on_nested_objects() {
+        // Test that required filtering works recursively on nested objects
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "outer": {
+                    "type": "object",
+                    "properties": {
+                        "valid": { "type": "string" }
+                    },
+                    "required": ["valid", "nonexistent"]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let outer = &schema["properties"]["outer"];
+        let required = outer["required"].as_array().unwrap();
+        assert!(required.contains(&json!("valid")));
+        assert!(!required.contains(&json!("nonexistent")));
+    }
+
+    #[test]
+    fn test_gemini_string_enum_preserved() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["text", "code", "image"]
+                }
+            },
+            "required": ["kind"],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        // $schema removed, additionalProperties removed
+        assert!(!schema.as_object().unwrap().contains_key("$schema"));
+        assert!(
+            !schema
+                .as_object()
+                .unwrap()
+                .contains_key("additionalProperties")
+        );
+        // String enum preserved
+        assert_eq!(schema["properties"]["kind"]["type"], "string");
+        assert_eq!(
+            schema["properties"]["kind"]["enum"],
+            json!(["text", "code", "image"])
+        );
+    }
+
+    #[test]
+    fn test_gemini_non_empty_object_preserved() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"]["name"]["type"], "string");
     }
 }

@@ -30,10 +30,13 @@ impl AsRef<str> for ApiKey {
 /// # Returns
 /// * A truncated version of the key for safe display
 pub fn truncate_key(key: &str) -> String {
-    if key.len() <= 20 {
+    let char_count = key.chars().count();
+    if char_count <= 20 {
         key.to_string()
     } else {
-        format!("{}...{}", &key[..=12], &key[key.len() - 4..])
+        let prefix: String = key.chars().take(13).collect();
+        let suffix: String = key.chars().skip(char_count - 4).collect();
+        format!("{prefix}...{suffix}")
     }
 }
 
@@ -153,3 +156,61 @@ pub struct RefreshToken(String);
 )]
 #[serde(transparent)]
 pub struct AccessToken(String);
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn test_truncate_key_short_key() {
+        let fixture = "sk-abc123";
+        let actual = truncate_key(fixture);
+        let expected = "sk-abc123";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_truncate_key_long_ascii_key() {
+        let fixture = "sk-1234567890abcdefghijklmnop";
+        let actual = truncate_key(fixture);
+        let expected = "sk-1234567890...mnop";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_truncate_key_multibyte_chars_no_panic() {
+        // Keys with multi-byte UTF-8 characters should not panic
+        let fixture = "sk-12345678→→→→→→→→→→abcd";
+        let actual = truncate_key(fixture);
+        let expected = "sk-12345678→→...abcd";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_truncate_key_emoji_chars_no_panic() {
+        // Keys with 4-byte emoji characters should not panic
+        // 25 chars: a(13) + 🔑(8) + b(4) = 25
+        let fixture = "aaaaaaaaaaaaa🔑🔑🔑🔑🔑🔑🔑🔑bbbb";
+        let actual = truncate_key(fixture);
+        let expected = "aaaaaaaaaaaaa...bbbb";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_truncate_key_exactly_20_chars() {
+        let fixture = "12345678901234567890";
+        let actual = truncate_key(fixture);
+        let expected = "12345678901234567890";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_truncate_key_21_chars() {
+        let fixture = "123456789012345678901";
+        let actual = truncate_key(fixture);
+        let expected = "1234567890123...8901";
+        assert_eq!(actual, expected);
+    }
+}

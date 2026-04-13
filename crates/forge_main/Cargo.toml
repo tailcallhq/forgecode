@@ -48,6 +48,7 @@ strum.workspace = true
 strum_macros.workspace = true
 
 convert_case.workspace = true
+gix.workspace = true
 update-informer = { version = "1.2.0", default-features = false, features = [
     "github",
     "ureq",

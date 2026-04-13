@@ -6,13 +6,14 @@ use forge_api::Environment;
 use nu_ansi_term::{Color, Style};
 use reedline::{
     ColumnarMenu, DefaultHinter, EditCommand, EditMode, Emacs, FileBackedHistory, KeyCode,
-    KeyModifiers, MenuBuilder, Prompt, PromptEditMode, Reedline, ReedlineEvent, ReedlineMenu,
+    KeyModifiers, MenuBuilder, PromptEditMode, Reedline, ReedlineEvent, ReedlineMenu,
     ReedlineRawEvent, Signal, default_emacs_keybindings,
 };
 
 use super::completer::InputCompleter;
 use super::zsh::paste::wrap_pasted_text;
 use crate::model::ForgeCommandManager;
+use crate::prompt::ForgePrompt;
 
 // TODO: Store the last `HISTORY_CAPACITY` commands in the history file
 const HISTORY_CAPACITY: usize = 1024 * 1024;
@@ -102,8 +103,9 @@ impl ForgeEditor {
         Self { editor }
     }
 
-    pub fn prompt(&mut self, prompt: &dyn Prompt) -> anyhow::Result<ReadResult> {
+    pub fn prompt(&mut self, prompt: &mut ForgePrompt) -> anyhow::Result<ReadResult> {
         let signal = self.editor.read_line(prompt);
+        prompt.refresh();
         signal
             .map(Into::into)
             .map_err(|e| anyhow::anyhow!(ReadLineError(e)))
