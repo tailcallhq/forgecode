@@ -268,8 +268,9 @@ impl<F: 'static + WorkspaceIndexRepository + FileReaderInfra, D: FileDiscovery +
     /// Files within each batch are read from disk, collected into a single
     /// [`forge_domain::FileUpload`] payload, and uploaded in one request.
     /// Batches are processed sequentially — only one HTTP request is in-flight
-    /// at a time — which keeps both memory usage and server concurrency bounded.
-    /// The stream yields the number of files successfully uploaded per batch.
+    /// at a time — which keeps both memory usage and server concurrency
+    /// bounded. The stream yields the number of files successfully uploaded
+    /// per batch.
     fn upload_files(
         &self,
         paths: Vec<PathBuf>,
