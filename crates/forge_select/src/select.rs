@@ -13,6 +13,8 @@ pub struct SelectBuilder<T> {
     pub(crate) help_message: Option<&'static str>,
     pub(crate) initial_text: Option<String>,
     pub(crate) header_lines: usize,
+    pub(crate) preview: Option<String>,
+    pub(crate) preview_window: Option<String>,
 }
 
 /// Builds an `Fzf` instance with standard layout and an optional header.
@@ -48,6 +50,8 @@ fn build_fzf(
     initial_text: Option<&str>,
     starting_cursor: Option<usize>,
     header_lines: usize,
+    preview: Option<&str>,
+    preview_window: Option<&str>,
 ) -> Fzf {
     let mut builder = Fzf::builder();
     builder.layout(Layout::Reverse);
@@ -76,6 +80,12 @@ fn build_fzf(
     }
     if header_lines > 0 {
         args.push(format!("--header-lines={}", header_lines));
+    }
+    if let Some(cmd) = preview {
+        args.push(format!("--preview={}", cmd));
+    }
+    if let Some(window) = preview_window {
+        args.push(format!("--preview-window={}", window));
     }
     builder.custom_args(args);
 
@@ -107,6 +117,25 @@ impl<T: 'static> SelectBuilder<T> {
     /// Set starting cursor position.
     pub fn with_starting_cursor(mut self, cursor: usize) -> Self {
         self.starting_cursor = Some(cursor);
+        self
+    }
+
+    /// Set a preview command shown in a side panel as the user navigates items.
+    ///
+    /// The command is passed directly to fzf's `--preview` flag. Use `{2}` to
+    /// reference the display field of the currently highlighted item (field 2
+    /// after the internal index tab-prefix).
+    pub fn with_preview(mut self, command: impl Into<String>) -> Self {
+        self.preview = Some(command.into());
+        self
+    }
+
+    /// Set the layout of the preview panel.
+    ///
+    /// Passed directly to fzf's `--preview-window` flag (e.g.
+    /// `"bottom:75%:wrap:border-sharp"`).
+    pub fn with_preview_window(mut self, layout: impl Into<String>) -> Self {
+        self.preview_window = Some(layout.into());
         self
     }
 
@@ -179,6 +208,8 @@ impl<T: 'static> SelectBuilder<T> {
             self.initial_text.as_deref(),
             self.starting_cursor,
             self.header_lines,
+            self.preview.as_deref(),
+            self.preview_window.as_deref(),
         );
 
         let selected = run_with_output(fzf, indexed_items(&display_options));
@@ -205,7 +236,7 @@ fn prompt_confirm(message: &str, default: Option<bool>) -> Result<Option<bool>> 
         Some(0)
     };
 
-    let fzf = build_fzf(message, None, None, starting_cursor, 0);
+    let fzf = build_fzf(message, None, None, starting_cursor, 0, None, None);
     let selected = run_with_output(fzf, items.iter().copied());
 
     let result: Option<bool> = match selected.as_deref().map(str::trim) {

@@ -38,7 +38,6 @@ lazy_static.workspace = true
 reedline.workspace = true
 crossterm = "0.29.0"
 nu-ansi-term.workspace = true
-nucleo.workspace = true
 tracing.workspace = true
 chrono.workspace = true
 serde_json.workspace = true

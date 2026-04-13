@@ -20,6 +20,8 @@ impl ForgeWidget {
             help_message: None,
             initial_text: None,
             header_lines: 0,
+            preview: None,
+            preview_window: None,
         }
     }
 
