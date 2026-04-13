@@ -380,8 +380,8 @@ mod tests {
             .expect("should have a user message")
             .content()
             .expect("user message should have content");
-        assert!(user_content.contains("<terminal_context>"));
-        assert!(user_content.contains("</terminal_context>"));
+        assert!(user_content.contains("<command_trace>"));
+        assert!(user_content.contains("</command_trace>"));
         assert!(user_content.contains("cargo build"));
         assert!(user_content.contains("<task>fix the command I just ran</task>"));
     }
