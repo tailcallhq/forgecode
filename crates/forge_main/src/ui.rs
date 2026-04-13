@@ -2010,15 +2010,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
             AppCommand::Commit { max_diff_size, .. } => {
                 let args = CommitCommandGroup {
-                    preview: true,
+                    preview: false,
                     max_diff_size: max_diff_size.or(Some(100_000)),
                     diff: None,
                     text: Vec::new(),
                 };
                 let result = self.handle_commit_command(args).await?;
-                let flags = if result.has_staged_files { "" } else { " -a" };
-                let commit_command = format!("!git commit{flags} -m '{}'", result.message);
-                self.console.set_buffer(commit_command);
+                if !result.git_output.is_empty() {
+                    self.writeln(result.git_output.trim_end())?;
+                } else {
+                    self.writeln(result.message.trim_end())?;
+                }
             }
             AppCommand::Agent => {
                 #[derive(Clone)]
