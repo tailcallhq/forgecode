@@ -7,6 +7,7 @@
 //! - Right prompt (rprompt) display
 //! - Prompt styling utilities
 
+pub(crate) mod paste;
 mod plugin;
 mod rprompt;
 mod style;

@@ -238,7 +238,9 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
             let body_clone = body.clone();
             let debug_path = debug_path.clone();
             tokio::spawn(async move {
-                let _ = file_writer.append(&debug_path, body_clone).await;
+                let mut data = body_clone.to_vec();
+                data.push(b'\n');
+                let _ = file_writer.append(&debug_path, Bytes::from(data)).await;
             });
         }
     }
@@ -402,7 +404,9 @@ mod tests {
         let writes = file_writer.get_writes().await;
         assert_eq!(writes.len(), 1, "Should write one file");
         assert_eq!(writes[0].0, debug_path);
-        assert_eq!(writes[0].1, body);
+        let mut expected = body.to_vec();
+        expected.push(b'\n');
+        assert_eq!(writes[0].1, Bytes::from(expected));
     }
 
     #[tokio::test]
@@ -423,7 +427,9 @@ mod tests {
         let writes = file_writer.get_writes().await;
         assert_eq!(writes.len(), 1, "Should write one file");
         assert_eq!(writes[0].0, debug_path);
-        assert_eq!(writes[0].1, body);
+        let mut expected = body.to_vec();
+        expected.push(b'\n');
+        assert_eq!(writes[0].1, Bytes::from(expected));
     }
 
     #[tokio::test]
@@ -470,7 +476,9 @@ mod tests {
             "Should write one file for POST when debug_requests is set"
         );
         assert_eq!(writes[0].0, debug_path);
-        assert_eq!(writes[0].1, body);
+        let mut expected = body.to_vec();
+        expected.push(b'\n');
+        assert_eq!(writes[0].1, Bytes::from(expected));
     }
 
     #[tokio::test]
@@ -494,7 +502,9 @@ mod tests {
         // Should write to debug_path (no parent dir needed)
         assert_eq!(writes.len(), 1, "Should write one file");
         assert_eq!(writes[0].0, debug_path);
-        assert_eq!(writes[0].1, body);
+        let mut expected = body.to_vec();
+        expected.push(b'\n');
+        assert_eq!(writes[0].1, Bytes::from(expected));
     }
 
     #[test]

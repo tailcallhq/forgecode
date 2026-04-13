@@ -1,6 +1,6 @@
 # Evaluation for checking appropriate todo_write tool usage
 run:
-  - git clone --depth=1 --branch main https://github.com/antinomyhq/forge .
+  - git clone --depth=1 --branch main https://github.com/tailcallhq/forgecode .
   - FORGE_OVERRIDE_PROVIDER=open_router FORGE_OVERRIDE_MODEL={{model}} FORGE_DEBUG_REQUESTS='{{dir}}/context.json' forgee -p '{{task}}'
 parallelism: 3
 timeout: 240

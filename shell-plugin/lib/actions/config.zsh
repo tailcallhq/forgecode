@@ -466,9 +466,9 @@ function _forge_action_config_edit() {
     # Resolve config file path via the forge binary (honours FORGE_CONFIG,
     # new ~/.forge path, and legacy ~/forge fallback automatically)
     local config_file
-    config_file=$(forge config path 2>/dev/null)
+    config_file=$($FORGE_BIN config path 2>/dev/null)
     if [[ -z "$config_file" ]]; then
-        _forge_log error "Failed to resolve config path from 'forge config path'"
+        _forge_log error "Failed to resolve config path from '$FORGE_BIN config path'"
         return 1
     fi
 
