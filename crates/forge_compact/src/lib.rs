@@ -2,7 +2,7 @@ mod util;
 
 use std::ops::{Deref, RangeInclusive};
 
-use util::{deref_messages, replace_range};
+use util::{deref_messages, replace_range, wrap_messages};
 
 pub struct Compaction<Item> {
     summarize: Box<dyn Fn(&[&Item]) -> Item>,
@@ -26,7 +26,7 @@ struct Summary<I> {
     source: Vec<I>,
 }
 
-enum Message<I> {
+pub enum Message<I> {
     Summary(Summary<I>),
     Original { message: I },
 }
@@ -54,7 +54,78 @@ impl<I> Deref for Message<I> {
 
 impl<Item: ContextMessage + Clone> Compaction<Item> {
     pub fn compact_conversation(&self, messages: Vec<Item>) -> Vec<Item> {
-        todo!()
+        // Wrap each plain item into Message::Original using the util helper (the
+        // inverse of deref_messages).
+        let all: Vec<Message<Item>> = wrap_messages(messages);
+
+        // Grow a working window from size 1 up to the full length. At each size we
+        // attempt to compact the front window; if compaction succeeds the result (a
+        // shorter vec) is prepended to the remaining tail and we restart from size 1
+        // so that the newly inserted summary can participate in further compaction.
+        // When the threshold is not exceeded for the current window, we drain just
+        // the first element into `result` and try a window starting at the next
+        // position.
+        let mut result: Vec<Message<Item>> = Vec::with_capacity(all.len());
+        let mut remaining = all;
+
+        while !remaining.is_empty() {
+            let mut compacted = false;
+            for size in 1..=remaining.len() {
+                // Peek at the front window without removing anything yet.
+                let window: Vec<Message<Item>> = remaining[..size]
+                    .iter()
+                    .map(|m| match m {
+                        Message::Original { message } => Message::Original {
+                            message: message.clone(),
+                        },
+                        Message::Summary(Summary { message, source }) => {
+                            Message::Summary(Summary {
+                                message: message.clone(),
+                                source: source.clone(),
+                            })
+                        }
+                    })
+                    .collect();
+
+                if self.threshold(window.as_slice()) {
+                    // Threshold exceeded — attempt to compact the window.
+                    let summary_count_before =
+                        window.iter().filter(|m| m.is_summary()).count();
+                    let compacted_window = self.compact_complete(window);
+                    let summary_count_after =
+                        compacted_window.iter().filter(|m| m.is_summary()).count();
+                    if summary_count_after > summary_count_before {
+                        // A new Summary was introduced: replace the front window in
+                        // `remaining` with the summarised version and restart the scan.
+                        remaining.drain(..size);
+                        let mut new_remaining = compacted_window;
+                        new_remaining.extend(remaining.drain(..));
+                        remaining = new_remaining;
+                        compacted = true;
+                        break;
+                    }
+                    // Threshold triggered but no compactable range found yet —
+                    // keep growing the window.
+                } else if size == remaining.len() {
+                    // Threshold never triggered for any window size; nothing left
+                    // to compact — flush all remaining to result.
+                    result.extend(remaining.drain(..));
+                    break;
+                }
+            }
+            if !compacted && remaining.is_empty() {
+                break;
+            }
+            if !compacted {
+                // The threshold was never satisfied for any window size.
+                break;
+            }
+        }
+
+        result.extend(remaining);
+
+        // Unwrap the Message envelope back to plain items.
+        result.into_iter().map(|m| m.deref().clone()).collect()
     }
 
     fn threshold(&self, messages: &[Message<Item>]) -> bool {
@@ -63,14 +134,6 @@ impl<Item: ContextMessage + Clone> Compaction<Item> {
 
     fn summarize(&self, messages: &[Message<Item>]) -> Item {
         (self.summarize)(deref_messages(messages).as_slice())
-    }
-
-    fn compact_conversation_slice(&self, messages: Vec<Message<Item>>) -> Vec<Message<Item>> {
-        if self.threshold(messages.as_slice()) {
-            self.compact_complete(messages)
-        } else {
-            messages
-        }
     }
 
     fn find_compact_range(&self, messages: &[Message<Item>]) -> Option<RangeInclusive<usize>> {
@@ -284,5 +347,99 @@ mod tests {
         assert_eq!(seq("suuu", 0), "suuu");
         assert_eq!(seq("ut", 1), "ut");
         assert_eq!(seq("ua", 0), "u[a]");
+    }
+
+    /// Builds a `Vec<TestMsg>` from a pattern string.
+    fn items_from(pattern: &str) -> Vec<TestMsg> {
+        pattern.chars().map(TestMsg::new).collect()
+    }
+
+    /// Runs `compact_conversation` and returns the result as a pattern string.
+    fn compact(pattern: &str, retain: usize) -> String {
+        let c = compaction(retain);
+        let messages = items_from(pattern);
+        c.compact_conversation(messages)
+            .iter()
+            .map(|m| m.role)
+            .collect()
+    }
+
+    /// Like `compact` but uses a threshold that only triggers when there are more
+    /// than `min` items, letting us test the no-compaction path too.
+    fn compact_with_min(pattern: &str, retain: usize, min: usize) -> String {
+        let c = Compaction {
+            summarize: Box::new(|_| TestMsg::new('S')),
+            threshold: Box::new(move |msgs| msgs.len() > min),
+            retain,
+        };
+        c.compact_conversation(items_from(pattern))
+            .iter()
+            .map(|m| m.role)
+            .collect()
+    }
+
+    #[test]
+    fn test_compact_conversation_basic() {
+        // A simple assistant message is summarised into 'S'.
+        assert_eq!(compact("sua", 0), "suS");
+    }
+
+    #[test]
+    fn test_compact_conversation_multiple_turns_compacted() {
+        // Each pass compacts a range of messages. With always-true threshold and
+        // retain=0 the algorithm progressively summarises until no original
+        // assistant messages remain; the exact number of summary tokens can vary.
+        let result = compact("suaaau", 0);
+        // All original assistant turns have been summarised — no 'a' remains.
+        assert!(!result.contains('a'), "expected no remaining assistant turns, got: {result}");
+        // System and preceding user message are always kept.
+        assert!(result.starts_with("su"), "expected result to start with 'su', got: {result}");
+    }
+
+    #[test]
+    fn test_compact_conversation_preserves_system_and_user() {
+        // System and leading user messages that precede any assistant message are
+        // never included in the compact range.
+        assert_eq!(compact("su", 0), "su");
+        assert_eq!(compact("suuu", 0), "suuu");
+    }
+
+    #[test]
+    fn test_compact_conversation_retain_window() {
+        // With retain=3 the last 3 messages are kept verbatim; earlier ones are
+        // summarised.  Use a threshold that fires once the full window grows past 3
+        // to get a predictable single-summary result.
+        let result = compact_with_min("suaaaauaa", 3, 3);
+        // The preserved tail is the last 3 messages: "uaa".
+        assert!(result.ends_with("uaa"), "expected tail 'uaa', got: {result}");
+        // At least one summary is present.
+        assert!(result.contains('S'), "expected a summary 'S', got: {result}");
+    }
+
+    #[test]
+    fn test_compact_conversation_no_compaction_when_below_threshold() {
+        // threshold requires > 4 items; a 3-item conversation must pass through
+        // unchanged.
+        assert_eq!(compact_with_min("sua", 0, 4), "sua");
+        assert_eq!(compact_with_min("suuu", 0, 4), "suuu");
+    }
+
+    #[test]
+    fn test_compact_conversation_empty() {
+        assert_eq!(compact("", 0), "");
+    }
+
+    #[test]
+    fn test_compact_conversation_tool_calls_preserved_atomically() {
+        // A tool-call ('t') and its result ('r') must never be split across a
+        // summary boundary.  Use a threshold that fires once the window is large
+        // enough to contain the tool pair.
+        let result = compact_with_min("sutrua", 2, 3);
+        // The preserved tail (retain=2) must be "ua".
+        assert!(result.ends_with("ua"), "expected tail 'ua', got: {result}");
+        // Tool calls and their results should have been summarised.
+        assert!(result.contains('S'), "expected a summary 'S', got: {result}");
+        // No bare tool call or result should sit at the boundary.
+        assert!(!result.contains('t') || !result.ends_with('t'), "tool call must not be at boundary, got: {result}");
     }
 }
