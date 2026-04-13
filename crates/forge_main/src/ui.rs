@@ -2566,13 +2566,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let name_result = ForgeWidget::input("New name").allow_empty(false).prompt()?;
 
                 if let Some(name) = name_result
-                    && !name.is_empty() {
-                        self.api.rename_conversation(&conv.id, name.clone()).await?;
-                        self.writeln_title(TitleFormat::info(format!(
-                            "Conversation renamed to '{}'",
-                            name.bold()
-                        )))?;
-                    }
+                    && !name.is_empty()
+                {
+                    self.api.rename_conversation(&conv.id, name.clone()).await?;
+                    self.writeln_title(TitleFormat::info(format!(
+                        "Conversation renamed to '{}'",
+                        name.bold()
+                    )))?;
+                }
             }
         }
 
