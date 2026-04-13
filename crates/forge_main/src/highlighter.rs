@@ -4,7 +4,8 @@ use reedline::{Highlighter, StyledText};
 /// Syntax highlighter for the forge readline prompt.
 ///
 /// Applies visual styles to recognised input patterns as the user types:
-/// - Commands (`:foo` or `/foo` for backward compatibility) are rendered in yellow bold.
+/// - Commands (`:foo` or `/foo` for backward compatibility) are rendered in
+///   yellow bold.
 /// - File mentions (`@[path]`) are rendered in cyan bold.
 /// - Shell pass-through commands (`!cmd`) are rendered in magenta.
 /// - All other text is rendered in the default terminal style.
@@ -18,13 +19,15 @@ impl Highlighter for ForgeHighlighter {
             return styled;
         }
 
-        // Command: highlight the command token (e.g. `:compact` or `/compact` for compat)
-        // in yellow bold, then the remainder (arguments) without special styling.
+        // Command: highlight the command token (e.g. `:compact` or `/compact` for
+        // compat) in yellow bold, then the remainder (arguments) without
+        // special styling.
         if line.starts_with('/') || line.starts_with(':') {
-            let end = line
-                .find(|c: char| c.is_whitespace())
-                .unwrap_or(line.len());
-            styled.push((Style::new().bold().fg(Color::Yellow), line[..end].to_string()));
+            let end = line.find(|c: char| c.is_whitespace()).unwrap_or(line.len());
+            styled.push((
+                Style::new().bold().fg(Color::Yellow),
+                line[..end].to_string(),
+            ));
             if end < line.len() {
                 styled.push((Style::new(), line[end..].to_string()));
             }
@@ -37,7 +40,8 @@ impl Highlighter for ForgeHighlighter {
             return styled;
         }
 
-        // General message text — scan for `@[...]` file mentions and colour them cyan bold.
+        // General message text — scan for `@[...]` file mentions and colour them cyan
+        // bold.
         highlight_mentions(line, &mut styled);
 
         styled
@@ -88,10 +92,7 @@ fn highlight_mentions(line: &str, styled: &mut StyledText) {
                         let close = 2 + rel_close;
                         // Emit `@[...]` in cyan bold (inclusive of both brackets).
                         let mention = &after_open[..=close];
-                        styled.push((
-                            Style::new().bold().fg(Color::Cyan),
-                            mention.to_string(),
-                        ));
+                        styled.push((Style::new().bold().fg(Color::Cyan), mention.to_string()));
                         remaining = &after_open[close + 1..];
                     }
                 }
@@ -132,7 +133,11 @@ mod tests {
     fn test_colon_command_with_args() {
         let fixture = ForgeHighlighter;
         let actual = fixture.highlight(":commit some message", 0);
-        let parts: Vec<_> = actual.buffer.iter().map(|(s, t)| (*s, t.as_str())).collect();
+        let parts: Vec<_> = actual
+            .buffer
+            .iter()
+            .map(|(s, t)| (*s, t.as_str()))
+            .collect();
         assert_eq!(parts[0], (Style::new().bold().fg(Color::Yellow), ":commit"));
         assert_eq!(parts[1].1, " some message");
     }
@@ -141,7 +146,11 @@ mod tests {
     fn test_slash_command_with_args() {
         let fixture = ForgeHighlighter;
         let actual = fixture.highlight("/commit some message", 0);
-        let parts: Vec<_> = actual.buffer.iter().map(|(s, t)| (*s, t.as_str())).collect();
+        let parts: Vec<_> = actual
+            .buffer
+            .iter()
+            .map(|(s, t)| (*s, t.as_str()))
+            .collect();
         assert_eq!(parts[0], (Style::new().bold().fg(Color::Yellow), "/commit"));
         assert_eq!(parts[1].1, " some message");
     }
@@ -158,7 +167,11 @@ mod tests {
     fn test_file_mention_highlighted() {
         let fixture = ForgeHighlighter;
         let actual = fixture.highlight("explain @[src/main.rs] please", 0);
-        let parts: Vec<_> = actual.buffer.iter().map(|(s, t)| (*s, t.as_str())).collect();
+        let parts: Vec<_> = actual
+            .buffer
+            .iter()
+            .map(|(s, t)| (*s, t.as_str()))
+            .collect();
         assert_eq!(parts[0], (Style::new(), "explain "));
         assert_eq!(
             parts[1],
@@ -173,10 +186,7 @@ mod tests {
         let actual = fixture.highlight("@[a.rs] and @[b.rs]", 0);
         let texts: Vec<_> = actual.buffer.iter().map(|(_, t)| t.as_str()).collect();
         assert_eq!(texts, vec!["@[a.rs]", " and ", "@[b.rs]"]);
-        assert_eq!(
-            actual.buffer[0].0,
-            Style::new().bold().fg(Color::Cyan)
-        );
+        assert_eq!(actual.buffer[0].0, Style::new().bold().fg(Color::Cyan));
         assert_eq!(actual.buffer[2].0, Style::new().bold().fg(Color::Cyan));
     }
 
@@ -211,8 +221,15 @@ mod tests {
         // @[path#symbol] — content inside can contain `#`
         let fixture = ForgeHighlighter;
         let actual = fixture.highlight("check @[src/lib.rs#my_fn] here", 0);
-        let parts: Vec<_> = actual.buffer.iter().map(|(s, t)| (*s, t.as_str())).collect();
-        assert_eq!(parts[1], (Style::new().bold().fg(Color::Cyan), "@[src/lib.rs#my_fn]"));
+        let parts: Vec<_> = actual
+            .buffer
+            .iter()
+            .map(|(s, t)| (*s, t.as_str()))
+            .collect();
+        assert_eq!(
+            parts[1],
+            (Style::new().bold().fg(Color::Cyan), "@[src/lib.rs#my_fn]")
+        );
     }
 
     #[test]
@@ -222,7 +239,11 @@ mod tests {
         let actual = fixture.highlight("see @[src/main.rs", 0);
         assert_eq!(render(&actual), "see @[src/main.rs");
         // No cyan segment
-        assert!(styles(&actual).iter().all(|s| *s != Style::new().bold().fg(Color::Cyan)));
+        assert!(
+            styles(&actual)
+                .iter()
+                .all(|s| *s != Style::new().bold().fg(Color::Cyan))
+        );
     }
 
     #[test]

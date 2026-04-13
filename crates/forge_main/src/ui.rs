@@ -1459,7 +1459,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     ///
     /// Uses the same `Walker::max_all()` configuration as the REPL file picker
     /// and the shell plugin (`fd --type f --type d --hidden --exclude .git`):
-    /// hidden files included, respects `.gitignore`, directories suffixed with `/`.
+    /// hidden files included, respects `.gitignore`, directories suffixed with
+    /// `/`.
     async fn on_list_files(&mut self, porcelain: bool) -> anyhow::Result<()> {
         let env = self.api.environment();
         let files = Walker::max_all()

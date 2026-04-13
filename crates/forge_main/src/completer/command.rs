@@ -59,7 +59,8 @@ impl Completer for CommandCompleter {
             return vec![];
         }
 
-        // Extract the initial query text (everything after the leading sentinel or `!`).
+        // Extract the initial query text (everything after the leading sentinel or
+        // `!`).
         let initial_query = line
             .strip_prefix('/')
             .or_else(|| line.strip_prefix(':'))

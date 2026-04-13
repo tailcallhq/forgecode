@@ -111,8 +111,8 @@ impl Prompt for ForgePrompt {
 
     fn render_prompt_right(&self) -> Cow<'_, str> {
         // Mirror the ZSH rprompt layout: agent · tokens · cost · model
-        // Active (tokens > 0): bright white for agent/tokens, green for cost, fixed-134 for model
-        // Inactive (no tokens): all segments dimmed
+        // Active (tokens > 0): bright white for agent/tokens, green for cost, fixed-134
+        // for model Inactive (no tokens): all segments dimmed
 
         let total_tokens = self.usage.as_ref().map(|u| u.total_tokens);
         let active = total_tokens.map(|t| *t > 0).unwrap_or(false);

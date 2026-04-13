@@ -119,8 +119,7 @@ impl Walker {
         // Shared state collected across parallel walker threads.
         let collected: Arc<Mutex<Vec<File>>> = Arc::new(Mutex::new(Vec::new()));
         // Per-directory entry counters for breadth limiting (shared across threads).
-        let dir_entries: Arc<Mutex<HashMap<String, usize>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let dir_entries: Arc<Mutex<HashMap<String, usize>>> = Arc::new(Mutex::new(HashMap::new()));
         // Global counters protected by a single mutex to enforce total limits.
         // Layout: (total_size, file_count, quit)
         let global: Arc<Mutex<(u64, usize, bool)>> = Arc::new(Mutex::new((0, 0, false)));
@@ -260,10 +259,11 @@ impl Walker {
                     return ignore::WalkState::Continue;
                 }
 
-                collected
-                    .lock()
-                    .unwrap()
-                    .push(File { path: path_string, file_name, size: file_size });
+                collected.lock().unwrap().push(File {
+                    path: path_string,
+                    file_name,
+                    size: file_size,
+                });
 
                 ignore::WalkState::Continue
             })
@@ -520,7 +520,8 @@ mod tests {
             .await
             .unwrap();
 
-        // .ignore itself is a dotfile and is visible when hidden: false (matches fd --hidden).
+        // .ignore itself is a dotfile and is visible when hidden: false (matches fd
+        // --hidden).
         let mut expected = vec![".ignore", "included/main.rs", "included/test.rs", "base.rs"];
         expected.sort();
 
@@ -655,8 +656,14 @@ mod tests {
             .map(|f| f.path.as_str())
             .collect();
         actual.sort();
-        // .gitignore files are dotfiles and visible when hidden: false (matches fd --hidden).
-        let expected = vec![".gitignore", "frontend/.gitignore", "frontend/src/main.ts", "src/main.rs"];
+        // .gitignore files are dotfiles and visible when hidden: false (matches fd
+        // --hidden).
+        let expected = vec![
+            ".gitignore",
+            "frontend/.gitignore",
+            "frontend/src/main.ts",
+            "src/main.rs",
+        ];
         assert_eq!(actual, expected, "should respect nested .gitignore files");
     }
 
@@ -694,9 +701,15 @@ mod tests {
             .map(|f| f.path.as_str())
             .collect();
         actual.sort();
-        // .gitignore files are dotfiles and visible when hidden: false (matches fd --hidden).
-        // .git directory is always excluded (matching fd --exclude .git).
-        let expected = vec![".gitignore", "frontend/.gitignore", "frontend/src/main.ts", "src/main.rs"];
+        // .gitignore files are dotfiles and visible when hidden: false (matches fd
+        // --hidden). .git directory is always excluded (matching fd --exclude
+        // .git).
+        let expected = vec![
+            ".gitignore",
+            "frontend/.gitignore",
+            "frontend/src/main.ts",
+            "src/main.rs",
+        ];
         assert_eq!(
             actual, expected,
             "should respect nested .gitignore in git repos"
