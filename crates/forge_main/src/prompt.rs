@@ -14,10 +14,10 @@ use crate::utils::humanize_number;
 // Constants
 const MULTILINE_INDICATOR: &str = "::: ";
 
-// Nerd font symbols — left prompt (starship theme)
-const DIR_SYMBOL: &str = "\u{ea83}"; // 󪃃  folder icon  (starship directory)
-const BRANCH_SYMBOL: &str = "\u{f418}"; //   branch icon  (starship git_branch)
-const SUCCESS_SYMBOL: &str = "\u{f013e}"; // 󰄾  chevron     (starship character)
+// Nerd font symbols — left prompt
+const DIR_SYMBOL: &str = "\u{ea83}"; // 󪃃  folder icon
+const BRANCH_SYMBOL: &str = "\u{f418}"; //   branch icon
+const SUCCESS_SYMBOL: &str = "\u{f013e}"; // 󰄾  chevron
 
 // Nerd font symbols — right prompt (ZSH rprompt)
 const AGENT_SYMBOL: &str = "\u{f167a}";
@@ -51,16 +51,16 @@ impl ForgePrompt {
 
 impl Prompt for ForgePrompt {
     fn render_prompt_left(&self) -> Cow<'_, str> {
-        // Starship-themed left prompt layout (mirrors starship.toml):
+        // Left prompt layout:
         //
         //   AGENT_NAME  󪃃 dir   branch
         //   󰄾
         //
         // Colors:
-        //   agent  → bold white  (custom — identifies the active agent)
-        //   dir    → bold cyan   (matches starship directory default)
-        //   branch → bold green  (starship git_branch style = "bold green")
-        //   chevron → bold green  (starship character success_symbol)
+        //   agent  → bold white  (identifies the active agent)
+        //   dir    → bold cyan
+        //   branch → bold green
+        //   chevron → bold green
 
         let dir_style = Style::new().fg(Color::Cyan).bold();
         let branch_style = Style::new().fg(Color::LightGreen).bold();
@@ -75,7 +75,7 @@ impl Prompt for ForgePrompt {
 
         let mut result = String::with_capacity(80);
 
-        // Directory — folder icon + name, bold cyan (starship directory format)
+        // Directory — folder icon + name, bold cyan
         write!(
             result,
             "{}",
@@ -96,16 +96,16 @@ impl Prompt for ForgePrompt {
             .unwrap();
         }
 
-        // Second line: success chevron (starship character)
+        // Second line: success chevron
         write!(result, "\n{} ", chevron_style.paint(SUCCESS_SYMBOL)).unwrap();
 
         Cow::Owned(result)
     }
 
     fn render_prompt_right(&self) -> Cow<'_, str> {
-        // Mirror the ZSH rprompt layout: agent · tokens · cost · model
-        // Active (tokens > 0): bright white for agent/tokens, green for cost, fixed-134
-        // for model Inactive (no tokens): all segments dimmed
+        // Right prompt layout: agent · tokens · cost · model
+        // Active (tokens > 0): bright white for agent/tokens, green for cost
+        // Inactive (no tokens): all segments dimmed
 
         let total_tokens = self.usage.as_ref().map(|u| u.total_tokens);
         let active = total_tokens.map(|t| *t > 0).unwrap_or(false);
