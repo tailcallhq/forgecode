@@ -3,7 +3,7 @@ use std::time::Duration;
 use forge_app::{AuthStrategy, OAuthHttpProvider, StrategyFactory};
 use forge_domain::{
     ApiKey, ApiKeyRequest, AuthContextRequest, AuthContextResponse, AuthCredential, CodeRequest,
-    DeviceCodeRequest, OAuthConfig, OAuthTokenResponse, OAuthTokens, ProviderId, URLParam,
+    DeviceCodeRequest, OAuthConfig, OAuthTokenResponse, OAuthTokens, ProviderId, URLParamSpec,
 };
 use google_cloud_auth::credentials::Builder;
 use oauth2::basic::BasicClient;
@@ -18,11 +18,11 @@ use crate::auth::util::*;
 /// API Key Strategy - Simple static key authentication
 pub struct ApiKeyStrategy {
     provider_id: ProviderId,
-    required_params: Vec<URLParam>,
+    required_params: Vec<URLParamSpec>,
 }
 
 impl ApiKeyStrategy {
-    pub fn new(provider_id: ProviderId, required_params: Vec<URLParam>) -> Self {
+    pub fn new(provider_id: ProviderId, required_params: Vec<URLParamSpec>) -> Self {
         Self { provider_id, required_params }
     }
 }
@@ -54,6 +54,68 @@ impl AuthStrategy for ApiKeyStrategy {
     async fn refresh(&self, credential: &AuthCredential) -> anyhow::Result<AuthCredential> {
         // API keys don't expire - return as-is
         Ok(credential.clone())
+    }
+}
+
+/// Extract the ChatGPT account ID from a JWT token's claims.
+///
+/// Checks `chatgpt_account_id`, `https://api.openai.com/auth.chatgpt_account_id`,
+/// and `organizations[0].id` in that order, matching the opencode
+/// implementation.
+fn extract_chatgpt_account_id(token: &str) -> Option<String> {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    use base64::Engine;
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(parts[1])
+        .ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&payload).ok()?;
+
+    // Try chatgpt_account_id first
+    if let Some(id) = claims["chatgpt_account_id"].as_str() {
+        return Some(id.to_string());
+    }
+    // Try nested auth claim
+    if let Some(id) = claims["https://api.openai.com/auth"]["chatgpt_account_id"].as_str() {
+        return Some(id.to_string());
+    }
+    // Fall back to organizations[0].id
+    if let Some(id) = claims["organizations"]
+        .as_array()
+        .and_then(|orgs| orgs.first())
+        .and_then(|org| org["id"].as_str())
+    {
+        return Some(id.to_string());
+    }
+    None
+}
+
+/// Adds Codex-specific credential metadata derived from OAuth tokens.
+///
+/// Tries to extract the account ID from the `id_token` first (which typically
+/// contains the user identity claims in OpenID Connect flows), then falls back
+/// to the `access_token` if needed.
+fn enrich_codex_oauth_credential(
+    provider_id: &ProviderId,
+    credential: &mut AuthCredential,
+    id_token: Option<&str>,
+    access_token: &str,
+) {
+    if *provider_id != ProviderId::CODEX {
+        return;
+    }
+
+    // Try id_token first (preferred for user identity claims)
+    let account_id = id_token
+        .and_then(extract_chatgpt_account_id)
+        .or_else(|| extract_chatgpt_account_id(access_token));
+
+    if let Some(account_id) = account_id {
+        credential
+            .url_params
+            .insert("chatgpt_account_id".to_string().into(), account_id.into());
     }
 }
 
@@ -96,7 +158,7 @@ impl<T: OAuthHttpProvider> AuthStrategy for OAuthCodeStrategy<T> {
                 let token_response = self
                     .adapter
                     .exchange_code(
-                        &self.config,
+                        &ctx.request.oauth_config,
                         ctx.response.code.as_str(),
                         ctx.request.pkce_verifier.as_ref().map(|v| v.as_str()),
                     )
@@ -107,12 +169,21 @@ impl<T: OAuthHttpProvider> AuthStrategy for OAuthCodeStrategy<T> {
                         ))
                     })?;
 
-                build_oauth_credential(
+                let access_token = token_response.access_token.clone();
+                let id_token = token_response.id_token.clone();
+                let mut credential = build_oauth_credential(
                     self.provider_id.clone(),
                     token_response,
-                    &self.config,
+                    &ctx.request.oauth_config,
                     chrono::Duration::hours(1), // Code flow default
-                )
+                )?;
+                enrich_codex_oauth_credential(
+                    &self.provider_id,
+                    &mut credential,
+                    id_token.as_deref(),
+                    &access_token,
+                );
+                Ok(credential)
             }
             _ => Err(AuthError::InvalidContext("Expected Code context".to_string()).into()),
         }
@@ -348,11 +419,11 @@ impl AuthStrategy for OAuthWithApiKeyStrategy {
 /// Uses Google Cloud SDK's ADC mechanism with automatic token refresh
 pub struct GoogleAdcStrategy {
     provider_id: ProviderId,
-    required_params: Vec<URLParam>,
+    required_params: Vec<URLParamSpec>,
 }
 
 impl GoogleAdcStrategy {
-    pub fn new(provider_id: ProviderId, required_params: Vec<URLParam>) -> Self {
+    pub fn new(provider_id: ProviderId, required_params: Vec<URLParamSpec>) -> Self {
         Self { provider_id, required_params }
     }
 }
@@ -479,41 +550,6 @@ struct CodexDeviceTokenResponse {
     code_verifier: String,
 }
 
-/// Extract the ChatGPT account ID from a JWT token's claims.
-///
-/// Checks `chatgpt_account_id`, `https://api.openai.com/auth.chatgpt_account_id`,
-/// and `organizations[0].id` in that order, matching the opencode
-/// implementation.
-fn extract_chatgpt_account_id(token: &str) -> Option<String> {
-    let parts: Vec<&str> = token.split('.').collect();
-    if parts.len() != 3 {
-        return None;
-    }
-    use base64::Engine;
-    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(parts[1])
-        .ok()?;
-    let claims: serde_json::Value = serde_json::from_slice(&payload).ok()?;
-
-    // Try chatgpt_account_id first
-    if let Some(id) = claims["chatgpt_account_id"].as_str() {
-        return Some(id.to_string());
-    }
-    // Try nested auth claim
-    if let Some(id) = claims["https://api.openai.com/auth"]["chatgpt_account_id"].as_str() {
-        return Some(id.to_string());
-    }
-    // Fall back to organizations[0].id
-    if let Some(id) = claims["organizations"]
-        .as_array()
-        .and_then(|orgs| orgs.first())
-        .and_then(|org| org["id"].as_str())
-    {
-        return Some(id.to_string());
-    }
-    None
-}
-
 #[async_trait::async_trait]
 impl AuthStrategy for CodexDeviceStrategy {
     async fn init(&self) -> anyhow::Result<AuthContextRequest> {
@@ -570,11 +606,8 @@ impl AuthStrategy for CodexDeviceStrategy {
                 // Poll for authorization code using the custom OpenAI endpoint
                 let token_response = codex_poll_for_tokens(&ctx.request, &self.config).await?;
 
-                // Extract ChatGPT account ID from the access token JWT.
-                // This is used for the optional `ChatGPT-Account-Id` request
-                // header when available.
-                let account_id = extract_chatgpt_account_id(&token_response.access_token);
-
+                let access_token = token_response.access_token.clone();
+                let id_token = token_response.id_token.clone();
                 let mut credential = build_oauth_credential(
                     self.provider_id.clone(),
                     token_response,
@@ -583,12 +616,13 @@ impl AuthStrategy for CodexDeviceStrategy {
                 )?;
 
                 // Store account_id in url_params so it's persisted and available
-                // for chat request headers
-                if let Some(id) = account_id {
-                    credential
-                        .url_params
-                        .insert("chatgpt_account_id".to_string().into(), id.into());
-                }
+                // for chat request headers.
+                enrich_codex_oauth_credential(
+                    &self.provider_id,
+                    &mut credential,
+                    id_token.as_deref(),
+                    &access_token,
+                );
 
                 Ok(credential)
             }
@@ -1015,17 +1049,17 @@ impl AuthStrategy for AnyAuthStrategy {
 }
 
 /// Factory for creating authentication strategies
-pub struct ForgeAuthStrategyFactory {}
+pub struct ForgeAuthStrategyFactory;
 
 impl Default for ForgeAuthStrategyFactory {
     fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
 impl ForgeAuthStrategyFactory {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(_environment: forge_domain::Environment) -> Self {
+        Self
     }
 }
 
@@ -1036,7 +1070,7 @@ impl StrategyFactory for ForgeAuthStrategyFactory {
         &self,
         provider_id: ProviderId,
         auth_method: forge_domain::AuthMethod,
-        required_params: Vec<URLParam>,
+        required_params: Vec<URLParamSpec>,
     ) -> anyhow::Result<Self::Strategy> {
         match auth_method {
             forge_domain::AuthMethod::ApiKey => Ok(AnyAuthStrategy::ApiKey(ApiKeyStrategy::new(
@@ -1093,13 +1127,14 @@ impl StrategyFactory for ForgeAuthStrategyFactory {
 mod tests {
     use std::collections::HashMap;
 
+    use forge_domain::URLParam;
     use pretty_assertions::assert_eq;
 
     use super::*;
 
     #[test]
     fn test_create_auth_strategy_api_key() {
-        let factory = ForgeAuthStrategyFactory::new();
+        let factory = ForgeAuthStrategyFactory;
         let strategy = factory.create_auth_strategy(
             ProviderId::OPENAI,
             forge_domain::AuthMethod::ApiKey,
@@ -1122,7 +1157,7 @@ mod tests {
             custom_headers: None,
         };
 
-        let factory = ForgeAuthStrategyFactory::new();
+        let factory = ForgeAuthStrategyFactory;
         let strategy = factory.create_auth_strategy(
             ProviderId::OPENAI,
             forge_domain::AuthMethod::OAuthCode(config),
@@ -1145,7 +1180,7 @@ mod tests {
             custom_headers: None,
         };
 
-        let factory = ForgeAuthStrategyFactory::new();
+        let factory = ForgeAuthStrategyFactory;
         let strategy = factory.create_auth_strategy(
             ProviderId::OPENAI,
             forge_domain::AuthMethod::OAuthDevice(config),
@@ -1168,7 +1203,7 @@ mod tests {
             custom_headers: None,
         };
 
-        let factory = ForgeAuthStrategyFactory::new();
+        let factory = ForgeAuthStrategyFactory;
         let strategy = factory.create_auth_strategy(
             ProviderId::GITHUB_COPILOT,
             forge_domain::AuthMethod::OAuthDevice(config),
@@ -1192,7 +1227,7 @@ mod tests {
             custom_headers: None,
         };
 
-        let factory = ForgeAuthStrategyFactory::new();
+        let factory = ForgeAuthStrategyFactory;
         let actual = factory.create_auth_strategy(
             ProviderId::CODEX,
             forge_domain::AuthMethod::CodexDevice(config),

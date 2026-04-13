@@ -1,57 +1,20 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use forge_app::{
-    CommandInfra, EnvironmentInfra, FileReaderInfra, SyncProgressCounter, WalkerInfra,
-    WorkspaceService, WorkspaceStatus, compute_hash,
-};
+use forge_app::{CommandInfra, EnvironmentInfra, FileReaderInfra, WalkerInfra, WorkspaceService};
 use forge_domain::{
-    AuthCredential, AuthDetails, FileHash, FileNode, ProviderId, ProviderRepository, SyncProgress,
-    UserId, WorkspaceId, WorkspaceIndexRepository,
+    AuthCredential, AuthDetails, ProviderId, ProviderRepository, SyncProgress, UserId, WorkspaceId,
+    WorkspaceIndexRepository,
 };
 use forge_stream::MpscStream;
 use futures::future::join_all;
-use futures::stream::{Stream, StreamExt};
-use tracing::{info, warn};
+use tracing::info;
 
-use crate::fd::{FileDiscovery, discover_sync_file_paths};
-
-/// Error type for a single file that could not be read during workspace
-/// operations, carrying the file path for downstream reporting.
-#[derive(Debug, thiserror::Error)]
-#[error("Failed to read file '{path}': {source}")]
-struct FileReadError {
-    path: PathBuf,
-    #[source]
-    source: anyhow::Error,
-}
-
-/// Canonicalizes `path`, attaching a context message that includes the original
-/// path on failure.
-fn canonicalize_path(path: PathBuf) -> Result<PathBuf> {
-    path.canonicalize()
-        .with_context(|| format!("Failed to resolve path: {}", path.display()))
-}
-
-/// Extracts [`forge_domain::FileStatus`] entries with
-/// [`forge_domain::SyncStatus::Failed`] from a slice of file-read results by
-/// downcasting errors to [`FileReadError`].
-fn extract_failed_statuses(results: &[Result<FileNode>]) -> Vec<forge_domain::FileStatus> {
-    results
-        .iter()
-        .filter_map(|r| r.as_ref().err())
-        .filter_map(|e| e.downcast_ref::<FileReadError>())
-        .map(|e| {
-            forge_domain::FileStatus::new(
-                e.path.to_string_lossy().into_owned(),
-                forge_domain::SyncStatus::Failed,
-            )
-        })
-        .collect()
-}
+use crate::fd::FileDiscovery;
+use crate::sync::{WorkspaceSyncEngine, canonicalize_path};
 
 /// Service for indexing workspaces and performing semantic search.
 ///
@@ -84,104 +47,12 @@ impl<
         + ProviderRepository
         + WorkspaceIndexRepository
         + FileReaderInfra
-        + EnvironmentInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + CommandInfra
         + WalkerInfra,
     D: FileDiscovery + 'static,
 > ForgeWorkspaceService<F, D>
 {
-    /// Fetches remote file hashes from the server.
-    async fn fetch_remote_hashes(
-        &self,
-        user_id: &UserId,
-        workspace_id: &WorkspaceId,
-        auth_token: &forge_domain::ApiKey,
-    ) -> anyhow::Result<Vec<FileHash>> {
-        info!(workspace_id = %workspace_id, "Fetching existing file hashes from server to detect changes...");
-        let workspace_files =
-            forge_domain::CodeBase::new(user_id.clone(), workspace_id.clone(), ());
-
-        self.infra
-            .list_workspace_files(&workspace_files, auth_token)
-            .await
-    }
-
-    /// Deletes files from the workspace and updates the progress counter.
-    ///
-    /// Returns the number of files that were successfully deleted.
-    async fn delete_files(
-        &self,
-        user_id: &UserId,
-        workspace_id: &WorkspaceId,
-        token: &forge_domain::ApiKey,
-        files_to_delete: Vec<String>,
-    ) -> Result<usize> {
-        if files_to_delete.is_empty() {
-            return Ok(0);
-        }
-
-        let deletion = forge_domain::CodeBase::new(
-            user_id.clone(),
-            workspace_id.clone(),
-            files_to_delete.clone(),
-        );
-        self.infra
-            .delete_files(&deletion, token)
-            .await
-            .context("Failed to delete files")?;
-
-        for path in &files_to_delete {
-            info!(workspace_id = %workspace_id, path = %path, "File deleted successfully");
-        }
-
-        Ok(files_to_delete.len())
-    }
-
-    /// Uploads files in parallel, returning a stream of results.
-    ///
-    /// The caller is responsible for processing the stream and tracking
-    /// progress.
-    fn upload_files(
-        &self,
-        user_id: &UserId,
-        workspace_id: &WorkspaceId,
-        token: &forge_domain::ApiKey,
-        files: Vec<forge_domain::FileNode>,
-        batch_size: usize,
-    ) -> impl Stream<Item = Result<usize, anyhow::Error>> + Send {
-        let user_id = user_id.clone();
-        let workspace_id = workspace_id.clone();
-        let token = token.clone();
-
-        let file_reads = files
-            .into_iter()
-            .map(|f| forge_domain::FileRead::new(f.file_path, f.content))
-            .collect::<Vec<_>>();
-
-        futures::stream::iter(file_reads)
-            .map(move |file| {
-                let user_id = user_id.clone();
-                let workspace_id = workspace_id.clone();
-                let token = token.clone();
-                let file_path = file.path.clone();
-                async move {
-                    info!(workspace_id = %workspace_id, path = %file_path, "File sync started");
-                    let upload = forge_domain::CodeBase::new(
-                        user_id.clone(),
-                        workspace_id.clone(),
-                        vec![file],
-                    );
-                    self.infra
-                        .upload_files(&upload, &token)
-                        .await
-                        .context("Failed to upload files")?;
-                    info!(workspace_id = %workspace_id, path = %file_path, "File sync completed");
-                    Ok::<_, anyhow::Error>(1)
-                }
-            })
-            .buffer_unordered(batch_size)
-    }
-
     /// Internal sync implementation that emits progress events.
     async fn sync_codebase_internal<E, Fut>(&self, path: PathBuf, emit: E) -> Result<()>
     where
@@ -193,12 +64,11 @@ impl<
         emit(SyncProgress::Starting).await;
 
         let (token, user_id) = self.get_workspace_credentials().await?;
-        let batch_size = self.infra.get_environment().max_file_read_batch_size;
+        let batch_size = self.infra.get_config()?.max_file_read_batch_size;
         let path = canonicalize_path(path)?;
 
         // Find existing workspace - do NOT auto-create
         let workspace = self.get_workspace_by_path(path, &token).await?;
-
         let workspace_id = workspace.workspace_id.clone();
 
         // Use the canonical root stored in the workspace record so that file
@@ -206,125 +76,17 @@ impl<
         // base, even when `path` is a subdirectory of an ancestor workspace.
         let workspace_root = PathBuf::from(&workspace.working_dir);
 
-        // Read all files and compute hashes from the workspace root path
-        emit(SyncProgress::DiscoveringFiles {
-            path: workspace_root.clone(),
-            workspace_id: workspace_id.clone(),
-        })
-        .await;
-
-        let results: Vec<Result<FileNode>> = self
-            .read_files(batch_size, &workspace_root, &workspace_id)
-            .collect()
-            .await;
-        let failed_statuses = extract_failed_statuses(&results);
-        let local_files: Vec<FileNode> = results.into_iter().flatten().collect();
-
-        let total_file_count = local_files.len() + failed_statuses.len();
-        emit(SyncProgress::FilesDiscovered { count: total_file_count }).await;
-
-        let remote_files = self
-            .fetch_remote_hashes(&user_id, &workspace_id, &token)
-            .await?;
-
-        emit(SyncProgress::ComparingFiles {
-            remote_files: remote_files.len(),
-            local_files: total_file_count,
-        })
-        .await;
-
-        let plan = WorkspaceStatus::new(workspace_root.clone(), remote_files);
-        let local_file_hashes: Vec<forge_domain::FileHash> =
-            local_files.iter().cloned().map(Into::into).collect();
-        let mut statuses = plan.file_statuses(local_file_hashes);
-        statuses.extend(failed_statuses);
-
-        // Compute counts from statuses
-        let added = statuses
-            .iter()
-            .filter(|s| s.status == forge_domain::SyncStatus::New)
-            .count();
-        let deleted = statuses
-            .iter()
-            .filter(|s| s.status == forge_domain::SyncStatus::Deleted)
-            .count();
-        let modified = statuses
-            .iter()
-            .filter(|s| s.status == forge_domain::SyncStatus::Modified)
-            .count();
-        let mut failed_files = statuses
-            .iter()
-            .filter(|s| s.status == forge_domain::SyncStatus::Failed)
-            .count();
-
-        // Compute total number of affected files
-        let total_file_changes = added + deleted + modified;
-
-        // Only emit diff computed event if there are actual changes
-        if total_file_changes > 0 {
-            emit(SyncProgress::DiffComputed { added, deleted, modified }).await;
-        }
-
-        let (files_to_delete, nodes_to_upload) = plan.get_operations(local_files);
-
-        let total_operations = files_to_delete.len() + nodes_to_upload.len();
-        let mut counter = SyncProgressCounter::new(total_file_changes, total_operations);
-
-        emit(counter.sync_progress()).await;
-
-        // Delete all files in a single batched call
-        match self
-            .delete_files(&user_id, &workspace_id, &token, files_to_delete.clone())
-            .await
-        {
-            Ok(deleted_count) => {
-                counter.complete(deleted_count);
-                emit(counter.sync_progress()).await;
-            }
-            Err(e) => {
-                warn!(workspace_id = %workspace_id, error = ?e,"Failed to delete files during sync");
-                failed_files += files_to_delete.len();
-            }
-        }
-
-        // Upload files in parallel
-        let mut upload_stream =
-            self.upload_files(&user_id, &workspace_id, &token, nodes_to_upload, batch_size);
-
-        // Process uploads as they complete, updating progress incrementally
-        while let Some(result) = upload_stream.next().await {
-            match result {
-                Ok(count) => {
-                    counter.complete(count);
-                    emit(counter.sync_progress()).await;
-                }
-                Err(e) => {
-                    warn!(workspace_id = %workspace_id, error = ?e, "Failed to upload file during sync");
-                    failed_files += 1;
-                    // Continue processing remaining uploads
-                }
-            }
-        }
-
-        info!(
-            workspace_id = %workspace_id,
-            total_files = total_file_count,
-            "Sync completed successfully"
-        );
-
-        emit(SyncProgress::Completed {
-            total_files: total_file_count,
-            uploaded_files: total_file_changes,
-            failed_files,
-        })
-        .await;
-
-        // Fail if there were any failed files
-        if failed_files > 0 {
-            Err(forge_domain::Error::sync_failed(failed_files).into())
-        } else {
-            Ok(())
-        }
+        WorkspaceSyncEngine::new(
+            Arc::clone(&self.infra),
+            Arc::clone(&self.discovery),
+            workspace_root,
+            workspace_id,
+            user_id,
+            token,
+            batch_size,
+        )
+        .run(emit)
+        .await
     }
 
     /// Gets the ForgeCode services credential and extracts workspace auth
@@ -420,52 +182,6 @@ impl<
             .context("Workspace not indexed. Please run `forge workspace init` first.")
     }
 
-    /// Only includes files with allowed extensions.
-    fn read_files(
-        &self,
-        batch_size: usize,
-        dir_path: &Path,
-        workspace_id: &WorkspaceId,
-    ) -> impl Stream<Item = Result<FileNode>> + Send {
-        let dir_path = dir_path.to_path_buf();
-        let infra = self.infra.clone();
-        let discovery = self.discovery.clone();
-        let workspace_id = workspace_id.clone();
-
-        async_stream::stream! {
-            let file_paths: Vec<PathBuf> = match discover_sync_file_paths(
-                discovery.as_ref(),
-                &dir_path,
-                &workspace_id,
-            ).await {
-                Ok(file_paths) => file_paths,
-                Err(err) => {
-                    yield Err(err);
-                    return;
-                }
-            };
-
-            // Use read_batch_utf8 with streaming for better memory efficiency
-            // with large file sets
-            let stream = infra.read_batch_utf8(batch_size, file_paths);
-            futures::pin_mut!(stream);
-
-            while let Some((absolute_path, result)) = stream.next().await {
-                match result {
-                    Ok(content) => {
-                        let hash = compute_hash(&content);
-                        let absolute_path_str = absolute_path.to_string_lossy().to_string();
-                        yield Ok(FileNode { file_path: absolute_path_str, content, hash });
-                    }
-                    Err(e) => {
-                        warn!(path = %absolute_path.display(), error = ?e, "Skipping unreadable file during sync");
-                        yield Err(FileReadError { path: absolute_path, source: e }.into());
-                    }
-                }
-            }
-        }
-    }
-
     async fn _init_workspace(&self, path: PathBuf) -> Result<(bool, WorkspaceId)> {
         let (token, _user_id) = self.get_workspace_credentials().await?;
         let path = canonicalize_path(path)?;
@@ -503,7 +219,7 @@ impl<
     F: ProviderRepository
         + WorkspaceIndexRepository
         + FileReaderInfra
-        + EnvironmentInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + CommandInfra
         + WalkerInfra
         + 'static,
@@ -643,25 +359,19 @@ impl<
         // sync), avoiding a redundant canonicalize() IO call.
         let canonical_path = PathBuf::from(&workspace.working_dir);
 
-        let batch_size = self.infra.get_environment().max_file_read_batch_size;
-        let results: Vec<Result<FileNode>> = self
-            .read_files(batch_size, &canonical_path, &workspace.workspace_id)
-            .collect()
-            .await;
+        let batch_size = self.infra.get_config()?.max_file_read_batch_size;
 
-        let mut failed_statuses = extract_failed_statuses(&results);
-        let local_files: Vec<FileNode> = results.into_iter().flatten().collect();
-
-        let remote_files = self
-            .fetch_remote_hashes(&user_id, &workspace.workspace_id, &token)
-            .await?;
-
-        let plan = WorkspaceStatus::new(canonical_path, remote_files);
-        let local_file_hashes: Vec<forge_domain::FileHash> =
-            local_files.into_iter().map(Into::into).collect();
-        let mut statuses = plan.file_statuses(local_file_hashes);
-        statuses.append(&mut failed_statuses);
-        Ok(statuses)
+        WorkspaceSyncEngine::new(
+            Arc::clone(&self.infra),
+            Arc::clone(&self.discovery),
+            canonical_path,
+            workspace.workspace_id,
+            user_id,
+            token,
+            batch_size,
+        )
+        .compute_status()
+        .await
     }
 
     async fn is_authenticated(&self) -> Result<bool> {

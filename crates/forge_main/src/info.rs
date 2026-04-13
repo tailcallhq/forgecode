@@ -3,8 +3,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use colored::Colorize;
-use forge_api::{Conversation, Environment, LoginInfo, Metrics, Role, Usage, UserUsage};
-use forge_app::utils::truncate_key;
+use forge_api::{Conversation, Environment, ForgeConfig, Metrics, Role, Usage, UserUsage};
 use forge_tracker::VERSION;
 use num_format::{Locale, ToFormattedString};
 
@@ -295,7 +294,10 @@ impl From<&Environment> for Info {
         let agent_path = env.agent_path();
         info = info
             .add_key_value("Agents", format_path_for_display(env, &agent_path))
-            .add_key_value("History", format_path_for_display(env, &env.history_path()))
+            .add_key_value(
+                "History",
+                format_path_for_display(env, &env.history_path(None)),
+            )
             .add_key_value(
                 "Checkpoints",
                 format_path_for_display(env, &env.snapshot_path()),
@@ -305,107 +307,108 @@ impl From<&Environment> for Info {
                 format_path_for_display(env, &env.permissions_path()),
             );
 
-        // Add configuration sections
+        info
+    }
+}
+
+impl From<&ForgeConfig> for Info {
+    fn from(config: &ForgeConfig) -> Self {
+        let mut info = Info::new();
+
+        // RETRY CONFIGURATION
+        if let Some(retry) = &config.retry {
+            info = info
+                .add_title("RETRY CONFIGURATION")
+                .add_key_value("Initial Backoff", format!("{}ms", retry.initial_backoff_ms))
+                .add_key_value("Backoff Factor", retry.backoff_factor.to_string())
+                .add_key_value("Max Attempts", retry.max_attempts.to_string())
+                .add_key_value("Suppress Errors", retry.suppress_errors.to_string())
+                .add_key_value(
+                    "Status Codes",
+                    retry
+                        .status_codes
+                        .iter()
+                        .map(|c| c.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+        }
+
+        // HTTP CONFIGURATION
+        if let Some(http) = &config.http {
+            info = info
+                .add_title("HTTP CONFIGURATION")
+                .add_key_value("Connect Timeout", format!("{}s", http.connect_timeout_secs))
+                .add_key_value("Read Timeout", format!("{}s", http.read_timeout_secs))
+                .add_key_value(
+                    "Pool Idle Timeout",
+                    format!("{}s", http.pool_idle_timeout_secs),
+                )
+                .add_key_value("Pool Max Idle", http.pool_max_idle_per_host.to_string())
+                .add_key_value("Max Redirects", http.max_redirects.to_string())
+                .add_key_value("Use Hickory DNS", http.hickory.to_string())
+                .add_key_value("TLS Backend", format!("{:?}", http.tls_backend))
+                .add_key_value(
+                    "Min TLS Version",
+                    http.min_tls_version.as_ref().map(|v| format!("{v:?}")),
+                )
+                .add_key_value(
+                    "Max TLS Version",
+                    http.max_tls_version.as_ref().map(|v| format!("{v:?}")),
+                )
+                .add_key_value("Adaptive Window", http.adaptive_window.to_string())
+                .add_key_value(
+                    "Keep-Alive Interval",
+                    http.keep_alive_interval_secs.map(|v| format!("{v}s")),
+                )
+                .add_key_value(
+                    "Keep-Alive Timeout",
+                    format!("{}s", http.keep_alive_timeout_secs),
+                )
+                .add_key_value(
+                    "Keep-Alive While Idle",
+                    http.keep_alive_while_idle.to_string(),
+                )
+                .add_key_value(
+                    "Accept Invalid Certs",
+                    http.accept_invalid_certs.to_string(),
+                )
+                .add_key_value(
+                    "Root Cert Paths",
+                    http.root_cert_paths
+                        .as_ref()
+                        .map(|paths| paths.join(", "))
+                        .unwrap_or_else(|| markers::EMPTY.to_string()),
+                );
+        }
+
         info = info
-            .add_title("RETRY CONFIGURATION")
-            .add_key_value(
-                "Initial Backoff",
-                format!("{}ms", env.retry_config.initial_backoff_ms),
-            )
-            .add_key_value(
-                "Backoff Factor",
-                env.retry_config.backoff_factor.to_string(),
-            )
-            .add_key_value(
-                "Max Attempts",
-                env.retry_config.max_retry_attempts.to_string(),
-            )
-            .add_key_value(
-                "Suppress Errors",
-                env.retry_config.suppress_retry_errors.to_string(),
-            )
-            .add_key_value(
-                "Status Codes",
-                env.retry_config
-                    .retry_status_codes
-                    .iter()
-                    .map(|c| c.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            )
-            .add_title("HTTP CONFIGURATION")
-            .add_key_value("Connect Timeout", format!("{}s", env.http.connect_timeout))
-            .add_key_value("Read Timeout", format!("{}s", env.http.read_timeout))
-            .add_key_value(
-                "Pool Idle Timeout",
-                format!("{}s", env.http.pool_idle_timeout),
-            )
-            .add_key_value("Pool Max Idle", env.http.pool_max_idle_per_host.to_string())
-            .add_key_value("Max Redirects", env.http.max_redirects.to_string())
-            .add_key_value("Use Hickory DNS", env.http.hickory.to_string())
-            .add_key_value("TLS Backend", format!("{}", env.http.tls_backend))
-            .add_key_value(
-                "Min TLS Version",
-                env.http
-                    .min_tls_version
-                    .as_ref()
-                    .map(|v| format!("{v}"))
-                    .unwrap_or_else(|| markers::EMPTY.to_string()),
-            )
-            .add_key_value(
-                "Max TLS Version",
-                env.http
-                    .max_tls_version
-                    .as_ref()
-                    .map(|v| format!("{v}"))
-                    .unwrap_or_else(|| markers::EMPTY.to_string()),
-            )
-            .add_key_value("Adaptive Window", env.http.adaptive_window.to_string())
-            .add_key_value(
-                "Keep-Alive Interval",
-                env.http.keep_alive_interval.map(|v| format!("{v}s")),
-            )
-            .add_key_value(
-                "Keep-Alive Timeout",
-                format!("{}s", env.http.keep_alive_timeout),
-            )
-            .add_key_value(
-                "Keep-Alive While Idle",
-                env.http.keep_alive_while_idle.to_string(),
-            )
-            .add_key_value(
-                "Accept Invalid Certs",
-                env.http.accept_invalid_certs.to_string(),
-            )
-            .add_key_value(
-                "Root Cert Paths",
-                env.http
-                    .root_cert_paths
-                    .as_ref()
-                    .map(|paths| paths.join(", "))
-                    .unwrap_or_else(|| markers::EMPTY.to_string()),
-            )
             .add_title("API CONFIGURATION")
-            .add_key_value("Forge API URL", env.forge_api_url.to_string())
-            .add_key_value("Workspace Server URL", env.workspace_server_url.to_string())
+            .add_key_value("ForgeCode Service URL", config.services_url.to_string())
             .add_title("TOOL CONFIGURATION")
-            .add_key_value("Tool Timeout", format!("{}s", env.tool_timeout))
-            .add_key_value("Max Image Size", format!("{} bytes", env.max_image_size))
-            .add_key_value("Auto Open Dump", env.auto_open_dump.to_string())
+            .add_key_value("Tool Timeout", format!("{}s", config.tool_timeout_secs))
+            .add_key_value(
+                "Max Image Size",
+                format!("{} bytes", config.max_image_size_bytes),
+            )
+            .add_key_value("Auto Open Dump", config.auto_open_dump.to_string())
             .add_key_value(
                 "Debug Requests",
-                env.debug_requests.as_ref().map(|p| p.display().to_string()),
+                config
+                    .debug_requests
+                    .as_ref()
+                    .map(|p| p.display().to_string()),
             )
             .add_key_value(
                 "Stdout Max Line Length",
-                env.stdout_max_line_length.to_string(),
+                config.max_stdout_line_chars.to_string(),
             )
             .add_title("SYSTEM CONFIGURATION")
             .add_key_value(
                 "Max Search Result Bytes",
-                format!("{} bytes", env.max_search_result_bytes),
+                format!("{} bytes", config.max_search_result_bytes),
             )
-            .add_key_value("Max Conversations", env.max_conversations.to_string());
+            .add_key_value("Max Conversations", config.max_conversations.to_string());
 
         info
     }
@@ -630,20 +633,6 @@ impl From<&ForgeCommandManager> for Info {
         info
     }
 }
-impl From<&LoginInfo> for Info {
-    fn from(login_info: &LoginInfo) -> Self {
-        let mut info = Info::new().add_title("ACCOUNT");
-
-        if let Some(email) = login_info.email.as_ref() {
-            info = info.add_key_value("Login", email);
-        }
-
-        info = info.add_key_value("Key", truncate_key(&login_info.api_key_masked));
-
-        info
-    }
-}
-
 impl From<&UserUsage> for Info {
     fn from(user_usage: &UserUsage) -> Self {
         let usage = &user_usage.usage;

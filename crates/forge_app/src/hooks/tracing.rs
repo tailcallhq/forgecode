@@ -204,6 +204,7 @@ mod tests {
             tool_calls: vec![],
             usage: Default::default(),
             finish_reason: None,
+            phase: None,
         };
         let event = EventData::new(test_agent(), test_model_id(), ResponsePayload::new(message));
 

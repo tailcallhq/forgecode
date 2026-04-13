@@ -7,6 +7,20 @@ use super::{ToolCall, ToolCallFull};
 use crate::TokenCount;
 use crate::reasoning::{Reasoning, ReasoningFull};
 
+/// Labels an assistant message as intermediate commentary or the final answer.
+///
+/// For models like `gpt-5.3-codex` and beyond, when sending follow-up requests,
+/// preserve and resend phase on all assistant messages -- dropping it can
+/// degrade performance.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MessagePhase {
+    /// Intermediate commentary produced while the model is reasoning.
+    Commentary,
+    /// The final answer from the model.
+    FinalAnswer,
+}
+
 #[derive(Default, Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Usage {
     pub prompt_tokens: TokenCount,
@@ -17,13 +31,43 @@ pub struct Usage {
 }
 
 impl Usage {
-    /// Accumulates usage from another Usage instance
-    /// Cost is summed, tokens are added using TokenCount's Add implementation
+    /// Accumulates usage from another Usage instance by summing all fields.
+    ///
+    /// Use this for aggregating usage across **independent** requests (e.g.,
+    /// session-level totals where each message has its own final usage).
     pub fn accumulate(mut self, other: &Usage) -> Self {
         self.prompt_tokens = self.prompt_tokens + other.prompt_tokens;
         self.completion_tokens = self.completion_tokens + other.completion_tokens;
         self.total_tokens = self.total_tokens + other.total_tokens;
         self.cached_tokens = self.cached_tokens + other.cached_tokens;
+        self.cost = match (self.cost, other.cost) {
+            (Some(a), Some(b)) => Some(a + b),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        };
+        self
+    }
+
+    /// Merges usage from another Usage instance using a "last non-zero wins"
+    /// strategy.
+    ///
+    /// Use this when combining **partial** usage events within a single
+    /// streaming response where values are **cumulative** (not incremental):
+    /// - `message_start`: `input_tokens=1000, output_tokens=1`
+    /// - `message_delta`:  `input_tokens=0,    output_tokens=75` (cumulative
+    ///   total)
+    ///
+    /// For each field, the larger of the two values is kept. This prevents
+    /// double-counting when providers report cumulative token counts across
+    /// multiple events.
+    ///
+    /// Cost is summed since cost events are always additive.
+    pub fn merge(mut self, other: &Usage) -> Self {
+        self.prompt_tokens = self.prompt_tokens.max(other.prompt_tokens);
+        self.completion_tokens = self.completion_tokens.max(other.completion_tokens);
+        self.total_tokens = self.total_tokens.max(other.total_tokens);
+        self.cached_tokens = self.cached_tokens.max(other.cached_tokens);
         self.cost = match (self.cost, other.cost) {
             (Some(a), Some(b)) => Some(a + b),
             (Some(a), None) => Some(a),
@@ -47,6 +91,9 @@ pub struct ChatCompletionMessage {
     pub tool_calls: Vec<ToolCall>,
     pub finish_reason: Option<FinishReason>,
     pub usage: Option<Usage>,
+    /// Phase label for assistant messages (e.g. `Commentary` or `FinalAnswer`).
+    /// Preserved from the response and replayed back on subsequent requests.
+    pub phase: Option<MessagePhase>,
 }
 
 impl From<FinishReason> for ChatCompletionMessage {
@@ -176,6 +223,9 @@ pub struct ChatCompletionMessageFull {
     pub reasoning_details: Option<Vec<ReasoningFull>>,
     pub usage: Usage,
     pub finish_reason: Option<FinishReason>,
+    /// Phase label for the assistant message (e.g. `Commentary` or
+    /// `FinalAnswer`).
+    pub phase: Option<MessagePhase>,
 }
 
 #[cfg(test)]
@@ -353,5 +403,69 @@ mod tests {
             FinishReason::from_str("end_turn").unwrap(),
             FinishReason::Stop
         );
+    }
+
+    #[test]
+    fn test_usage_merge_anthropic_cumulative() {
+        // Fixture: Simulates Anthropic's message_start + message_delta pattern
+        // where output_tokens in message_delta is CUMULATIVE (total), not a delta.
+        let fixture_message_start = Usage {
+            prompt_tokens: TokenCount::Actual(1000),
+            completion_tokens: TokenCount::Actual(1), // Initial output token
+            total_tokens: TokenCount::Actual(1001),
+            cached_tokens: TokenCount::Actual(300),
+            cost: None,
+        };
+
+        let fixture_message_delta = Usage {
+            prompt_tokens: TokenCount::Actual(0),
+            completion_tokens: TokenCount::Actual(75), // Cumulative total, NOT delta
+            total_tokens: TokenCount::Actual(75),
+            cached_tokens: TokenCount::Actual(0),
+            cost: None,
+        };
+
+        let actual = fixture_message_start.merge(&fixture_message_delta);
+
+        let expected = Usage {
+            prompt_tokens: TokenCount::Actual(1000),   // max(1000, 0)
+            completion_tokens: TokenCount::Actual(75), // max(1, 75) = 75, NOT 1+75=76
+            total_tokens: TokenCount::Actual(1001),    // max(1001, 75)
+            cached_tokens: TokenCount::Actual(300),    // max(300, 0)
+            cost: None,
+        };
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_usage_merge_preserves_costs() {
+        let fixture_usage_1 = Usage {
+            prompt_tokens: TokenCount::Actual(100),
+            completion_tokens: TokenCount::Actual(0),
+            total_tokens: TokenCount::Actual(100),
+            cached_tokens: TokenCount::Actual(0),
+            cost: Some(0.01),
+        };
+
+        let fixture_usage_2 = Usage {
+            prompt_tokens: TokenCount::Actual(0),
+            completion_tokens: TokenCount::Actual(50),
+            total_tokens: TokenCount::Actual(50),
+            cached_tokens: TokenCount::Actual(0),
+            cost: Some(0.02),
+        };
+
+        let actual = fixture_usage_1.merge(&fixture_usage_2);
+
+        let expected = Usage {
+            prompt_tokens: TokenCount::Actual(100),
+            completion_tokens: TokenCount::Actual(50),
+            total_tokens: TokenCount::Actual(100),
+            cached_tokens: TokenCount::Actual(0),
+            cost: Some(0.03), // Costs are summed, not maxed
+        };
+
+        assert_eq!(actual, expected);
     }
 }

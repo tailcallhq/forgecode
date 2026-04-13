@@ -7,14 +7,16 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use colored::Colorize;
+use console::style;
 use convert_case::{Case, Casing};
 use forge_api::{
     API, AgentId, AnyProvider, ApiKeyRequest, AuthContextRequest, AuthContextResponse, ChatRequest,
-    ChatResponse, CodeRequest, Conversation, ConversationId, DeviceCodeRequest, Event,
-    InterruptionReason, Model, ModelId, Provider, ProviderId, TextMessage, UserPrompt, Workflow,
+    ChatResponse, CodeRequest, ConfigOperation, Conversation, ConversationId, DeviceCodeRequest,
+    Event, InterruptionReason, ModelId, Provider, ProviderId, TextMessage, UserPrompt,
 };
 use forge_app::utils::{format_display_path, truncate_key};
 use forge_app::{CommitResult, ToolResolver};
+use forge_config::ForgeConfig;
 use forge_display::MarkdownFormat;
 use forge_domain::{
     AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, Role, TitleFormat, UserCommand,
@@ -24,7 +26,6 @@ use forge_select::ForgeWidget;
 use forge_spinner::SpinnerManager;
 use forge_tracker::ToolCallPayload;
 use futures::future;
-use merge::Merge;
 use tokio_stream::StreamExt;
 use url::Url;
 
@@ -98,7 +99,7 @@ fn format_mcp_headers(server: &forge_domain::McpServerConfig) -> Option<String> 
     }
 }
 
-pub struct UI<A: ConsoleWriter, F: Fn() -> A> {
+pub struct UI<A: ConsoleWriter, F: Fn(ForgeConfig) -> A> {
     markdown: MarkdownFormat,
     state: UIState,
     api: Arc<F::Output>,
@@ -107,11 +108,12 @@ pub struct UI<A: ConsoleWriter, F: Fn() -> A> {
     command: Arc<ForgeCommandManager>,
     cli: Cli,
     spinner: SharedSpinner<A>,
+    config: ForgeConfig,
     #[allow(dead_code)] // The guard is kept alive by being held in the struct
     _guard: forge_tracker::Guard,
 }
 
-impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
+impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI<A, F> {
     /// Writes a line to the console output
     /// Takes anything that implements ToString trait
     fn writeln<T: ToString>(&mut self, content: T) -> anyhow::Result<()> {
@@ -125,14 +127,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
 
     fn writeln_to_stderr(&mut self, title: String) -> anyhow::Result<()> {
         self.spinner.ewrite_ln(title)
-    }
-
-    /// Retrieve available models
-    async fn get_models(&mut self) -> Result<Vec<Model>> {
-        self.spinner.start(Some("Loading"))?;
-        let models = self.api.get_models().await?;
-        self.spinner.stop(None)?;
-        Ok(models)
     }
 
     /// Helper to get provider for an optional agent, defaulting to the current
@@ -163,7 +157,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
 
     // Handle creating a new conversation
     async fn on_new(&mut self) -> Result<()> {
-        self.api = Arc::new((self.new_api)());
+        let config = forge_config::ForgeConfig::read().unwrap_or_default();
+        self.config = config.clone();
+        self.api = Arc::new((self.new_api)(config));
         self.init_state(false).await?;
 
         // Set agent if provided via CLI
@@ -187,11 +183,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
         // Convert string to AgentId for validation
         let agent = self
             .api
-            .get_agents()
+            .get_agent_infos()
             .await?
-            .iter()
-            .find(|agent| agent.id == agent_id)
-            .cloned()
+            .into_iter()
+            .find(|info| info.id == agent_id)
             .ok_or(anyhow::anyhow!("Undefined agent: {agent_id}"))?;
 
         // Update the app config with the new operating agent.
@@ -208,9 +203,18 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
         Ok(())
     }
 
-    pub fn init(cli: Cli, f: F) -> Result<Self> {
+    /// Initialises the UI with the provided CLI arguments and API factory.
+    ///
+    /// # Arguments
+    /// * `cli` - Parsed command-line arguments
+    /// * `config` - Pre-read application configuration for the initial API
+    ///   instance
+    /// * `f` - Factory closure invoked once at startup and again on each `/new`
+    ///   command; receives the latest [`ForgeConfig`] so that config changes
+    ///   from `forge config set` are reflected in new conversations
+    pub fn init(cli: Cli, config: ForgeConfig, f: F) -> Result<Self> {
         // Parse CLI arguments first to get flags
-        let api = Arc::new(f());
+        let api = Arc::new(f(config.clone()));
         let env = api.environment();
         let command = Arc::new(ForgeCommandManager::default());
         let spinner = SharedSpinner::new(SpinnerManager::new(api.clone()));
@@ -218,11 +222,16 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             state: Default::default(),
             api,
             new_api: Arc::new(f),
-            console: Console::new(env.clone(), command.clone()),
+            console: Console::new(
+                env.clone(),
+                config.custom_history_path.clone(),
+                command.clone(),
+            ),
             cli,
             command,
             spinner,
             markdown: MarkdownFormat::new(),
+            config,
             _guard: forge_tracker::init_tracing(env.log_path(), TRACKER.clone())?,
         })
     }
@@ -245,8 +254,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
         let model = self
             .get_agent_model(self.api.get_active_agent().await)
             .await;
-        let forge_prompt = ForgePrompt { cwd: self.state.cwd.clone(), usage, model, agent_id };
-        self.console.prompt(forge_prompt).await
+        let mut forge_prompt = ForgePrompt::new(self.state.cwd.clone(), agent_id);
+        if let Some(u) = usage {
+            forge_prompt.usage(u);
+        }
+        if let Some(m) = model {
+            forge_prompt.model(m);
+        }
+        self.console.prompt(&mut forge_prompt).await
     }
 
     pub async fn run(&mut self) {
@@ -364,7 +379,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
         let api = self.api.clone();
         tokio::spawn(async move { api.get_tools().await });
         let api = self.api.clone();
-        tokio::spawn(async move { api.get_agents().await });
+        tokio::spawn(async move { api.get_agent_infos().await });
         let api = self.api.clone();
         tokio::spawn(async move {
             let _ = api.hydrate_channel();
@@ -450,6 +465,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                     crate::cli::ZshCommandGroup::Keyboard => {
                         self.on_zsh_keyboard().await?;
                     }
+                    crate::cli::ZshCommandGroup::Format { buffer } => {
+                        print!("{}", crate::zsh::paste::wrap_pasted_text(&buffer));
+                        return Ok(());
+                    }
                 }
                 return Ok(());
             }
@@ -528,16 +547,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                     self.api.reload_mcp().await?;
                     self.writeln_title(TitleFormat::info("MCP reloaded"))?;
                 }
+                McpCommand::Login(args) => {
+                    self.handle_mcp_login(&args.name).await?;
+                }
+                McpCommand::Logout(args) => {
+                    self.handle_mcp_logout(&args.name).await?;
+                }
             },
             TopLevelCommand::Info { porcelain, conversation_id } => {
-                // Make sure to init model
-                self.on_new().await?;
+                // Only initialize state (agent/provider/model resolution).
+                // Avoid on_new() which also spawns fire-and-forget background
+                // tasks via hydrate_caches() that race with process exit and
+                // cause "JoinHandle polled after completion" panics.
+                self.init_state(false).await?;
 
                 self.on_info(porcelain, conversation_id).await?;
-                return Ok(());
-            }
-            TopLevelCommand::Env => {
-                self.on_env().await?;
                 return Ok(());
             }
             TopLevelCommand::Banner => {
@@ -638,13 +662,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                     crate::cli::WorkspaceCommand::Status { path, porcelain } => {
                         self.on_workspace_status(path, porcelain).await?;
                     }
-                    crate::cli::WorkspaceCommand::Init { path } => {
-                        self.on_workspace_init(path).await?;
+                    crate::cli::WorkspaceCommand::Init { path, yes } => {
+                        self.on_workspace_init(path, yes).await?;
                     }
                 }
                 return Ok(());
             }
             TopLevelCommand::Commit(commit_group) => {
+                self.init_state(false).await?;
                 let preview = commit_group.preview;
                 let result = self.handle_commit_command(commit_group).await?;
                 if preview {
@@ -671,7 +696,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                 return Ok(());
             }
             TopLevelCommand::Update(args) => {
-                let update = forge_domain::Update::default().auto_update(Some(args.no_confirm));
+                let update = forge_config::Update::default().auto_update(args.no_confirm);
                 on_update(self.api.clone(), Some(&update)).await;
                 return Ok(());
             }
@@ -768,6 +793,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                 self.on_clone_conversation(conversation, porcelain).await?;
                 self.spinner.stop(None)?;
             }
+            ConversationCommand::Rename { id, name } => {
+                self.validate_conversation_exists(&id).await?;
+
+                let name = name.trim().to_string();
+                if name.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "Please provide a name for the conversation."
+                    ));
+                }
+                self.api.rename_conversation(&id, name.clone()).await?;
+                self.writeln_title(TitleFormat::info(format!(
+                    "Conversation renamed to '{}'",
+                    name.bold()
+                )))?;
+            }
         }
 
         Ok(())
@@ -793,6 +833,122 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             "Successfully deleted conversation '{}'",
             conversation_id
         )))?;
+        Ok(())
+    }
+
+    /// Handle `mcp login <name>` command.
+    ///
+    /// Triggers the OAuth authentication flow for the specified MCP server.
+    /// Uses the API layer which delegates to rmcp's OAuth state machine
+    /// for metadata discovery, dynamic registration, PKCE, and token exchange.
+    async fn handle_mcp_login(&mut self, name: &str) -> anyhow::Result<()> {
+        let server_name = forge_api::ServerName::from(name.to_string());
+        let config = self.api.read_mcp_config(None).await?;
+        let server = config.mcp_servers.get(&server_name);
+
+        match server {
+            Some(forge_domain::McpServerConfig::Http(http)) => {
+                // Check auth status first
+                let status = self.api.mcp_auth_status(&http.url).await?;
+                if status == "authenticated" {
+                    self.writeln_title(TitleFormat::info(
+                        format!("MCP server '{}' is already authenticated. Use 'mcp logout {}' first to re-authenticate.", name, name)
+                    ))?;
+                    return Ok(());
+                }
+
+                // Force re-auth by removing any stale credentials
+                let _ = self.api.mcp_logout(Some(&http.url)).await;
+
+                // Run the OAuth flow (opens browser, waits for callback)
+                match self.api.mcp_auth(&http.url).await {
+                    Ok(()) => {
+                        self.writeln_title(TitleFormat::info(format!(
+                            "Successfully authenticated with MCP server '{}'",
+                            name
+                        )))?;
+                        // Reload MCP to reconnect with new credentials
+                        self.spinner.start(Some("Reloading MCPs"))?;
+                        match self.api.reload_mcp().await {
+                            Ok(()) => {
+                                self.writeln_title(TitleFormat::info("MCP reloaded"))?;
+                            }
+                            Err(e) => {
+                                self.writeln_title(TitleFormat::error(format!(
+                                    "MCP reload failed: {}",
+                                    e
+                                )))?;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        self.writeln_title(TitleFormat::error(format!(
+                            "Authentication with MCP server '{}' failed: {}",
+                            name, e
+                        )))?;
+                    }
+                }
+            }
+            Some(_) => {
+                self.writeln_title(TitleFormat::error(format!(
+                    "MCP server '{}' is not an HTTP server (OAuth only applies to HTTP servers)",
+                    name
+                )))?;
+            }
+            None => {
+                self.writeln_title(TitleFormat::error(format!(
+                    "MCP server '{}' not found. Use 'mcp list' to see available servers.",
+                    name
+                )))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Handle `mcp logout <name>` command.
+    ///
+    /// Removes stored OAuth credentials for the specified MCP server
+    /// or all servers if "all" is specified.
+    /// Automatically reloads MCPs after logout to reflect auth state change.
+    async fn handle_mcp_logout(&mut self, name: &str) -> anyhow::Result<()> {
+        if name == "all" {
+            self.api.mcp_logout(None).await?;
+            self.writeln_title(TitleFormat::info("Removed all MCP OAuth credentials"))?;
+        } else {
+            let server_name = forge_api::ServerName::from(name.to_string());
+            let config = self.api.read_mcp_config(None).await?;
+            let server = config.mcp_servers.get(&server_name);
+
+            match server {
+                Some(forge_domain::McpServerConfig::Http(http)) => {
+                    self.api.mcp_logout(Some(&http.url)).await?;
+                    self.writeln_title(TitleFormat::info(format!(
+                        "Removed OAuth credentials for MCP server '{}'",
+                        name
+                    )))?;
+                }
+                Some(_) => {
+                    self.writeln_title(TitleFormat::error(format!(
+                        "MCP server '{}' is not an HTTP server",
+                        name
+                    )))?;
+                    return Ok(());
+                }
+                None => {
+                    self.writeln_title(TitleFormat::error(format!(
+                        "MCP server '{}' not found. Use 'mcp list' to see available servers.",
+                        name
+                    )))?;
+                    return Ok(());
+                }
+            }
+        }
+
+        // Reload MCPs to reflect auth state change
+        self.spinner.start(Some("Reloading MCPs"))?;
+        self.api.reload_mcp().await?;
+        self.writeln_title(TitleFormat::info("MCP reloaded"))?;
+
         Ok(())
     }
 
@@ -998,7 +1154,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
     }
 
     async fn on_show_agents(&mut self, porcelain: bool, custom: bool) -> anyhow::Result<()> {
-        let agents = self.api.get_agents().await?;
+        let agents = self.api.get_agent_infos().await?;
 
         if agents.is_empty() {
             return Ok(());
@@ -1189,14 +1345,15 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                 "Planning and strategy agent [alias for: muse]",
             );
 
-        // Fetch agents and add them to the commands list
-        let agents = self.api.get_agents().await?;
-        for agent in agents {
-            let title = agent
+        // Fetch agent infos and add them to the commands list.
+        // Uses get_agent_infos() so no provider/model is required for listing.
+        let agent_infos = self.api.get_agent_infos().await?;
+        for agent_info in agent_infos {
+            let title = agent_info
                 .title
                 .map(|title| title.lines().collect::<Vec<_>>().join(" "));
             info = info
-                .add_title(agent.id.to_string())
+                .add_title(agent_info.id.to_string())
                 .add_key_value("type", CommandType::Agent)
                 .add_key_value("description", title);
         }
@@ -1296,58 +1453,24 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
 
     /// Lists current configuration values
     async fn on_show_config(&mut self, porcelain: bool) -> anyhow::Result<()> {
-        let model = self
-            .get_agent_model(None)
-            .await
-            .map(|m| m.as_str().to_string());
-        let model = model.unwrap_or_else(|| markers::EMPTY.to_string());
-        let provider = self
-            .get_provider(None)
-            .await
-            .ok()
-            .map(|p| p.id.to_string())
-            .unwrap_or_else(|| markers::EMPTY.to_string());
-        let commit_config = self.api.get_commit_config().await.ok().flatten();
-        let commit_provider = commit_config
-            .as_ref()
-            .and_then(|c| c.provider.as_ref())
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| markers::EMPTY.to_string());
-        let commit_model = commit_config
-            .as_ref()
-            .and_then(|c| c.model.as_ref())
-            .map(|m| m.as_str().to_string())
-            .unwrap_or_else(|| markers::EMPTY.to_string());
+        // Get the effective resolved config
+        let config = &self.config;
 
-        let suggest_config = self.api.get_suggest_config().await.ok().flatten();
-        let suggest_provider = suggest_config
-            .as_ref()
-            .map(|c| c.provider.to_string())
-            .unwrap_or_else(|| markers::EMPTY.to_string());
-        let suggest_model = suggest_config
-            .as_ref()
-            .map(|c| c.model.as_str().to_string())
-            .unwrap_or_else(|| markers::EMPTY.to_string());
-
-        let info = Info::new()
-            .add_title("CONFIGURATION")
-            .add_key_value("Default Model", model)
-            .add_key_value("Default Provider", provider)
-            .add_key_value("Commit Provider", commit_provider)
-            .add_key_value("Commit Model", commit_model)
-            .add_key_value("Suggest Provider", suggest_provider)
-            .add_key_value("Suggest Model", suggest_model);
+        // Serialize to TOML pretty format
+        let config_toml = toml_edit::ser::to_string_pretty(config)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize config: {}", e))?;
 
         if porcelain {
-            self.writeln(
-                Porcelain::from(&info)
-                    .into_long()
-                    .drop_col(0)
-                    .uppercase_headers(),
-            )?;
+            // For porcelain mode, output raw TOML without highlighting
+            self.writeln(config_toml)?;
         } else {
-            self.writeln(info)?;
+            // For human-readable mode, add a title and syntax-highlight the TOML
+            self.writeln("\nCONFIGURATION\n".bold().dimmed())?;
+            let highlighted =
+                forge_display::SyntaxHighlighter::default().highlight(&config_toml, "toml");
+            self.writeln(highlighted)?;
         }
+
         Ok(())
     }
 
@@ -1422,24 +1545,19 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             }
         }
 
-        // Show failed MCP servers
-        if !all_tools.mcp.get_failures().is_empty() {
-            info = info.add_title("FAILED");
-            for (server_name, error) in all_tools.mcp.get_failures().iter() {
-                // Truncate error message for readability
-                let truncated_error = if error.len() > 80 {
-                    format!("{}...", &error[..77])
-                } else {
-                    error.clone()
-                };
-                info = info.add_value(format!("[✗] {server_name} - {truncated_error}"));
-            }
-        }
-
         if porcelain {
             self.writeln(Porcelain::from(&info).uppercase_headers().truncate(3, 60))?;
         } else {
             self.writeln(info)?;
+        }
+
+        // Show failed MCP servers
+        if !porcelain && !all_tools.mcp.get_failures().is_empty() {
+            self.writeln("MCP FAILURES\n".dimmed().bold())?;
+            for (_, error) in all_tools.mcp.get_failures().iter() {
+                let error = style(error).red();
+                self.writeln(error)?;
+            }
         }
 
         Ok(())
@@ -1458,7 +1576,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             None => None,
         };
 
-        let key_info = self.api.get_login_info().await;
         // Fetch agent
         let agent = self.api.get_active_agent().await;
 
@@ -1508,11 +1625,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             }
         }
 
-        // Add user information if available
-        if let Some(login_info) = key_info? {
-            info = info.extend(Info::from(&login_info));
-        }
-
         // Add conversation information if available
         if let Some(conversation) = conversation {
             info = info.extend(Info::from(&conversation));
@@ -1526,13 +1638,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             self.writeln(info)?;
         }
 
-        Ok(())
-    }
-
-    async fn on_env(&mut self) -> anyhow::Result<()> {
-        let env = self.api.environment();
-        let info = Info::from(&env);
-        self.writeln(info)?;
         Ok(())
     }
 
@@ -1726,7 +1831,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
 
     async fn list_conversations(&mut self) -> anyhow::Result<()> {
         self.spinner.start(Some("Loading Conversations"))?;
-        let max_conversations = self.api.environment().max_conversations;
+        let max_conversations = self.config.max_conversations;
         let conversations = self.api.get_conversations(Some(max_conversations)).await?;
         self.spinner.stop(None)?;
 
@@ -1760,7 +1865,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
     }
 
     async fn on_show_conversations(&mut self, porcelain: bool) -> anyhow::Result<()> {
-        let max_conversations = self.api.environment().max_conversations;
+        let max_conversations = self.config.max_conversations;
         let conversations = self.api.get_conversations(Some(max_conversations)).await?;
 
         if conversations.is_empty() {
@@ -1825,6 +1930,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             SlashCommand::Delete => {
                 self.handle_delete_conversation().await?;
             }
+            SlashCommand::Rename(ref name) => {
+                self.handle_rename_conversation(name.clone()).await?;
+            }
             SlashCommand::Dump { html } => {
                 self.spinner.start(Some("Dumping"))?;
                 self.on_dump(html).await?;
@@ -1834,9 +1942,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             }
             SlashCommand::Info => {
                 self.on_info(false, self.state.conversation_id).await?;
-            }
-            SlashCommand::Env => {
-                self.on_env().await?;
             }
             SlashCommand::Usage => {
                 self.on_usage().await?;
@@ -1874,10 +1979,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                 self.on_custom_event(event.into()).await?;
             }
             SlashCommand::Model => {
-                self.on_model_selection().await?;
-            }
-            SlashCommand::Provider => {
-                self.on_provider_selection().await?;
+                self.on_model_selection(None).await?;
             }
             SlashCommand::Shell(ref command) => {
                 self.api.execute_shell_command_raw(command).await?;
@@ -1907,7 +2009,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                     }
                 }
 
-                let agents = self.api.get_agents().await?;
+                let agents = self.api.get_agent_infos().await?;
 
                 if agents.is_empty() {
                     return Ok(false);
@@ -1985,7 +2087,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             }
             SlashCommand::AgentSwitch(agent_id) => {
                 // Validate that the agent exists by checking against loaded agents
-                let agents = self.api.get_agents().await?;
+                let agents = self.api.get_agent_infos().await?;
                 let agent_exists = agents.iter().any(|agent| agent.id.as_str() == agent_id);
 
                 if agent_exists {
@@ -2018,34 +2120,64 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
         Ok(())
     }
 
+    async fn handle_rename_conversation(&mut self, name: String) -> anyhow::Result<()> {
+        let conversation_id = self.init_conversation().await?;
+        self.api
+            .rename_conversation(&conversation_id, name.clone())
+            .await?;
+        self.writeln_title(TitleFormat::info(format!(
+            "Conversation renamed to '{}'",
+            name.bold()
+        )))?;
+        Ok(())
+    }
+
     /// Select a model from all configured providers using porcelain-style
     /// tabular display matching the shell plugin's `:model` UI.
     ///
     /// Shows columns: MODEL, PROVIDER, CONTEXT WINDOW, TOOL SUPPORTED, IMAGE
     /// with a non-selectable header row.
     ///
+    /// When `provider_filter` is `Some`, only models belonging to that provider
+    /// are shown. This is used during onboarding so that after a provider is
+    /// selected the model list is scoped to that provider only.
+    ///
     /// # Returns
-    /// - `Ok(Some(ModelId))` if a model was selected
+    /// - `Ok(Some((ModelId, ProviderId)))` if a model was selected, carrying
+    ///   both the model and the provider it belongs to
     /// - `Ok(None)` if selection was canceled
     #[async_recursion::async_recursion]
-    async fn select_model(&mut self) -> Result<Option<ModelId>> {
+    async fn select_model(
+        &mut self,
+        provider_filter: Option<ProviderId>,
+    ) -> Result<Option<(ModelId, ProviderId)>> {
         // Check if provider is set otherwise first ask to select a provider
-        if self.api.get_default_provider().await.is_err() {
-            self.on_provider_selection().await?;
+        if provider_filter.is_none() && self.api.get_default_provider().await.is_err() {
+            if !self.on_provider_selection().await? {
+                return Ok(None);
+            }
 
-            // Check if a model was already selected during provider activation
-            // Return None to signal the model selection is complete and message was already
-            // printed
+            // Provider activation may have already completed model selection.
+            // If it did not, continue below and show the full cross-provider
+            // model list.
             if self.api.get_default_model().await.is_some() {
                 return Ok(None);
             }
         }
 
         // Fetch models from ALL configured providers (matches shell plugin's
-        // `forge list models --porcelain`)
+        // `forge list models --porcelain`), then optionally filter by provider.
         self.spinner.start(Some("Loading"))?;
         let mut all_provider_models = self.api.get_all_provider_models().await?;
         self.spinner.stop(None)?;
+
+        // When a provider filter is specified (e.g. during onboarding after a
+        // provider was just selected), restrict the list to that provider's
+        // models so the user cannot accidentally pick a model from a different
+        // provider.
+        if let Some(ref filter_id) = provider_filter {
+            all_provider_models.retain(|pm| &pm.provider_id == filter_id);
+        }
 
         if all_provider_models.is_empty() {
             return Ok(None);
@@ -2118,21 +2250,22 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             return Ok(None);
         }
 
-        // Build a flat list of (ModelId, display_line) for the data rows.
+        // Build a flat list of (ModelId, ProviderId) for the data rows.
         // The first line is the header; data rows follow in the same order as
         // the Info entries (sorted by provider, then model within provider).
-        let mut model_ids: Vec<ModelId> = Vec::new();
+        let mut model_entries: Vec<(ModelId, ProviderId)> = Vec::new();
         for pm in &all_provider_models {
             for model in &pm.models {
-                model_ids.push(model.id.clone());
+                model_entries.push((model.id.clone(), pm.provider_id.clone()));
             }
         }
 
         // Create display items: header line first, then data lines paired with
-        // model IDs.
+        // model and provider IDs.
         #[derive(Clone)]
         struct ModelRow {
             model_id: Option<ModelId>,
+            provider_id: Option<ProviderId>,
             display: String,
         }
         impl std::fmt::Display for ModelRow {
@@ -2143,11 +2276,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
 
         let mut rows: Vec<ModelRow> = Vec::with_capacity(all_lines.len());
         // Header row (non-selectable via header_lines=1)
-        rows.push(ModelRow { model_id: None, display: all_lines[0].to_string() });
+        rows.push(ModelRow {
+            model_id: None,
+            provider_id: None,
+            display: all_lines[0].to_string(),
+        });
         // Data rows
         for (i, line) in all_lines.iter().skip(1).enumerate() {
+            let entry = model_entries.get(i);
             rows.push(ModelRow {
-                model_id: model_ids.get(i).cloned(),
+                model_id: entry.map(|(m, _)| m.clone()),
+                provider_id: entry.map(|(_, p)| p.clone()),
                 display: line.to_string(),
             });
         }
@@ -2160,7 +2299,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             .await;
         let starting_cursor = current_model
             .as_ref()
-            .and_then(|current| model_ids.iter().position(|id| id == current))
+            .and_then(|current| model_entries.iter().position(|(id, _)| id == current))
             .unwrap_or(0);
 
         match ForgeWidget::select("Model", rows)
@@ -2168,7 +2307,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             .with_header_lines(1)
             .prompt()?
         {
-            Some(row) => Ok(row.model_id),
+            Some(row) => Ok(row.model_id.zip(row.provider_id)),
             None => Ok(None),
         }
     }
@@ -2189,20 +2328,39 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             .required_params
             .iter()
             .map(|param| {
-                let mut input = ForgeWidget::input(format!("Enter {param}"));
+                let param_value = if let Some(options) = &param.options {
+                    // Dropdown path: user selects from preset options
+                    let starting = existing_url_params
+                        .and_then(|p| p.get(&param.name))
+                        .and_then(|v| options.iter().position(|o| o.as_str() == v.as_str()))
+                        .unwrap_or(0);
+                    ForgeWidget::select(format!("Select {}", param.name), options.clone())
+                        .with_starting_cursor(starting)
+                        .prompt()?
+                        .context("Parameter selection cancelled")?
+                } else {
+                    // Free-text path (existing behavior)
+                    let mut input = ForgeWidget::input(format!("Enter {}", param.name));
 
-                // Add default value if it exists in the credential
-                if let Some(params) = existing_url_params
-                    && let Some(default_value) = params.get(param)
-                {
-                    input = input.with_default(default_value.as_str());
-                }
+                    // Add default value if it exists in the credential
+                    if let Some(params) = existing_url_params
+                        && let Some(default_value) = params.get(&param.name)
+                    {
+                        input = input.with_default(default_value.as_str());
+                    }
 
-                let param_value = input.prompt()?.context("Parameter input cancelled")?;
+                    let param_value = input.prompt()?.context("Parameter input cancelled")?;
 
-                anyhow::ensure!(!param_value.trim().is_empty(), "{param} cannot be empty");
+                    anyhow::ensure!(
+                        !param_value.trim().is_empty(),
+                        "{} cannot be empty",
+                        param.name
+                    );
 
-                Ok((param.to_string(), param_value))
+                    param_value.trim_end_matches('/').to_string()
+                };
+
+                Ok((param.name.to_string(), param_value))
             })
             .collect::<anyhow::Result<HashMap<_, _>>>()?;
 
@@ -2330,22 +2488,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
         Ok(())
     }
 
-    async fn display_credential_success(
-        &mut self,
-        provider_id: ProviderId,
-    ) -> anyhow::Result<bool> {
+    async fn display_credential_success(&mut self, provider_id: ProviderId) -> anyhow::Result<()> {
         self.writeln_title(TitleFormat::info(format!(
-            "{provider_id} configured successfully!"
+            "{provider_id} configured successfully"
         )))?;
 
-        // Prompt user to set as active provider
-        let should_set_active = ForgeWidget::confirm(format!(
-            "Would you like to set {provider_id} as the active provider?"
-        ))
-        .with_default(true)
-        .prompt()?;
-
-        Ok(should_set_active.unwrap_or(false))
+        Ok(())
     }
 
     async fn handle_code_flow(
@@ -2362,6 +2510,23 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             format!("Authenticate using your {provider_id} account").dimmed()
         ))?;
 
+        let callback_server =
+            match crate::oauth_callback::LocalhostOAuthCallbackServer::start(request) {
+                Ok(Some(server)) => {
+                    self.writeln(format!(
+                        "{} Waiting for browser callback on {}",
+                        "→".blue(),
+                        server.redirect_uri().as_str().blue().underline()
+                    ))?;
+                    Some(server)
+                }
+                Ok(None) | Err(_) => {
+                    // Not a localhost callback flow, or the listener could not be
+                    // started — fall back to manual code paste.
+                    None
+                }
+            };
+
         // Display authorization URL
         self.writeln(format!(
             "{} Please visit: {}",
@@ -2376,14 +2541,20 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             )))?;
         }
 
-        // Prompt user to paste authorization code
-        let code = ForgeWidget::input("Paste the authorization code")
-            .prompt()?
-            .ok_or_else(|| anyhow::anyhow!("Authorization code input cancelled"))?;
+        let code = if let Some(server) = callback_server {
+            server.wait_for_code().await?
+        } else {
+            // Prompt user to paste authorization code
+            let code = ForgeWidget::input("Paste the authorization code")
+                .prompt()?
+                .ok_or_else(|| anyhow::anyhow!("Authorization code input cancelled"))?;
 
-        if code.trim().is_empty() {
-            anyhow::bail!("Authorization code cannot be empty");
-        }
+            if code.trim().is_empty() {
+                anyhow::bail!("Authorization code cannot be empty");
+            }
+
+            code
+        };
 
         self.spinner
             .start(Some("Exchanging authorization code..."))?;
@@ -2485,8 +2656,25 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             None => return Ok(None), // User cancelled
         };
 
-        self.spinner.start(Some("Initiating authentication..."))?;
+        // Show warning for Claude Code provider about account ban risk
+        if provider_id == ProviderId::CLAUDE_CODE {
+            self.writeln_title(
+                TitleFormat::warning(
+                    "Using Claude Code subscription in third-party tools violates Anthropic's Terms of Service."
+                )
+                .sub_title("Your account may be suspended or banned. Continue at your own risk."),
+            )?;
 
+            let confirmed = ForgeWidget::confirm("Do you want to continue with this provider?")
+                .with_default(false)
+                .prompt()?;
+
+            if !confirmed.unwrap_or(false) {
+                return Ok(None);
+            }
+        }
+
+        self.spinner.start(Some("Initiating authentication..."))?;
         // Initiate the authentication flow
         let auth_request = self
             .api
@@ -2508,14 +2696,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             }
         }
 
-        let should_set_active = self.display_credential_success(provider_id.clone()).await?;
-
-        if !should_set_active {
-            return Ok(None);
-        }
-
-        // Fetch and return the configured provider
+        // Verify by fetching the configured provider
         let provider = self.api.get_provider(&provider_id).await?;
+
+        self.display_credential_success(provider_id.clone()).await?;
+
         Ok(provider.into_configured())
     }
 
@@ -2636,20 +2821,30 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
         self.select_provider_from_list(providers, "Provider", current_provider_id)
     }
 
-    // Helper method to handle model selection and update the conversation
+    // Helper method to handle model selection and update the conversation.
+    // When `provider_filter` is `Some`, only models from that provider are shown.
+    // The model and provider returned by the selector are always set as one
+    // atomic operation.
     #[async_recursion::async_recursion]
-    async fn on_model_selection(&mut self) -> Result<Option<ModelId>> {
-        // Select a model
-        let model_option = self.select_model().await?;
+    async fn on_model_selection(
+        &mut self,
+        provider_filter: Option<ProviderId>,
+    ) -> Result<Option<ModelId>> {
+        // Select a model; the selector returns both the model and its provider
+        let selection = self.select_model(provider_filter).await?;
 
         // If no model was selected (user canceled), return early
-        let model = match model_option {
-            Some(model) => model,
+        let (model, provider_id) = match selection {
+            Some(pair) => pair,
             None => return Ok(None),
         };
 
-        // Update the operating model via API
-        self.api.set_default_model(model.clone()).await?;
+        // Set model and provider atomically as a single config operation
+        self.api
+            .update_config(vec![ConfigOperation::SetSessionConfig(
+                forge_domain::ModelConfig::new(provider_id, model.clone()),
+            )])
+            .await?;
 
         // Update the UI state with the new model
         self.update_model(Some(model.clone()));
@@ -2659,15 +2854,18 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
         Ok(Some(model))
     }
 
-    async fn on_provider_selection(&mut self) -> Result<()> {
+    async fn on_provider_selection(&mut self) -> Result<bool> {
         // Select a provider
         // If no provider was selected (user canceled), return early
         let any_provider = match self.select_provider().await? {
             Some(provider) => provider,
-            None => return Ok(()),
+            None => return Ok(false),
         };
 
-        self.activate_provider(any_provider).await
+        self.activate_provider(any_provider).await?;
+        // Check if provider was actually saved — if user cancelled model selection
+        // inside activate_provider, nothing was written
+        Ok(self.api.get_default_provider().await.is_ok())
     }
 
     /// Activates a provider by configuring it if needed, setting it as default,
@@ -2714,21 +2912,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
         provider: Provider<Url>,
         model: Option<ModelId>,
     ) -> Result<()> {
-        // Set the provider via API
-        self.api.set_default_provider(provider.id.clone()).await?;
-
-        self.writeln_title(
-            TitleFormat::action(format!("{}", provider.id))
-                .sub_title("is now the default provider"),
-        )?;
-
         // If a model was pre-selected (e.g. from :model), validate and set it
         // directly without prompting
         if let Some(model) = model {
             let model_id = self
                 .validate_model(model.as_str(), Some(&provider.id))
                 .await?;
-            self.api.set_default_model(model_id.clone()).await?;
+            self.api
+                .update_config(vec![ConfigOperation::SetSessionConfig(
+                    forge_domain::ModelConfig::new(provider.id.clone(), model_id.clone()),
+                )])
+                .await?;
+            self.writeln_title(
+                TitleFormat::action(format!("{}", provider.id))
+                    .sub_title("is now the default provider"),
+            )?;
             self.writeln_title(
                 TitleFormat::action(model_id.as_str()).sub_title("is now the default model"),
             )?;
@@ -2737,18 +2935,44 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
 
         // Check if the current model is available for the new provider
         let current_model = self.api.get_default_model().await;
-        if let Some(current_model) = current_model {
-            let models = self.get_models().await?;
-            let model_available = models.iter().any(|m| m.id == current_model);
+        let (needs_model_selection, compatible_model) = match current_model {
+            None => (true, None),
+            Some(current_model) => {
+                let provider_models = self.api.get_all_provider_models().await?;
+                let model_available = provider_models
+                    .iter()
+                    .find(|pm| pm.provider_id == provider.id)
+                    .map(|pm| pm.models.iter().any(|m| m.id == current_model))
+                    .unwrap_or(false);
+                if model_available {
+                    (false, Some(current_model))
+                } else {
+                    (true, None)
+                }
+            }
+        };
 
-            if !model_available {
-                // Prompt user to select a new model
-                self.writeln_title(TitleFormat::info("Please select a new model"))?;
-                self.on_model_selection().await?;
+        if needs_model_selection {
+            let selected = self.on_model_selection(Some(provider.id.clone())).await?;
+            if selected.is_none() {
+                // User cancelled — preserve existing config untouched
+                return Ok(());
             }
         } else {
-            // No model set, select one now
-            self.on_model_selection().await?;
+            // The current model is compatible with the new provider — write both
+            // atomically so the session always stores a consistent pair.
+            let model =
+                compatible_model.expect("compatible_model is Some when !needs_model_selection");
+            self.api
+                .update_config(vec![ConfigOperation::SetSessionConfig(
+                    forge_domain::ModelConfig::new(provider.id.clone(), model),
+                )])
+                .await?;
+
+            self.writeln_title(
+                TitleFormat::action(format!("{}", provider.id))
+                    .sub_title("is now the default provider"),
+            )?;
         }
 
         Ok(())
@@ -2850,32 +3074,26 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
     }
 
     /// Initialize the state of the UI
-    async fn init_state(&mut self, first: bool) -> Result<Workflow> {
-        // Run the independent initialization tasks in parallel for better performance
-        let workflow = self.api.read_workflow(self.cli.workflow.as_deref()).await?;
-
+    async fn init_state(&mut self, first: bool) -> Result<()> {
         let _ = self.handle_migrate_credentials().await;
 
         // Ensure we have a model selected before proceeding with initialization
         let active_agent = self.api.get_active_agent().await;
 
-        let mut operating_model = self.get_agent_model(active_agent.clone()).await;
-        if operating_model.is_none() {
-            // Use the model returned from selection instead of re-fetching
-            operating_model = self.on_model_selection().await?;
-        }
-
         // Validate provider is configured before loading agents
         // If provider is set in config but not configured (no credentials), prompt user
         // to login
-        if self.api.get_default_provider().await.is_err() {
-            self.on_provider_selection().await?;
+        if self.api.get_default_provider().await.is_err() && !self.on_provider_selection().await? {
+            return Ok(());
+        }
+
+        let mut operating_model = self.get_agent_model(active_agent.clone()).await;
+        if operating_model.is_none() {
+            // Use the model returned from selection instead of re-fetching
+            operating_model = self.on_model_selection(None).await?;
         }
 
         if first {
-            // Create base workflow and trigger updates if this is the first initialization
-            let mut base_workflow = Workflow::default();
-            base_workflow.merge(workflow.clone());
             // For chat, we are trying to get active agent or setting it to default.
             // So for default values, `/info` doesn't show active provider, model, etc.
             // So my default, on new, we should set the active agent.
@@ -2883,15 +3101,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                 .set_active_agent(active_agent.clone().unwrap_or_default())
                 .await?;
             // only call on_update if this is the first initialization
-            on_update(self.api.clone(), base_workflow.updates.as_ref()).await;
-            if !workflow.commands.is_empty() {
-                self.writeln_title(TitleFormat::error("forge.yaml commands are deprecated. Use .md files in forge/ (home) or .forge/ (project) instead"))?;
-            }
+            on_update(self.api.clone(), self.config.updates.as_ref()).await;
         }
 
         // Execute independent operations in parallel to improve performance
         let (agents_result, commands_result) =
-            tokio::join!(self.api.get_agents(), self.api.get_commands());
+            tokio::join!(self.api.get_agent_infos(), self.api.get_commands());
 
         // Register agent commands with proper error handling and user feedback
         match agents_result {
@@ -2918,7 +3133,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
         self.state = UIState::new(self.api.environment());
         self.update_model(operating_model);
 
-        Ok(workflow)
+        Ok(())
     }
 
     async fn on_message(&mut self, content: Option<String>) -> Result<()> {
@@ -3045,7 +3260,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                             .sub_title(subtitle),
                     )?;
 
-                    if self.api.environment().auto_open_dump {
+                    if self.config.auto_open_dump {
                         open::that(path.as_str()).ok();
                     }
                 } else {
@@ -3069,7 +3284,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                             .sub_title(subtitle),
                     )?;
 
-                    if self.api.environment().auto_open_dump {
+                    if self.config.auto_open_dump {
                         open::that(path.as_str()).ok();
                     }
                 };
@@ -3149,7 +3364,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                 }
             }
             ChatResponse::RetryAttempt { cause, duration: _ } => {
-                if !self.api.environment().retry_config.suppress_retry_errors {
+                if !self
+                    .config
+                    .retry
+                    .as_ref()
+                    .is_some_and(|r| r.suppress_errors)
+                {
                     writer.finish()?;
                     self.spinner.start(Some("Retrying"))?;
                     self.writeln_title(TitleFormat::error(cause.as_str()))?;
@@ -3186,8 +3406,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                         TitleFormat::debug("Finished").sub_title(conversation_id.into_string()),
                     )?;
                 }
-                if let Some(format) = self.api.environment().auto_dump {
-                    let html = matches!(format, forge_domain::AutoDumpFormat::Html);
+                if let Some(format) = self.config.auto_dump.clone() {
+                    let html = matches!(format, forge_config::AutoDumpFormat::Html);
                     self.on_dump(html).await?;
                 }
             }
@@ -3385,7 +3605,56 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             crate::cli::ConfigCommand::List => {
                 self.on_show_config(porcelain).await?;
             }
+            crate::cli::ConfigCommand::Path => {
+                let path = forge_config::ConfigReader::config_path();
+                self.writeln(path.display().to_string())?;
+            }
+            crate::cli::ConfigCommand::Migrate => {
+                self.handle_config_migrate()?;
+            }
         }
+        Ok(())
+    }
+
+    /// Rename `~/forge` to `~/.forge`.
+    ///
+    /// Errors if the legacy directory does not exist, if the new directory
+    /// already exists, or if the rename fails.
+    fn handle_config_migrate(&mut self) -> Result<()> {
+        let home = dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+        let legacy = home.join("forge");
+        let new = home.join(".forge");
+
+        if !legacy.exists() {
+            anyhow::bail!(
+                "Legacy directory {} does not exist — nothing to migrate",
+                legacy.display()
+            );
+        }
+
+        if new.exists() {
+            anyhow::bail!(
+                "Target directory {} already exists — remove it first or migrate manually",
+                new.display()
+            );
+        }
+
+        std::fs::rename(&legacy, &new).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to rename {} to {}: {}",
+                legacy.display(),
+                new.display(),
+                e
+            )
+        })?;
+
+        self.writeln_title(TitleFormat::info("Migration Completed").sub_title(format!(
+            "{} → {}",
+            legacy.display(),
+            new.display()
+        )))?;
+
         Ok(())
     }
 
@@ -3394,24 +3663,19 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
         use crate::cli::ConfigSetField;
 
         match args.field {
-            ConfigSetField::Provider { provider, model } => {
+            ConfigSetField::Model { provider, model } => {
                 let provider = self.api.get_provider(&provider).await?;
-                self.activate_provider_with_model(provider, model).await?;
-            }
-            ConfigSetField::Model { model } => {
-                let model_id = self.validate_model(model.as_str(), None).await?;
-                self.api.set_default_model(model_id.clone()).await?;
-                self.writeln_title(
-                    TitleFormat::action(model_id.as_str()).sub_title("is now the default model"),
-                )?;
+                self.activate_provider_with_model(provider, Some(model))
+                    .await?;
             }
             ConfigSetField::Commit { provider, model } => {
                 // Validate provider exists and model belongs to that specific provider
                 let validated_model = self.validate_model(model.as_str(), Some(&provider)).await?;
-                let commit_config = forge_domain::CommitConfig::default()
-                    .provider(provider.clone())
-                    .model(validated_model.clone());
-                self.api.set_commit_config(commit_config).await?;
+                let commit_config =
+                    forge_domain::ModelConfig::new(provider.clone(), validated_model.clone());
+                self.api
+                    .update_config(vec![ConfigOperation::SetCommitConfig(Some(commit_config))])
+                    .await?;
                 self.writeln_title(
                     TitleFormat::action(validated_model.as_str())
                         .sub_title(format!("is now the commit model for provider '{provider}'")),
@@ -3420,14 +3684,23 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             ConfigSetField::Suggest { provider, model } => {
                 // Validate provider exists and model belongs to that specific provider
                 let validated_model = self.validate_model(model.as_str(), Some(&provider)).await?;
-                let suggest_config = forge_domain::SuggestConfig {
-                    provider: provider.clone(),
-                    model: validated_model.clone(),
-                };
-                self.api.set_suggest_config(suggest_config).await?;
+                let suggest_config =
+                    forge_domain::ModelConfig::new(provider.clone(), validated_model.clone());
+                self.api
+                    .update_config(vec![ConfigOperation::SetSuggestConfig(suggest_config)])
+                    .await?;
                 self.writeln_title(TitleFormat::action(validated_model.as_str()).sub_title(
                     format!("is now the suggest model for provider '{provider}'"),
                 ))?;
+            }
+            ConfigSetField::ReasoningEffort { effort } => {
+                self.api
+                    .update_config(vec![ConfigOperation::SetReasoningEffort(effort.clone())])
+                    .await?;
+                self.writeln_title(
+                    TitleFormat::action(effort.to_string())
+                        .sub_title("is now the reasoning effort"),
+                )?;
             }
         }
 
@@ -3466,16 +3739,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                 let commit_config = self.api.get_commit_config().await?;
                 match commit_config {
                     Some(config) => {
-                        let provider = config
-                            .provider
-                            .map(|p| p.as_ref().to_string())
-                            .unwrap_or_else(|| "Not set".to_string());
-                        let model = config
-                            .model
-                            .map(|m| m.as_str().to_string())
-                            .unwrap_or_else(|| "Not set".to_string());
-                        self.writeln(provider)?;
-                        self.writeln(model)?;
+                        self.writeln(config.provider.as_ref())?;
+                        self.writeln(config.model.as_str().to_string())?;
                     }
                     None => self.writeln("Commit: Not set")?,
                 }
@@ -3488,6 +3753,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
                         self.writeln(config.model.as_str().to_string())?;
                     }
                     None => self.writeln("Suggest: Not set")?,
+                }
+            }
+            ConfigGetField::ReasoningEffort => {
+                let effort = self.api.get_reasoning_effort().await?;
+                match effort {
+                    Some(e) => self.writeln(e.to_string())?,
+                    None => self.writeln("ReasoningEffort: Not set")?,
                 }
             }
         }
@@ -3530,17 +3802,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             .map(|val| val == "1")
             .unwrap_or(true); // Default to true
 
-        // Get currency symbol from environment variable, default to "$"
-        let currency_symbol =
-            std::env::var("FORGE_CURRENCY_SYMBOL").unwrap_or_else(|_| "$".to_string());
-
-        // Get conversion ratio from environment variable, default to 1.0
-        let conversion_ratio = std::env::var("FORGE_CURRENCY_CONVERSION_RATE")
-            .ok()
-            .and_then(|val| val.parse::<f64>().ok())
-            .unwrap_or(1.0);
-
-        let rprompt = ZshRPrompt::default()
+        let rprompt = ZshRPrompt::from_config(&self.config)
             .agent(
                 std::env::var("_FORGE_ACTIVE_AGENT")
                     .ok()
@@ -3550,9 +3812,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
             .model(model_id)
             .token_count(conversation.and_then(|conversation| conversation.token_count()))
             .cost(cost)
-            .use_nerd_font(use_nerd_font)
-            .currency_symbol(currency_symbol)
-            .conversion_ratio(conversion_ratio);
+            .use_nerd_font(use_nerd_font);
 
         Some(rprompt.to_string())
     }
@@ -3649,7 +3909,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
         if init {
             let workspace_info = self.api.get_workspace_info(path.clone()).await?;
             if workspace_info.is_none() {
-                self.on_workspace_init(path.clone()).await?;
+                self.on_workspace_init(path.clone(), false).await?;
+                // If the workspace still does not exist after init (e.g. user
+                // declined the consent prompt), abort the sync.
+                let workspace_info = self.api.get_workspace_info(path.clone()).await?;
+                if workspace_info.is_none() {
+                    return Ok(());
+                }
             }
         }
 
@@ -4003,7 +4269,31 @@ impl<A: API + ConsoleWriter + 'static, F: Fn() -> A + Send + Sync> UI<A, F> {
     }
 
     /// Initialize workspace for a directory without syncing files
-    async fn on_workspace_init(&mut self, path: std::path::PathBuf) -> anyhow::Result<()> {
+    async fn on_workspace_init(
+        &mut self,
+        path: std::path::PathBuf,
+        yes: bool,
+    ) -> anyhow::Result<()> {
+        // Ask for user consent before syncing and sharing directory contents
+        // with the ForgeCode Service.
+        let display_path = path.display().to_string();
+
+        let confirmed = if yes {
+            Some(true)
+        } else {
+            ForgeWidget::confirm(format!(
+                "This will sync and share the contents of '{}' with ForgeCode Services. Do you wish to continue?",
+                display_path
+            ))
+            .with_default(true)
+            .prompt()?
+        };
+
+        if !confirmed.unwrap_or(false) {
+            self.writeln_title(TitleFormat::info("Workspace initialization cancelled"))?;
+            return Ok(());
+        }
+
         // Check if auth already exists and create if needed
         if !self.api.is_authenticated().await? {
             self.init_forge_services().await?;

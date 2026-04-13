@@ -10,9 +10,7 @@ use futures::stream::{self, BoxStream};
 use schemars::Schema;
 use tracing::{debug, info};
 
-use crate::{
-    AppConfigService, EnvironmentService, FsReadService, ProviderService, Services, TemplateEngine,
-};
+use crate::{AppConfigService, FsReadService, ProviderService, Services, TemplateEngine};
 
 pub struct DataGenerationApp<A> {
     services: Arc<A>,

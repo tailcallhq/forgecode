@@ -640,6 +640,7 @@ mod tests {
                     reasoning_details: None,
                     usage: crate::Usage::default(),
                     finish_reason: None,
+                    phase: None,
                 }),
             )),
             LifecycleEvent::ToolcallStart(EventData::new(

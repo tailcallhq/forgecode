@@ -15,8 +15,12 @@ pub struct ForgeChatRequest<F> {
     infra: Arc<F>,
 }
 
-impl<F: FileReaderInfra + EnvironmentInfra + FileInfoInfra + DirectoryReaderInfra>
-    ForgeChatRequest<F>
+impl<
+    F: FileReaderInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + FileInfoInfra
+        + DirectoryReaderInfra,
+> ForgeChatRequest<F>
 {
     pub fn new(infra: Arc<F>) -> Self {
         Self { infra }
@@ -82,11 +86,10 @@ impl<F: FileReaderInfra + EnvironmentInfra + FileInfoInfra + DirectoryReaderInfr
                 AttachmentContent::Image(Image::new_bytes(self.infra.read(&path).await?, mime_type))
             }
             None => {
-                let env = self.infra.get_environment();
-
                 let start = tag.loc.as_ref().and_then(|loc| loc.start);
                 let end = tag.loc.as_ref().and_then(|loc| loc.end);
-                let (start_line, end_line) = resolve_range(start, end, env.max_read_size);
+                let max_read_lines = self.infra.get_config()?.max_read_lines;
+                let (start_line, end_line) = resolve_range(start, end, max_read_lines);
 
                 // range_read_utf8 returns the range content and FileInfo which
                 // carries a content_hash of the **full** file. Using the
@@ -114,8 +117,12 @@ impl<F: FileReaderInfra + EnvironmentInfra + FileInfoInfra + DirectoryReaderInfr
 }
 
 #[async_trait::async_trait]
-impl<F: FileReaderInfra + EnvironmentInfra + FileInfoInfra + DirectoryReaderInfra> AttachmentService
-    for ForgeChatRequest<F>
+impl<
+    F: FileReaderInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + FileInfoInfra
+        + DirectoryReaderInfra,
+> AttachmentService for ForgeChatRequest<F>
 {
     async fn attachments(&self, url: &str) -> anyhow::Result<Vec<Attachment>> {
         self.prepare_attachments(Attachment::parse_all(url)).await
@@ -136,7 +143,7 @@ pub mod tests {
         AttachmentService, DirectoryReaderInfra, EnvironmentInfra, FileDirectoryInfra,
         FileInfoInfra, FileReaderInfra, FileRemoverInfra, FileWriterInfra,
     };
-    use forge_domain::FileInfo;
+    use forge_domain::{ConfigOperation, FileInfo};
     use futures::stream;
 
     use crate::attachment::ForgeChatRequest;
@@ -144,20 +151,8 @@ pub mod tests {
     #[derive(Debug)]
     pub struct MockEnvironmentInfra {}
 
-    #[async_trait::async_trait]
     impl EnvironmentInfra for MockEnvironmentInfra {
-        fn get_environment(&self) -> Environment {
-            use fake::{Fake, Faker};
-            let max_bytes: f64 = 250.0 * 1024.0; // 250 KB
-            let fixture: Environment = Faker.fake();
-            fixture
-                .max_search_lines(25)
-                .max_search_result_bytes(max_bytes.ceil() as usize)
-                .max_read_size(2000)
-                .max_line_length(2000)
-                .max_file_size(256 << 10)
-                .cwd(PathBuf::from("/test")) // Set fixed CWD for predictable tests
-        }
+        type Config = forge_config::ForgeConfig;
 
         fn get_env_var(&self, _key: &str) -> Option<String> {
             None
@@ -167,8 +162,18 @@ pub mod tests {
             BTreeMap::new()
         }
 
-        fn is_restricted(&self) -> bool {
-            false
+        fn get_environment(&self) -> Environment {
+            use fake::{Fake, Faker};
+            let fixture: Environment = Faker.fake();
+            fixture.cwd(PathBuf::from("/test")) // Set fixed CWD for predictable tests
+        }
+
+        fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+            Ok(forge_config::ForgeConfig { max_read_lines: 2000, ..Default::default() })
+        }
+
+        async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
+            unimplemented!()
         }
     }
 
@@ -387,6 +392,21 @@ pub mod tests {
             Ok(())
         }
 
+        async fn append(&self, path: &Path, contents: Bytes) -> anyhow::Result<()> {
+            let mut existing = bytes::Bytes::new();
+            let index = self.files.lock().unwrap().iter().position(|v| v.0 == path);
+            if let Some(index) = index {
+                existing = self.files.lock().unwrap().remove(index).1;
+            }
+            let mut combined = existing.to_vec();
+            combined.extend_from_slice(&contents);
+            self.files
+                .lock()
+                .unwrap()
+                .push((path.to_path_buf(), combined.into()));
+            Ok(())
+        }
+
         async fn write_temp(&self, _: &str, _: &str, content: &str) -> anyhow::Result<PathBuf> {
             let temp_dir = crate::utils::TempDir::new().unwrap();
             let path = temp_dir.path();
@@ -481,22 +501,31 @@ pub mod tests {
         }
     }
 
-    #[async_trait::async_trait]
     impl EnvironmentInfra for MockCompositeService {
+        type Config = forge_config::ForgeConfig;
+
         fn get_environment(&self) -> Environment {
             self.env_service.get_environment()
         }
 
-        fn get_env_var(&self, _key: &str) -> Option<String> {
-            None
+        fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+            self.env_service.get_config()
+        }
+
+        fn update_environment(
+            &self,
+            ops: Vec<ConfigOperation>,
+        ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+            let env_service = self.env_service.clone();
+            async move { env_service.update_environment(ops).await }
+        }
+
+        fn get_env_var(&self, key: &str) -> Option<String> {
+            self.env_service.get_env_var(key)
         }
 
         fn get_env_vars(&self) -> BTreeMap<String, String> {
-            BTreeMap::new()
-        }
-
-        fn is_restricted(&self) -> bool {
-            false
+            self.env_service.get_env_vars()
         }
     }
 

@@ -5,7 +5,7 @@ use url::Url;
 
 use super::{
     ApiKey, AuthorizationCode, DeviceCode, OAuthConfig, PkceVerifier, State, URLParam,
-    URLParamValue, UserCode,
+    URLParamSpec, URLParamValue, UserCode,
 };
 
 #[derive(Debug, Clone, PartialEq, Deref, From)]
@@ -16,7 +16,7 @@ pub struct URLParameters(HashMap<URLParam, URLParamValue>);
 /// Request parameters for API key authentication
 #[derive(Debug, Clone)]
 pub struct ApiKeyRequest {
-    pub required_params: Vec<URLParam>,
+    pub required_params: Vec<URLParamSpec>,
     pub existing_params: Option<URLParameters>,
     pub api_key: Option<ApiKey>,
 }

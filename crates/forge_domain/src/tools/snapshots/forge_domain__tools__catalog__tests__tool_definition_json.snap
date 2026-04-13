@@ -216,6 +216,47 @@ expression: tools
   ]
 }
 {
+  "title": "FSMultiPatch",
+  "type": "object",
+  "properties": {
+    "edits": {
+      "description": "Array of edit operations to perform sequentially on the file",
+      "type": "array",
+      "items": {
+        "description": "A single edit operation in a multi-patch",
+        "type": "object",
+        "properties": {
+          "new_string": {
+            "description": "The text to replace it with (must be different from old_string)",
+            "type": "string"
+          },
+          "old_string": {
+            "description": "The text to replace",
+            "type": "string"
+          },
+          "replace_all": {
+            "description": "Replace all occurrences of old_string (default false)",
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "old_string",
+          "new_string"
+        ]
+      }
+    },
+    "file_path": {
+      "description": "The absolute path to the file to modify",
+      "type": "string"
+    }
+  },
+  "required": [
+    "file_path",
+    "edits"
+  ]
+}
+{
   "title": "FSUndo",
   "type": "object",
   "properties": {
@@ -401,4 +442,31 @@ expression: tools
 {
   "title": "TodoRead",
   "type": "object"
+}
+{
+  "title": "TaskInput",
+  "description": "Input structure for the Task tool - delegates work to specialized agents",
+  "type": "object",
+  "properties": {
+    "agent_id": {
+      "description": "The ID of the specialized agent to delegate to (e.g., \"sage\", \"forge\",\n\"muse\")",
+      "type": "string"
+    },
+    "session_id": {
+      "description": "Optional session ID to continue an existing agent session. If not\nprovided, a new stateless session will be created. Use this to\nmaintain context across multiple task invocations with the same\nagent.",
+      "type": "string",
+      "nullable": true
+    },
+    "tasks": {
+      "description": "A list of clear and detailed descriptions of the tasks to be performed\nby the agent in parallel. Provide sufficient context and specific\nrequirements to enable the agent to understand and execute the work\naccurately.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "tasks",
+    "agent_id"
+  ]
 }

@@ -4,6 +4,8 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 use syntect::util::as_24_bit_terminal_escaped;
+use terminal_colorsaurus::{QueryOptions, ThemeMode, theme_mode};
+use two_face::theme::EmbeddedThemeName;
 
 /// Loads and caches syntax highlighting resources.
 #[derive(Clone)]
@@ -14,20 +16,40 @@ pub struct SyntaxHighlighter {
 
 impl Default for SyntaxHighlighter {
     fn default() -> Self {
+        // Use two-face's extended syntax set which includes TOML, Rust, Python, etc.
         Self {
-            syntax_set: Arc::new(SyntaxSet::load_defaults_newlines()),
-            theme_set: Arc::new(ThemeSet::load_defaults()),
+            syntax_set: Arc::new(two_face::syntax::extra_newlines()),
+            theme_set: Arc::new(two_face::theme::extra().into()),
         }
     }
 }
 
 impl SyntaxHighlighter {
-    fn highlight(&self, code: &str, lang: &str) -> String {
+    /// Detects whether the terminal is using a dark or light background.
+    fn is_dark_theme() -> bool {
+        match theme_mode(QueryOptions::default()) {
+            Ok(ThemeMode::Light) => false,
+            Ok(ThemeMode::Dark) | Err(_) => true,
+        }
+    }
+
+    /// Syntax-highlights `code` for the given language token (e.g. `"toml"`,
+    /// `"rust"`), returning an ANSI-escaped string ready for terminal output.
+    ///
+    /// The theme is chosen automatically based on the terminal background
+    /// (dark → `base16-ocean.dark`, light → `InspiredGitHub`). Falls back to
+    /// plain text if the language is unrecognised.
+    pub fn highlight(&self, code: &str, lang: &str) -> String {
         let syntax = self
             .syntax_set
             .find_syntax_by_token(lang)
             .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
-        let theme = &self.theme_set.themes["base16-ocean.dark"];
+        let theme_name = if Self::is_dark_theme() {
+            EmbeddedThemeName::Base16OceanDark
+        } else {
+            EmbeddedThemeName::InspiredGithub
+        };
+        let theme = &self.theme_set.themes[theme_name.as_name()];
         let mut hl = HighlightLines::new(syntax, theme);
 
         code.lines()
@@ -113,7 +135,7 @@ impl CodeBlockParser {
 
     /// Get the extracted code blocks.
     #[cfg(test)]
-    pub fn blocks(&self) -> &[CodeBlock] {
+    pub(crate) fn blocks(&self) -> &[CodeBlock] {
         &self.blocks
     }
 

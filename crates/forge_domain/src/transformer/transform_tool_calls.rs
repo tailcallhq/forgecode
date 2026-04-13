@@ -43,6 +43,7 @@ impl Transformer for TransformToolCalls {
                             reasoning_details: text_msg.reasoning_details.clone(),
                             model: text_msg.model.clone(),
                             droppable: text_msg.droppable,
+                            phase: text_msg.phase,
                         })
                         .into(),
                     );

@@ -1,0 +1,73 @@
+---
+source: crates/forge_domain/src/transformer/reasoning_normalizer.rs
+expression: snapshot
+---
+transformation: ReasoningNormalizer_model_unchanged
+before:
+  messages:
+    - text:
+        role: User
+        content: First question
+    - text:
+        role: Assistant
+        content: First assistant response
+        model: model-a
+        reasoning_details:
+          - text: I need to think about this carefully
+            signature: sig_model_a
+            data: ~
+            id: ~
+            format: ~
+            index: ~
+            type_of: ~
+    - text:
+        role: User
+        content: Follow-up question
+    - text:
+        role: Assistant
+        content: Second assistant response
+        model: model-a
+        reasoning_details:
+          - text: I need to think about this carefully
+            signature: sig_model_a
+            data: ~
+            id: ~
+            format: ~
+            index: ~
+            type_of: ~
+  reasoning:
+    enabled: true
+after:
+  messages:
+    - text:
+        role: User
+        content: First question
+    - text:
+        role: Assistant
+        content: First assistant response
+        model: model-a
+        reasoning_details:
+          - text: I need to think about this carefully
+            signature: sig_model_a
+            data: ~
+            id: ~
+            format: ~
+            index: ~
+            type_of: ~
+    - text:
+        role: User
+        content: Follow-up question
+    - text:
+        role: Assistant
+        content: Second assistant response
+        model: model-a
+        reasoning_details:
+          - text: I need to think about this carefully
+            signature: sig_model_a
+            data: ~
+            id: ~
+            format: ~
+            index: ~
+            type_of: ~
+  reasoning:
+    enabled: true

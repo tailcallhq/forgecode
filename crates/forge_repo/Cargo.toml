@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 forge_app.workspace = true
+forge_config.workspace = true
 forge_domain.workspace = true
 forge_infra.workspace = true
 forge_snaps.workspace = true
@@ -13,6 +14,7 @@ forge_fs.workspace = true
 forge_template.workspace = true
 forge_json_repair.workspace = true
 anyhow.workspace = true
+backon.workspace = true
 futures.workspace = true
 async-trait.workspace = true
 serde.workspace = true
@@ -46,6 +48,7 @@ derive_more.workspace = true
 gray_matter = { workspace = true }
 dirs.workspace = true
 async-openai.workspace = true
+regex.workspace = true
 google-cloud-auth.workspace = true
 
 # gRPC for codebase client

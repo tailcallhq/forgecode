@@ -2,13 +2,15 @@ use std::vec;
 
 use derive_more::derive::Display;
 use derive_setters::Setters;
+use forge_json_repair::coerce_to_schema;
 use serde::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
 
 use super::response::{ExtraContent, FunctionCall, ToolCall};
 use super::tool_choice::{FunctionType, ToolChoice};
 use crate::domain::{
-    Context, ContextMessage, ModelId, ToolCallFull, ToolCallId, ToolDefinition, ToolName,
-    ToolResult, ToolValue,
+    Context, ContextMessage, ModelId, ToolCallFull, ToolCallId, ToolCatalog, ToolDefinition,
+    ToolName, ToolResult, ToolValue,
 };
 use crate::dto::openai::ReasoningDetail;
 
@@ -264,6 +266,10 @@ pub struct Request {
     pub parallel_tool_calls: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Indicates who initiated the conversation: "user" or "agent".
+    /// Used for GitHub Copilot billing optimization. Not serialized to API.
+    #[serde(skip_serializing)]
+    pub initiator: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<StreamOptions>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -398,6 +404,7 @@ impl From<Context> for Request {
                                               * on model capabilities */
             stream_options: Some(StreamOptions { include_usage: Some(true) }),
             session_id: context.conversation_id.map(|id| id.to_string()),
+            initiator: context.initiator,
             reasoning: context.reasoning,
             reasoning_effort: Default::default(),
             max_completion_tokens: Default::default(),
@@ -406,17 +413,30 @@ impl From<Context> for Request {
     }
 }
 
+fn serialize_tool_call_arguments(tool_call: &ToolCallFull) -> String {
+    let serialized_arguments = || serde_json::to_string(&tool_call.arguments).unwrap();
+
+    let Ok(parsed_arguments) = tool_call.arguments.parse() else {
+        return serialized_arguments();
+    };
+
+    let normalized_arguments = ToolCatalog::iter()
+        .find(|tool| tool.definition().name == tool_call.name)
+        .map(|tool| coerce_to_schema(parsed_arguments.clone(), &tool.definition().input_schema))
+        .unwrap_or(parsed_arguments);
+
+    serde_json::to_string(&normalized_arguments).unwrap_or_else(|_| serialized_arguments())
+}
+
 impl From<ToolCallFull> for ToolCall {
     fn from(value: ToolCallFull) -> Self {
+        let arguments = serialize_tool_call_arguments(&value);
         let extra_content = value.thought_signature.map(ExtraContent::from);
 
         Self {
             id: value.call_id,
             r#type: FunctionType,
-            function: FunctionCall {
-                arguments: serde_json::to_string(&value.arguments).unwrap(),
-                name: Some(value.name),
-            },
+            function: FunctionCall { arguments, name: Some(value.name) },
             extra_content,
         }
     }
@@ -681,7 +701,8 @@ mod tests {
     }
 
     use forge_domain::{
-        ContextMessage, Role, TextMessage, ToolCallFull, ToolCallId, ToolName, ToolResult,
+        ContextMessage, Role, TextMessage, ToolCallFull, ToolCallId, ToolCatalog, ToolName,
+        ToolResult,
     };
     use insta::assert_json_snapshot;
 
@@ -729,6 +750,43 @@ mod tests {
         );
         let router_message = Message::from(assistant_message);
         assert_json_snapshot!(router_message);
+    }
+
+    #[test]
+    fn test_assistant_message_with_dump_style_tool_call_arguments_conversion() {
+        let fixture = ToolCatalog::tool_call_patch(
+            "/tmp/file.txt",
+            "new text",
+            "old text",
+            false,
+        )
+        .arguments(
+            serde_json::from_str::<forge_domain::ToolCallArguments>(
+                r#""{\"file_path\":\"/tmp/file.txt\",\"old_string\":\"old text\",\"new_string\":\"new text\",\"replace_all\":false}""#,
+            )
+            .unwrap(),
+        )
+        .call_id(ToolCallId::new("123"));
+
+        let assistant_message = ContextMessage::Text(
+            TextMessage::new(Role::Assistant, "Using tool")
+                .tool_calls(vec![fixture])
+                .model(ModelId::new("gpt-3.5-turbo")),
+        );
+        let actual = Message::from(assistant_message);
+        let actual =
+            serde_json::to_value(actual.tool_calls.expect("Tool calls should exist")).unwrap();
+        let expected = serde_json::json!([
+            {
+                "id": "123",
+                "type": "function",
+                "function": {
+                    "arguments": "{\"file_path\":\"/tmp/file.txt\",\"new_string\":\"new text\",\"old_string\":\"old text\",\"replace_all\":false}",
+                    "name": "patch"
+                }
+            }
+        ]);
+        assert_eq!(actual, expected);
     }
 
     #[test]

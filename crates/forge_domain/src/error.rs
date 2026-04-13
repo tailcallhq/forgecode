@@ -102,12 +102,8 @@ pub enum Error {
     #[error("Failed to sync {count} file(s)")]
     SyncFailed { count: usize },
 
-    #[error("No default provider set.")]
-    NoDefaultProvider,
-
-    #[error("No default model configured for provider: {0}")]
-    #[from(skip)]
-    NoDefaultModel(ProviderId),
+    #[error("No default provider and model configured.")]
+    NoDefaultSession,
 }
 
 pub type Result<A> = std::result::Result<A, Error>;
@@ -147,10 +143,6 @@ impl Error {
 
     pub fn vertex_ai_config(message: impl Into<String>) -> Self {
         Self::VertexAiConfiguration { message: message.into() }
-    }
-
-    pub fn no_default_model(provider: ProviderId) -> Self {
-        Self::NoDefaultModel(provider)
     }
 
     pub fn sync_failed(count: usize) -> Self {

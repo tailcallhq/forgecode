@@ -2,7 +2,7 @@ use derive_setters::Setters;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::{Environment, File, Model, Skill};
+use crate::{Agent, Environment, File, Model, Skill};
 
 /// Statistics for a file extension
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -56,6 +56,34 @@ impl Extension {
     }
 }
 
+/// Configuration values required by tool description templates.
+///
+/// Populated from [`ForgeConfig`] by the application layer and injected into
+/// [`SystemContext`] so that Handlebars templates can reference values such as
+/// `{{config.maxReadSize}}` without coupling `SystemContext` to `ForgeConfig`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateConfig {
+    /// Maximum number of lines returned by a single file read (maps to
+    /// `ForgeConfig::max_read_lines`).
+    pub max_read_size: usize,
+    /// Maximum characters per line before truncation (maps to
+    /// `ForgeConfig::max_line_chars`).
+    pub max_line_length: usize,
+    /// Maximum image size in bytes accepted by the read tool (maps to
+    /// `ForgeConfig::max_image_size_bytes`).
+    pub max_image_size: usize,
+    /// Maximum prefix lines kept when truncating shell stdout (maps to
+    /// `ForgeConfig::max_stdout_prefix_lines`).
+    pub stdout_max_prefix_length: usize,
+    /// Maximum suffix lines kept when truncating shell stdout (maps to
+    /// `ForgeConfig::max_stdout_suffix_lines`).
+    pub stdout_max_suffix_length: usize,
+    /// Maximum characters per line in shell stdout before truncation (maps to
+    /// `ForgeConfig::max_stdout_line_chars`).
+    pub stdout_max_line_length: usize,
+}
+
 #[derive(Debug, Setters, Clone, PartialEq, Serialize, Deserialize)]
 #[setters(strip_option)]
 #[derive(Default)]
@@ -103,4 +131,12 @@ pub struct SystemContext {
     /// top `limit` extensions as defined in the `Extension` struct.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extensions: Option<Extension>,
+
+    /// List of available agents for task delegation
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<Agent>,
+
+    /// Template configuration for tool descriptions
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<TemplateConfig>,
 }

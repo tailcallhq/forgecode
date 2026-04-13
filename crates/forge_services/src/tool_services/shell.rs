@@ -65,13 +65,13 @@ impl<I: CommandInfra + EnvironmentInfra> ShellService for ForgeShell<I> {
 }
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
     use std::path::PathBuf;
     use std::sync::Arc;
 
     use async_trait::async_trait;
     use forge_app::domain::{CommandOutput, Environment};
-    use forge_app::{CommandInfra, ShellService};
+    use forge_app::{CommandInfra, EnvironmentInfra, ShellService};
+    use forge_domain::ConfigOperation;
     use pretty_assertions::assert_eq;
 
     use super::*;
@@ -111,21 +111,27 @@ mod tests {
     }
 
     impl EnvironmentInfra for MockCommandInfra {
+        type Config = forge_config::ForgeConfig;
+
         fn get_environment(&self) -> Environment {
             use fake::{Fake, Faker};
             Faker.fake()
         }
 
+        fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+            Ok(forge_config::ForgeConfig::default())
+        }
+
+        async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+
         fn get_env_var(&self, _key: &str) -> Option<String> {
-            Some("mock_value".to_string())
+            None
         }
 
-        fn get_env_vars(&self) -> BTreeMap<String, String> {
-            BTreeMap::new()
-        }
-
-        fn is_restricted(&self) -> bool {
-            false
+        fn get_env_vars(&self) -> std::collections::BTreeMap<String, String> {
+            std::collections::BTreeMap::new()
         }
     }
 

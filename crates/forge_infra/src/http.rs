@@ -1,11 +1,12 @@
 use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use bytes::Bytes;
 use forge_app::HttpInfra;
-use forge_domain::{Environment, TlsBackend, TlsVersion};
+use forge_config::{ForgeConfig, TlsBackend, TlsVersion};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use reqwest::redirect::Policy;
 use reqwest::{Certificate, Client, Response, StatusCode, Url};
@@ -19,7 +20,7 @@ const VERSION: &str = match option_env!("APP_VERSION") {
 
 pub struct ForgeHttpInfra<F> {
     client: Client,
-    env: Environment,
+    debug_requests: Option<PathBuf>,
     file: Arc<F>,
 }
 
@@ -34,28 +35,41 @@ fn to_reqwest_tls(tls: TlsVersion) -> reqwest::tls::Version {
 }
 
 impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
-    pub fn new(env: Environment, file_writer: Arc<F>) -> Self {
-        let env = env.clone();
-        let env_http = env.clone();
+    /// Creates a new [`ForgeHttpInfra`] from a resolved [`ForgeConfig`].
+    pub fn new(config: ForgeConfig, file_writer: Arc<F>) -> Self {
+        let http = config.http.unwrap_or(forge_config::HttpConfig {
+            connect_timeout_secs: 30,
+            read_timeout_secs: 900,
+            pool_idle_timeout_secs: 90,
+            pool_max_idle_per_host: 5,
+            max_redirects: 10,
+            hickory: false,
+            tls_backend: TlsBackend::Default,
+            min_tls_version: None,
+            max_tls_version: None,
+            adaptive_window: true,
+            keep_alive_interval_secs: Some(60),
+            keep_alive_timeout_secs: 10,
+            keep_alive_while_idle: true,
+            accept_invalid_certs: false,
+            root_cert_paths: None,
+        });
+
         let mut client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(
-                env_http.http.connect_timeout,
-            ))
-            .read_timeout(std::time::Duration::from_secs(env_http.http.read_timeout))
-            .pool_idle_timeout(std::time::Duration::from_secs(
-                env_http.http.pool_idle_timeout,
-            ))
-            .pool_max_idle_per_host(env_http.http.pool_max_idle_per_host)
-            .redirect(Policy::limited(env_http.http.max_redirects))
-            .hickory_dns(env_http.http.hickory)
+            .connect_timeout(Duration::from_secs(http.connect_timeout_secs))
+            .read_timeout(Duration::from_secs(http.read_timeout_secs))
+            .pool_idle_timeout(Duration::from_secs(http.pool_idle_timeout_secs))
+            .pool_max_idle_per_host(http.pool_max_idle_per_host)
+            .redirect(Policy::limited(http.max_redirects))
+            .hickory_dns(http.hickory)
             // HTTP/2 configuration from config
-            .http2_adaptive_window(env_http.http.adaptive_window)
-            .http2_keep_alive_interval(env_http.http.keep_alive_interval.map(Duration::from_secs))
-            .http2_keep_alive_timeout(Duration::from_secs(env_http.http.keep_alive_timeout))
-            .http2_keep_alive_while_idle(env_http.http.keep_alive_while_idle);
+            .http2_adaptive_window(http.adaptive_window)
+            .http2_keep_alive_interval(http.keep_alive_interval_secs.map(Duration::from_secs))
+            .http2_keep_alive_timeout(Duration::from_secs(http.keep_alive_timeout_secs))
+            .http2_keep_alive_while_idle(http.keep_alive_while_idle);
 
         // Add root certificates from config
-        if let Some(ref cert_paths) = env_http.http.root_cert_paths {
+        if let Some(ref cert_paths) = http.root_cert_paths {
             for cert_path in cert_paths {
                 match fs::read(cert_path) {
                     Ok(buf) => {
@@ -80,26 +94,30 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
             }
         }
 
-        if env_http.http.accept_invalid_certs {
+        if http.accept_invalid_certs {
             client = client.danger_accept_invalid_certs(true);
         }
 
-        if let Some(version) = env_http.http.min_tls_version {
+        if let Some(version) = http.min_tls_version {
             client = client.min_tls_version(to_reqwest_tls(version));
         }
 
-        if let Some(version) = env_http.http.max_tls_version {
+        if let Some(version) = http.max_tls_version {
             client = client.max_tls_version(to_reqwest_tls(version));
         }
 
-        match env_http.http.tls_backend {
+        match http.tls_backend {
             TlsBackend::Rustls => {
                 client = client.use_rustls_tls();
             }
             TlsBackend::Default => {}
         }
 
-        Self { env, client: client.build().unwrap(), file: file_writer }
+        Self {
+            debug_requests: config.debug_requests,
+            client: client.build().unwrap(),
+            file: file_writer,
+        }
     }
 
     async fn get(&self, url: &Url, headers: Option<HeaderMap>) -> anyhow::Result<Response> {
@@ -185,35 +203,44 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
             reqwest::header::CONNECTION,
             HeaderValue::from_static("keep-alive"),
         );
-        debug!(headers = ?Self::sanitize_headers(&headers), "Request Headers");
+        debug!(headers = ?sanitize_headers(&headers), "Request Headers");
         headers
     }
+}
 
-    fn sanitize_headers(headers: &HeaderMap) -> HeaderMap {
-        let sensitive_headers = [AUTHORIZATION.as_str()];
-        headers
-            .iter()
-            .map(|(name, value)| {
-                let name_str = name.as_str().to_lowercase();
-                let value_str = if sensitive_headers.contains(&name_str.as_str()) {
-                    HeaderValue::from_static("[REDACTED]")
-                } else {
-                    value.clone()
-                };
-                (name.clone(), value_str)
-            })
-            .collect()
-    }
+/// Sanitizes headers for logging by redacting sensitive values like
+/// authorization tokens and API keys.
+pub fn sanitize_headers(headers: &HeaderMap) -> HeaderMap {
+    let sensitive_headers = [
+        AUTHORIZATION.as_str(),
+        "x-api-key",
+        "x-goog-api-key",
+        "api-key",
+    ];
+    headers
+        .iter()
+        .map(|(name, value)| {
+            let name_str = name.as_str().to_lowercase();
+            let value_str = if sensitive_headers.contains(&name_str.as_str()) {
+                HeaderValue::from_static("[REDACTED]")
+            } else {
+                value.clone()
+            };
+            (name.clone(), value_str)
+        })
+        .collect()
 }
 
 impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
     fn write_debug_request(&self, body: &Bytes) {
-        if let Some(debug_path) = &self.env.debug_requests {
+        if let Some(debug_path) = &self.debug_requests {
             let file_writer = self.file.clone();
             let body_clone = body.clone();
             let debug_path = debug_path.clone();
             tokio::spawn(async move {
-                let _ = file_writer.write(&debug_path, body_clone).await;
+                let mut data = body_clone.to_vec();
+                data.push(b'\n');
+                let _ = file_writer.append(&debug_path, Bytes::from(data)).await;
             });
         }
     }
@@ -284,7 +311,7 @@ mod tests {
 
     use fake::{Fake, Faker};
     use forge_app::FileWriterInfra;
-    use forge_domain::{Environment, HttpConfig};
+    use forge_config::ForgeConfig;
     use tokio::sync::Mutex;
 
     use super::*;
@@ -314,6 +341,14 @@ mod tests {
             Ok(())
         }
 
+        async fn append(&self, path: &std::path::Path, contents: Bytes) -> anyhow::Result<()> {
+            self.writes
+                .lock()
+                .await
+                .push((path.to_path_buf(), contents));
+            Ok(())
+        }
+
         async fn write_temp(
             &self,
             _prefix: &str,
@@ -324,15 +359,15 @@ mod tests {
         }
     }
 
-    fn create_test_env(debug_requests: Option<PathBuf>) -> Environment {
-        Environment { debug_requests, http: HttpConfig::default(), ..Faker.fake() }
+    fn create_test_config(debug_requests: Option<PathBuf>) -> ForgeConfig {
+        ForgeConfig { debug_requests, ..Default::default() }
     }
 
     #[tokio::test]
     async fn test_debug_requests_none_does_not_write() {
         let file_writer = MockFileWriter::new();
-        let env = create_test_env(None);
-        let http = ForgeHttpInfra::new(env, Arc::new(file_writer.clone()));
+        let config = create_test_config(None);
+        let http = ForgeHttpInfra::new(config, Arc::new(file_writer.clone()));
 
         let body = Bytes::from("test request body");
         let url = Url::parse("https://api.test.com/messages").unwrap();
@@ -355,8 +390,8 @@ mod tests {
     async fn test_debug_requests_with_valid_path() {
         let file_writer = MockFileWriter::new();
         let debug_path = PathBuf::from("/tmp/forge-test/debug.json");
-        let env = create_test_env(Some(debug_path.clone()));
-        let http = ForgeHttpInfra::new(env, Arc::new(file_writer.clone()));
+        let config = create_test_config(Some(debug_path.clone()));
+        let http = ForgeHttpInfra::new(config, Arc::new(file_writer.clone()));
 
         let body = Bytes::from("test request body");
         let url = Url::parse("https://api.test.com/messages").unwrap();
@@ -369,15 +404,17 @@ mod tests {
         let writes = file_writer.get_writes().await;
         assert_eq!(writes.len(), 1, "Should write one file");
         assert_eq!(writes[0].0, debug_path);
-        assert_eq!(writes[0].1, body);
+        let mut expected = body.to_vec();
+        expected.push(b'\n');
+        assert_eq!(writes[0].1, Bytes::from(expected));
     }
 
     #[tokio::test]
     async fn test_debug_requests_with_relative_path() {
         let file_writer = MockFileWriter::new();
         let debug_path = PathBuf::from("./debug/requests.json");
-        let env = create_test_env(Some(debug_path.clone()));
-        let http = ForgeHttpInfra::new(env, Arc::new(file_writer.clone()));
+        let config = create_test_config(Some(debug_path.clone()));
+        let http = ForgeHttpInfra::new(config, Arc::new(file_writer.clone()));
 
         let body = Bytes::from("test request body");
         let url = Url::parse("https://api.test.com/messages").unwrap();
@@ -390,14 +427,16 @@ mod tests {
         let writes = file_writer.get_writes().await;
         assert_eq!(writes.len(), 1, "Should write one file");
         assert_eq!(writes[0].0, debug_path);
-        assert_eq!(writes[0].1, body);
+        let mut expected = body.to_vec();
+        expected.push(b'\n');
+        assert_eq!(writes[0].1, Bytes::from(expected));
     }
 
     #[tokio::test]
     async fn test_debug_requests_post_none_does_not_write() {
         let file_writer = MockFileWriter::new();
-        let env = create_test_env(None);
-        let http = ForgeHttpInfra::new(env, Arc::new(file_writer.clone()));
+        let config = create_test_config(None);
+        let http = ForgeHttpInfra::new(config, Arc::new(file_writer.clone()));
 
         let body = Bytes::from("test request body");
         let url = Url::parse("http://127.0.0.1:9/responses").unwrap();
@@ -419,8 +458,8 @@ mod tests {
     async fn test_debug_requests_post_writes_body() {
         let file_writer = MockFileWriter::new();
         let debug_path = PathBuf::from("/tmp/forge-test/debug-post.json");
-        let env = create_test_env(Some(debug_path.clone()));
-        let http = ForgeHttpInfra::new(env, Arc::new(file_writer.clone()));
+        let config = create_test_config(Some(debug_path.clone()));
+        let http = ForgeHttpInfra::new(config, Arc::new(file_writer.clone()));
 
         let body = Bytes::from("test request body");
         let url = Url::parse("http://127.0.0.1:9/responses").unwrap();
@@ -437,7 +476,9 @@ mod tests {
             "Should write one file for POST when debug_requests is set"
         );
         assert_eq!(writes[0].0, debug_path);
-        assert_eq!(writes[0].1, body);
+        let mut expected = body.to_vec();
+        expected.push(b'\n');
+        assert_eq!(writes[0].1, Bytes::from(expected));
     }
 
     #[tokio::test]
@@ -446,8 +487,8 @@ mod tests {
         // Use a path with a parent that doesn't exist and can't be created
         // (in practice, this would be a permission issue)
         let debug_path = PathBuf::from("test_debug.json");
-        let env = create_test_env(Some(debug_path.clone()));
-        let http = ForgeHttpInfra::new(env, Arc::new(file_writer.clone()));
+        let config = create_test_config(Some(debug_path.clone()));
+        let http = ForgeHttpInfra::new(config, Arc::new(file_writer.clone()));
 
         let body = Bytes::from("test request body");
         let url = Url::parse("https://api.test.com/messages").unwrap();
@@ -461,6 +502,51 @@ mod tests {
         // Should write to debug_path (no parent dir needed)
         assert_eq!(writes.len(), 1, "Should write one file");
         assert_eq!(writes[0].0, debug_path);
-        assert_eq!(writes[0].1, body);
+        let mut expected = body.to_vec();
+        expected.push(b'\n');
+        assert_eq!(writes[0].1, Bytes::from(expected));
+    }
+
+    #[test]
+    fn test_sanitize_headers_redacts_sensitive_values() {
+        use reqwest::header::HeaderValue;
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer secret-api-key"),
+        );
+        headers.insert("x-api-key", HeaderValue::from_static("another-secret"));
+        headers.insert("x-goog-api-key", HeaderValue::from_static("google-secret"));
+        headers.insert("api-key", HeaderValue::from_static("generic-secret"));
+        headers.insert("x-title", HeaderValue::from_static("forge"));
+        headers.insert("content-type", HeaderValue::from_static("application/json"));
+
+        let sanitized = sanitize_headers(&headers);
+
+        assert_eq!(
+            sanitized.get("authorization"),
+            Some(&HeaderValue::from_static("[REDACTED]"))
+        );
+        assert_eq!(
+            sanitized.get("x-api-key"),
+            Some(&HeaderValue::from_static("[REDACTED]"))
+        );
+        assert_eq!(
+            sanitized.get("x-goog-api-key"),
+            Some(&HeaderValue::from_static("[REDACTED]"))
+        );
+        assert_eq!(
+            sanitized.get("api-key"),
+            Some(&HeaderValue::from_static("[REDACTED]"))
+        );
+        assert_eq!(
+            sanitized.get("x-title"),
+            Some(&HeaderValue::from_static("forge"))
+        );
+        assert_eq!(
+            sanitized.get("content-type"),
+            Some(&HeaderValue::from_static("application/json"))
+        );
     }
 }

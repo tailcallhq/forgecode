@@ -5,19 +5,18 @@ use bytes::Bytes;
 use derive_setters::Setters;
 use forge_domain::{
     AgentId, AnyProvider, Attachment, AuthContextRequest, AuthContextResponse, AuthMethod,
-    ChatCompletionMessage, CommandOutput, Context, Conversation, ConversationId, Environment, File,
-    FileInfo, FileStatus, Image, InitAuth, LoginInfo, McpConfig, McpServers, Model, ModelId, Node,
-    Provider, ProviderId, ResultStream, Scope, SearchParams, SyncProgress, SyntaxError, Template,
-    ToolCallFull, ToolOutput, Workflow, WorkspaceAuth, WorkspaceId, WorkspaceInfo,
+    ChatCompletionMessage, CommandOutput, Context, Conversation, ConversationId, File, FileInfo,
+    FileStatus, Image, McpConfig, McpServers, Model, ModelId, Node, Provider, ProviderId,
+    ResultStream, Scope, SearchParams, SyncProgress, SyntaxError, Template, ToolCallFull,
+    ToolOutput, WorkspaceAuth, WorkspaceId, WorkspaceInfo,
 };
-use merge::Merge;
 use reqwest::Response;
 use reqwest::header::HeaderMap;
 use reqwest_eventsource::EventSource;
 use url::Url;
 
-use crate::Walker;
 use crate::user::{User, UserUsage};
+use crate::{EnvironmentInfra, Walker};
 
 #[derive(Debug, Clone)]
 pub struct ShellOutput {
@@ -179,54 +178,42 @@ pub trait ProviderService: Send + Sync {
         &self,
     ) -> anyhow::Result<Option<forge_domain::MigrationResult>>;
 }
-
 /// Manages user preferences for default providers and models.
 #[async_trait::async_trait]
 pub trait AppConfigService: Send + Sync {
     /// Gets the user's default provider ID.
     async fn get_default_provider(&self) -> anyhow::Result<ProviderId>;
 
-    /// Sets the user's default provider preference.
-    async fn set_default_provider(
-        &self,
-        provider_id: forge_domain::ProviderId,
-    ) -> anyhow::Result<()>;
-
     /// Gets the user's default model for a specific provider or the currently
     /// active provider. When provider_id is None, uses the currently active
     /// provider.
     ///
     /// # Errors
-    /// - Returns `Error::NoDefaultProvider` when no active provider is set and
-    ///   provider_id is None
-    /// - Returns `Error::NoDefaultModel` when no model is configured for the
-    ///   provider
+    /// - Returns `Error::NoDefaultSession` when no provider and model are
+    ///   configured.
     async fn get_provider_model(
         &self,
         provider_id: Option<&forge_domain::ProviderId>,
     ) -> anyhow::Result<ModelId>;
 
-    /// Sets the user's default model for the currently active provider.
-    ///
-    /// # Errors
-    /// Returns an error if no default provider is configured.
-    async fn set_default_model(&self, model: ModelId) -> anyhow::Result<()>;
-
     /// Gets the commit configuration (provider and model for commit message
     /// generation).
-    async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::CommitConfig>>;
-
-    /// Sets the commit configuration (provider and model for commit message
-    /// generation).
-    async fn set_commit_config(&self, config: forge_domain::CommitConfig) -> anyhow::Result<()>;
+    async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
 
     /// Gets the suggest configuration (provider and model for command
     /// suggestion generation).
-    async fn get_suggest_config(&self) -> anyhow::Result<Option<forge_domain::SuggestConfig>>;
+    async fn get_suggest_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
 
-    /// Sets the suggest configuration (provider and model for command
-    /// suggestion generation).
-    async fn set_suggest_config(&self, config: forge_domain::SuggestConfig) -> anyhow::Result<()>;
+    /// Gets the current reasoning effort setting.
+    async fn get_reasoning_effort(&self) -> anyhow::Result<Option<forge_domain::Effort>>;
+
+    /// Applies one or more configuration mutations atomically.
+    ///
+    /// Each operation in `ops` is applied in order, and the result is
+    /// persisted as a single atomic write. This is the sole write path for
+    /// all configuration changes; use [`forge_domain::ConfigOperation`]
+    /// variants to describe each mutation.
+    async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -288,11 +275,6 @@ pub trait AttachmentService {
     async fn attachments(&self, url: &str) -> anyhow::Result<Vec<Attachment>>;
 }
 
-pub trait EnvironmentService: Send + Sync {
-    fn get_environment(&self) -> Environment;
-    /// Returns whether the application is running in restricted mode.
-    fn is_restricted(&self) -> bool;
-}
 #[async_trait::async_trait]
 pub trait CustomInstructionsService: Send + Sync {
     async fn get_custom_instructions(&self) -> Vec<String>;
@@ -343,28 +325,6 @@ pub trait WorkspaceService: Send + Sync {
 }
 
 #[async_trait::async_trait]
-pub trait WorkflowService {
-    /// Find a forge.yaml config file by traversing parent directories.
-    /// Returns the path to the first found config file, or the original path if
-    /// none is found.
-    async fn resolve(&self, path: Option<std::path::PathBuf>) -> std::path::PathBuf;
-
-    /// Reads the workflow from the given path.
-    /// If no path is provided, it will try to find forge.yaml in the current
-    /// directory or its parent directories.
-    async fn read_workflow(&self, path: Option<&Path>) -> anyhow::Result<Workflow>;
-
-    /// Reads the workflow from the given path and merges it with an default
-    /// workflow.
-    async fn read_merged(&self, path: Option<&Path>) -> anyhow::Result<Workflow> {
-        let workflow = self.read_workflow(path).await?;
-        let mut base_workflow = Workflow::default();
-        base_workflow.merge(workflow);
-        Ok(base_workflow)
-    }
-}
-
-#[async_trait::async_trait]
 pub trait FileDiscoveryService: Send + Sync {
     async fn collect_files(&self, config: Walker) -> anyhow::Result<Vec<File>>;
 
@@ -404,6 +364,13 @@ pub trait FsPatchService: Send + Sync {
         search: String,
         content: String,
         replace_all: bool,
+    ) -> anyhow::Result<PatchOutput>;
+
+    /// Applies multiple patches to a single file in sequence
+    async fn multi_patch(
+        &self,
+        path: String,
+        edits: Vec<forge_domain::PatchEdit>,
     ) -> anyhow::Result<PatchOutput>;
 }
 
@@ -487,12 +454,8 @@ pub trait ShellService: Send + Sync {
 
 #[async_trait::async_trait]
 pub trait AuthService: Send + Sync {
-    async fn init_auth(&self) -> anyhow::Result<InitAuth>;
-    async fn login(&self, auth: &InitAuth) -> anyhow::Result<LoginInfo>;
     async fn user_info(&self, api_key: &str) -> anyhow::Result<User>;
     async fn user_usage(&self, api_key: &str) -> anyhow::Result<UserUsage>;
-    async fn get_auth_token(&self) -> anyhow::Result<Option<LoginInfo>>;
-    async fn set_auth_token(&self, token: Option<LoginInfo>) -> anyhow::Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -505,6 +468,10 @@ pub trait AgentRegistry: Send + Sync {
 
     /// Get all agents from the registry store
     async fn get_agents(&self) -> anyhow::Result<Vec<forge_domain::Agent>>;
+
+    /// Get lightweight metadata for all agents without requiring a configured
+    /// provider or model
+    async fn get_agent_infos(&self) -> anyhow::Result<Vec<forge_domain::AgentInfo>>;
 
     /// Get agent by ID (from registry store)
     async fn get_agent(&self, agent_id: &AgentId) -> anyhow::Result<Option<forge_domain::Agent>>;
@@ -574,18 +541,13 @@ pub trait ProviderAuthService: Send + Sync {
     ) -> anyhow::Result<Provider<Url>>;
 }
 
-/// Core app trait providing access to services and repositories.
-/// This trait follows clean architecture principles for dependency management
-/// and service/repository composition.
-pub trait Services: Send + Sync + 'static + Clone {
+pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     type ProviderService: ProviderService;
     type AppConfigService: AppConfigService;
     type ConversationService: ConversationService;
     type TemplateService: TemplateService;
     type AttachmentService: AttachmentService;
-    type EnvironmentService: EnvironmentService;
     type CustomInstructionsService: CustomInstructionsService;
-    type WorkflowService: WorkflowService + Sync;
     type FileDiscoveryService: FileDiscoveryService;
     type McpConfigManager: McpConfigManager;
     type FsWriteService: FsWriteService;
@@ -613,7 +575,6 @@ pub trait Services: Send + Sync + 'static + Clone {
     fn conversation_service(&self) -> &Self::ConversationService;
     fn template_service(&self) -> &Self::TemplateService;
     fn attachment_service(&self) -> &Self::AttachmentService;
-    fn workflow_service(&self) -> &Self::WorkflowService;
     fn file_discovery_service(&self) -> &Self::FileDiscoveryService;
     fn mcp_config_manager(&self) -> &Self::McpConfigManager;
     fn fs_create_service(&self) -> &Self::FsWriteService;
@@ -628,7 +589,6 @@ pub trait Services: Send + Sync + 'static + Clone {
     fn net_fetch_service(&self) -> &Self::NetFetchService;
     fn shell_service(&self) -> &Self::ShellService;
     fn mcp_service(&self) -> &Self::McpService;
-    fn environment_service(&self) -> &Self::EnvironmentService;
     fn custom_instructions_service(&self) -> &Self::CustomInstructionsService;
     fn auth_service(&self) -> &Self::AuthService;
     fn agent_registry(&self) -> &Self::AgentRegistry;
@@ -772,17 +732,6 @@ impl<I: Services> AttachmentService for I {
 }
 
 #[async_trait::async_trait]
-impl<I: Services> WorkflowService for I {
-    async fn resolve(&self, path: Option<std::path::PathBuf>) -> std::path::PathBuf {
-        self.workflow_service().resolve(path).await
-    }
-
-    async fn read_workflow(&self, path: Option<&Path>) -> anyhow::Result<Workflow> {
-        self.workflow_service().read_workflow(path).await
-    }
-}
-
-#[async_trait::async_trait]
 impl<I: Services> FileDiscoveryService for I {
     async fn collect_files(&self, config: Walker) -> anyhow::Result<Vec<File>> {
         self.file_discovery_service().collect_files(config).await
@@ -833,6 +782,14 @@ impl<I: Services> FsPatchService for I {
         self.fs_patch_service()
             .patch(path, search, content, replace_all)
             .await
+    }
+
+    async fn multi_patch(
+        &self,
+        path: String,
+        edits: Vec<forge_domain::PatchEdit>,
+    ) -> anyhow::Result<PatchOutput> {
+        self.fs_patch_service().multi_patch(path, edits).await
     }
 }
 
@@ -915,16 +872,6 @@ impl<I: Services> ShellService for I {
     }
 }
 
-impl<I: Services> EnvironmentService for I {
-    fn get_environment(&self) -> Environment {
-        self.environment_service().get_environment()
-    }
-
-    fn is_restricted(&self) -> bool {
-        self.environment_service().is_restricted()
-    }
-}
-
 #[async_trait::async_trait]
 impl<I: Services> CustomInstructionsService for I {
     async fn get_custom_instructions(&self) -> Vec<String> {
@@ -936,28 +883,12 @@ impl<I: Services> CustomInstructionsService for I {
 
 #[async_trait::async_trait]
 impl<I: Services> AuthService for I {
-    async fn init_auth(&self) -> anyhow::Result<InitAuth> {
-        self.auth_service().init_auth().await
-    }
-
-    async fn login(&self, auth: &InitAuth) -> anyhow::Result<LoginInfo> {
-        self.auth_service().login(auth).await
-    }
-
     async fn user_info(&self, api_key: &str) -> anyhow::Result<User> {
         self.auth_service().user_info(api_key).await
     }
 
     async fn user_usage(&self, api_key: &str) -> anyhow::Result<UserUsage> {
         self.auth_service().user_usage(api_key).await
-    }
-
-    async fn get_auth_token(&self) -> anyhow::Result<Option<LoginInfo>> {
-        self.auth_service().get_auth_token().await
-    }
-
-    async fn set_auth_token(&self, token: Option<LoginInfo>) -> anyhow::Result<()> {
-        self.auth_service().set_auth_token(token).await
     }
 }
 
@@ -989,6 +920,10 @@ impl<I: Services> AgentRegistry for I {
 
     async fn get_agents(&self) -> anyhow::Result<Vec<forge_domain::Agent>> {
         self.agent_registry().get_agents().await
+    }
+
+    async fn get_agent_infos(&self) -> anyhow::Result<Vec<forge_domain::AgentInfo>> {
+        self.agent_registry().get_agent_infos().await
     }
 
     async fn get_agent(&self, agent_id: &AgentId) -> anyhow::Result<Option<forge_domain::Agent>> {
@@ -1025,15 +960,6 @@ impl<I: Services> AppConfigService for I {
         self.config_service().get_default_provider().await
     }
 
-    async fn set_default_provider(
-        &self,
-        provider_id: forge_domain::ProviderId,
-    ) -> anyhow::Result<()> {
-        self.config_service()
-            .set_default_provider(provider_id)
-            .await
-    }
-
     async fn get_provider_model(
         &self,
         provider_id: Option<&forge_domain::ProviderId>,
@@ -1041,24 +967,20 @@ impl<I: Services> AppConfigService for I {
         self.config_service().get_provider_model(provider_id).await
     }
 
-    async fn set_default_model(&self, model: ModelId) -> anyhow::Result<()> {
-        self.config_service().set_default_model(model).await
-    }
-
-    async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::CommitConfig>> {
+    async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>> {
         self.config_service().get_commit_config().await
     }
 
-    async fn set_commit_config(&self, config: forge_domain::CommitConfig) -> anyhow::Result<()> {
-        self.config_service().set_commit_config(config).await
-    }
-
-    async fn get_suggest_config(&self) -> anyhow::Result<Option<forge_domain::SuggestConfig>> {
+    async fn get_suggest_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>> {
         self.config_service().get_suggest_config().await
     }
 
-    async fn set_suggest_config(&self, config: forge_domain::SuggestConfig) -> anyhow::Result<()> {
-        self.config_service().set_suggest_config(config).await
+    async fn get_reasoning_effort(&self) -> anyhow::Result<Option<forge_domain::Effort>> {
+        self.config_service().get_reasoning_effort().await
+    }
+
+    async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()> {
+        self.config_service().update_config(ops).await
     }
 }
 

@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use backon::{ExponentialBuilder, Retryable};
-use forge_domain::{Error, RetryConfig};
+use forge_config::RetryConfig;
+use forge_domain::Error;
 
 pub async fn retry_with_config<F, Fut, T, C>(
     config: &RetryConfig,
@@ -16,7 +17,7 @@ where
     let strategy = ExponentialBuilder::default()
         .with_min_delay(Duration::from_millis(config.min_delay_ms))
         .with_factor(config.backoff_factor as f32)
-        .with_max_times(config.max_retry_attempts)
+        .with_max_times(config.max_attempts)
         .with_jitter();
 
     let retryable = operation.retry(&strategy).when(should_retry);

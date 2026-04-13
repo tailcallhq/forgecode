@@ -55,7 +55,7 @@ Speak to impact, not implementation. Use active voice. Be enthusiastic.]
 ## Highlights
 
 ### [Feature/Fix Category]
-**[PR Title rephrased as user benefit]** ([#NNN](url))
+**[PR Title rephrased as user benefit]**
 [1-2 sentences expanding on the PR description. Focus on what the user gains. 
 If the PR body has useful context, distill it. If empty, infer from the title.]
 
@@ -63,7 +63,7 @@ If the PR body has useful context, distill it. If empty, infer from the title.]
 
 ## Bug Fixes & Reliability
 
-[Bullet list of fixes, each with a brief impact statement and PR link]
+[Bullet list of fixes, each with a brief impact statement]
 
 ## Under the Hood
 
@@ -88,6 +88,7 @@ A huge thank you to everyone who made this release happen: [list @handles — ex
 - **Celebrate contributors**: Name them enthusiastically
 - **Tagline formula**: `[Version] — [Adjective] [Theme]` (e.g. "v1.32.0 — Smarter Config, Smoother Workflows")
 - **No implementation details**: Do not mention internal module names, struct names, function names, crate names, or how something was implemented. Focus purely on what the user experiences or gains.
+- **No PR/issue references**: Do not include PR numbers, issue numbers, or links to GitHub PRs/issues in the release notes. Focus on the changes themselves, not their tracking identifiers.
 
 ### 5. Contributors Filter
 

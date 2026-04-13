@@ -4,7 +4,7 @@ use std::sync::Arc;
 use derive_setters::Setters;
 use forge_domain::{
     Agent, Conversation, Environment, Extension, ExtensionStat, File, Model, SystemContext,
-    Template, ToolCatalog, ToolDefinition, ToolUsagePrompt,
+    Template, TemplateConfig, ToolCatalog, ToolDefinition, ToolUsagePrompt,
 };
 use serde_json::{Map, Value, json};
 use strum::IntoEnumIterator;
@@ -21,6 +21,10 @@ pub struct SystemPrompt<S> {
     files: Vec<File>,
     models: Vec<Model>,
     custom_instructions: Vec<String>,
+    /// Maximum number of file extensions shown in the workspace summary.
+    max_extensions: usize,
+    /// Configuration values passed into tool description templates.
+    template_config: TemplateConfig,
 }
 
 impl<S: SkillFetchService + ShellService> SystemPrompt<S> {
@@ -33,6 +37,8 @@ impl<S: SkillFetchService + ShellService> SystemPrompt<S> {
             tool_definitions: Vec::default(),
             files: Vec::default(),
             custom_instructions: Vec::default(),
+            max_extensions: 0,
+            template_config: TemplateConfig::default(),
         }
     }
 
@@ -89,7 +95,7 @@ impl<S: SkillFetchService + ShellService> SystemPrompt<S> {
             let skills = self.services.list_skills().await?;
 
             // Fetch extension statistics from git
-            let extensions = self.fetch_extensions(self.environment.max_extensions).await;
+            let extensions = self.fetch_extensions(self.max_extensions).await;
 
             // Build tool_names map from all available tools for template rendering
             let tool_names: Map<String, Value> = ToolCatalog::iter()
@@ -110,6 +116,8 @@ impl<S: SkillFetchService + ShellService> SystemPrompt<S> {
                 model: None,
                 tool_names,
                 extensions,
+                agents: vec![],
+                config: None,
             };
 
             let static_block = TemplateEngine::default()

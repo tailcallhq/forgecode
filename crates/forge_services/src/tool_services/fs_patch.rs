@@ -67,10 +67,6 @@ impl Range {
             return Self::new(0, 0);
         }
 
-        // Detect the line ending style used in the source
-        let line_ending = Self::detect_line_ending(source);
-        let line_ending_len = line_ending.len();
-
         // SearchMatch uses 0-based inclusive line numbers
         // Convert to 0-based array indices
         let start_idx = (search_match.start_line as usize).min(lines.len());
@@ -78,13 +74,15 @@ impl Range {
         // Add 1 to make it exclusive: line 0 to line 0 means [0..1], one line
         let end_idx = ((search_match.end_line as usize) + 1).min(lines.len());
 
-        // Find the character position of the start line
-        // Sum the lengths of all lines before start_idx, adding the appropriate line
-        // ending length
-        let start_pos = lines[..start_idx]
-            .iter()
-            .map(|l| l.len() + line_ending_len)
-            .sum::<usize>();
+        // Find the byte position of the start line.
+        // Split on '\n' so each segment retains its '\r' (if any), giving the
+        // correct per-line byte length regardless of mixed line endings.
+        let start_pos = source
+            .split('\n')
+            .take(start_idx)
+            .map(|l| l.len() + 1)
+            .sum::<usize>()
+            .min(source.len());
 
         // Calculate the length
         let length = if start_idx == end_idx {
@@ -97,14 +95,20 @@ impl Range {
         } else {
             // Multi-line match: include newlines between lines but NOT after the last line
             // Sum lengths of lines from start_idx to end_idx (exclusive)
-            // Add appropriate line ending length for each newline between lines
             let content_len: usize = if start_idx >= lines.len() || end_idx > lines.len() {
                 0 // Out of bounds match
             } else {
                 lines[start_idx..end_idx].iter().map(|l| l.len()).sum()
             };
             let newlines_between = end_idx - start_idx - 1;
-            content_len + (newlines_between * line_ending_len)
+            // Count actual newline bytes (\r\n = 2, \n = 1) to handle mixed endings
+            let newline_bytes: usize = source
+                .split('\n')
+                .skip(start_idx)
+                .take(newlines_between)
+                .map(|l| if l.ends_with('\r') { 2 } else { 1 })
+                .sum();
+            content_len + newline_bytes
         };
 
         Self::new(start_pos, length)
@@ -135,6 +139,10 @@ enum Error {
         "Multiple matches found for search text: '{0}'. Either provide a more specific search pattern or use replace_all to replace all occurrences."
     )]
     MultipleMatches(String),
+    #[error(
+        "Match range [{0}..{1}) is out of bounds for content of length {2}. File may have changed externally, consider reading the file again."
+    )]
+    RangeOutOfBounds(usize, usize, usize),
 }
 
 /// Compute a range from search text, with operation-aware error handling
@@ -189,6 +197,15 @@ fn apply_replacement(
     let normalized_content = Range::normalize_search_line_endings(&haystack, content);
     // Handle case where range is provided (match found)
     if let Some(patch) = range {
+        // Validate the range is within bounds before indexing
+        if patch.end() > haystack.len() {
+            return Err(Error::RangeOutOfBounds(
+                patch.start,
+                patch.end(),
+                haystack.len(),
+            ));
+        }
+
         // Extract the matched text from haystack
         let needle = &haystack[patch.start..patch.end()];
 
@@ -368,6 +385,86 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
 
         // Apply the replacement
         current_content = apply_replacement(current_content, range, &operation, &content)?;
+
+        // SNAPSHOT COORDINATION: Always capture snapshot before modifying
+        self.infra.insert_snapshot(path).await?;
+
+        // Write final content to file after all patches are applied
+        self.infra
+            .write(path, Bytes::from(current_content.clone()))
+            .await?;
+
+        // Compute hash of the final file content
+        let content_hash = compute_hash(&current_content);
+
+        // Validate file syntax using remote validation API (graceful failure)
+        let errors = self
+            .infra
+            .validate_file(path, &current_content)
+            .await
+            .unwrap_or_default();
+
+        Ok(PatchOutput {
+            errors,
+            before: old_content,
+            after: current_content,
+            content_hash,
+        })
+    }
+
+    async fn multi_patch(
+        &self,
+        input_path: String,
+        edits: Vec<forge_domain::PatchEdit>,
+    ) -> anyhow::Result<PatchOutput> {
+        let path = Path::new(&input_path);
+        assert_absolute_path(path)?;
+
+        // Read the original content once
+        let mut current_content = fs::read_to_string(path)
+            .await
+            .map_err(Error::FileOperation)?;
+        // Save the old content before modification for diff generation
+        let old_content = current_content.clone();
+
+        // Apply each edit sequentially
+        for edit in &edits {
+            // Convert replace_all boolean to PatchOperation
+            let operation = if edit.replace_all {
+                PatchOperation::ReplaceAll
+            } else {
+                PatchOperation::Replace
+            };
+
+            // Compute range from search if provided
+            let range = match compute_range(&current_content, Some(&edit.old_string), &operation) {
+                Ok(r) => r,
+                Err(Error::NoMatch(search_text))
+                    if matches!(
+                        operation,
+                        PatchOperation::Replace | PatchOperation::ReplaceAll | PatchOperation::Swap
+                    ) =>
+                {
+                    // Try fuzzy search as fallback
+                    match self
+                        .infra
+                        .fuzzy_search(&search_text, &current_content, false)
+                        .await
+                    {
+                        Ok(matches) if !matches.is_empty() => {
+                            // Use the first fuzzy match
+                            Some(Range::from_search_match(&current_content, &matches[0]))
+                        }
+                        _ => return Err(Error::NoMatch(search_text).into()),
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            };
+
+            // Apply the replacement
+            current_content =
+                apply_replacement(current_content, range, &operation, &edit.new_string)?;
+        }
 
         // SNAPSHOT COORDINATION: Always capture snapshot before modifying
         self.infra.insert_snapshot(path).await?;
@@ -1042,5 +1139,88 @@ mod tests {
         let expected = "line2\r\nline3";
 
         assert_eq!(actual, expected);
+    }
+
+    // --- Out-of-bounds safety tests ---
+
+    #[test]
+    fn test_range_from_search_match_out_of_bounds_start_line() {
+        let source = "line1\nline2\nline3";
+        // start_line way past end of file
+        let search_match = SearchMatch { start_line: 100, end_line: 200 };
+
+        let range = super::Range::from_search_match(source, &search_match);
+        // Should not panic; range should be clamped so it doesn't exceed source
+        assert!(range.end() <= source.len());
+    }
+
+    #[test]
+    fn test_range_from_search_match_end_line_past_eof() {
+        let source = "line1\nline2\nline3";
+        // start_line valid, end_line past end
+        let search_match = SearchMatch { start_line: 1, end_line: 100 };
+
+        let range = super::Range::from_search_match(source, &search_match);
+        assert!(range.end() <= source.len());
+        // Should include from line2 to end of source
+        let actual = &source[range.start..range.end()];
+        assert!(actual.contains("line2"));
+        assert!(actual.contains("line3"));
+    }
+
+    #[test]
+    fn test_range_from_search_match_trailing_newline() {
+        let source = "line1\nline2\nline3\n"; // trailing newline
+        let search_match = SearchMatch { start_line: 2, end_line: 2 };
+
+        let range = super::Range::from_search_match(source, &search_match);
+        assert!(range.end() <= source.len());
+        let actual = &source[range.start..range.end()];
+        assert_eq!(actual, "line3");
+    }
+
+    #[test]
+    fn test_range_from_search_match_unicode_content() {
+        let source = "héllo\nwørld\n🌍";
+        let search_match = SearchMatch { start_line: 1, end_line: 1 };
+
+        let range = super::Range::from_search_match(source, &search_match);
+        assert!(range.end() <= source.len());
+        let actual = &source[range.start..range.end()];
+        assert_eq!(actual, "wørld");
+    }
+
+    #[test]
+    fn test_range_from_search_match_unicode_multiline() {
+        let source = "héllo\nwørld\n🌍";
+        let search_match = SearchMatch { start_line: 0, end_line: 2 };
+
+        let range = super::Range::from_search_match(source, &search_match);
+        assert!(range.end() <= source.len());
+        let actual = &source[range.start..range.end()];
+        assert_eq!(actual, source);
+    }
+
+    #[test]
+    fn test_range_from_search_match_mixed_line_endings() {
+        let source = "line1\r\nline2\nline3";
+        let search_match = SearchMatch { start_line: 1, end_line: 1 };
+
+        let range = super::Range::from_search_match(source, &search_match);
+        assert!(range.end() <= source.len());
+        let actual = &source[range.start..range.end()];
+        assert_eq!(actual, "line2");
+    }
+
+    #[test]
+    fn test_apply_replacement_with_out_of_bounds_range_returns_error() {
+        let source = "short";
+        // Simulate a bad range that exceeds source length
+        let bad_range = Some(super::Range::new(0, 1000));
+        let operation = PatchOperation::Replace;
+        let content = "replacement";
+
+        let result = super::apply_replacement(source.to_string(), bad_range, &operation, content);
+        assert!(result.is_err());
     }
 }

@@ -8,12 +8,13 @@ use forge_app::{
     FileInfoInfra, FileReaderInfra, FileRemoverInfra, FileWriterInfra, GrpcInfra, HttpInfra,
     KVStore, McpServerInfra, StrategyFactory, UserInfra, WalkedFile, Walker, WalkerInfra,
 };
+use forge_config::ForgeConfig;
 use forge_domain::{
-    AnyProvider, AppConfig, AppConfigRepository, AuthCredential, ChatCompletionMessage,
-    ChatRepository, CommandOutput, Context, Conversation, ConversationId, ConversationRepository,
-    Environment, FileInfo, FuzzySearchRepository, McpServerConfig, MigrationResult, Model, ModelId,
-    Provider, ProviderId, ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository,
-    Snapshot, SnapshotRepository,
+    AnyProvider, AuthCredential, ChatCompletionMessage, ChatRepository, CommandOutput, Context,
+    Conversation, ConversationId, ConversationRepository, Environment, FileInfo,
+    FuzzySearchRepository, McpServerConfig, MigrationResult, Model, ModelId, Provider, ProviderId,
+    ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository, Snapshot,
+    SnapshotRepository,
 };
 // Re-export CacacheStorage from forge_infra
 pub use forge_infra::CacacheStorage;
@@ -23,7 +24,6 @@ use reqwest_eventsource::EventSource;
 use url::Url;
 
 use crate::agent::ForgeAgentRepository;
-use crate::app_config::AppConfigRepositoryImpl;
 use crate::context_engine::ForgeContextEngineRepository;
 use crate::conversation::ConversationRepositoryImpl;
 use crate::database::{DatabasePool, PoolConfig};
@@ -42,7 +42,6 @@ pub struct ForgeRepo<F> {
     infra: Arc<F>,
     file_snapshot_service: Arc<ForgeFileSnapshotService>,
     conversation_repository: Arc<ConversationRepositoryImpl>,
-    app_config_repository: Arc<AppConfigRepositoryImpl<F>>,
     mcp_cache_repository: Arc<CacacheStorage>,
     provider_repository: Arc<ForgeProviderRepository<F>>,
     chat_repository: Arc<ForgeChatRepository<F>>,
@@ -53,12 +52,15 @@ pub struct ForgeRepo<F> {
     fuzzy_search_repository: Arc<ForgeFuzzySearchRepository<F>>,
 }
 
-impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + GrpcInfra + HttpInfra> ForgeRepo<F> {
-    pub fn new(
-        infra: Arc<F>,
-        override_model: Option<forge_domain::ModelId>,
-        override_provider: Option<forge_domain::ProviderId>,
-    ) -> Self {
+impl<
+    F: EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + FileReaderInfra
+        + FileWriterInfra
+        + GrpcInfra
+        + HttpInfra,
+> ForgeRepo<F>
+{
+    pub fn new(infra: Arc<F>) -> Self {
         let env = infra.get_environment();
         let file_snapshot_service = Arc::new(ForgeFileSnapshotService::new(env.clone()));
         let db_pool =
@@ -67,12 +69,6 @@ impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + GrpcInfra + HttpI
             db_pool.clone(),
             env.workspace_hash(),
         ));
-
-        let app_config_repository = Arc::new(
-            AppConfigRepositoryImpl::new(infra.clone())
-                .override_model(override_model)
-                .override_provider(override_provider),
-        );
 
         let mcp_cache_repository = Arc::new(CacacheStorage::new(
             env.cache_dir().join("mcp_cache"),
@@ -91,7 +87,6 @@ impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + GrpcInfra + HttpI
             infra,
             file_snapshot_service,
             conversation_repository,
-            app_config_repository,
             mcp_cache_repository,
             provider_repository,
             chat_repository,
@@ -153,8 +148,14 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
 }
 
 #[async_trait::async_trait]
-impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + HttpInfra + Send + Sync>
-    ChatRepository for ForgeRepo<F>
+impl<
+    F: EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + FileReaderInfra
+        + FileWriterInfra
+        + HttpInfra
+        + Send
+        + Sync,
+> ChatRepository for ForgeRepo<F>
 {
     async fn chat(
         &self,
@@ -171,8 +172,14 @@ impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + HttpInfra + Send 
 }
 
 #[async_trait::async_trait]
-impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + HttpInfra + Send + Sync>
-    ProviderRepository for ForgeRepo<F>
+impl<
+    F: EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + FileReaderInfra
+        + FileWriterInfra
+        + HttpInfra
+        + Send
+        + Sync,
+> ProviderRepository for ForgeRepo<F>
 {
     async fn get_all_providers(&self) -> anyhow::Result<Vec<AnyProvider>> {
         self.provider_repository.get_all_providers().await
@@ -202,15 +209,32 @@ impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + HttpInfra + Send 
 }
 
 #[async_trait::async_trait]
-impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + Send + Sync> AppConfigRepository
+impl<F: EnvironmentInfra<Config = forge_config::ForgeConfig> + Send + Sync> EnvironmentInfra
     for ForgeRepo<F>
 {
-    async fn get_app_config(&self) -> anyhow::Result<AppConfig> {
-        self.app_config_repository.get_app_config().await
+    type Config = forge_config::ForgeConfig;
+
+    fn get_environment(&self) -> Environment {
+        self.infra.get_environment()
     }
 
-    async fn set_app_config(&self, config: &AppConfig) -> anyhow::Result<()> {
-        self.app_config_repository.set_app_config(config).await
+    fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+        self.infra.get_config()
+    }
+
+    fn update_environment(
+        &self,
+        ops: Vec<forge_domain::ConfigOperation>,
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+        self.infra.update_environment(ops)
+    }
+
+    fn get_env_var(&self, key: &str) -> Option<String> {
+        self.infra.get_env_var(key)
+    }
+
+    fn get_env_vars(&self) -> BTreeMap<String, String> {
+        self.infra.get_env_vars()
     }
 }
 
@@ -267,24 +291,6 @@ impl<F: HttpInfra> HttpInfra for ForgeRepo<F> {
 }
 
 #[async_trait::async_trait]
-impl<F: EnvironmentInfra> EnvironmentInfra for ForgeRepo<F> {
-    fn get_environment(&self) -> Environment {
-        self.infra.get_environment()
-    }
-    fn get_env_var(&self, key: &str) -> Option<String> {
-        self.infra.get_env_var(key)
-    }
-
-    fn get_env_vars(&self) -> BTreeMap<String, String> {
-        self.infra.get_env_vars()
-    }
-
-    fn is_restricted(&self) -> bool {
-        self.infra.is_restricted()
-    }
-}
-
-#[async_trait::async_trait]
 impl<F> FileReaderInfra for ForgeRepo<F>
 where
     F: FileReaderInfra + Send + Sync,
@@ -332,6 +338,9 @@ where
 {
     async fn write(&self, path: &Path, contents: Bytes) -> anyhow::Result<()> {
         self.infra.write(path, contents).await
+    }
+    async fn append(&self, path: &Path, contents: Bytes) -> anyhow::Result<()> {
+        self.infra.append(path, contents).await
     }
     async fn write_temp(&self, prefix: &str, ext: &str, content: &str) -> anyhow::Result<PathBuf> {
         self.infra.write_temp(prefix, ext, content).await
@@ -443,8 +452,9 @@ where
         &self,
         config: McpServerConfig,
         env_vars: &BTreeMap<String, String>,
+        environment: &Environment,
     ) -> anyhow::Result<F::Client> {
-        self.infra.connect(config, env_vars).await
+        self.infra.connect(config, env_vars, environment).await
     }
 }
 
@@ -478,11 +488,15 @@ where
 }
 
 #[async_trait::async_trait]
-impl<F: FileInfoInfra + EnvironmentInfra + DirectoryReaderInfra + Send + Sync> AgentRepository
-    for ForgeRepo<F>
+impl<F: FileInfoInfra + EnvironmentInfra<Config = ForgeConfig> + DirectoryReaderInfra + Send + Sync>
+    AgentRepository for ForgeRepo<F>
 {
-    async fn get_agents(&self) -> anyhow::Result<Vec<forge_domain::AgentDefinition>> {
+    async fn get_agents(&self) -> anyhow::Result<Vec<forge_domain::Agent>> {
         self.agent_repository.get_agents().await
+    }
+
+    async fn get_agent_infos(&self) -> anyhow::Result<Vec<forge_domain::AgentInfo>> {
+        self.agent_repository.get_agent_infos().await
     }
 }
 
@@ -502,7 +516,7 @@ impl<F: StrategyFactory> StrategyFactory for ForgeRepo<F> {
         &self,
         provider_id: ProviderId,
         auth_method: forge_domain::AuthMethod,
-        required_params: Vec<forge_domain::URLParam>,
+        required_params: Vec<forge_domain::URLParamSpec>,
     ) -> anyhow::Result<Self::Strategy> {
         self.infra
             .create_auth_strategy(provider_id, auth_method, required_params)
@@ -615,7 +629,7 @@ impl<F: GrpcInfra + Send + Sync> FuzzySearchRepository for ForgeRepo<F> {
 }
 
 impl<F: GrpcInfra> GrpcInfra for ForgeRepo<F> {
-    fn channel(&self) -> tonic::transport::Channel {
+    fn channel(&self) -> anyhow::Result<tonic::transport::Channel> {
         self.infra.channel()
     }
 

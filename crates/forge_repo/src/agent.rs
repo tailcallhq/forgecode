@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use forge_app::domain::{AgentDefinition, Template};
 use forge_app::{AgentRepository, DirectoryReaderInfra, EnvironmentInfra, FileInfoInfra};
+use forge_config::ForgeConfig;
+use forge_domain::{ModelId, ProviderId, Template};
 use gray_matter::Matter;
 use gray_matter::engine::YAML;
+
+use crate::agent_definition::AgentDefinition;
 
 /// Infrastructure implementation for loading agent definitions from multiple
 /// sources:
@@ -22,7 +25,7 @@ use gray_matter::engine::YAML;
 ///
 /// ## Directory Resolution
 /// - **Built-in agents**: Embedded in application binary
-/// - **Global agents**: `{HOME}/.forge/agents/*.md`
+/// - **Global agents**: `~/forge/agents/*.md`
 /// - **CWD agents**: `./.forge/agents/*.md` (relative to current working
 ///   directory)
 ///
@@ -38,20 +41,15 @@ impl<I> ForgeAgentRepository<I> {
     }
 }
 
-#[async_trait::async_trait]
-impl<I: FileInfoInfra + EnvironmentInfra + DirectoryReaderInfra> AgentRepository
-    for ForgeAgentRepository<I>
-{
+impl<I: FileInfoInfra + EnvironmentInfra + DirectoryReaderInfra> ForgeAgentRepository<I> {
     /// Load all agent definitions from all available sources with conflict
     /// resolution.
-    async fn get_agents(&self) -> anyhow::Result<Vec<forge_app::domain::AgentDefinition>> {
-        self.load_agents().await
-    }
-}
-
-impl<I: FileInfoInfra + EnvironmentInfra + DirectoryReaderInfra> ForgeAgentRepository<I> {
-    /// Load all agent definitions from all available sources
     async fn load_agents(&self) -> anyhow::Result<Vec<AgentDefinition>> {
+        self.load_all_agents().await
+    }
+
+    /// Load all agent definitions from all available sources
+    async fn load_all_agents(&self) -> anyhow::Result<Vec<AgentDefinition>> {
         // Load built-in agents (no path - will display as "BUILT IN")
         let mut agents = self.init_default().await?;
 
@@ -157,6 +155,43 @@ fn parse_agent_file(content: &str) -> Result<AgentDefinition> {
         .system_prompt(Template::new(result.content));
 
     Ok(agent)
+}
+
+#[async_trait::async_trait]
+impl<F: FileInfoInfra + EnvironmentInfra<Config = ForgeConfig> + DirectoryReaderInfra>
+    AgentRepository for ForgeAgentRepository<F>
+{
+    async fn get_agents(&self) -> anyhow::Result<Vec<forge_domain::Agent>> {
+        let agent_defs = self.load_agents().await?;
+
+        let session = self
+            .infra
+            .get_config()?
+            .session
+            .ok_or(forge_domain::Error::NoDefaultSession)?;
+
+        Ok(agent_defs
+            .into_iter()
+            .map(|def| {
+                def.into_agent(
+                    ProviderId::from(session.provider_id.clone()),
+                    ModelId::from(session.model_id.clone()),
+                )
+            })
+            .collect())
+    }
+
+    async fn get_agent_infos(&self) -> anyhow::Result<Vec<forge_domain::AgentInfo>> {
+        let agent_defs = self.load_agents().await?;
+        Ok(agent_defs
+            .into_iter()
+            .map(|def| forge_domain::AgentInfo {
+                id: def.id,
+                title: def.title,
+                description: def.description,
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]

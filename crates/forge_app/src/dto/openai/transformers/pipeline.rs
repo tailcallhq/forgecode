@@ -6,8 +6,11 @@ use super::github_copilot_reasoning::GitHubCopilotReasoning;
 use super::kimi_k2_reasoning::KimiK2Reasoning;
 use super::make_cerebras_compat::MakeCerebrasCompat;
 use super::make_openai_compat::MakeOpenAiCompat;
+use super::make_xai_compat::MakeXaiCompat;
 use super::minimax::SetMinimaxParams;
-use super::normalize_tool_schema::{EnforceStrictToolSchema, NormalizeToolSchema};
+use super::normalize_tool_schema::{
+    EnforceStrictResponseFormatSchema, EnforceStrictToolSchema, NormalizeToolSchema,
+};
 use super::set_cache::SetCache;
 use super::set_reasoning_effort::SetReasoningEffort;
 use super::strip_thought_signature::StripThoughtSignature;
@@ -52,20 +55,31 @@ impl Transformer for ProviderPipeline<'_> {
 
         let open_ai_compat = MakeOpenAiCompat.when(move |_| !supports_open_router_params(provider));
 
-        let set_reasoning_effort =
-            SetReasoningEffort.when(move |_| provider.id == ProviderId::REQUESTY);
+        let set_reasoning_effort = SetReasoningEffort.when(move |_| {
+            provider.id == ProviderId::REQUESTY || provider.id == ProviderId::GITHUB_COPILOT
+        });
 
         let github_copilot_reasoning =
             GitHubCopilotReasoning.when(move |_| provider.id == ProviderId::GITHUB_COPILOT);
 
-        let kimi_k2_reasoning = KimiK2Reasoning.when(when_model("kimi"));
+        let kimi_k2_reasoning = KimiK2Reasoning.when(move |request: &Request| {
+            provider.id == ProviderId::FIREWORKS_AI || when_model("kimi")(request)
+        });
 
         let cerebras_compat = MakeCerebrasCompat.when(move |_| provider.id == ProviderId::CEREBRAS);
 
+        let xai_compat = MakeXaiCompat.when(move |_| provider.id == ProviderId::XAI);
+
         let trim_tool_call_ids = TrimToolCallIds.when(move |_| provider.id == ProviderId::OPENAI);
 
-        let strict_tool_schema =
-            EnforceStrictToolSchema.when(move |_| provider.id == ProviderId::OPENCODE_ZEN);
+        let strict_schema = EnforceStrictToolSchema
+            .pipe(EnforceStrictResponseFormatSchema)
+            .when(move |_| {
+                provider.id == ProviderId::FIREWORKS_AI
+                    || provider.id == ProviderId::OPENCODE_ZEN
+                    || provider.id == ProviderId::OPENCODE_GO
+                    || provider.id == ProviderId::XAI
+            });
 
         let mut combined = zai_thinking
             .pipe(or_transformers)
@@ -75,8 +89,9 @@ impl Transformer for ProviderPipeline<'_> {
             .pipe(github_copilot_reasoning)
             .pipe(kimi_k2_reasoning)
             .pipe(cerebras_compat)
+            .pipe(xai_compat)
             .pipe(trim_tool_call_ids)
-            .pipe(strict_tool_schema)
+            .pipe(strict_schema)
             .pipe(NormalizeToolSchema);
         combined.transform(request)
     }
@@ -262,6 +277,20 @@ mod tests {
             auth_methods: vec![forge_domain::AuthMethod::ApiKey],
             url_params: vec![],
             credential: make_credential(ProviderId::OPENCODE_ZEN, key),
+            custom_headers: None,
+            models: Some(ModelSource::Hardcoded(vec![])),
+        }
+    }
+
+    fn fireworks_ai(key: &str) -> Provider<Url> {
+        Provider {
+            id: ProviderId::FIREWORKS_AI,
+            provider_type: Default::default(),
+            response: Some(ProviderResponse::OpenAI),
+            url: Url::parse("https://api.fireworks.ai/inference/v1/chat/completions").unwrap(),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            credential: make_credential(ProviderId::FIREWORKS_AI, key),
             custom_headers: None,
             models: Some(ModelSource::Hardcoded(vec![])),
         }
@@ -665,6 +694,127 @@ mod tests {
         });
 
         assert_eq!(actual.tools.unwrap()[0].function.parameters, expected);
+    }
+
+    #[test]
+    fn test_fireworks_provider_enforces_strict_tool_and_response_format_schemas() {
+        let provider = fireworks_ai("fireworks-ai");
+        let fixture = Request::default()
+            .tools(vec![crate::dto::openai::Tool {
+                r#type: crate::dto::openai::FunctionType,
+                function: crate::dto::openai::FunctionDescription {
+                    name: "fs_search".to_string(),
+                    description: Some("Search files".to_string()),
+                    parameters: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "output_mode": {
+                                "description": "Output mode",
+                                "nullable": true,
+                                "type": "string",
+                                "enum": ["content", "files_with_matches", "count", null]
+                            }
+                        }
+                    }),
+                },
+            }])
+            .response_format(crate::dto::openai::ResponseFormat::JsonSchema {
+                name: "test_response".to_string(),
+                schema: Box::new(
+                    schemars::Schema::try_from(serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "result": {
+                                "description": "Result",
+                                "nullable": true,
+                                "type": "string",
+                                "enum": ["done", null]
+                            }
+                        }
+                    }))
+                    .unwrap(),
+                ),
+            });
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        let expected_tool_schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "output_mode": {
+                    "description": "Output mode",
+                    "anyOf": [
+                        {"type": "string", "enum": ["content", "files_with_matches", "count"]},
+                        {"type": "null"}
+                    ]
+                }
+            },
+            "additionalProperties": false,
+            "required": ["output_mode"]
+        });
+        assert_eq!(
+            actual.tools.as_ref().unwrap()[0].function.parameters,
+            expected_tool_schema
+        );
+
+        let actual_response_schema = match actual.response_format {
+            Some(crate::dto::openai::ResponseFormat::JsonSchema { schema, .. }) => {
+                serde_json::to_value(schema).unwrap()
+            }
+            Some(crate::dto::openai::ResponseFormat::Text) => {
+                panic!("Expected json_schema response format")
+            }
+            None => panic!("Expected response format to be preserved"),
+        };
+        let expected_response_schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "result": {
+                    "description": "Result",
+                    "anyOf": [
+                        {"type": "string", "enum": ["done"]},
+                        {"type": "null"}
+                    ]
+                }
+            },
+            "additionalProperties": false,
+            "required": ["result"]
+        });
+
+        assert_eq!(actual_response_schema, expected_response_schema);
+    }
+
+    #[test]
+    fn test_fireworks_provider_converts_reasoning_details_to_reasoning_content() {
+        let provider = fireworks_ai("fireworks-ai");
+        let fixture = Request::default().messages(vec![crate::dto::openai::Message {
+            role: crate::dto::openai::Role::Assistant,
+            content: Some(crate::dto::openai::MessageContent::Text("test".to_string())),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning_details: Some(vec![crate::dto::openai::ReasoningDetail {
+                r#type: "reasoning.text".to_string(),
+                text: Some("thinking...".to_string()),
+                signature: None,
+                data: None,
+                id: None,
+                format: None,
+                index: None,
+            }]),
+            reasoning_text: None,
+            reasoning_opaque: None,
+            reasoning_content: None,
+            extra_content: None,
+        }]);
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        let message = actual.messages.unwrap().into_iter().next().unwrap();
+        assert_eq!(message.reasoning_content, Some("thinking...".to_string()));
+        assert!(message.reasoning_details.is_none());
     }
 
     #[test]

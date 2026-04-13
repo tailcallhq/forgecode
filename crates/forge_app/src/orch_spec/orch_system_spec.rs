@@ -1,4 +1,4 @@
-use forge_domain::{ChatCompletionMessage, CommandOutput, Content, FinishReason, Workflow};
+use forge_domain::{ChatCompletionMessage, CommandOutput, Content, FinishReason};
 use insta::assert_snapshot;
 
 use crate::ShellOutput;
@@ -6,12 +6,9 @@ use crate::orch_spec::orch_runner::TestContext;
 
 #[tokio::test]
 async fn test_system_prompt() {
-    let mut ctx = TestContext::default()
-        .workflow(Workflow::default().tool_supported(false))
-        .mock_assistant_responses(vec![
-            ChatCompletionMessage::assistant(Content::full("Sure"))
-                .finish_reason(FinishReason::Stop),
-        ]);
+    let mut ctx = TestContext::default().mock_assistant_responses(vec![
+        ChatCompletionMessage::assistant(Content::full("Sure")).finish_reason(FinishReason::Stop),
+    ]);
 
     ctx.run("This is a test").await.unwrap();
     let system_messages = ctx.output.system_messages().unwrap().join("\n\n");
@@ -21,11 +18,6 @@ async fn test_system_prompt() {
 #[tokio::test]
 async fn test_system_prompt_tool_supported() {
     let mut ctx = TestContext::default()
-        .workflow(
-            Workflow::default()
-                .tool_supported(true)
-                .custom_rules("Do it nicely"),
-        )
         .files(vec![
             forge_domain::File { path: "/users/john/foo.txt".to_string(), is_dir: false },
             forge_domain::File { path: "/users/jason/bar.txt".to_string(), is_dir: false },
@@ -55,7 +47,6 @@ async fn test_system_prompt_with_extensions() {
     };
 
     let mut ctx = TestContext::default()
-        .workflow(Workflow::default().tool_supported(true))
         .mock_shell_outputs(vec![shell_output])
         .mock_assistant_responses(vec![
             ChatCompletionMessage::assistant(Content::full("Sure"))
@@ -92,7 +83,6 @@ async fn test_system_prompt_with_extensions_truncated() {
     };
 
     let mut ctx = TestContext::default()
-        .workflow(Workflow::default().tool_supported(true))
         .mock_shell_outputs(vec![shell_output])
         .mock_assistant_responses(vec![
             ChatCompletionMessage::assistant(Content::full("Sure"))

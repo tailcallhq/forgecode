@@ -33,7 +33,6 @@ pub fn init_tracing(log_path: PathBuf, tracker: Tracker) -> anyhow::Result<Guard
         .with(fmt_layer)
         .init();
 
-    debug!("JSON logging system initialized successfully");
     Ok(Guard(guard))
 }
 

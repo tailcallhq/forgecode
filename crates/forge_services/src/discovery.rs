@@ -60,11 +60,11 @@ impl<F: EnvironmentInfra + WalkerInfra + DirectoryReaderInfra + Send + Sync> Fil
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
-    use forge_app::WalkedFile;
     use forge_app::domain::Environment;
+    use forge_app::{EnvironmentInfra, WalkedFile};
+    use forge_domain::ConfigOperation;
     use pretty_assertions::assert_eq;
 
     use super::*;
@@ -88,6 +88,8 @@ mod tests {
     }
 
     impl EnvironmentInfra for MockInfra {
+        type Config = forge_config::ForgeConfig;
+
         fn get_environment(&self) -> Environment {
             use fake::{Fake, Faker};
             let mut env: Environment = Faker.fake();
@@ -95,16 +97,20 @@ mod tests {
             env
         }
 
+        fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+            Ok(forge_config::ForgeConfig::default())
+        }
+
+        async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+
         fn get_env_var(&self, _key: &str) -> Option<String> {
             None
         }
 
-        fn get_env_vars(&self) -> BTreeMap<String, String> {
-            BTreeMap::new()
-        }
-
-        fn is_restricted(&self) -> bool {
-            false
+        fn get_env_vars(&self) -> std::collections::BTreeMap<String, String> {
+            std::collections::BTreeMap::new()
         }
     }
 

@@ -362,6 +362,7 @@ impl TryFrom<TextMessageRecord> for forge_domain::TextMessage {
                 .reasoning_details
                 .map(|details| details.into_iter().map(Into::into).collect()),
             droppable: record.droppable,
+            phase: None,
         })
     }
 }
@@ -646,17 +647,25 @@ impl From<ToolChoiceRecord> for forge_domain::ToolChoice {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum EffortRecord {
-    High,
-    Medium,
+    None,
+    Minimal,
     Low,
+    Medium,
+    High,
+    XHigh,
+    Max,
 }
 
 impl From<&forge_domain::Effort> for EffortRecord {
     fn from(effort: &forge_domain::Effort) -> Self {
         match effort {
-            forge_domain::Effort::High => Self::High,
-            forge_domain::Effort::Medium => Self::Medium,
+            forge_domain::Effort::None => Self::None,
+            forge_domain::Effort::Minimal => Self::Minimal,
             forge_domain::Effort::Low => Self::Low,
+            forge_domain::Effort::Medium => Self::Medium,
+            forge_domain::Effort::High => Self::High,
+            forge_domain::Effort::XHigh => Self::XHigh,
+            forge_domain::Effort::Max => Self::Max,
         }
     }
 }
@@ -664,9 +673,13 @@ impl From<&forge_domain::Effort> for EffortRecord {
 impl From<EffortRecord> for forge_domain::Effort {
     fn from(record: EffortRecord) -> Self {
         match record {
-            EffortRecord::High => Self::High,
-            EffortRecord::Medium => Self::Medium,
+            EffortRecord::None => Self::None,
+            EffortRecord::Minimal => Self::Minimal,
             EffortRecord::Low => Self::Low,
+            EffortRecord::Medium => Self::Medium,
+            EffortRecord::High => Self::High,
+            EffortRecord::XHigh => Self::XHigh,
+            EffortRecord::Max => Self::Max,
         }
     }
 }
@@ -711,6 +724,8 @@ impl From<ReasoningConfigRecord> for forge_domain::ReasoningConfig {
 pub(super) struct ContextRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    initiator: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     messages: Vec<ContextMessageRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -735,6 +750,7 @@ impl From<&Context> for ContextRecord {
     fn from(context: &Context) -> Self {
         Self {
             conversation_id: context.conversation_id.as_ref().map(|id| id.into_string()),
+            initiator: context.initiator.clone(),
             messages: context
                 .messages
                 .iter()
@@ -790,6 +806,7 @@ impl TryFrom<ContextRecord> for Context {
 
         Ok(Context {
             conversation_id,
+            initiator: record.initiator,
             messages: messages?,
             tools: tools?,
             tool_choice: record.tool_choice.map(Into::into),
@@ -943,7 +960,7 @@ impl ConversationRecord {
         let context = conversation
             .context
             .as_ref()
-            .filter(|ctx| !ctx.messages.is_empty())
+            .filter(|ctx| !ctx.messages.is_empty() || ctx.initiator.is_some())
             .map(ContextRecord::from)
             .and_then(|ctx_record| serde_json::to_string(&ctx_record).ok());
         let updated_at = context.as_ref().map(|_| chrono::Utc::now().naive_utc());

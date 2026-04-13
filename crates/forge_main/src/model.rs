@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use forge_api::{Agent, Model, Template};
+use forge_api::{AgentInfo, Model, Template};
 use forge_domain::UserCommand;
 use strum::{EnumProperty, IntoEnumIterator};
 use strum_macros::{EnumIter, EnumProperty};
@@ -92,12 +92,15 @@ impl ForgeCommandManager {
                 | "dump"
                 | "model"
                 | "tools"
+                | "provider"
                 | "login"
                 | "logout"
                 | "retry"
                 | "conversations"
                 | "list"
                 | "commit"
+                | "rename"
+                | "rn"
         )
     }
 
@@ -107,6 +110,7 @@ impl ForgeCommandManager {
             .filter(|command| !matches!(command, SlashCommand::Custom(_)))
             .filter(|command| !matches!(command, SlashCommand::Shell(_)))
             .filter(|command| !matches!(command, SlashCommand::AgentSwitch(_)))
+            .filter(|command| !matches!(command, SlashCommand::Rename(_)))
             .map(|command| ForgeCommand {
                 name: command.name().to_string(),
                 description: command.usage().to_string(),
@@ -139,7 +143,10 @@ impl ForgeCommandManager {
 
     /// Registers agent commands to the manager.
     /// Returns information about the registration process.
-    pub fn register_agent_commands(&self, agents: Vec<Agent>) -> AgentCommandRegistrationResult {
+    pub fn register_agent_commands(
+        &self,
+        agents: Vec<AgentInfo>,
+    ) -> AgentCommandRegistrationResult {
         let mut guard = self.commands.lock().unwrap();
         let mut result =
             AgentCommandRegistrationResult { registered_count: 0, skipped_conflicts: Vec::new() };
@@ -254,7 +261,6 @@ impl ForgeCommandManager {
             "/compact" => Ok(SlashCommand::Compact),
             "/new" => Ok(SlashCommand::New),
             "/info" => Ok(SlashCommand::Info),
-            "/env" => Ok(SlashCommand::Env),
             "/usage" => Ok(SlashCommand::Usage),
             "/exit" => Ok(SlashCommand::Exit),
             "/update" => Ok(SlashCommand::Update),
@@ -267,10 +273,9 @@ impl ForgeCommandManager {
             "/sage" => Ok(SlashCommand::Sage),
             "/help" => Ok(SlashCommand::Help),
             "/model" => Ok(SlashCommand::Model),
-            "/provider" => Ok(SlashCommand::Provider),
+            "/provider" | "/login" => Ok(SlashCommand::Login),
             "/tools" => Ok(SlashCommand::Tools),
             "/agent" => Ok(SlashCommand::Agent),
-            "/login" => Ok(SlashCommand::Login),
             "/logout" => Ok(SlashCommand::Logout),
             "/retry" => Ok(SlashCommand::Retry),
             "/conversation" | "/conversations" => Ok(SlashCommand::Conversations),
@@ -282,6 +287,16 @@ impl ForgeCommandManager {
                 Ok(SlashCommand::Commit { max_diff_size })
             }
             "/index" => Ok(SlashCommand::Index),
+            "/rename" | "/rn" => {
+                let name = parameters.join(" ");
+                let name = name.trim().to_string();
+                if name.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "Usage: /rename <name>. Please provide a name for the conversation."
+                    ));
+                }
+                Ok(SlashCommand::Rename(name))
+            }
             text => {
                 let parts = text.split_ascii_whitespace().collect::<Vec<&str>>();
 
@@ -348,9 +363,6 @@ pub enum SlashCommand {
     /// Display usage information (tokens & requests).
     #[strum(props(usage = "Shows usage information (tokens & requests)"))]
     Usage,
-    /// Display environment information.
-    #[strum(props(usage = "Display environment information"))]
-    Env,
     /// Exit the application without any further action.
     #[strum(props(usage = "Exit the application"))]
     Exit,
@@ -382,10 +394,6 @@ pub enum SlashCommand {
     /// This can be triggered with the '/model' command.
     #[strum(props(usage = "Switch to a different model"))]
     Model,
-    /// Switch or select the active provider
-    /// This can be triggered with the '/provider' command.
-    #[strum(props(usage = "Switch to a different provider"))]
-    Provider,
     /// List all available tools with their descriptions and schema
     /// This can be triggered with the '/tools' command.
     #[strum(props(usage = "List all available tools with their descriptions and schema"))]
@@ -420,6 +428,10 @@ pub enum SlashCommand {
     #[strum(props(usage = "Delete a conversation permanently"))]
     Delete,
 
+    /// Rename the current conversation
+    #[strum(props(usage = "Rename the current conversation. Usage: /rename <name>"))]
+    Rename(String),
+
     /// Switch directly to a specific agent by ID
     #[strum(props(usage = "Switch directly to a specific agent"))]
     AgentSwitch(String),
@@ -447,7 +459,6 @@ impl SlashCommand {
             SlashCommand::Message(_) => "message",
             SlashCommand::Update => "update",
             SlashCommand::Info => "info",
-            SlashCommand::Env => "env",
             SlashCommand::Usage => "usage",
             SlashCommand::Exit => "exit",
             SlashCommand::Forge => "forge",
@@ -457,7 +468,6 @@ impl SlashCommand {
             SlashCommand::Commit { .. } => "commit",
             SlashCommand::Dump { .. } => "dump",
             SlashCommand::Model => "model",
-            SlashCommand::Provider => "provider",
             SlashCommand::Tools => "tools",
             SlashCommand::Custom(event) => &event.name,
             SlashCommand::Shell(_) => "!shell",
@@ -467,6 +477,7 @@ impl SlashCommand {
             SlashCommand::Retry => "retry",
             SlashCommand::Conversations => "conversation",
             SlashCommand::Delete => "delete",
+            SlashCommand::Rename(_) => "rename",
             SlashCommand::AgentSwitch(agent_id) => agent_id,
             SlashCommand::Index => "index",
         }
@@ -832,24 +843,15 @@ mod tests {
 
     #[test]
     fn test_register_agent_commands() {
-        use forge_api::Agent;
-        use forge_domain::{ModelId, ProviderId};
-
         // Setup
         let fixture = ForgeCommandManager::default();
         let agents = vec![
-            Agent::new(
-                "test-agent",
-                ProviderId::ANTHROPIC,
-                ModelId::new("claude-3-5-sonnet-20241022"),
-            )
-            .title("Test Agent".to_string()),
-            Agent::new(
-                "another",
-                ProviderId::ANTHROPIC,
-                ModelId::new("claude-3-5-sonnet-20241022"),
-            )
-            .title("Another Agent".to_string()),
+            forge_domain::AgentInfo::default()
+                .id("test-agent")
+                .title("Test Agent".to_string()),
+            forge_domain::AgentInfo::default()
+                .id("another")
+                .title("Another Agent".to_string()),
         ];
 
         // Execute
@@ -877,18 +879,12 @@ mod tests {
 
     #[test]
     fn test_parse_agent_switch_command() {
-        use forge_api::Agent;
-        use forge_domain::{ModelId, ProviderId};
-
         // Setup
         let fixture = ForgeCommandManager::default();
         let agents = vec![
-            Agent::new(
-                "test-agent",
-                ProviderId::ANTHROPIC,
-                ModelId::new("claude-3-5-sonnet-20241022"),
-            )
-            .title("Test Agent".to_string()),
+            forge_domain::AgentInfo::default()
+                .id("test-agent")
+                .title("Test Agent".to_string()),
         ];
         let _result = fixture.register_agent_commands(agents);
 
@@ -1241,5 +1237,56 @@ mod tests {
         // Verify
         let expected = SlashCommand::Dump { html: true };
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_rename_command() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/rename my-session").unwrap();
+        assert_eq!(actual, SlashCommand::Rename("my-session".to_string()));
+    }
+
+    #[test]
+    fn test_parse_rename_command_multi_word() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/rename auth refactor work").unwrap();
+        assert_eq!(
+            actual,
+            SlashCommand::Rename("auth refactor work".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_rename_command_no_name() {
+        let fixture = ForgeCommandManager::default();
+        let result = fixture.parse("/rename");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("provide a name"));
+    }
+
+    #[test]
+    fn test_parse_rename_alias() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/rn my-session").unwrap();
+        assert_eq!(actual, SlashCommand::Rename("my-session".to_string()));
+    }
+
+    #[test]
+    fn test_parse_rename_trims_whitespace() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/rename   my title   ").unwrap();
+        assert_eq!(actual, SlashCommand::Rename("my title".to_string()));
+    }
+
+    #[test]
+    fn test_rename_is_reserved_command() {
+        assert!(ForgeCommandManager::is_reserved_command("rename"));
+        assert!(ForgeCommandManager::is_reserved_command("rn"));
+    }
+
+    #[test]
+    fn test_rename_command_name() {
+        let cmd = SlashCommand::Rename("test".to_string());
+        assert_eq!(cmd.name(), "rename");
     }
 }

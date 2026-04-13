@@ -6,7 +6,8 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::{
-    AppConfigService, EnvironmentService, FileDiscoveryService, ProviderService, TemplateEngine,
+    AppConfigService, EnvironmentInfra, FileDiscoveryService, ProviderService, TemplateEngine,
+    TerminalContextService,
 };
 
 /// Response struct for shell command generation using JSON format
@@ -25,14 +26,23 @@ pub struct CommandGenerator<S> {
 
 impl<S> CommandGenerator<S>
 where
-    S: EnvironmentService + FileDiscoveryService + ProviderService + AppConfigService,
+    S: EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + FileDiscoveryService
+        + ProviderService
+        + AppConfigService,
 {
     /// Creates a new CommandGenerator instance with the provided services.
     pub fn new(services: Arc<S>) -> Self {
         Self { services }
     }
 
-    /// Generates a shell command from a natural language prompt
+    /// Generates a shell command from a natural language prompt.
+    ///
+    /// Terminal context is read automatically from the `_FORGE_TERM_COMMANDS`,
+    /// `_FORGE_TERM_EXIT_CODES`, and `_FORGE_TERM_TIMESTAMPS` environment
+    /// variables exported by the zsh plugin, and included in the user
+    /// prompt so the LLM can reference recent commands, exit codes, and
+    /// timestamps.
     pub async fn generate(&self, prompt: UserPrompt) -> Result<String> {
         // Get system information for context
         let env = self.services.get_environment();
@@ -59,8 +69,22 @@ where
             }
         };
 
-        // Build user prompt with task and recent commands
-        let user_content = format!("<task>{}</task>", prompt.as_str());
+        // Build user prompt with task, optionally including terminal context.
+        use forge_template::Element;
+        let task_elm = Element::new("task").text(prompt.as_str());
+        let terminal_service = TerminalContextService::new(self.services.clone());
+        let user_content = match terminal_service.get_terminal_context() {
+            Some(ctx) => {
+                let terminal_elm =
+                    Element::new("command_trace").append(ctx.commands.iter().map(|cmd| {
+                        Element::new("command")
+                            .attr("exit_code", cmd.exit_code.to_string())
+                            .text(&cmd.command)
+                    }));
+                format!("{}\n\n{}", terminal_elm.render(), task_elm.render())
+            }
+            None => task_elm.render(),
+        };
 
         // Create context with system and user prompts
         let ctx = self.create_context(rendered_system_prompt, user_content, &model);
@@ -103,7 +127,7 @@ where
 mod tests {
     use forge_domain::{
         AuthCredential, AuthDetails, AuthMethod, ChatCompletionMessage, Content, FinishReason,
-        ModelSource, ProviderId, ProviderResponse, ResultStream,
+        ModelSource, ProviderId, ProviderResponse, ResultStream, Role,
     };
     use tokio::sync::Mutex;
     use url::Url;
@@ -116,6 +140,7 @@ mod tests {
         response: Arc<Mutex<Option<String>>>,
         captured_context: Arc<Mutex<Option<Context>>>,
         environment: Environment,
+        env_vars: std::collections::BTreeMap<String, String>,
     }
 
     impl MockServices {
@@ -133,17 +158,54 @@ mod tests {
                 response: Arc::new(Mutex::new(Some(response.to_string()))),
                 captured_context: Arc::new(Mutex::new(None)),
                 environment: env,
+                env_vars: std::collections::BTreeMap::new(),
+            })
+        }
+
+        fn with_terminal_context(
+            self: Arc<Self>,
+            commands: &str,
+            exit_codes: &str,
+            timestamps: &str,
+        ) -> Arc<Self> {
+            let mut env_vars = self.env_vars.clone();
+            env_vars.insert("_FORGE_TERM_COMMANDS".to_string(), commands.to_string());
+            env_vars.insert("_FORGE_TERM_EXIT_CODES".to_string(), exit_codes.to_string());
+            env_vars.insert("_FORGE_TERM_TIMESTAMPS".to_string(), timestamps.to_string());
+            Arc::new(Self {
+                files: self.files.clone(),
+                response: self.response.clone(),
+                captured_context: self.captured_context.clone(),
+                environment: self.environment.clone(),
+                env_vars,
             })
         }
     }
 
-    impl EnvironmentService for MockServices {
+    impl EnvironmentInfra for MockServices {
+        type Config = forge_config::ForgeConfig;
+
         fn get_environment(&self) -> Environment {
             self.environment.clone()
         }
 
-        fn is_restricted(&self) -> bool {
-            false
+        fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+            Ok(forge_config::ForgeConfig::default())
+        }
+
+        async fn update_environment(
+            &self,
+            _ops: Vec<forge_domain::ConfigOperation>,
+        ) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+
+        fn get_env_var(&self, key: &str) -> Option<String> {
+            self.env_vars.get(key).cloned()
+        }
+
+        fn get_env_vars(&self) -> std::collections::BTreeMap<String, String> {
+            self.env_vars.clone()
         }
     }
 
@@ -238,10 +300,6 @@ mod tests {
             Ok(ProviderId::OPENAI)
         }
 
-        async fn set_default_provider(&self, _provider_id: ProviderId) -> Result<()> {
-            Ok(())
-        }
-
         async fn get_provider_model(
             &self,
             _provider_id: Option<&ProviderId>,
@@ -249,23 +307,19 @@ mod tests {
             Ok(ModelId::new("test-model"))
         }
 
-        async fn set_default_model(&self, _model: ModelId) -> Result<()> {
-            Ok(())
-        }
-
-        async fn get_commit_config(&self) -> Result<Option<forge_domain::CommitConfig>> {
+        async fn get_commit_config(&self) -> Result<Option<forge_domain::ModelConfig>> {
             Ok(None)
         }
 
-        async fn set_commit_config(&self, _config: forge_domain::CommitConfig) -> Result<()> {
-            Ok(())
-        }
-
-        async fn get_suggest_config(&self) -> Result<Option<forge_domain::SuggestConfig>> {
+        async fn get_suggest_config(&self) -> Result<Option<forge_domain::ModelConfig>> {
             Ok(None)
         }
 
-        async fn set_suggest_config(&self, _config: forge_domain::SuggestConfig) -> Result<()> {
+        async fn get_reasoning_effort(&self) -> Result<Option<forge_domain::Effort>> {
+            Ok(None)
+        }
+
+        async fn update_config(&self, _ops: Vec<forge_domain::ConfigOperation>) -> Result<()> {
             Ok(())
         }
     }
@@ -301,6 +355,35 @@ mod tests {
         assert_eq!(actual, "pwd");
         let captured_context = fixture.captured_context.lock().await.clone().unwrap();
         insta::assert_yaml_snapshot!(captured_context);
+    }
+
+    #[tokio::test]
+    async fn test_generate_with_shell_context() {
+        let fixture = MockServices::new(
+            r#"{"command": "cargo build --release"}"#,
+            vec![("Cargo.toml", false)],
+        )
+        .with_terminal_context("cargo build", "101", "1700000000");
+        let generator = CommandGenerator::new(fixture.clone());
+
+        let actual = generator
+            .generate(UserPrompt::from("fix the command I just ran".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(actual, "cargo build --release");
+        let captured_context = fixture.captured_context.lock().await.clone().unwrap();
+        let user_content = captured_context
+            .messages
+            .iter()
+            .find(|m| m.has_role(Role::User))
+            .expect("should have a user message")
+            .content()
+            .expect("user message should have content");
+        assert!(user_content.contains("<command_trace>"));
+        assert!(user_content.contains("</command_trace>"));
+        assert!(user_content.contains("cargo build"));
+        assert!(user_content.contains("<task>fix the command I just ran</task>"));
     }
 
     #[tokio::test]

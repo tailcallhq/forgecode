@@ -2,6 +2,8 @@ use schemars::Schema;
 use serde::de::Error as _;
 use serde_json::Value;
 
+use crate::json_repair;
+
 /// Coerces a JSON value to match the expected types defined in a JSON schema.
 ///
 /// This function recursively traverses the JSON value and the schema,
@@ -382,17 +384,40 @@ fn coerce_array_value(
     }
 }
 
-/// Attempts to parse a string as JSON, handling both valid JSON and JSON5
-/// (Python-style) syntax
+/// Attempts to parse a string as JSON, JSON5, or repairable JSON, and unwraps
+/// nested JSON strings when needed.
 fn try_parse_json_string(s: &str) -> Result<Value, serde_json::Error> {
+    let mut parsed = parse_json_like_value(s)?;
+
+    for _ in 0..4 {
+        let Value::String(inner) = &parsed else {
+            return Ok(parsed);
+        };
+
+        let Ok(next) = parse_json_like_value(inner) else {
+            return Ok(parsed);
+        };
+
+        parsed = next;
+    }
+
+    Ok(parsed)
+}
+
+fn parse_json_like_value(s: &str) -> Result<Value, serde_json::Error> {
     // First try parsing as-is (valid JSON)
     if let Ok(parsed) = serde_json::from_str::<Value>(s) {
         return Ok(parsed);
     }
 
     // If that fails, try parsing as JSON5 (handles single quotes, comments, etc.)
-    // Convert serde_json5::Error to serde_json::Error
-    serde_json5::from_str::<Value>(s).map_err(|e| serde_json::Error::custom(e.to_string()))
+    if let Ok(parsed) = serde_json5::from_str::<Value>(s) {
+        return Ok(parsed);
+    }
+
+    // Finally, fall back to Forge's JSON repair for malformed-but-recoverable
+    // payloads such as persisted double-encoded tool arguments.
+    json_repair(s).map_err(|e| serde_json::Error::custom(e.to_string()))
 }
 
 /// Extracts an array from a string that may contain garbage before/after the
@@ -426,9 +451,13 @@ fn extract_array_from_string(s: &str) -> Option<Value> {
     }
 
     // Try to find matching closing bracket by parsing incrementally
-    // Start from the opening bracket and try to parse increasingly longer
-    // substrings We'll try the json_repair on the extracted portion
-    for end_idx in (start_idx + 1..=s.len()).rev() {
+    // Start from the opening bracket and try increasingly shorter substrings.
+    // We iterate over valid char boundaries to avoid panicking on multi-byte
+    // UTF-8 characters where byte offsets can land inside a character.
+    for (end_idx, _) in s.char_indices().rev() {
+        if end_idx <= start_idx {
+            break;
+        }
         let candidate = &s[start_idx..end_idx];
 
         // Try to repair and parse this candidate
@@ -437,6 +466,15 @@ fn extract_array_from_string(s: &str) -> Option<Value> {
         {
             return Some(parsed);
         }
+    }
+
+    // Also try the full string as a last resort (end at s.len() which is
+    // always a valid boundary)
+    let candidate = &s[start_idx..];
+    if let Ok(parsed) = crate::json_repair::<Value>(candidate)
+        && parsed.is_array()
+    {
+        return Some(parsed);
     }
 
     None
@@ -944,12 +982,22 @@ mod tests {
     }
 
     #[test]
-    fn test_preserve_invalid_json_string() {
-        // Test that invalid JSON strings are preserved
+    fn test_coerce_double_encoded_string_to_object() {
+        let fixture = json!({"config": r#""{\"key\":\"value\",\"number\":42}""#});
+        let schema = schema_for!(ConfigData);
+        let actual = coerce_to_schema(fixture, &schema);
+        let expected = json!({"config": {"key": "value", "number": 42}});
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_repairs_invalid_json_string_when_schema_expects_array() {
+        // Invalid JSON-like array strings are repaired into arrays when the schema
+        // expects one.
         let fixture = json!({"data": "[invalid json"});
         let schema = schema_for!(DataArray);
         let actual = coerce_to_schema(fixture, &schema);
-        let expected = json!({"data": "[invalid json"});
+        let expected = json!({"data": ["invalid json"]});
         assert_eq!(actual, expected);
     }
 
@@ -1308,5 +1356,40 @@ mod tests {
         let actual = coerce_to_schema(fixture, &schema);
         let expected = json!({"count": null});
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_extract_array_from_string_with_multibyte_chars() {
+        // Multi-byte UTF-8 characters (like arrows and emojis) should not
+        // cause panics when extract_array_from_string iterates over byte
+        // positions. The function must only slice at valid char boundaries.
+        let input = "prefix → [1, 2, 3] suffix";
+        let result = extract_array_from_string(input);
+        assert!(result.is_some());
+        let arr = result.unwrap();
+        assert!(arr.is_array());
+        assert_eq!(arr.as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_extract_array_from_string_with_emoji_prefix() {
+        // Emoji characters are 4 bytes each, many byte positions inside them
+        // are invalid char boundaries.
+        let input = "🔑🔒 [4, 5, 6]";
+        let result = extract_array_from_string(input);
+        assert!(result.is_some());
+        let arr = result.unwrap();
+        assert!(arr.is_array());
+        assert_eq!(arr.as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_extract_array_from_string_with_multibyte_inside_array() {
+        // Multi-byte chars inside the array value itself
+        let input = r#"["αβγ", "δεζ"]"#;
+        let result = extract_array_from_string(input);
+        assert!(result.is_some());
+        let arr = result.unwrap();
+        assert!(arr.is_array());
     }
 }

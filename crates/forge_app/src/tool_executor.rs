@@ -8,7 +8,7 @@ use crate::fmt::content::FormatContent;
 use crate::operation::{TempContentFiles, ToolOperation};
 use crate::services::{Services, ShellService};
 use crate::{
-    AgentRegistry, ConversationService, EnvironmentService, FollowUpService, FsPatchService,
+    AgentRegistry, ConversationService, EnvironmentInfra, FollowUpService, FsPatchService,
     FsReadService, FsRemoveService, FsSearchService, FsUndoService, FsWriteService,
     ImageReadService, NetFetchService, PlanCreateService, ProviderService, SkillFetchService,
     WorkspaceService,
@@ -31,7 +31,7 @@ impl<
         + ShellService
         + FollowUpService
         + ConversationService
-        + EnvironmentService
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + PlanCreateService
         + SkillFetchService
         + AgentRegistry
@@ -68,9 +68,9 @@ impl<
     async fn dump_operation(&self, operation: &ToolOperation) -> anyhow::Result<TempContentFiles> {
         match operation {
             ToolOperation::NetFetch { input: _, output } => {
+                let config = self.services.get_config()?;
                 let original_length = output.content.len();
-                let is_truncated =
-                    original_length > self.services.get_environment().fetch_truncation_limit;
+                let is_truncated = original_length > config.max_fetch_chars;
                 let mut files = TempContentFiles::default();
 
                 if is_truncated {
@@ -83,13 +83,13 @@ impl<
                 Ok(files)
             }
             ToolOperation::Shell { output } => {
-                let env = self.services.get_environment();
+                let config = self.services.get_config()?;
                 let stdout_lines = output.output.stdout.lines().count();
                 let stderr_lines = output.output.stderr.lines().count();
                 let stdout_truncated =
-                    stdout_lines > env.stdout_max_prefix_length + env.stdout_max_suffix_length;
+                    stdout_lines > config.max_stdout_prefix_lines + config.max_stdout_suffix_lines;
                 let stderr_truncated =
-                    stderr_lines > env.stdout_max_prefix_length + env.stdout_max_suffix_length;
+                    stderr_lines > config.max_stdout_prefix_lines + config.max_stdout_suffix_lines;
 
                 let mut files = TempContentFiles::default();
 
@@ -185,11 +185,12 @@ impl<
                 (input, output).into()
             }
             ToolCatalog::SemSearch(input) => {
+                let config = self.services.get_config()?;
                 let env = self.services.get_environment();
                 let services = self.services.clone();
                 let cwd = env.cwd.clone();
-                let limit = env.sem_search_limit;
-                let top_k = env.sem_search_top_k as u32;
+                let limit = config.max_sem_search_results;
+                let top_k = config.sem_search_top_k as u32;
                 let params: Vec<_> = input
                     .queries
                     .iter()
@@ -240,6 +241,14 @@ impl<
                         input.new_string.clone(),
                         input.replace_all,
                     )
+                    .await?;
+                (input, output).into()
+            }
+            ToolCatalog::MultiPatch(input) => {
+                let normalized_path = self.normalize_path(input.file_path.clone());
+                let output = self
+                    .services
+                    .multi_patch(normalized_path, input.edits.clone())
                     .await?;
                 (input, output).into()
             }
@@ -315,6 +324,10 @@ impl<
                 let todos = context.get_todos()?;
                 ToolOperation::TodoRead { output: todos }
             }
+            ToolCatalog::Task(_) => {
+                // Task tools are handled in ToolRegistry before reaching here
+                unreachable!("Task tool should be handled in ToolRegistry")
+            }
         })
     }
 
@@ -325,10 +338,17 @@ impl<
     ) -> anyhow::Result<ToolOutput> {
         let tool_kind = tool_input.kind();
         let env = self.services.get_environment();
+        let config = self.services.get_config()?;
 
-        // Enforce read-before-edit for patch
-        if let ToolCatalog::Patch(input) = &tool_input {
-            self.require_prior_read(context, &input.file_path, "edit it")?;
+        // Enforce read-before-edit for patch operations
+        let file_path = match &tool_input {
+            ToolCatalog::Patch(input) => Some(&input.file_path),
+            ToolCatalog::MultiPatch(input) => Some(&input.file_path),
+            _ => None,
+        };
+
+        if let Some(path) = file_path {
+            self.require_prior_read(context, path, "edit it")?;
         }
 
         // Enforce read-before-edit for overwrite writes
@@ -354,7 +374,7 @@ impl<
         let truncation_path = self.dump_operation(&operation).await?;
 
         context.with_metrics(|metrics| {
-            operation.into_tool_output(tool_kind, truncation_path, &env, metrics)
+            operation.into_tool_output(tool_kind, truncation_path, &env, &config, metrics)
         })
     }
 }

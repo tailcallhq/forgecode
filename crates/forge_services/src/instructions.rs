@@ -24,7 +24,7 @@ impl<F: EnvironmentInfra + FileReaderInfra + CommandInfra> ForgeCustomInstructio
         let environment = self.infra.get_environment();
 
         // Base custom instructions
-        let base_agent_md = environment.base_path.join("AGENTS.md");
+        let base_agent_md = environment.global_agentsmd_path();
         if !paths.contains(&base_agent_md) {
             paths.push(base_agent_md);
         }
@@ -38,7 +38,7 @@ impl<F: EnvironmentInfra + FileReaderInfra + CommandInfra> ForgeCustomInstructio
         }
 
         // Working dir custom instructions
-        let cwd_agent_md = environment.cwd.join("AGENTS.md");
+        let cwd_agent_md = environment.local_agentsmd_path();
         if !paths.contains(&cwd_agent_md) {
             paths.push(cwd_agent_md);
         }

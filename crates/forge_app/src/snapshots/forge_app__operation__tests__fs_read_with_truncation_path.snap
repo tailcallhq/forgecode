@@ -5,6 +5,6 @@ expression: to_value(actual)
 <file
   path="/home/user/large_file.txt"
   display_lines="1-100"
-  total_lines="1"
+  total_lines="200"
 ><![CDATA[1:Truncated content]]>
 </file>

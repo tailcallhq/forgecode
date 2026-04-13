@@ -1,5 +1,5 @@
 mod agent;
-mod app_config;
+mod agent_definition;
 mod context_engine;
 mod conversation;
 mod database;

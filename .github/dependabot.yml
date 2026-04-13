@@ -6,6 +6,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    labels: ["type: chore"]
     # https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference#groups--
     groups:
       major:
@@ -18,6 +19,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    labels: ["type: chore"]
     groups:
       actions:
         # Combine all images of last week

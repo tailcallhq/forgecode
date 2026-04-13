@@ -22,7 +22,7 @@ pub fn generate_zsh_plugin() -> Result<String> {
     // Iterate through all embedded files in shell-plugin/lib, stripping comments
     // and empty lines. All files in this directory are .zsh files.
     for file in forge_embed::files(&ZSH_PLUGIN_LIB) {
-        let content = std::str::from_utf8(file.contents())?;
+        let content = super::normalize_script(std::str::from_utf8(file.contents())?);
         for line in content.lines() {
             let trimmed = line.trim();
             // Skip empty lines and comment lines
@@ -51,12 +51,26 @@ pub fn generate_zsh_plugin() -> Result<String> {
 
 /// Generates the ZSH theme for Forge
 pub fn generate_zsh_theme() -> Result<String> {
-    let mut content = include_str!("../../../../shell-plugin/forge.theme.zsh").to_string();
+    let mut content =
+        super::normalize_script(include_str!("../../../../shell-plugin/forge.theme.zsh"));
 
     // Set environment variable to indicate theme is loaded (with timestamp)
     content.push_str("\n_FORGE_THEME_LOADED=$(date +%s)\n");
 
     Ok(content)
+}
+
+/// Creates a temporary zsh script file for Windows execution
+fn create_temp_zsh_script(script_content: &str) -> Result<(tempfile::TempDir, PathBuf)> {
+    use std::io::Write;
+
+    let temp_dir = tempfile::tempdir().context("Failed to create temp directory")?;
+    let script_path = temp_dir.path().join("forge_script.zsh");
+    let mut file = fs::File::create(&script_path).context("Failed to create temp script file")?;
+    file.write_all(script_content.as_bytes())
+        .context("Failed to write temp script")?;
+
+    Ok((temp_dir, script_path))
 }
 
 /// Executes a ZSH script with streaming output
@@ -71,14 +85,43 @@ pub fn generate_zsh_theme() -> Result<String> {
 /// Returns error if the script cannot be executed, if output streaming fails,
 /// or if the script exits with a non-zero status code
 fn execute_zsh_script_with_streaming(script_content: &str, script_name: &str) -> Result<()> {
-    // Execute the script in a zsh subprocess with piped output
-    let mut child = std::process::Command::new("zsh")
-        .arg("-c")
-        .arg(script_content)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context(format!("Failed to execute zsh {} script", script_name))?;
+    let script_content = super::normalize_script(script_content);
+
+    // On Unix, pass the script via `zsh -c`. Command::arg() uses execve,
+    // which forwards arguments directly without shell interpretation, so
+    // embedded quotes are safe.
+    //
+    // On Windows, we write the script to a temp file and run `zsh -f <file>`
+    // instead. A temp file is necessary because:
+    //   1. CI has core.autocrlf=true, so checked-out files contain CRLF; writing
+    //      through normalize_script ensures the temp file has LF.
+    //   2. CreateProcess mangles quotes, so passing the script via -c corrupts any
+    //      embedded quoting.
+    //   3. Piping via stdin is unreliable -- Windows caps pipe buffer size, which
+    //      can truncate or block on larger scripts.
+    // The -f flag also prevents ~/.zshrc from loading during execution.
+    let (_temp_dir, mut child) = if cfg!(windows) {
+        let (temp_dir, script_path) = create_temp_zsh_script(&script_content)?;
+        let child = std::process::Command::new("zsh")
+            // -f: don't load ~/.zshrc (prevents theme loading during doctor)
+            .arg("-f")
+            .arg(script_path.to_string_lossy().as_ref())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context(format!("Failed to execute zsh {} script", script_name))?;
+        // Keep temp_dir alive by boxing it in the tuple
+        (Some(temp_dir), child)
+    } else {
+        let child = std::process::Command::new("zsh")
+            .arg("-c")
+            .arg(&script_content)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context(format!("Failed to execute zsh {} script", script_name))?;
+        (None, child)
+    };
 
     // Get stdout and stderr handles
     let stdout = child.stdout.take().context("Failed to capture stdout")?;
@@ -209,7 +252,8 @@ pub fn setup_zsh_integration(
 ) -> Result<ZshSetupResult> {
     const START_MARKER: &str = "# >>> forge initialize >>>";
     const END_MARKER: &str = "# <<< forge initialize <<<";
-    const FORGE_INIT_CONFIG: &str = include_str!("../../../../shell-plugin/forge.setup.zsh");
+    const FORGE_INIT_CONFIG_RAW: &str = include_str!("../../../../shell-plugin/forge.setup.zsh");
+    let forge_init_config = super::normalize_script(FORGE_INIT_CONFIG_RAW);
 
     let home = std::env::var("HOME").context("HOME environment variable not set")?;
     let zdotdir = std::env::var("ZDOTDIR").unwrap_or_else(|_| home.clone());
@@ -230,7 +274,7 @@ pub fn setup_zsh_integration(
 
     // Build the forge config block with markers
     let mut forge_config: Vec<String> = vec![START_MARKER.to_string()];
-    forge_config.extend(FORGE_INIT_CONFIG.lines().map(String::from));
+    forge_config.extend(forge_init_config.lines().map(String::from));
 
     // Add nerd font configuration if requested
     if disable_nerd_font {

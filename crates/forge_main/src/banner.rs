@@ -105,27 +105,26 @@ pub fn display(cli_mode: bool) -> io::Result<()> {
 
     println!("{banner}\n");
 
-    // Show deprecation warning for REPL mode after the banner
+    // Encourage zsh integration after the banner
     if !cli_mode {
-        display_deprecation_warning();
+        display_zsh_encouragement();
     }
 
     Ok(())
 }
 
-/// Displays a deprecation warning for REPL mode with instructions to use zsh
-/// integration.
-fn display_deprecation_warning() {
-    let warning = DisplayBox::new(vec![
+/// Encourages users to use the zsh plugin for a better experience.
+fn display_zsh_encouragement() {
+    let tip = DisplayBox::new(vec![
         format!(
             "{} {}",
-            "IMPORTANT:".bold().yellow(),
-            "REPL MODE WILL BE DEPRECATED SOON".bold()
+            "TIP:".bold().yellow(),
+            "For the best experience, use our zsh plugin!".bold()
         ),
         format!(
             "{} {} {}",
             "·".dimmed(),
-            "Use forge via our zsh plugin:".dimmed(),
+            "Set up forge via our zsh plugin:".dimmed(),
             "forge zsh setup".bold().green(),
         ),
         format!(
@@ -135,5 +134,5 @@ fn display_deprecation_warning() {
             "https://forgecode.dev/docs/zsh-support".cyan()
         ),
     ]);
-    println!("{}", warning);
+    println!("{}", tip);
 }

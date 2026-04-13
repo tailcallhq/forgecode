@@ -7,6 +7,7 @@ use std::fmt::{self, Display};
 
 use convert_case::{Case, Casing};
 use derive_setters::Setters;
+use forge_config::ForgeConfig;
 use forge_domain::{AgentId, ModelId, TokenCount};
 
 use super::style::{ZshColor, ZshStyle};
@@ -34,6 +35,16 @@ pub struct ZshRPrompt {
     /// Defaults to 1.0.
     conversion_ratio: f64,
 }
+impl ZshRPrompt {
+    /// Constructs a [`ZshRPrompt`] with currency settings populated from the
+    /// provided [`ForgeConfig`].
+    pub fn from_config(config: &ForgeConfig) -> Self {
+        Self::default()
+            .currency_symbol(config.currency_symbol.clone())
+            .conversion_ratio(config.currency_conversion_rate.value())
+    }
+}
+
 impl Default for ZshRPrompt {
     fn default() -> Self {
         Self {

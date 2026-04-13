@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 forge_domain.workspace = true
+forge_config.workspace = true
 forge_stream.workspace = true
 async-trait.workspace = true
 anyhow.workspace = true
@@ -34,6 +35,7 @@ merge.workspace = true
 convert_case.workspace = true
 backon.workspace = true
 sha2.workspace = true
+hex.workspace = true
 dashmap.workspace = true
 
 url.workspace = true
@@ -43,6 +45,7 @@ reqwest-eventsource.workspace = true
 schemars.workspace = true
 glob.workspace = true
 lazy_static.workspace = true
+forge_json_repair.workspace = true
 
 tonic.workspace = true
 

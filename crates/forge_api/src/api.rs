@@ -1,9 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use forge_app::dto::ToolsOverview;
 use forge_app::{User, UserUsage};
-use forge_domain::{AgentId, InitAuth, ModelId, ProviderModels};
+use forge_domain::{AgentId, Effort, ModelId, ProviderModels};
 use forge_stream::MpscStream;
 use futures::stream::BoxStream;
 use url::Url;
@@ -23,12 +23,20 @@ pub trait API: Sync + Send {
     /// Provides a list of models available in the current environment
     async fn get_models(&self) -> Result<Vec<Model>>;
 
-    /// Provides models from all configured providers. Providers that fail to
-    /// return models are silently skipped.
+    /// Provides models from all configured providers. Providers that
+    /// successfully return models are included in the result. If every
+    /// configured provider fails (e.g. due to an invalid API key), the
+    /// first error is returned so the caller sees the real underlying cause
+    /// rather than an empty list.
     async fn get_all_provider_models(&self) -> Result<Vec<ProviderModels>>;
 
     /// Provides a list of agents available in the current environment
     async fn get_agents(&self) -> Result<Vec<Agent>>;
+
+    /// Provides lightweight metadata for all agents without requiring a
+    /// configured provider or model
+    async fn get_agent_infos(&self) -> Result<Vec<AgentInfo>>;
+
     /// Provides a list of providers available in the current environment
     async fn get_providers(&self) -> Result<Vec<AnyProvider>>;
 
@@ -53,19 +61,6 @@ pub trait API: Sync + Send {
     /// Adds a new conversation to the conversation store
     async fn upsert_conversation(&self, conversation: Conversation) -> Result<()>;
 
-    /// Initializes a workflow configuration from the given path
-    /// The workflow at the specified path is merged with the default
-    /// configuration If no path is provided, it will try to find forge.yaml
-    /// in the current directory or its parent directories
-    async fn read_workflow(&self, path: Option<&Path>) -> Result<Workflow>;
-
-    /// Reads the workflow from the given path and merges it with a default
-    /// workflow. This provides a convenient way to get a complete workflow
-    /// configuration without having to manually handle the merge logic.
-    /// If no path is provided, it will try to find forge.yaml in the current
-    /// directory or its parent directories
-    async fn read_merged(&self, path: Option<&Path>) -> Result<Workflow>;
-
     /// Returns the conversation with the given ID
     async fn conversation(&self, conversation_id: &ConversationId) -> Result<Option<Conversation>>;
 
@@ -83,6 +78,20 @@ pub trait API: Sync + Send {
     /// # Errors
     /// Returns an error if the operation fails
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> Result<()>;
+
+    /// Renames a conversation by setting its title
+    ///
+    /// # Arguments
+    /// * `conversation_id` - The ID of the conversation to rename
+    /// * `title` - The new title for the conversation
+    ///
+    /// # Errors
+    /// Returns an error if the conversation is not found or the operation fails
+    async fn rename_conversation(
+        &self,
+        conversation_id: &ConversationId,
+        title: String,
+    ) -> Result<()>;
 
     /// Compacts the context of the main agent for the given conversation and
     /// persists it. Returns metrics about the compaction (original vs.
@@ -115,26 +124,19 @@ pub trait API: Sync + Send {
     /// project directory
     async fn write_mcp_config(&self, scope: &Scope, config: &McpConfig) -> Result<()>;
 
-    /// Initiates the login flow and returns authentication initialization data
-    async fn init_login(&self) -> Result<InitAuth>;
-
-    /// Retrieves the current login information if the user is authenticated
-    async fn get_login_info(&self) -> Result<Option<LoginInfo>>;
-
-    /// Completes the login process using the provided authentication data
-    async fn login(&self, auth: &InitAuth) -> Result<()>;
-
-    /// Logs out the current user and clears authentication data
-    async fn logout(&self) -> anyhow::Result<()>;
-
     /// Retrieves the provider configuration for the specified agent
     async fn get_agent_provider(&self, agent_id: AgentId) -> anyhow::Result<Provider<Url>>;
 
     /// Retrieves the provider configuration for the default agent
     async fn get_default_provider(&self) -> anyhow::Result<Provider<Url>>;
 
-    /// Sets the default provider for all the agents
-    async fn set_default_provider(&self, provider_id: ProviderId) -> anyhow::Result<()>;
+    /// Applies one or more configuration mutations atomically.
+    ///
+    /// Each operation in `ops` is applied in order and persisted as a single
+    /// atomic write. Use [`forge_domain::ConfigOperation`] variants to describe
+    /// each mutation. Provider and model changes also invalidate the agent
+    /// cache so the next request picks up the updated configuration.
+    async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()>;
 
     /// Retrieves information about the currently authenticated user
     async fn user_info(&self) -> anyhow::Result<Option<User>>;
@@ -154,24 +156,16 @@ pub trait API: Sync + Send {
     /// Gets the default model
     async fn get_default_model(&self) -> Option<ModelId>;
 
-    /// Sets the operating model
-    async fn set_default_model(&self, model_id: ModelId) -> anyhow::Result<()>;
-
     /// Gets the commit configuration (provider and model for commit message
     /// generation).
-    async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::CommitConfig>>;
-
-    /// Sets the commit configuration (provider and model for commit message
-    /// generation).
-    async fn set_commit_config(&self, config: forge_domain::CommitConfig) -> anyhow::Result<()>;
+    async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
 
     /// Gets the suggest configuration (provider and model for command
     /// suggestion generation).
-    async fn get_suggest_config(&self) -> anyhow::Result<Option<forge_domain::SuggestConfig>>;
+    async fn get_suggest_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
 
-    /// Sets the suggest configuration (provider and model for command
-    /// suggestion generation).
-    async fn set_suggest_config(&self, config: forge_domain::SuggestConfig) -> anyhow::Result<()>;
+    /// Gets the current reasoning effort setting.
+    async fn get_reasoning_effort(&self) -> anyhow::Result<Option<Effort>>;
 
     /// Refresh MCP caches by fetching fresh data
     async fn reload_mcp(&self) -> Result<()>;
@@ -252,4 +246,13 @@ pub trait API: Sync + Send {
         &self,
         data_parameters: DataGenerationParameters,
     ) -> Result<BoxStream<'static, Result<serde_json::Value, anyhow::Error>>>;
+
+    /// Authenticate with an MCP server via OAuth flow
+    async fn mcp_auth(&self, server_url: &str) -> Result<()>;
+
+    /// Remove stored OAuth credentials for an MCP server (or all servers)
+    async fn mcp_logout(&self, server_url: Option<&str>) -> Result<()>;
+
+    /// Check the OAuth authentication status of an MCP server
+    async fn mcp_auth_status(&self, server_url: &str) -> Result<String>;
 }

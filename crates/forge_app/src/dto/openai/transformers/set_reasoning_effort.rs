@@ -11,19 +11,15 @@ use crate::dto::openai::Request;
 /// # Transformation Rules
 ///
 /// - If `reasoning.enabled == Some(false)` → use "none" (disables reasoning)
-/// - If `reasoning.effort` is set (low/medium/high) → use that value
-/// - If `reasoning.max_tokens` is set (thinking budget) → convert to effort:
-///   - 0-1024 → "low"
-///   - 1025-8192 → "medium"
-///   - 8193+ → "high"
-/// - If `reasoning.enabled == Some(true)` but no other params → default to
-///   "medium"
+/// - If `reasoning.effort` is set → use that value directly
+/// - If `reasoning.enabled == Some(true)` but no effort → default to "medium"
 /// - Original `reasoning` field is removed after transformation
 ///
 /// # Note
 ///
-/// OpenAI-compatible APIs support: "low", "medium", "high", "max", "min",
-/// "none", or a budget number.
+/// Budget (`max_tokens`) is not converted to an effort level — effort and token
+/// budget are independent concerns.  Pass `effort` explicitly to control
+/// reasoning quality.
 pub struct SetReasoningEffort;
 
 impl Transformer for SetReasoningEffort {
@@ -38,12 +34,8 @@ impl Transformer for SetReasoningEffort {
             } else if let Some(effort) = reasoning.effort {
                 // Use the effort value directly
                 Some(effort.to_string())
-            } else if let Some(budget) = reasoning.max_tokens {
-                // Convert budget to effort using the From implementation
-                let effort: Effort = budget.into();
-                Some(effort.to_string())
             } else if reasoning.enabled == Some(true) {
-                // Default to "medium" if enabled but no effort or budget specified
+                // Default to "medium" if enabled but no effort specified
                 Some(Effort::Medium.to_string())
             } else {
                 None
@@ -172,27 +164,13 @@ mod tests {
     }
 
     #[test]
-    fn test_reasoning_with_budget_low() {
+    fn test_reasoning_with_budget_defaults_to_medium_effort() {
+        // max_tokens (budget) is independent from effort; when only budget is
+        // set and enabled=true, the transformer falls back to the default effort.
         let fixture = Request::default().reasoning(ReasoningConfig {
             enabled: Some(true),
             effort: None,
             max_tokens: Some(1024),
-            exclude: None,
-        });
-
-        let mut transformer = SetReasoningEffort;
-        let actual = transformer.transform(fixture);
-
-        assert_eq!(actual.reasoning_effort, Some("low".to_string()));
-        assert_eq!(actual.reasoning, None);
-    }
-
-    #[test]
-    fn test_reasoning_with_budget_medium() {
-        let fixture = Request::default().reasoning(ReasoningConfig {
-            enabled: Some(true),
-            effort: None,
-            max_tokens: Some(5000),
             exclude: None,
         });
 
@@ -204,7 +182,8 @@ mod tests {
     }
 
     #[test]
-    fn test_reasoning_with_budget_high() {
+    fn test_reasoning_with_budget_high_defaults_to_medium_effort() {
+        // Even a large budget does not elevate the effort; use explicit effort instead.
         let fixture = Request::default().reasoning(ReasoningConfig {
             enabled: Some(true),
             effort: None,
@@ -215,7 +194,7 @@ mod tests {
         let mut transformer = SetReasoningEffort;
         let actual = transformer.transform(fixture);
 
-        assert_eq!(actual.reasoning_effort, Some("high".to_string()));
+        assert_eq!(actual.reasoning_effort, Some("medium".to_string()));
         assert_eq!(actual.reasoning, None);
     }
 

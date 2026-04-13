@@ -115,6 +115,7 @@ impl Walker {
         // TODO: Convert to async and return a stream
         let walk = WalkBuilder::new(&self.cwd)
             .standard_filters(true) // use standard ignore filters.
+            .require_git(false)
             .max_depth(Some(self.max_depth))
             // Skip files that exceed size limit
             .max_filesize(Some(self.max_file_size))
@@ -123,6 +124,11 @@ impl Walker {
 
         'walk_loop: for entry in walk.flatten() {
             let path = entry.path();
+
+            // Skip symlinks — we only process real files and directories.
+            if entry.path_is_symlink() {
+                continue;
+            }
 
             // Calculate depth relative to base directory
             let depth = path
@@ -537,5 +543,142 @@ mod tests {
                 file
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_walker_respects_nested_gitignore() {
+        let fixture = fixtures::Fixture::default();
+
+        // Root and nested .gitignore files
+        fixture.add_file(".gitignore", "*.log\n").unwrap();
+        fixture
+            .add_file("frontend/.gitignore", "node_modules/\n")
+            .unwrap();
+
+        // Files to exclude
+        fixture.add_file("debug.log", "").unwrap();
+        fixture
+            .add_file("frontend/node_modules/lib/index.js", "")
+            .unwrap();
+
+        // Files to include
+        fixture.add_file("src/main.rs", "").unwrap();
+        fixture.add_file("frontend/src/main.ts", "").unwrap();
+
+        let actual = Walker::max_all()
+            .cwd(fixture.as_path().to_path_buf())
+            .get()
+            .await
+            .unwrap();
+
+        let mut actual: Vec<_> = actual
+            .iter()
+            .filter(|f| !f.is_dir())
+            .map(|f| f.path.as_str())
+            .collect();
+        actual.sort();
+        let expected = vec!["frontend/src/main.ts", "src/main.rs"];
+        assert_eq!(actual, expected, "should respect nested .gitignore files");
+    }
+
+    #[tokio::test]
+    async fn test_walker_respects_nested_gitignore_with_git_repo() {
+        let fixture = fixtures::Fixture::default();
+
+        // Create a .git directory to simulate a real git repository
+        let git_dir = fixture.as_path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        std::fs::write(git_dir.join("config"), "[core]\n").unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+
+        fixture.add_file(".gitignore", "*.log\n").unwrap();
+        fixture
+            .add_file("frontend/.gitignore", "node_modules/\n")
+            .unwrap();
+
+        fixture.add_file("debug.log", "").unwrap();
+        fixture
+            .add_file("frontend/node_modules/lib/index.js", "")
+            .unwrap();
+        fixture.add_file("src/main.rs", "").unwrap();
+        fixture.add_file("frontend/src/main.ts", "").unwrap();
+
+        let actual = Walker::max_all()
+            .cwd(fixture.as_path().to_path_buf())
+            .get()
+            .await
+            .unwrap();
+
+        let mut actual: Vec<_> = actual
+            .iter()
+            .filter(|f| !f.is_dir())
+            .map(|f| f.path.as_str())
+            .collect();
+        actual.sort();
+        let expected = vec!["frontend/src/main.ts", "src/main.rs"];
+        assert_eq!(
+            actual, expected,
+            "should respect nested .gitignore in git repos"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_walker_excludes_symlinks() {
+        let fixture = fixtures::Fixture::default();
+
+        // Real file that should appear in results.
+        fixture.add_file("real.txt", "content").unwrap();
+
+        // Symlink pointing to the real file — must be excluded.
+        let link_path = fixture.as_path().join("link.txt");
+        std::os::unix::fs::symlink(fixture.as_path().join("real.txt"), &link_path).unwrap();
+
+        let actual = Walker::max_all()
+            .cwd(fixture.as_path().to_path_buf())
+            .get()
+            .await
+            .unwrap();
+
+        let actual_files: Vec<_> = actual
+            .iter()
+            .filter(|f| !f.is_dir())
+            .map(|f| f.path.as_str())
+            .collect();
+
+        let expected = vec!["real.txt"];
+        assert_eq!(
+            actual_files, expected,
+            "symlinks should be excluded from walker results"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_walker_excludes_dangling_symlinks() {
+        let fixture = fixtures::Fixture::default();
+
+        // Real file that should appear in results.
+        fixture.add_file("present.txt", "").unwrap();
+
+        // Dangling symlink — target does not exist.
+        let dangling = fixture.as_path().join("dangling.txt");
+        std::os::unix::fs::symlink(fixture.as_path().join("ghost.txt"), &dangling).unwrap();
+
+        let actual = Walker::max_all()
+            .cwd(fixture.as_path().to_path_buf())
+            .get()
+            .await
+            .unwrap();
+
+        let actual_files: Vec<_> = actual
+            .iter()
+            .filter(|f| !f.is_dir())
+            .map(|f| f.path.as_str())
+            .collect();
+
+        let expected = vec!["present.txt"];
+        assert_eq!(
+            actual_files, expected,
+            "dangling symlinks should be excluded from walker results"
+        );
     }
 }

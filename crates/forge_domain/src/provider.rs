@@ -70,6 +70,11 @@ impl ProviderId {
     pub const MINIMAX: ProviderId = ProviderId(Cow::Borrowed("minimax"));
     pub const CODEX: ProviderId = ProviderId(Cow::Borrowed("codex"));
     pub const OPENCODE_ZEN: ProviderId = ProviderId(Cow::Borrowed("opencode_zen"));
+    pub const OPENCODE_GO: ProviderId = ProviderId(Cow::Borrowed("opencode_go"));
+    pub const FIREWORKS_AI: ProviderId = ProviderId(Cow::Borrowed("fireworks-ai"));
+    pub const NOVITA: ProviderId = ProviderId(Cow::Borrowed("novita"));
+    pub const GOOGLE_AI_STUDIO: ProviderId = ProviderId(Cow::Borrowed("google_ai_studio"));
+    pub const MODAL: ProviderId = ProviderId(Cow::Borrowed("modal"));
 
     /// Returns all built-in provider IDs
     ///
@@ -100,6 +105,11 @@ impl ProviderId {
             ProviderId::MINIMAX,
             ProviderId::CODEX,
             ProviderId::OPENCODE_ZEN,
+            ProviderId::OPENCODE_GO,
+            ProviderId::FIREWORKS_AI,
+            ProviderId::NOVITA,
+            ProviderId::GOOGLE_AI_STUDIO,
+            ProviderId::MODAL,
         ]
     }
 
@@ -123,6 +133,12 @@ impl ProviderId {
             "io_intelligence" => "IOIntelligence".to_string(),
             "minimax" => "MiniMax".to_string(),
             "codex" => "Codex".to_string(),
+            "opencode_zen" => "OpenCode Zen".to_string(),
+            "opencode_go" => "OpenCode Go".to_string(),
+            "fireworks-ai" => "FireworksAI".to_string(),
+            "novita" => "Novita".to_string(),
+            "google_ai_studio" => "GoogleAIStudio".to_string(),
+            "modal" => "Modal".to_string(),
             _ => {
                 // For other providers, use UpperCamelCase conversion
                 use convert_case::{Case, Casing};
@@ -165,6 +181,11 @@ impl std::str::FromStr for ProviderId {
             "io_intelligence" => ProviderId::IO_INTELLIGENCE,
             "minimax" => ProviderId::MINIMAX,
             "codex" => ProviderId::CODEX,
+            "opencode_go" => ProviderId::OPENCODE_GO,
+            "fireworks-ai" => ProviderId::FIREWORKS_AI,
+            "novita" => ProviderId::NOVITA,
+            "google_ai_studio" => ProviderId::GOOGLE_AI_STUDIO,
+            "modal" => ProviderId::MODAL,
             // For custom providers, use Cow::Owned to avoid memory leaks
             custom => ProviderId(Cow::Owned(custom.to_string())),
         };
@@ -207,7 +228,7 @@ pub struct Provider<T> {
     pub models: Option<ModelSource<T>>,
     pub auth_methods: Vec<crate::AuthMethod>,
     #[serde(default)]
-    pub url_params: Vec<crate::URLParam>,
+    pub url_params: Vec<crate::URLParamSpec>,
     pub credential: Option<AuthCredential>,
     /// Custom HTTP headers to include in API requests for this provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -294,7 +315,7 @@ impl AnyProvider {
             AnyProvider::Template(_) => None,
         }
     }
-    pub fn url_params(&self) -> &[crate::URLParam] {
+    pub fn url_params(&self) -> &[crate::URLParamSpec] {
         match self {
             AnyProvider::Url(p) => &p.url_params,
             AnyProvider::Template(p) => &p.url_params,
@@ -535,6 +556,10 @@ mod tests {
         );
         assert_eq!(ProviderId::IO_INTELLIGENCE.to_string(), "IOIntelligence");
         assert_eq!(ProviderId::CODEX.to_string(), "Codex");
+        assert_eq!(ProviderId::FIREWORKS_AI.to_string(), "FireworksAI");
+        assert_eq!(ProviderId::OPENCODE_ZEN.to_string(), "OpenCode Zen");
+        assert_eq!(ProviderId::OPENCODE_GO.to_string(), "OpenCode Go");
+        assert_eq!(ProviderId::GOOGLE_AI_STUDIO.to_string(), "GoogleAIStudio");
     }
 
     #[test]
@@ -545,10 +570,52 @@ mod tests {
     }
 
     #[test]
+    fn test_fireworks_ai_from_str() {
+        let actual = ProviderId::from_str("fireworks-ai").unwrap();
+        let expected = ProviderId::FIREWORKS_AI;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_opencode_go_from_str() {
+        let actual = ProviderId::from_str("opencode_go").unwrap();
+        let expected = ProviderId::OPENCODE_GO;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_codex_in_built_in_providers() {
         let built_in = ProviderId::built_in_providers();
         assert!(built_in.contains(&ProviderId::CODEX));
         assert!(built_in.contains(&ProviderId::OPENAI_RESPONSES_COMPATIBLE));
+        assert!(built_in.contains(&ProviderId::FIREWORKS_AI));
+        assert!(built_in.contains(&ProviderId::OPENCODE_GO));
+        assert!(built_in.contains(&ProviderId::GOOGLE_AI_STUDIO));
+    }
+
+    #[test]
+    fn test_google_ai_studio_from_str() {
+        let actual = ProviderId::from_str("google_ai_studio").unwrap();
+        let expected = ProviderId::GOOGLE_AI_STUDIO;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_modal_from_str() {
+        let actual = ProviderId::from_str("modal").unwrap();
+        let expected = ProviderId::MODAL;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_modal_display_name() {
+        assert_eq!(ProviderId::MODAL.to_string(), "Modal");
+    }
+
+    #[test]
+    fn test_modal_in_built_in_providers() {
+        let built_in = ProviderId::built_in_providers();
+        assert!(built_in.contains(&ProviderId::MODAL));
     }
 
     #[test]

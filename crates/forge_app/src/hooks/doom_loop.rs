@@ -268,6 +268,7 @@ mod tests {
             model: None,
             reasoning_details: None,
             droppable: false,
+            phase: None,
         }
     }
 
@@ -403,6 +404,7 @@ mod tests {
             model: None,
             reasoning_details: None,
             droppable: false,
+            phase: None,
         };
 
         let user_msg = TextMessage {
@@ -414,6 +416,7 @@ mod tests {
             model: None,
             reasoning_details: None,
             droppable: false,
+            phase: None,
         };
 
         let assistant_msg_2 = TextMessage {
@@ -425,6 +428,7 @@ mod tests {
             model: None,
             reasoning_details: None,
             droppable: false,
+            phase: None,
         };
 
         let messages = [

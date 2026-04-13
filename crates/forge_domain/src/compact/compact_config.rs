@@ -52,12 +52,6 @@ pub struct Compact {
     #[merge(strategy = crate::merge::option)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelId>,
-    /// Optional tag name to extract content from when summarizing (e.g.,
-    /// "summary")
-    #[merge(strategy = crate::merge::std::overwrite)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary_tag: Option<SummaryTag>,
-
     /// Whether to trigger compaction when the last message is from a user
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[merge(strategy = crate::merge::option)]
@@ -79,22 +73,6 @@ where
     Ok(value)
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq)]
-#[serde(transparent)]
-pub struct SummaryTag(String);
-
-impl Default for SummaryTag {
-    fn default() -> Self {
-        SummaryTag("forge_context_summary".to_string())
-    }
-}
-
-impl SummaryTag {
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
 impl Default for Compact {
     fn default() -> Self {
         Self::new()
@@ -110,7 +88,6 @@ impl Compact {
             token_threshold: None,
             turn_threshold: None,
             message_threshold: None,
-            summary_tag: None,
             model: None,
             eviction_window: 0.2, // Default to 20% compaction
             retention_window: 0,

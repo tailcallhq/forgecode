@@ -42,7 +42,7 @@ impl<
         let filename = format!("{current_date}-{plan_name}-{version}.md");
 
         // Create the plans directory path (assuming current working directory)
-        let plans_dir = self.0.get_environment().cwd.join("plans");
+        let plans_dir = self.0.get_environment().plans_path();
         let file_path = plans_dir.join(&filename);
 
         // Validate the path is reasonable (even though it won't be absolute)

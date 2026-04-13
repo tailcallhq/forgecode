@@ -703,6 +703,7 @@ mod tests {
                     thought_signature: None,
                     reasoning_details: None,
                     droppable: false,
+                    phase: None,
                 }),
                 usage: Some(Usage {
                     prompt_tokens: forge_domain::TokenCount::Actual(100),
@@ -890,6 +891,43 @@ mod tests {
         let new_check = repo.get_conversation(&new_conversation_id).await?;
         assert!(new_check.is_some());
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_rename_conversation_via_upsert() -> anyhow::Result<()> {
+        let repo = repository()?;
+        let conversation =
+            Conversation::new(ConversationId::generate()).title(Some("Original Title".to_string()));
+
+        repo.upsert_conversation(conversation.clone()).await?;
+
+        // Rename by upserting with a new title
+        let renamed = conversation
+            .clone()
+            .title(Some("Renamed Session".to_string()));
+        repo.upsert_conversation(renamed).await?;
+
+        let actual = repo.get_conversation(&conversation.id).await?.unwrap();
+        assert_eq!(actual.title, Some("Renamed Session".to_string()));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_rename_conversation_from_none() -> anyhow::Result<()> {
+        let repo = repository()?;
+        let conversation = Conversation::new(ConversationId::generate());
+
+        // Start with no title
+        assert!(conversation.title.is_none());
+        repo.upsert_conversation(conversation.clone()).await?;
+
+        // Rename it
+        let renamed = conversation.clone().title(Some("My Session".to_string()));
+        repo.upsert_conversation(renamed).await?;
+
+        let actual = repo.get_conversation(&conversation.id).await?.unwrap();
+        assert_eq!(actual.title, Some("My Session".to_string()));
         Ok(())
     }
 

@@ -63,7 +63,7 @@ impl<F: FileReaderInfra + FileWriterInfra + FileInfoInfra + EnvironmentInfra + D
         commands.extend(custom_commands);
 
         // Load custom commands from CWD
-        let dir = self.infra.get_environment().command_cwd_path();
+        let dir = self.infra.get_environment().command_path_local();
         let cwd_commands = self.init_command_dir(&dir).await?;
 
         commands.extend(cwd_commands);

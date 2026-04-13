@@ -20,7 +20,7 @@ async-recursion = "1.1.1"
 async-stream = "0.3"
 async-trait = "0.1.89"
 aws-config = { version = "1.8.13", features = ["behavior-version-latest"], default-features = false }
-aws-sdk-bedrockruntime = { version = "1.126.0", features = ["behavior-version-latest"], default-features = false }
+aws-sdk-bedrockruntime = { version = "1.129.0", features = ["behavior-version-latest"], default-features = false }
 aws-credential-types = "1.2.14"
 aws-smithy-types = "1.4.3"
 aws-smithy-runtime-api = "1.11.3"
@@ -29,13 +29,13 @@ aws-smithy-runtime = { version = "1.10", features = ["connector-hyper-0-14-x", "
 base64 = "0.22.1"
 bytes = "1.11.1"
 chrono = { version = "0.4.44", features = ["serde"] }
-clap = { version = "4.5.60", features = ["derive"] }
+clap = { version = "4.6.0", features = ["derive"] }
 clap_complete = "4.6.0"
 colored = "3.1.1"
 console = "0.16.3"
 convert_case = "0.11.0"
-
 derive_more = { version = "2.1.1", features = ["from", "display", "debug", "deref", "as_ref", "try_into"] }
+enable-ansi-support = "0.3.1"
 derive_setters = "0.1.9"
 dirs = "6.0.0"
 dissimilar = "1.0.9"
@@ -53,18 +53,18 @@ ignore = "0.4.23"
 is_ci = "1.2.0"
 indexmap = "2.13.0"
 infer = "0.19.0"
-insta = { version = "1.46.3", features = ["json", "yaml"] }
+insta = { version = "1.47.2", features = ["json", "yaml"] }
 lazy_static = "1.4.0"
 machineid-rs = "1.2.4"
 mockito = "1.7.2"
 nom = "8.0.0"
 nu-ansi-term = "0.50.1"
-posthog-rs = { git = "https://github.com/PostHog/posthog-rs.git", rev = "a006a81419031e4889d9c3882d7458d2efa588a8" }
+posthog-rs = { git = "https://github.com/PostHog/posthog-rs.git", rev = "0e19469ebe5294d5abf79df947b0cc2216fdee8b" }
 pretty_assertions = "1.4.1"
 proc-macro2 = "1.0"
 quote = "1.0"
 reedline = "0.46.0"
-rustyline = "17.0.2"
+rustyline = "18.0.0"
 regex = "1.12.3"
 reqwest = { version = "0.12.23", features = [
     "json",
@@ -80,8 +80,8 @@ schemars = "1.2"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.143"
 serde_yml = "0.0.12"
-sha2 = "0.10"
-similar = { version = "2.4", features = ["inline"] }
+sha2 = "0.11"
+similar = { version = "3.0", features = ["inline"] }
 strip-ansi-escapes = "0.2.1"
 strum = "0.28.0"
 strum_macros = "0.28.0"
@@ -89,9 +89,11 @@ syn = { version = "2.0.117", features = ["derive", "parsing"] }
 sysinfo = "0.38.3"
 tempfile = "3.27.0"
 termimad = "0.34.1"
+tiny_http = "0.12.0"
 syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig"] }
 thiserror = "2.0.18"
-tokio = { version = "1.50.0", features = [
+toml_edit = { version = "0.25", features = ["serde"] }
+tokio = { version = "1.51.0", features = [
     "macros",
     "rt-multi-thread",
     "sync",
@@ -110,7 +112,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 url = { version = "2.5.8", features = ["serde"] }
 backon = "1.5.2"
 eserde = "0.1.7"
-uuid = { version = "1.22.0", features = [
+uuid = { version = "1.23.0", features = [
     "v4",
     "fast-rng",
     "serde",
@@ -118,11 +120,13 @@ uuid = { version = "1.22.0", features = [
 whoami = "2.1.0"
 fnv_rs = "0.4.3"
 merge = { version = "0.2", features = ["derive"] }
+hex = "0.4.3"
 rmcp = { version = "0.10.0", features = [
     "client",
     "transport-sse-client-reqwest",
     "transport-child-process",
     "transport-streamable-http-client-reqwest",
+    "auth",
 ] }
 open = "5.3.2"
 nucleo = "0.5.0"
@@ -130,8 +134,9 @@ gray_matter = "0.3.2"
 num-format = "0.4"
 humantime = "2.1.0"
 dashmap = "7.0.0-rc2"
-async-openai = { version = "0.33.1", default-features = false, features = ["response-types"] } # Using only types, not the API client - reduces dependencies
-google-cloud-auth = "1.6.0" # Google Cloud authentication with automatic token refresh
+async-openai = { version = "0.34.0", default-features = false, features = ["response-types"] } # Using only types, not the API client - reduces dependencies
+gix = "0.81"
+google-cloud-auth = "1.8.0" # Google Cloud authentication with automatic token refresh
 
 # Internal crates
 forge_embed = { path = "crates/forge_embed" }
@@ -157,3 +162,4 @@ forge_select = { path = "crates/forge_select" }
 forge_test_kit = { path = "crates/forge_test_kit" }
 
 forge_markdown_stream = { path = "crates/forge_markdown_stream" }
+forge_config = { path = "crates/forge_config" }

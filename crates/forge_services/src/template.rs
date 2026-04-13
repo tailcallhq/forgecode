@@ -6,18 +6,25 @@ use forge_app::{EnvironmentInfra, FileReaderInfra, TemplateService};
 use forge_domain::Template;
 use futures::future;
 use handlebars::Handlebars;
-use tokio::sync::RwLock;
+use tokio::sync::{OnceCell, RwLock};
 
 #[derive(Clone)]
 pub struct ForgeTemplateService<F> {
-    hb: Arc<RwLock<Handlebars<'static>>>,
+    hb: Arc<OnceCell<RwLock<Handlebars<'static>>>>,
     infra: Arc<F>,
 }
 
 impl<F: EnvironmentInfra + FileReaderInfra> ForgeTemplateService<F> {
     pub fn new(infra: Arc<F>) -> Self {
-        let hb = forge_app::TemplateEngine::handlebar_instance();
-        Self { hb: Arc::new(RwLock::new(hb)), infra }
+        Self { hb: Arc::new(OnceCell::new()), infra }
+    }
+
+    /// Returns a reference to the lazily-initialized Handlebars RwLock,
+    /// creating the instance on the first call.
+    async fn get_hb(&self) -> &RwLock<Handlebars<'static>> {
+        self.hb
+            .get_or_init(|| async { RwLock::new(forge_app::TemplateEngine::handlebar_instance()) })
+            .await
     }
 
     /// Reads multiple template files in parallel and returns their names and
@@ -74,7 +81,7 @@ impl<F: EnvironmentInfra + FileReaderInfra> TemplateService for ForgeTemplateSer
         let cwd = &self.infra.get_environment().cwd;
 
         // Discover and filter unregistered templates in one pass
-        let guard = self.hb.read().await;
+        let guard = self.get_hb().await.read().await;
         let path = if path.is_absolute() {
             path.to_string_lossy().to_string()
         } else {
@@ -98,7 +105,7 @@ impl<F: EnvironmentInfra + FileReaderInfra> TemplateService for ForgeTemplateSer
 
         // Register all templates if any were found
         if !templates.is_empty() {
-            let mut guard = self.hb.write().await;
+            let mut guard = self.get_hb().await.write().await;
             for (name, content) in templates {
                 let template = compile_template(&name, &content)?;
                 guard.register_template(&name, template);
@@ -114,7 +121,8 @@ impl<F: EnvironmentInfra + FileReaderInfra> TemplateService for ForgeTemplateSer
         object: &V,
     ) -> anyhow::Result<String> {
         let rendered = self
-            .hb
+            .get_hb()
+            .await
             .read()
             .await
             .render_template(&template.template, object)?;

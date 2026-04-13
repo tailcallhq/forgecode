@@ -160,7 +160,7 @@ impl<T: 'static> SelectBuilder<T> {
         }
 
         if std::any::TypeId::of::<T>() == std::any::TypeId::of::<bool>() {
-            return prompt_confirm(&self.message, self.default);
+            return prompt_confirm_as(&self.message, self.default);
         }
 
         if self.options.is_empty() {
@@ -197,7 +197,7 @@ impl<T: 'static> SelectBuilder<T> {
 ///
 /// Returns `Ok(Some(true))` for Yes, `Ok(Some(false))` for No, and `Ok(None)`
 /// if cancelled.
-fn prompt_confirm<T: 'static + Clone>(message: &str, default: Option<bool>) -> Result<Option<T>> {
+fn prompt_confirm(message: &str, default: Option<bool>) -> Result<Option<bool>> {
     let items = ["Yes", "No"];
     let starting_cursor = if default == Some(false) {
         Some(1)
@@ -214,7 +214,24 @@ fn prompt_confirm<T: 'static + Clone>(message: &str, default: Option<bool>) -> R
         _ => None,
     };
 
-    Ok(result.map(|value| unsafe { std::mem::transmute_copy(&value) }))
+    Ok(result)
+}
+
+/// Wrapper around [`prompt_confirm`] that safely converts the `bool` result
+/// into the generic type `T`.
+///
+/// This must only be called when `T` is known to be `bool` (verified via
+/// `TypeId` at the call site). The conversion uses `Any` downcasting instead
+/// of `transmute_copy` to remain fully safe.
+fn prompt_confirm_as<T: 'static + Clone>(
+    message: &str,
+    default: Option<bool>,
+) -> Result<Option<T>> {
+    let result = prompt_confirm(message, default)?;
+    Ok(result.and_then(|value| {
+        let any_value: Box<dyn std::any::Any> = Box::new(value);
+        any_value.downcast::<T>().ok().map(|boxed| *boxed)
+    }))
 }
 
 #[cfg(test)]

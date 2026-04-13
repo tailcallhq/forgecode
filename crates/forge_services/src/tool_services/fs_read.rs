@@ -93,16 +93,20 @@ pub async fn assert_file_size<F: FileInfoInfra>(
 /// end_line parameters, ensuring the total range does not exceed 2,000 lines.
 /// Specifying a range exceeding this limit will result in an error. Binary
 /// files are automatically detected and rejected.
-pub struct ForgeFsRead<F>(Arc<F>);
+pub struct ForgeFsRead<F> {
+    infra: Arc<F>,
+}
 
 impl<F> ForgeFsRead<F> {
     pub fn new(infra: Arc<F>) -> Self {
-        Self(infra)
+        Self { infra }
     }
 }
 
 #[async_trait::async_trait]
-impl<F: FileInfoInfra + EnvironmentInfra + InfraFsReadService> FsReadService for ForgeFsRead<F> {
+impl<F: FileInfoInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + InfraFsReadService>
+    FsReadService for ForgeFsRead<F>
+{
     async fn read(
         &self,
         path: String,
@@ -111,15 +115,16 @@ impl<F: FileInfoInfra + EnvironmentInfra + InfraFsReadService> FsReadService for
     ) -> anyhow::Result<ReadOutput> {
         let path = Path::new(&path);
         assert_absolute_path(path)?;
-        let env = self.0.get_environment();
+
+        let config = self.infra.get_config()?;
 
         // Validate with the larger limit initially since we don't know file type yet
-        let initial_size_limit = env.max_file_size.max(env.max_image_size);
-        assert_file_size(&*self.0, path, initial_size_limit).await?;
+        let initial_size_limit = config.max_file_size_bytes.max(config.max_image_size_bytes);
+        assert_file_size(&*self.infra, path, initial_size_limit).await?;
 
         // Read file content to detect MIME type
         let raw_content = self
-            .0
+            .infra
             .read(path)
             .await
             .with_context(|| format!("Failed to read file from {}", path.display()))?;
@@ -131,13 +136,15 @@ impl<F: FileInfoInfra + EnvironmentInfra + InfraFsReadService> FsReadService for
         if is_visual_content(&mime_type) {
             // Validate against image-specific size limit (may be different from
             // max_file_size)
-            assert_file_size(&*self.0, path, env.max_image_size).await.with_context(|| {
-                if mime_type == "application/pdf" {
-                    "PDF exceeds size limit. Use a smaller PDF or increase FORGE_MAX_IMAGE_SIZE."
-                } else {
-                    "Image exceeds size limit. Compress the image or increase FORGE_MAX_IMAGE_SIZE."
-                }
-            })?;
+            assert_file_size(&*self.infra, path, config.max_image_size_bytes)
+                .await
+                .with_context(|| {
+                    if mime_type == "application/pdf" {
+                        "PDF exceeds size limit. Use a smaller PDF or increase FORGE_MAX_IMAGE_SIZE."
+                    } else {
+                        "Image exceeds size limit. Compress the image or increase FORGE_MAX_IMAGE_SIZE."
+                    }
+                })?;
 
             // Convert to base64 image
             let image = Image::new_bytes(raw_content, mime_type.clone());
@@ -152,7 +159,7 @@ impl<F: FileInfoInfra + EnvironmentInfra + InfraFsReadService> FsReadService for
         // Handle text content (including Jupyter notebooks)
         // File size already validated above
 
-        let (start_line, end_line) = resolve_range(start_line, end_line, env.max_read_size);
+        let (start_line, end_line) = resolve_range(start_line, end_line, config.max_read_lines);
 
         // Convert bytes to UTF-8 string
         let full_content = String::from_utf8(raw_content)
@@ -177,7 +184,7 @@ impl<F: FileInfoInfra + EnvironmentInfra + InfraFsReadService> FsReadService for
             // Return full content with line truncation
             lines
                 .iter()
-                .map(|line| truncate_line(line, env.max_line_length))
+                .map(|line| truncate_line(line, config.max_line_chars))
                 .collect::<Vec<_>>()
                 .join("\n")
         } else if total_lines == 0 {
@@ -186,7 +193,7 @@ impl<F: FileInfoInfra + EnvironmentInfra + InfraFsReadService> FsReadService for
             // Return range with line truncation
             lines[start_pos as usize..=end_pos as usize]
                 .iter()
-                .map(|line| truncate_line(line, env.max_line_length))
+                .map(|line| truncate_line(line, config.max_line_chars))
                 .collect::<Vec<_>>()
                 .join("\n")
         };

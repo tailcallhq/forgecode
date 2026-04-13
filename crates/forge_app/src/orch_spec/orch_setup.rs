@@ -3,12 +3,12 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Local};
 use derive_setters::Setters;
+use forge_config::ForgeConfig;
 use forge_domain::{
     Agent, AgentId, Attachment, ChatCompletionMessage, ChatResponse, Conversation, Environment,
-    Event, File, HttpConfig, MessageEntry, ModelId, ProviderId, RetryConfig, Role, Template,
-    ToolCallFull, ToolDefinition, ToolResult, Workflow,
+    Event, File, MessageEntry, Metrics, ModelId, ProviderId, Role, Template, ToolCallFull,
+    ToolDefinition, ToolResult,
 };
-use url::Url;
 
 use crate::ShellOutput;
 use crate::orch_spec::orch_runner::Runner;
@@ -25,7 +25,6 @@ pub struct TestContext {
     pub mock_tool_call_responses: Vec<(ToolCallFull, ToolResult)>,
     pub mock_assistant_responses: Vec<ChatCompletionMessage>,
     pub mock_shell_outputs: Vec<ShellOutput>,
-    pub workflow: Workflow,
     pub templates: HashMap<String, String>,
     pub files: Vec<File>,
     pub env: Environment,
@@ -34,10 +33,16 @@ pub struct TestContext {
     pub model: ModelId,
     pub attachments: Vec<Attachment>,
 
+    // Initial metrics to apply to the conversation
+    pub initial_metrics: Option<Metrics>,
+
     // Final output of the test is store in the context
     pub output: TestOutput,
     pub agent: Agent,
     pub tools: Vec<ToolDefinition>,
+    /// ForgeConfig used to populate TemplateConfig for
+    /// system prompt rendering in tests.
+    pub config: ForgeConfig,
 }
 
 impl Default for TestContext {
@@ -49,54 +54,20 @@ impl Default for TestContext {
             mock_assistant_responses: Default::default(),
             mock_tool_call_responses: Default::default(),
             mock_shell_outputs: Default::default(),
-            workflow: Workflow::new().tool_supported(true),
             templates: Default::default(),
             files: Default::default(),
             attachments: Default::default(),
+            initial_metrics: None,
             env: Environment {
                 os: "MacOS".to_string(),
-                pid: 1234,
                 cwd: PathBuf::from("/Users/tushar"),
                 home: Some(PathBuf::from("/Users/tushar")),
                 shell: "bash".to_string(),
                 base_path: PathBuf::from("/Users/tushar/projects"),
-                forge_api_url: Url::parse("http://localhost:8000").unwrap(),
-
-                // No retry policy by default
-                retry_config: RetryConfig {
-                    initial_backoff_ms: 0,
-                    min_delay_ms: 0,
-                    backoff_factor: 0,
-                    max_retry_attempts: 0,
-                    retry_status_codes: Default::default(),
-                    max_delay: Default::default(),
-                    suppress_retry_errors: Default::default(),
-                },
-                tool_timeout: 300,
-                max_search_lines: 1000,
-                fetch_truncation_limit: 1024,
-                stdout_max_prefix_length: 256,
-                stdout_max_suffix_length: 256,
-                max_read_size: 4096,
-                max_file_read_batch_size: 50,
-                http: HttpConfig::default(),
-                max_file_size: 1024 * 1024 * 5,
-                max_search_result_bytes: 200,
-                stdout_max_line_length: 200, // 5 MB
-                max_line_length: 2000,
-                auto_open_dump: false,
-                auto_dump: None,
-                debug_requests: None,
-                custom_history_path: None,
-                max_conversations: 100,
-                sem_search_limit: 100,
-                sem_search_top_k: 10,
-                max_image_size: 262144,
-                workspace_server_url: Url::parse("http://localhost:8080").unwrap(),
-                max_extensions: 15,
-                parallel_file_reads: 64,
-                model_cache_ttl: 604_800,
             },
+            config: ForgeConfig::default()
+                .tool_supported(true)
+                .max_extensions(15),
             title: Some("test-conversation".into()),
             agent: Agent::new(
                 AgentId::new("forge"),

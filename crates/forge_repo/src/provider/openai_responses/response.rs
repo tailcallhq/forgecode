@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use async_openai::types::responses as oai;
 use forge_app::domain::{
-    ChatCompletionMessage, Content, FinishReason, TokenCount, ToolCall, ToolCallArguments,
-    ToolCallFull, ToolCallId, ToolCallPart, ToolName, Usage,
+    ChatCompletionMessage, Content, FinishReason, MessagePhase, TokenCount, ToolCall,
+    ToolCallArguments, ToolCallFull, ToolCallId, ToolCallPart, ToolName, Usage,
 };
 use forge_domain::{BoxStream, ResultStream};
 use futures::StreamExt;
@@ -83,6 +83,10 @@ pub(super) enum StreamItem {
     Message(Box<ChatCompletionMessage>),
 }
 
+/// Converts OpenAI Responses API usage into the domain Usage type.
+/// Usage is sent once in the `response.completed` event (not split across
+/// events).
+/// ref: https://developers.openai.com/api/reference/resources/responses#(resource)%20responses%20%3E%20(model)%20response_usage%20%3E%20(schema)
 impl IntoDomain for oai::ResponseUsage {
     type Domain = Usage;
 
@@ -93,6 +97,17 @@ impl IntoDomain for oai::ResponseUsage {
             total_tokens: TokenCount::Actual(self.total_tokens as usize),
             cached_tokens: TokenCount::Actual(self.input_tokens_details.cached_tokens as usize),
             cost: None,
+        }
+    }
+}
+
+impl IntoDomain for oai::MessagePhase {
+    type Domain = MessagePhase;
+
+    fn into_domain(self) -> Self::Domain {
+        match self {
+            oai::MessagePhase::Commentary => MessagePhase::Commentary,
+            oai::MessagePhase::FinalAnswer => MessagePhase::FinalAnswer,
         }
     }
 }
@@ -110,6 +125,12 @@ impl IntoDomain for oai::Response {
         let mut saw_tool_call = false;
         for item in &self.output {
             match item {
+                oai::OutputItem::Message(output_msg) => {
+                    // Preserve phase from the assistant output message
+                    if let Some(phase) = output_msg.phase {
+                        message.phase = Some(phase.into_domain());
+                    }
+                }
                 oai::OutputItem::FunctionCall(call) => {
                     saw_tool_call = true;
                     message = message.add_tool_call(ToolCall::Full(ToolCallFull {
@@ -216,6 +237,35 @@ struct CodexStreamState {
     received_toolcall_deltas: HashSet<ToolCallIndex>,
 }
 
+/// Retains only reasoning details that carry `encrypted_content` data.
+///
+/// During streaming, reasoning text and summary parts are already emitted
+/// via delta events. However, `encrypted_content` (type `reasoning.encrypted`)
+/// is only available in the final `ResponseCompleted`/`ResponseIncomplete`
+/// event. This function filters out text/summary reasoning details (which would
+/// be duplicated) and keeps only the encrypted content entries that are
+/// required for stateless multi-turn reasoning replay.
+fn retain_encrypted_reasoning_details(
+    details: Option<Vec<forge_domain::Reasoning>>,
+) -> Option<Vec<forge_domain::Reasoning>> {
+    let details = details?;
+    let encrypted: Vec<forge_domain::Reasoning> = details
+        .into_iter()
+        .filter(|r| {
+            r.as_full().is_some_and(|fulls| {
+                fulls
+                    .iter()
+                    .any(|f| f.type_of.as_deref() == Some("reasoning.encrypted"))
+            })
+        })
+        .collect();
+    if encrypted.is_empty() {
+        None
+    } else {
+        Some(encrypted)
+    }
+}
+
 impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
     type Domain = ResultStream<ChatCompletionMessage, anyhow::Error>;
 
@@ -235,6 +285,7 @@ impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
                                     .add_reasoning_detail(forge_domain::Reasoning::Part(vec![
                                         forge_domain::ReasoningPart {
                                             text: Some(delta.delta),
+                                            id: Some(delta.item_id),
                                             type_of: Some("reasoning.text".to_string()),
                                             ..Default::default()
                                         },
@@ -246,6 +297,7 @@ impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
                                     .add_reasoning_detail(forge_domain::Reasoning::Part(vec![
                                         forge_domain::ReasoningPart {
                                             text: Some(delta.delta),
+                                            id: Some(delta.item_id),
                                             type_of: Some("reasoning.summary".to_string()),
                                             ..Default::default()
                                         },
@@ -361,7 +413,12 @@ impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
                                     done.response.into_domain();
                                 message.content = None; // Clear content to avoid duplication
                                 message.reasoning = None; // Clear reasoning to avoid duplication
-                                message.reasoning_details = None; // Clear reasoning details to avoid duplication
+                                // Keep only encrypted-content reasoning details — text and
+                                // summary were already streamed via deltas but
+                                // encrypted_content is never streamed and must be preserved
+                                // for multi-turn reasoning replay.
+                                message.reasoning_details =
+                                    retain_encrypted_reasoning_details(message.reasoning_details);
                                 message.tool_calls.clear(); // Clear tool calls to avoid duplication
                                 Some(Ok(message))
                             }
@@ -372,7 +429,9 @@ impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
                                     done.response.into_domain();
                                 message.content = None; // Clear content to avoid duplication
                                 message.reasoning = None; // Clear reasoning to avoid duplication
-                                message.reasoning_details = None; // Clear reasoning details to avoid duplication
+                                // Keep only encrypted-content reasoning details (see above).
+                                message.reasoning_details =
+                                    retain_encrypted_reasoning_details(message.reasoning_details);
                                 message.tool_calls.clear(); // Clear tool calls to avoid duplication
                                 message = message.finish_reason_opt(Some(FinishReason::Length));
                                 Some(Ok(message))
@@ -785,6 +844,84 @@ mod tests {
     }
 
     #[test]
+    fn test_response_into_domain_preserves_commentary_phase() {
+        let fixture: oai::Response = serde_json::from_value(serde_json::json!({
+            "id": "resp_1",
+            "created_at": 0,
+            "model": "codex-mini-latest",
+            "object": "response",
+            "status": "completed",
+            "output": [
+                {
+                    "id": "msg_1",
+                    "type": "message",
+                    "role": "assistant",
+                    "phase": "commentary",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "Thinking...",
+                            "annotations": []
+                        }
+                    ],
+                    "status": "completed"
+                }
+            ]
+        }))
+        .unwrap();
+        let actual = fixture.into_domain();
+
+        assert_eq!(
+            actual.phase,
+            Some(forge_app::domain::MessagePhase::Commentary)
+        );
+        assert_eq!(actual.content, Some(Content::full("Thinking...")));
+    }
+
+    #[test]
+    fn test_response_into_domain_preserves_final_answer_phase() {
+        let fixture: oai::Response = serde_json::from_value(serde_json::json!({
+            "id": "resp_1",
+            "created_at": 0,
+            "model": "codex-mini-latest",
+            "object": "response",
+            "status": "completed",
+            "output": [
+                {
+                    "id": "msg_1",
+                    "type": "message",
+                    "role": "assistant",
+                    "phase": "final_answer",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "The answer is 42.",
+                            "annotations": []
+                        }
+                    ],
+                    "status": "completed"
+                }
+            ]
+        }))
+        .unwrap();
+        let actual = fixture.into_domain();
+
+        assert_eq!(
+            actual.phase,
+            Some(forge_app::domain::MessagePhase::FinalAnswer)
+        );
+        assert_eq!(actual.content, Some(Content::full("The answer is 42.")));
+    }
+
+    #[test]
+    fn test_response_into_domain_no_phase_when_absent() {
+        let fixture = fixture_response_with_text("Hello");
+        let actual = fixture.into_domain();
+
+        assert_eq!(actual.phase, None);
+    }
+
+    #[test]
     fn test_response_into_domain_with_function_call() {
         let fixture =
             fixture_response_with_function_call("call_123", "shell", r#"{"cmd":"echo hi"}"#);
@@ -925,6 +1062,7 @@ mod tests {
             actual.reasoning_details,
             Some(vec![Reasoning::Part(vec![forge_domain::ReasoningPart {
                 text: Some("thinking...".to_string()),
+                id: Some("item_1".to_string()),
                 type_of: Some("reasoning.text".to_string()),
                 ..Default::default()
             }])])
@@ -949,6 +1087,7 @@ mod tests {
             actual.reasoning_details,
             Some(vec![Reasoning::Part(vec![forge_domain::ReasoningPart {
                 text: Some("summary...".to_string()),
+                id: Some("item_1".to_string()),
                 type_of: Some("reasoning.summary".to_string()),
                 ..Default::default()
             }])])

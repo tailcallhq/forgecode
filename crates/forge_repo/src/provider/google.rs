@@ -1,12 +1,9 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use derive_setters::Setters;
-use forge_app::HttpInfra;
-use forge_app::domain::{
-    ChatCompletionMessage, Context, Model, ModelId, ResultStream, RetryConfig,
-};
+use forge_app::domain::{ChatCompletionMessage, Context, Model, ModelId, ResultStream};
 use forge_app::dto::google::{EventData, Request};
+use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider};
 use reqwest::Url;
 use tokio_stream::StreamExt;
@@ -140,16 +137,13 @@ impl<T: HttpInfra> Google<T> {
 }
 
 /// Repository for Google provider responses
-#[derive(Setters)]
-#[setters(strip_option, into)]
 pub struct GoogleResponseRepository<F> {
     infra: Arc<F>,
-    retry_config: Arc<RetryConfig>,
 }
 
 impl<F> GoogleResponseRepository<F> {
     pub fn new(infra: Arc<F>) -> Self {
-        Self { infra, retry_config: Arc::new(RetryConfig::default()) }
+        Self { infra }
     }
 }
 
@@ -192,14 +186,16 @@ impl<F: HttpInfra> GoogleResponseRepository<F> {
     }
 }
 #[async_trait::async_trait]
-impl<F: HttpInfra + 'static> ChatRepository for GoogleResponseRepository<F> {
+impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + 'static> ChatRepository
+    for GoogleResponseRepository<F>
+{
     async fn chat(
         &self,
         model_id: &ModelId,
         context: Context,
         provider: Provider<Url>,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
-        let retry_config = self.retry_config.clone();
+        let retry_config = self.infra.get_config()?.retry.unwrap_or_default();
         let provider_client = self.create_client(&provider)?;
 
         let stream = provider_client
@@ -213,7 +209,7 @@ impl<F: HttpInfra + 'static> ChatRepository for GoogleResponseRepository<F> {
     }
 
     async fn models(&self, provider: Provider<Url>) -> anyhow::Result<Vec<Model>> {
-        let retry_config = self.retry_config.clone();
+        let retry_config = self.infra.get_config()?.retry.unwrap_or_default();
         let provider_client = self.create_client(&provider)?;
 
         provider_client

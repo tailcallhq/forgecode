@@ -4,9 +4,9 @@ use anyhow::Result;
 use url::Url;
 
 use crate::{
-    AnyProvider, AppConfig, AuthCredential, ChatCompletionMessage, Context, Conversation,
-    ConversationId, MigrationResult, Model, ModelId, Provider, ProviderId, ProviderTemplate,
-    ResultStream, SearchMatch, Skill, Snapshot, WorkspaceAuth, WorkspaceId,
+    AnyProvider, AuthCredential, ChatCompletionMessage, Context, Conversation, ConversationId,
+    MigrationResult, Model, ModelId, Provider, ProviderId, ProviderTemplate, ResultStream,
+    SearchMatch, Skill, Snapshot, WorkspaceAuth, WorkspaceId,
 };
 
 /// Repository for managing file snapshots
@@ -87,12 +87,6 @@ pub trait ConversationRepository: Send + Sync {
     /// # Errors
     /// Returns an error if the operation fails
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> Result<()>;
-}
-
-#[async_trait::async_trait]
-pub trait AppConfigRepository: Send + Sync {
-    async fn get_app_config(&self) -> anyhow::Result<AppConfig>;
-    async fn set_app_config(&self, config: &AppConfig) -> anyhow::Result<()>;
 }
 
 #[async_trait::async_trait]

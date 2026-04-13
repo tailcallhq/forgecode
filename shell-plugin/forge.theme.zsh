@@ -14,10 +14,11 @@ function _forge_prompt_info() {
     # reflects the active session override rather than global config.
     local -a forge_cmd
     forge_cmd=("$forge_bin")
-    [[ -n "$_FORGE_SESSION_MODEL" ]] && forge_cmd+=(--model "$_FORGE_SESSION_MODEL")
-    [[ -n "$_FORGE_SESSION_PROVIDER" ]] && forge_cmd+=(--provider "$_FORGE_SESSION_PROVIDER")
     forge_cmd+=(zsh rprompt)
-    _FORGE_CONVERSATION_ID=$_FORGE_CONVERSATION_ID _FORGE_ACTIVE_AGENT=$_FORGE_ACTIVE_AGENT "${forge_cmd[@]}"
+    [[ -n "$_FORGE_SESSION_MODEL" ]] && local -x FORGE_SESSION__MODEL_ID="$_FORGE_SESSION_MODEL"
+    [[ -n "$_FORGE_SESSION_PROVIDER" ]] && local -x FORGE_SESSION__PROVIDER_ID="$_FORGE_SESSION_PROVIDER"
+    [[ -n "$_FORGE_SESSION_REASONING_EFFORT" ]] && local -x FORGE_REASONING__EFFORT="$_FORGE_SESSION_REASONING_EFFORT"
+    _FORGE_CONVERSATION_ID=$_FORGE_CONVERSATION_ID _FORGE_ACTIVE_AGENT=$_FORGE_ACTIVE_AGENT "${forge_cmd[@]}" 2>/dev/null
 }
 
 # Right prompt: agent and model with token count (uses single forge prompt command)

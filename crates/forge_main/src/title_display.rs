@@ -24,11 +24,11 @@ impl TitleDisplay {
         let mut buf = String::new();
 
         let icon = match self.inner.category {
-            Category::Action => "⏺".yellow(),
-            Category::Info => "⏺".white(),
-            Category::Debug => "⏺".cyan(),
-            Category::Error => "⏺".red(),
-            Category::Completion => "⏺".yellow(),
+            Category::Action => "●".yellow(),
+            Category::Info => "●".white(),
+            Category::Debug => "●".cyan(),
+            Category::Error => "●".red(),
+            Category::Completion => "●".yellow(),
             Category::Warning => "⚠️".bright_yellow(),
         };
 
@@ -61,7 +61,7 @@ impl TitleDisplay {
     fn format_plain(&self) -> String {
         let mut buf = String::new();
 
-        buf.push_str("⏺ ");
+        buf.push_str("● ");
 
         let local_time: chrono::DateTime<Local> = self.inner.timestamp.into();
         let timestamp_str = format!("[{}] ", local_time.format("%H:%M:%S"));

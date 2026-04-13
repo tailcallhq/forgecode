@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use async_openai::types::responses as oai;
-use derive_setters::Setters;
 use eventsource_stream::Eventsource;
-use forge_app::HttpInfra;
 use forge_app::domain::{
-    ChatCompletionMessage, Context as ChatContext, Model, ModelId, ResultStream, RetryConfig,
+    ChatCompletionMessage, Context as ChatContext, Model, ModelId, ResultStream,
 };
+use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{BoxStream, ChatRepository, Provider};
+use forge_infra::sanitize_headers;
 use futures::StreamExt;
 use reqwest::header::AUTHORIZATION;
 use tracing::info;
@@ -16,7 +16,7 @@ use url::Url;
 
 use crate::provider::FromDomain;
 use crate::provider::retry::into_retry;
-use crate::provider::utils::{create_headers, format_http_context, sanitize_headers};
+use crate::provider::utils::{create_headers, format_http_context};
 
 #[derive(Clone)]
 pub(super) struct OpenAIResponsesProvider<H> {
@@ -29,8 +29,9 @@ pub(super) struct OpenAIResponsesProvider<H> {
 impl<H: HttpInfra> OpenAIResponsesProvider<H> {
     /// Creates a new OpenAI Responses provider
     ///
-    /// For the Codex provider, the configured URL is used directly as the
-    /// responses endpoint (e.g., `chatgpt.com/backend-api/codex/responses`).
+    /// For providers whose configured URL already points at a full Responses
+    /// endpoint, the configured URL is used directly (for example,
+    /// `chatgpt.com/backend-api/codex/responses`).
     /// For all other providers, the path is rewritten to `{host}/v1/responses`.
     ///
     /// # Panics
@@ -39,10 +40,12 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
     pub fn new(provider: Provider<Url>, http: Arc<H>) -> Self {
         use forge_domain::ProviderId;
 
-        if provider.id == ProviderId::CODEX || provider.id == ProviderId::OPENCODE_ZEN {
-            // Codex and OpenCode Zen use the configured URL directly as the
-            // responses endpoint (their URLs already contain the full path,
-            // e.g. `opencode.ai/zen/v1/responses`).
+        if provider.id == ProviderId::CODEX
+            || provider.id == ProviderId::OPENCODE_ZEN
+            || provider.id == ProviderId::OPENAI_RESPONSES_COMPATIBLE
+        {
+            // These providers already configure a complete Responses endpoint,
+            // so preserve the configured path exactly as-is.
             let responses_url = provider.url.clone();
             let api_base = {
                 let mut base = provider.url.clone();
@@ -64,6 +67,10 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
     }
 
     fn get_headers(&self) -> Vec<(String, String)> {
+        self.get_headers_for_conversation(None)
+    }
+
+    fn get_headers_for_conversation(&self, conversation_id: Option<&str>) -> Vec<(String, String)> {
         let mut headers = Vec::new();
         if let Some(api_key) = self
             .provider
@@ -108,9 +115,21 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
             });
 
         // Codex provider requires the ChatGPT-Account-Id header extracted
-        // from the JWT at login
+        // from the JWT at login.
+        //
+        // Mirror codex-rs conversation continuity headers by sending:
+        // - x-client-request-id: conversation id
+        // - session_id: conversation id
         if self.provider.id == forge_domain::ProviderId::CODEX {
-            // Add ChatGPT-Account-Id from credential's stored url_params
+            if let Some(conversation_id) = conversation_id {
+                headers.push((
+                    "x-client-request-id".to_string(),
+                    conversation_id.to_string(),
+                ));
+                headers.push(("session_id".to_string(), conversation_id.to_string()));
+            }
+
+            // Add ChatGPT-Account-Id from credential's stored url_params.
             if let Some(account_id) = self.provider.credential.as_ref().and_then(|c| {
                 let key: forge_domain::URLParam = "chatgpt_account_id".to_string().into();
                 c.url_params.get(&key)
@@ -129,7 +148,8 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
         model: &ModelId,
         context: ChatContext,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
-        let headers = create_headers(self.get_headers());
+        let conversation_id = context.conversation_id.as_ref().map(ToString::to_string);
+        let headers = create_headers(self.get_headers_for_conversation(conversation_id.as_deref()));
         let mut request = oai::CreateResponse::from_domain(context)?;
         request.model = Some(model.as_str().to_string());
 
@@ -334,28 +354,27 @@ fn request_message_count(request: &oai::CreateResponse) -> usize {
 ///
 /// Handles OpenAI's Codex models (e.g., gpt-5.1-codex, codex-mini-latest)
 /// which use the Responses API instead of the standard Chat Completions API.
-#[derive(Setters)]
-#[setters(strip_option, into)]
 pub struct OpenAIResponsesResponseRepository<F> {
     infra: Arc<F>,
-    retry_config: Arc<RetryConfig>,
 }
 
 impl<F> OpenAIResponsesResponseRepository<F> {
     pub fn new(infra: Arc<F>) -> Self {
-        Self { infra, retry_config: Arc::new(RetryConfig::default()) }
+        Self { infra }
     }
 }
 
 #[async_trait::async_trait]
-impl<F: HttpInfra + 'static> ChatRepository for OpenAIResponsesResponseRepository<F> {
+impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + 'static> ChatRepository
+    for OpenAIResponsesResponseRepository<F>
+{
     async fn chat(
         &self,
         model_id: &ModelId,
         context: ChatContext,
         provider: Provider<Url>,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
-        let retry_config = self.retry_config.clone();
+        let retry_config = self.infra.get_config()?.retry.unwrap_or_default();
         let provider_client: OpenAIResponsesProvider<F> =
             OpenAIResponsesProvider::new(provider, self.infra.clone());
         let stream = provider_client
@@ -501,6 +520,34 @@ mod tests {
         }
     }
 
+    impl forge_app::EnvironmentInfra for MockHttpClient {
+        type Config = forge_config::ForgeConfig;
+
+        fn get_env_var(&self, _key: &str) -> Option<String> {
+            None
+        }
+
+        fn get_env_vars(&self) -> std::collections::BTreeMap<String, String> {
+            std::collections::BTreeMap::new()
+        }
+
+        fn get_environment(&self) -> forge_domain::Environment {
+            use fake::{Fake, Faker};
+            Faker.fake()
+        }
+
+        fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+            Ok(forge_config::ForgeConfig::default())
+        }
+
+        async fn update_environment(
+            &self,
+            _ops: Vec<forge_domain::ConfigOperation>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
     /// Test fixture for creating a sample OpenAI Responses API response.
     fn openai_response_fixture() -> serde_json::Value {
         serde_json::json!({
@@ -600,6 +647,7 @@ mod tests {
                     call_id: "call_id_1".to_string(),
                     name: "tool1".to_string(),
                     arguments: "args1".to_string(),
+                    namespace: None,
                     status: None,
                 })),
                 oai::InputItem::Item(oai::Item::FunctionCall(oai::FunctionToolCall {
@@ -607,6 +655,7 @@ mod tests {
                     call_id: "call_id_2".to_string(),
                     name: "tool2".to_string(),
                     arguments: "args2".to_string(),
+                    namespace: None,
                     status: None,
                 })),
             ]),
@@ -632,6 +681,32 @@ mod tests {
         assert_eq!(
             provider_impl.responses_url.as_str(),
             "https://api.openai.com/v1/responses"
+        );
+    }
+
+    #[test]
+    fn test_openai_responses_provider_new_preserves_existing_base_path_for_compatible_provider() {
+        let provider = Provider {
+            id: ProviderId::OPENAI_RESPONSES_COMPATIBLE,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(ProviderResponse::OpenAIResponses),
+            url: Url::parse("https://provider.example/custom-prefix/v1/responses").unwrap(),
+            credential: make_credential(ProviderId::OPENAI_RESPONSES_COMPATIBLE, "test-key"),
+            custom_headers: None,
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: None,
+        };
+        let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
+        let provider_impl = OpenAIResponsesProvider::<MockHttpClient>::new(provider, infra);
+
+        assert_eq!(
+            provider_impl.api_base.as_str(),
+            "https://provider.example/custom-prefix/v1"
+        );
+        assert_eq!(
+            provider_impl.responses_url.as_str(),
+            "https://provider.example/custom-prefix/v1/responses"
         );
     }
 
@@ -1100,14 +1175,78 @@ mod tests {
     }
 
     #[test]
-    fn test_openai_responses_repository_new() {
-        let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
-        let repo = OpenAIResponsesResponseRepository::new(infra.clone());
+    fn test_get_headers_codex_with_conversation_id_includes_conversation_headers() {
+        let provider = Provider {
+            id: ProviderId::CODEX,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(ProviderResponse::OpenAI),
+            url: Url::parse("https://chatgpt.com/backend-api/codex/responses").unwrap(),
+            credential: make_credential(ProviderId::CODEX, "test-token"),
+            custom_headers: None,
+            auth_methods: vec![],
+            url_params: vec![],
+            models: None,
+        };
 
-        assert_eq!(
-            repo.retry_config.retry_status_codes,
-            vec![429, 500, 502, 503, 504, 408, 522, 520, 529]
-        );
+        let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
+        let provider_impl = OpenAIResponsesProvider::<MockHttpClient>::new(provider, infra);
+        let fixture = "conversation_test_123";
+
+        let actual = provider_impl.get_headers_for_conversation(Some(fixture));
+
+        let x_client_request_id = actual
+            .iter()
+            .find(|(k, _)| k == "x-client-request-id")
+            .map(|(_, v)| v.as_str());
+        let session_id = actual
+            .iter()
+            .find(|(k, _)| k == "session_id")
+            .map(|(_, v)| v.as_str());
+
+        let expected = Some(fixture);
+        assert_eq!(x_client_request_id, expected);
+        assert_eq!(session_id, expected);
+    }
+
+    #[test]
+    fn test_get_headers_non_codex_with_conversation_id_omits_conversation_headers() {
+        let provider = openai_responses("test-key", "https://api.openai.com/v1");
+        let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
+        let provider_impl = OpenAIResponsesProvider::<MockHttpClient>::new(provider, infra);
+
+        let actual = provider_impl.get_headers_for_conversation(Some("conversation_test_123"));
+
+        let x_client_request_id = actual.iter().find(|(k, _)| k == "x-client-request-id");
+        let session_id = actual.iter().find(|(k, _)| k == "session_id");
+
+        assert!(x_client_request_id.is_none());
+        assert!(session_id.is_none());
+    }
+
+    #[test]
+    fn test_get_headers_codex_without_conversation_id_omits_conversation_headers() {
+        let provider = Provider {
+            id: ProviderId::CODEX,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(ProviderResponse::OpenAI),
+            url: Url::parse("https://chatgpt.com/backend-api/codex/responses").unwrap(),
+            credential: make_credential(ProviderId::CODEX, "test-token"),
+            custom_headers: None,
+            auth_methods: vec![],
+            url_params: vec![],
+            models: None,
+        };
+
+        let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
+        let provider_impl = OpenAIResponsesProvider::<MockHttpClient>::new(provider, infra);
+
+        let actual = provider_impl.get_headers_for_conversation(None);
+
+        let x_client_request_id = actual.iter().find(|(k, _)| k == "x-client-request-id");
+        let session_id = actual.iter().find(|(k, _)| k == "session_id");
+
+        assert!(x_client_request_id.is_none());
+        assert!(session_id.is_none());
     }
 
     #[tokio::test]

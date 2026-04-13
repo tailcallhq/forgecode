@@ -6,11 +6,25 @@
 zle -N forge-accept-line
 zle -N forge-completion
 
-# Custom bracketed-paste handler to fix syntax highlighting after paste
-# Addresses timing issues by ensuring buffer state stabilizes before prompt reset
+# Custom bracketed-paste handler that wraps dropped file paths in @[] syntax
+# and fixes syntax highlighting after paste.
+#
+# Path detection and wrapping is delegated to `forge zsh format` (Rust) so
+# that all parsing logic lives in one well-tested place.
 function forge-bracketed-paste() {
     # Call the built-in bracketed-paste widget first
     zle .$WIDGET "$@"
+    
+    # Only auto-wrap when the line is a forge command (starts with ':').
+    # This avoids mangling paths pasted into normal shell commands like
+    # 'vim /some/path' or 'cat /some/path'.
+    if [[ "$BUFFER" == :* ]]; then
+        local formatted=$("$_FORGE_BIN" zsh format --buffer "$BUFFER")
+        if [[ -n "$formatted" && "$formatted" != "$BUFFER" ]]; then
+            BUFFER="$formatted"
+            CURSOR=${#BUFFER}
+        fi
+    fi
     
     # Explicitly redisplay the buffer to ensure paste content is visible
     # This is critical for large or multiline pastes

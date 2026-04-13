@@ -9,6 +9,9 @@
 # - :clone                 - Clone current or selected conversation
 # - :clone <id>            - Clone specific conversation by ID
 # - :copy                  - Copy last assistant message to OS clipboard as raw markdown
+# - :rename <name>         - Rename the current conversation
+# - :conversation-rename   - Rename a conversation (interactive picker)
+# - :conversation-rename <id> <name> - Rename specific conversation by ID
 #
 # Helper Functions:
 # - _forge_switch_conversation <id>  - Switch to a conversation and track previous
@@ -232,6 +235,91 @@ function _forge_action_copy() {
     byte_count=$(echo -n "$content" | wc -c | tr -d ' ')
 
     _forge_log success "Copied to clipboard \033[90m[${line_count} lines, ${byte_count} bytes]\033[0m"
+}
+
+# Action handler: Rename current conversation
+# Usage: :rename <name>
+function _forge_action_rename() {
+    local input_text="$1"
+
+    echo
+
+    if [[ -z "$_FORGE_CONVERSATION_ID" ]]; then
+        _forge_log error "No active conversation. Start a conversation first or use :conversation to select one"
+        return 0
+    fi
+
+    if [[ -z "$input_text" ]]; then
+        _forge_log error "Usage: :rename <name>"
+        return 0
+    fi
+
+    _forge_exec conversation rename "$_FORGE_CONVERSATION_ID" $input_text
+}
+
+# Action handler: Rename a conversation (interactive picker or by ID)
+# Usage: :conversation-rename [<id> <name>]
+function _forge_action_conversation_rename() {
+    local input_text="$1"
+
+    echo
+
+    # If input looks like "<id> <name>", split and rename directly
+    if [[ -n "$input_text" ]]; then
+        local conversation_id="${input_text%% *}"
+        local new_name="${input_text#* }"
+
+        if [[ "$conversation_id" == "$new_name" ]]; then
+            # Only one arg provided — not enough
+            _forge_log error "Usage: :conversation-rename <id> <name>"
+            return 0
+        fi
+
+        _forge_exec conversation rename "$conversation_id" $new_name
+        return 0
+    fi
+
+    # No args — show interactive picker
+    local conversations_output
+    conversations_output=$($_FORGE_BIN conversation list --porcelain 2>/dev/null)
+
+    if [[ -z "$conversations_output" ]]; then
+        _forge_log error "No conversations found"
+        return 0
+    fi
+
+    local current_id="$_FORGE_CONVERSATION_ID"
+
+    local prompt_text="Rename Conversation ❯ "
+    local fzf_args=(
+        --prompt="$prompt_text"
+        --delimiter="$_FORGE_DELIMITER"
+        --with-nth="2,3"
+        --preview="CLICOLOR_FORCE=1 $_FORGE_BIN conversation info {1}; echo; CLICOLOR_FORCE=1 $_FORGE_BIN conversation show {1}"
+        $_FORGE_PREVIEW_WINDOW
+    )
+
+    if [[ -n "$current_id" ]]; then
+        local index=$(_forge_find_index "$conversations_output" "$current_id" 1)
+        fzf_args+=(--bind="start:pos($index)")
+    fi
+
+    local selected_conversation
+    selected_conversation=$(echo "$conversations_output" | _forge_fzf --header-lines=1 "${fzf_args[@]}")
+
+    if [[ -n "$selected_conversation" ]]; then
+        local conversation_id=$(echo "$selected_conversation" | sed -E 's/  .*//' | tr -d '\n')
+
+        # Prompt for new name
+        echo -n "Enter new name: "
+        read -r new_name </dev/tty
+
+        if [[ -n "$new_name" ]]; then
+            _forge_exec conversation rename "$conversation_id" $new_name
+        else
+            _forge_log error "No name provided, rename cancelled"
+        fi
+    fi
 }
 
 # Helper function to clone and switch to conversation
