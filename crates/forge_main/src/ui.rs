@@ -27,6 +27,7 @@ use forge_spinner::SpinnerManager;
 use forge_tracker::ToolCallPayload;
 use forge_walker::Walker;
 use futures::future;
+use strum::IntoEnumIterator;
 use tokio_stream::StreamExt;
 use url::Url;
 
@@ -39,7 +40,6 @@ use crate::editor::ReadLineError;
 use crate::info::Info;
 use crate::input::Console;
 use crate::model::{ForgeCommandManager, SlashCommand};
-use strum::IntoEnumIterator;
 use crate::porcelain::Porcelain;
 use crate::prompt::ForgePrompt;
 use crate::state::UIState;
@@ -2231,9 +2231,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     /// Selects and sets the reasoning effort level interactively.
     ///
     /// # Arguments
-    /// * `global` - If true, persists the change to the global config file.
-    ///   If false, applies to the session (REPL has no separate session scope,
-    ///   so this always writes to the config).
+    /// * `global` - If true, persists the change to the global config file. If
+    ///   false, applies to the session (REPL has no separate session scope, so
+    ///   this always writes to the config).
     async fn on_reasoning_effort_selection(&mut self, global: bool) -> anyhow::Result<()> {
         use std::str::FromStr;
 
@@ -2287,10 +2287,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             self.api
                 .update_config(vec![ConfigOperation::SetCommitConfig(Some(commit_config))])
                 .await?;
-            self.writeln_title(
-                TitleFormat::action(model.as_str())
-                    .sub_title(format!("is now the commit model for provider '{provider_id}'")),
-            )?;
+            self.writeln_title(TitleFormat::action(model.as_str()).sub_title(format!(
+                "is now the commit model for provider '{provider_id}'"
+            )))?;
         }
         Ok(())
     }
@@ -2299,15 +2298,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_config_suggest_model(&mut self) -> anyhow::Result<()> {
         let selection = self.select_model(None).await?;
         if let Some((model, provider_id)) = selection {
-            let suggest_config =
-                forge_domain::ModelConfig::new(provider_id.clone(), model.clone());
+            let suggest_config = forge_domain::ModelConfig::new(provider_id.clone(), model.clone());
             self.api
                 .update_config(vec![ConfigOperation::SetSuggestConfig(suggest_config)])
                 .await?;
-            self.writeln_title(
-                TitleFormat::action(model.as_str())
-                    .sub_title(format!("is now the suggest model for provider '{provider_id}'")),
-            )?;
+            self.writeln_title(TitleFormat::action(model.as_str()).sub_title(format!(
+                "is now the suggest model for provider '{provider_id}'"
+            )))?;
         }
         Ok(())
     }
@@ -2347,10 +2344,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             })?;
 
         if !status.success() {
-            return Err(anyhow::anyhow!(
-                "Editor exited with error code: {}",
-                status
-            ));
+            return Err(anyhow::anyhow!("Editor exited with error code: {}", status));
         }
 
         self.writeln_title(TitleFormat::info(format!(
@@ -2402,10 +2396,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             })?;
 
         if !status.success() {
-            return Err(anyhow::anyhow!(
-                "Editor exited with error code: {}",
-                status
-            ));
+            return Err(anyhow::anyhow!("Editor exited with error code: {}", status));
         }
 
         let content = std::fs::read_to_string(&temp_file)?;
@@ -2539,9 +2530,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             let name = parts.next().unwrap_or("").trim();
 
             if id_str.is_empty() || name.is_empty() {
-                return Err(anyhow::anyhow!(
-                    "Usage: :conversation-rename <id> <name>"
-                ));
+                return Err(anyhow::anyhow!("Usage: :conversation-rename <id> <name>"));
             }
 
             let conversation_id = ConversationId::parse(id_str)
@@ -2574,19 +2563,16 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .await?;
 
             if let Some(conv) = selected {
-                let name_result = ForgeWidget::input("New name")
-                    .allow_empty(false)
-                    .prompt()?;
+                let name_result = ForgeWidget::input("New name").allow_empty(false).prompt()?;
 
-                if let Some(name) = name_result {
-                    if !name.is_empty() {
+                if let Some(name) = name_result
+                    && !name.is_empty() {
                         self.api.rename_conversation(&conv.id, name.clone()).await?;
                         self.writeln_title(TitleFormat::info(format!(
                             "Conversation renamed to '{}'",
                             name.bold()
                         )))?;
                     }
-                }
             }
         }
 

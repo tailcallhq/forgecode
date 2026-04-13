@@ -441,7 +441,8 @@ pub enum SlashCommand {
     ConfigModel,
 
     /// Reset session overrides to global config.
-    /// This can be triggered with the '/config-reload' command (aliases: cr, model-reset, mr).
+    /// This can be triggered with the '/config-reload' command (aliases: cr,
+    /// model-reset, mr).
     #[strum(props(usage = "Reset session overrides to global config [alias: cr]"))]
     ConfigReload,
 
@@ -451,17 +452,20 @@ pub enum SlashCommand {
     ReasoningEffort,
 
     /// Set the reasoning effort level in global config.
-    /// This can be triggered with the '/config-reasoning-effort' command (alias: cre).
+    /// This can be triggered with the '/config-reasoning-effort' command
+    /// (alias: cre).
     #[strum(props(usage = "Set reasoning effort in global config [alias: cre]"))]
     ConfigReasoningEffort,
 
     /// Set the model used for commit message generation.
-    /// This can be triggered with the '/config-commit-model' command (alias: ccm).
+    /// This can be triggered with the '/config-commit-model' command (alias:
+    /// ccm).
     #[strum(props(usage = "Set the model used for commit message generation [alias: ccm]"))]
     ConfigCommitModel,
 
     /// Set the model used for command suggestion generation.
-    /// This can be triggered with the '/config-suggest-model' command (alias: csm).
+    /// This can be triggered with the '/config-suggest-model' command (alias:
+    /// csm).
     #[strum(props(usage = "Set the model used for suggest generation [alias: csm]"))]
     ConfigSuggestModel,
 
