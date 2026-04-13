@@ -620,9 +620,7 @@ pub enum AppCommand {
     #[command(name = "conversation", aliases = ["conversations", "c"])]
     Conversations {
         /// Conversation ID to switch to directly (optional — shows interactive picker if absent)
-        #[arg(trailing_var_arg = true, num_args = 0..=1)]
-        // FIXME: This should be an Option<String> or Option<ConversationId>
-        id: Vec<String>,
+        id: Option<String>,
     },
 
     /// Delete a conversation permanently
@@ -1040,7 +1038,7 @@ mod tests {
 
         // Verify
         let expected = AppCommand::Conversations {
-            id: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            id: Some("550e8400-e29b-41d4-a716-446655440000".to_string()),
         };
         assert_eq!(actual, expected);
     }

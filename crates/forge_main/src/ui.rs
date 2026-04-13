@@ -1945,7 +1945,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_command(&mut self, command: AppCommand) -> anyhow::Result<bool> {
         match command {
             AppCommand::Conversations { id } => {
-                if let Some(raw_id) = id.into_iter().next() {
+                if let Some(raw_id) = id {
                     let conversation_id = ConversationId::parse(&raw_id)
                         .context(format!("Invalid conversation ID: {raw_id}"))?;
                     let conversation = self.validate_conversation_exists(&conversation_id).await?;
