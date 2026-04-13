@@ -1944,8 +1944,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     async fn on_command(&mut self, command: AppCommand) -> anyhow::Result<bool> {
         match command {
-            AppCommand::Conversations => {
-                self.list_conversations().await?;
+            AppCommand::Conversations { id } => {
+                if let Some(raw_id) = id.into_iter().next() {
+                    let conversation_id = ConversationId::parse(&raw_id)
+                        .context(format!("Invalid conversation ID: {raw_id}"))?;
+                    let conversation = self.validate_conversation_exists(&conversation_id).await?;
+                    self.state.conversation_id = Some(conversation_id);
+                    self.on_show_last_message(conversation, false).await?;
+                    self.writeln_title(TitleFormat::info(format!(
+                        "Switched to conversation {}",
+                        conversation_id.into_string().bold()
+                    )))?;
+                    self.on_info(false, Some(conversation_id)).await?;
+                } else {
+                    self.list_conversations().await?;
+                }
             }
             AppCommand::Compact => {
                 self.spinner.start(Some("Compacting"))?;

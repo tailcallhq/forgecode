@@ -618,7 +618,12 @@ pub enum AppCommand {
     /// List all conversations for the active workspace
     #[strum(props(usage = "List all conversations for the active workspace"))]
     #[command(name = "conversation", aliases = ["conversations", "c"])]
-    Conversations,
+    Conversations {
+        /// Conversation ID to switch to directly (optional — shows interactive picker if absent)
+        #[arg(trailing_var_arg = true, num_args = 0..=1)]
+        // FIXME: This should be an Option<String> or Option<ConversationId>
+        id: Vec<String>,
+    },
 
     /// Delete a conversation permanently
     #[strum(props(usage = "Delete a conversation permanently"))]
@@ -685,7 +690,7 @@ impl AppCommand {
             AppCommand::Login => "login",
             AppCommand::Logout => "logout",
             AppCommand::Retry => "retry",
-            AppCommand::Conversations => "conversation",
+            AppCommand::Conversations { .. } => "conversation",
             AppCommand::Delete => "delete",
             AppCommand::Rename { .. } => "rename",
             AppCommand::AgentSwitch(agent_id) => agent_id,
@@ -1016,11 +1021,28 @@ mod tests {
 
         // Verify
         match result {
-            AppCommand::Conversations => {
+            AppCommand::Conversations { .. } => {
                 // Command parsed correctly
             }
             _ => panic!("Expected List command, got {result:?}"),
         }
+    }
+
+    #[test]
+    fn test_parse_conversation_with_id() {
+        // Setup
+        let cmd_manager = ForgeCommandManager::default();
+
+        // Execute
+        let actual = cmd_manager
+            .parse("/conversation 550e8400-e29b-41d4-a716-446655440000")
+            .unwrap();
+
+        // Verify
+        let expected = AppCommand::Conversations {
+            id: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+        };
+        assert_eq!(actual, expected);
     }
 
     #[test]
