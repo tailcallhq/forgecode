@@ -1325,23 +1325,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 .add_key_value("description", cmd.usage());
         }
 
-        // ZSH-only commands that have no REPL equivalent but must appear in
-        // `forge list commands` for shell tab-completion.
-        let zsh_only: &[(&str, &str)] = &[
-            ("doctor", "Run environment diagnostics for the shell plugin"),
-            (
-                "keyboard-shortcuts",
-                "Display ZSH keyboard shortcuts [alias: kb]",
-            ),
-            ("setup", "Setup zsh integration by updating .zshrc"),
-        ];
-        for (name, description) in zsh_only {
-            info = info
-                .add_title(*name)
-                .add_key_value("type", CommandType::Command)
-                .add_key_value("description", *description);
-        }
-
         // Add agent aliases
         info = info
             .add_title("ask")
