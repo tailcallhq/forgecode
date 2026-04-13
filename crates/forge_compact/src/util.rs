@@ -1,5 +1,19 @@
 use std::ops::{Deref, RangeInclusive};
 
+use crate::Message;
+
+/// Wraps each item in a `Vec` into `Message::Original`, ready for internal processing.
+///
+/// This is the inverse of `deref_messages`: it lifts plain items into the `Message`
+/// wrapper so the compaction algorithm can track whether each entry is an original
+/// message or a synthesised summary.
+pub fn wrap_messages<Item>(items: Vec<Item>) -> Vec<Message<Item>> {
+    items
+        .into_iter()
+        .map(|m| Message::Original { message: m })
+        .collect()
+}
+
 /// Collects references to the inner values of a slice of `Deref`-able wrappers.
 ///
 /// Useful for converting a `&[Message<T>]` to a `Vec<&T>` before passing to callbacks
