@@ -29,7 +29,7 @@ impl Highlighter for ForgeHighlighter {
                 line[..end].to_string(),
             ));
             if end < line.len() {
-                styled.push((Style::new(), line[end..].to_string()));
+                highlight_mentions(&line[end..], &mut styled);
             }
             return styled;
         }
@@ -243,6 +243,41 @@ mod tests {
             styles(&actual)
                 .iter()
                 .all(|s| *s != Style::new().bold().fg(Color::Cyan))
+        );
+    }
+
+    #[test]
+    fn test_slash_command_with_mention_in_args() {
+        let fixture = ForgeHighlighter;
+        let actual = fixture.highlight("/review @[src/main.rs] please", 0);
+        let parts: Vec<_> = actual
+            .buffer
+            .iter()
+            .map(|(s, t)| (*s, t.as_str()))
+            .collect();
+        assert_eq!(parts[0], (Style::new().bold().fg(Color::Yellow), "/review"));
+        assert_eq!(parts[1], (Style::new(), " "));
+        assert_eq!(
+            parts[2],
+            (Style::new().bold().fg(Color::Cyan), "@[src/main.rs]")
+        );
+        assert_eq!(parts[3], (Style::new(), " please"));
+    }
+
+    #[test]
+    fn test_colon_command_with_mention_in_args() {
+        let fixture = ForgeHighlighter;
+        let actual = fixture.highlight(":review @[src/lib.rs]", 0);
+        let parts: Vec<_> = actual
+            .buffer
+            .iter()
+            .map(|(s, t)| (*s, t.as_str()))
+            .collect();
+        assert_eq!(parts[0], (Style::new().bold().fg(Color::Yellow), ":review"));
+        assert_eq!(parts[1], (Style::new(), " "));
+        assert_eq!(
+            parts[2],
+            (Style::new().bold().fg(Color::Cyan), "@[src/lib.rs]")
         );
     }
 
