@@ -39,7 +39,7 @@ use crate::display_constants::{CommandType, headers, markers, status};
 use crate::editor::ReadLineError;
 use crate::info::Info;
 use crate::input::Console;
-use crate::model::{ForgeCommandManager, SlashCommand};
+use crate::model::{ForgeCommandManager, AppCommand};
 use crate::porcelain::Porcelain;
 use crate::prompt::ForgePrompt;
 use crate::state::UIState;
@@ -238,7 +238,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         })
     }
 
-    async fn prompt(&self) -> Result<SlashCommand> {
+    async fn prompt(&self) -> Result<AppCommand> {
         // Get usage from current conversation if available
         let usage = if let Some(conversation_id) = &self.state.conversation_id {
             self.api
@@ -1318,7 +1318,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // the list always stays in sync with what the REPL actually supports.
         // Internal/meta variants (Message, Custom, Shell, AgentSwitch, Rename)
         // are excluded via is_internal().
-        for cmd in SlashCommand::iter().filter(|c| !c.is_internal()) {
+        for cmd in AppCommand::iter().filter(|c| !c.is_internal()) {
             info = info
                 .add_title(cmd.name())
                 .add_key_value("type", CommandType::Command)
@@ -1942,73 +1942,73 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
-    async fn on_command(&mut self, command: SlashCommand) -> anyhow::Result<bool> {
+    async fn on_command(&mut self, command: AppCommand) -> anyhow::Result<bool> {
         match command {
-            SlashCommand::Conversations => {
+            AppCommand::Conversations => {
                 self.list_conversations().await?;
             }
-            SlashCommand::Compact => {
+            AppCommand::Compact => {
                 self.spinner.start(Some("Compacting"))?;
                 self.on_compaction().await?;
             }
-            SlashCommand::Delete => {
+            AppCommand::Delete => {
                 self.handle_delete_conversation().await?;
             }
-            SlashCommand::Rename(ref name) => {
-                self.handle_rename_conversation(name.clone()).await?;
+            AppCommand::Rename { ref name } => {
+                self.handle_rename_conversation(name.join(" ")).await?;
             }
-            SlashCommand::Dump { html } => {
+            AppCommand::Dump { html, .. } => {
                 self.spinner.start(Some("Dumping"))?;
                 self.on_dump(html).await?;
             }
-            SlashCommand::New => {
+            AppCommand::New => {
                 self.on_new().await?;
             }
-            SlashCommand::Info => {
+            AppCommand::Info => {
                 self.on_info(false, self.state.conversation_id).await?;
             }
-            SlashCommand::Usage => {
+            AppCommand::Usage => {
                 self.on_usage().await?;
             }
-            SlashCommand::Message(ref content) => {
+            AppCommand::Message(ref content) => {
                 self.spinner.start(None)?;
                 self.on_message(Some(content.clone())).await?;
             }
-            SlashCommand::Forge => {
+            AppCommand::Forge => {
                 self.on_agent_change(AgentId::FORGE).await?;
             }
-            SlashCommand::Muse => {
+            AppCommand::Muse => {
                 self.on_agent_change(AgentId::MUSE).await?;
             }
-            SlashCommand::Sage => {
+            AppCommand::Sage => {
                 self.on_agent_change(AgentId::SAGE).await?;
             }
-            SlashCommand::Help => {
+            AppCommand::Help => {
                 let info = Info::from(self.command.as_ref());
                 self.writeln(info)?;
             }
-            SlashCommand::Tools => {
+            AppCommand::Tools => {
                 let agent_id = self.api.get_active_agent().await.unwrap_or_default();
                 self.on_show_tools(agent_id, false).await?;
             }
-            SlashCommand::Update => {
+            AppCommand::Update => {
                 on_update(self.api.clone(), None).await;
             }
-            SlashCommand::Exit => {
+            AppCommand::Exit => {
                 return Ok(true);
             }
 
-            SlashCommand::Custom(event) => {
+            AppCommand::Custom(event) => {
                 self.spinner.start(None)?;
                 self.on_custom_event(event.into()).await?;
             }
-            SlashCommand::Model => {
+            AppCommand::Model => {
                 self.on_model_selection(None).await?;
             }
-            SlashCommand::Shell(ref command) => {
+            AppCommand::Shell(ref command) => {
                 self.api.execute_shell_command_raw(command).await?;
             }
-            SlashCommand::Commit { max_diff_size } => {
+            AppCommand::Commit { max_diff_size, .. } => {
                 let args = CommitCommandGroup {
                     preview: true,
                     max_diff_size: max_diff_size.or(Some(100_000)),
@@ -2020,7 +2020,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let commit_command = format!("!git commit{flags} -m '{}'", result.message);
                 self.console.set_buffer(commit_command);
             }
-            SlashCommand::Agent => {
+            AppCommand::Agent => {
                 #[derive(Clone)]
                 struct Agent {
                     id: AgentId,
@@ -2095,21 +2095,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     self.on_agent_change(selected_agent.id).await?;
                 }
             }
-            SlashCommand::Login => {
+            AppCommand::Login => {
                 self.handle_provider_login(None).await?;
             }
-            SlashCommand::Logout => {
+            AppCommand::Logout => {
                 return self.handle_provider_logout(None).await;
             }
-            SlashCommand::Retry => {
+            AppCommand::Retry => {
                 self.spinner.start(None)?;
                 self.on_message(None).await?;
             }
-            SlashCommand::Index => {
+            AppCommand::Index => {
                 let working_dir = self.state.cwd.clone();
                 self.on_index(working_dir, false).await?;
             }
-            SlashCommand::AgentSwitch(agent_id) => {
+            AppCommand::AgentSwitch(agent_id) => {
                 // Validate that the agent exists by checking against loaded agents
                 let agents = self.api.get_agent_infos().await?;
                 let agent_exists = agents.iter().any(|agent| agent.id.as_str() == agent_id);
@@ -2122,39 +2122,44 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     ));
                 }
             }
-            SlashCommand::Config => {
+            AppCommand::Config => {
                 self.on_show_config(false).await?;
             }
-            SlashCommand::ConfigModel => {
+            AppCommand::ConfigModel => {
                 self.on_model_selection(None).await?;
             }
-            SlashCommand::ConfigReload => {
+            AppCommand::ConfigReload => {
                 self.writeln_title(TitleFormat::info(
                     "No session overrides in REPL mode. Use :model to switch the active model.",
                 ))?;
             }
-            SlashCommand::ReasoningEffort => {
+            AppCommand::ReasoningEffort => {
                 self.on_reasoning_effort_selection(false).await?;
             }
-            SlashCommand::ConfigReasoningEffort => {
+            AppCommand::ConfigReasoningEffort => {
                 self.on_reasoning_effort_selection(true).await?;
             }
-            SlashCommand::ConfigCommitModel => {
+            AppCommand::ConfigCommitModel => {
                 self.on_config_commit_model().await?;
             }
-            SlashCommand::ConfigSuggestModel => {
+            AppCommand::ConfigSuggestModel => {
                 self.on_config_suggest_model().await?;
             }
-            SlashCommand::ConfigEdit => {
+            AppCommand::ConfigEdit => {
                 self.on_config_edit().await?;
             }
-            SlashCommand::Skill => {
+            AppCommand::Skill => {
                 self.on_show_skills(false, false).await?;
             }
-            SlashCommand::Edit(initial) => {
+            AppCommand::Edit { content } => {
+                let initial = if content.is_empty() {
+                    None
+                } else {
+                    Some(content.join(" ").trim().to_string())
+                };
                 self.on_edit_buffer(initial).await?;
             }
-            SlashCommand::CommitPreview => {
+            AppCommand::CommitPreview => {
                 let args = CommitCommandGroup {
                     preview: true,
                     max_diff_size: Some(100_000),
@@ -2166,31 +2171,41 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let commit_command = format!("!git commit{flags} -m '{}'", result.message);
                 self.console.set_buffer(commit_command);
             }
-            SlashCommand::Suggest(description) => {
-                self.on_suggest(description).await?;
+            AppCommand::Suggest { description } => {
+                let desc = if description.is_empty() {
+                    None
+                } else {
+                    Some(description.join(" ").trim().to_string())
+                };
+                self.on_suggest(desc).await?;
             }
-            SlashCommand::Clone(id) => {
+            AppCommand::Clone { id } => {
                 self.on_slash_clone(id).await?;
             }
-            SlashCommand::ConversationRename(args) => {
+            AppCommand::ConversationRename { name } => {
+                let args = if name.is_empty() {
+                    None
+                } else {
+                    Some(name.join(" ").trim().to_string())
+                };
                 self.on_slash_conversation_rename(args).await?;
             }
-            SlashCommand::Copy => {
+            AppCommand::Copy => {
                 self.on_copy().await?;
             }
-            SlashCommand::WorkspaceSync => {
+            AppCommand::WorkspaceSync => {
                 let working_dir = self.state.cwd.clone();
                 self.on_index(working_dir, true).await?;
             }
-            SlashCommand::WorkspaceStatus => {
+            AppCommand::WorkspaceStatus => {
                 let cwd = self.state.cwd.clone();
                 self.on_workspace_status(cwd, false).await?;
             }
-            SlashCommand::WorkspaceInfo => {
+            AppCommand::WorkspaceInfo => {
                 let cwd = self.state.cwd.clone();
                 self.on_workspace_info(cwd).await?;
             }
-            SlashCommand::WorkspaceInit => {
+            AppCommand::WorkspaceInit => {
                 let cwd = self.state.cwd.clone();
                 self.on_workspace_init(cwd, false).await?;
             }
@@ -2366,11 +2381,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let editor = std::env::var("FORGE_EDITOR")
             .or_else(|_| std::env::var("EDITOR"))
             .unwrap_or_else(|_| "nano".to_string());
-        let editor_binary = editor
-            .split_whitespace()
-            .next()
-            .unwrap_or("nano")
-            .to_string();
+
+        // Split the editor string into binary + pre-configured flags
+        // (e.g. "code --wait" → binary="code", extra_args=["--wait"])
+        let mut editor_parts = editor.split_whitespace();
+        let editor_binary = editor_parts.next().unwrap_or("nano").to_string();
+        let editor_flags: Vec<&str> = editor_parts.collect();
 
         // Create .forge directory for the temp file
         let forge_dir = self.state.cwd.join(".forge");
@@ -2385,6 +2401,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         drop(file);
 
         let status = std::process::Command::new(&editor_binary)
+            .args(&editor_flags)
             .arg(&temp_file)
             .status()
             .map_err(|e| {

@@ -1,11 +1,23 @@
 use std::sync::{Arc, Mutex};
 
+use clap::{Parser, Subcommand};
 use forge_api::{AgentInfo, Model, Template};
 use forge_domain::UserCommand;
 use strum::{EnumProperty, IntoEnumIterator};
 use strum_macros::{EnumIter, EnumProperty};
 
 use crate::info::Info;
+
+/// Top-level Clap parser used to dispatch slash/colon commands.
+///
+/// The sentinel character (`/` or `:`) is stripped before passing tokens here,
+/// so Clap only sees the subcommand name and its arguments.
+#[derive(Debug, Parser)]
+#[command(name = "forge_cmd", no_binary_name = true, disable_help_subcommand = true)]
+struct ClapCmd {
+    #[command(subcommand)]
+    sub: AppCommand,
+}
 
 /// Result of agent command registration
 #[derive(Debug, Clone)]
@@ -140,7 +152,7 @@ impl ForgeCommandManager {
     }
 
     fn default_commands() -> Vec<ForgeCommand> {
-        SlashCommand::iter()
+        AppCommand::iter()
             .filter(|command| !command.is_internal())
             .map(|command| ForgeCommand {
                 name: command.name().to_string(),
@@ -265,158 +277,94 @@ impl ForgeCommandManager {
         }
     }
 
-    pub fn parse(&self, input: &str) -> anyhow::Result<SlashCommand> {
-        // Check if it's a shell command (starts with !)
-        if input.trim().starts_with("!") {
-            return Ok(SlashCommand::Shell(
+    pub fn parse(&self, input: &str) -> anyhow::Result<AppCommand> {
+        // Shell commands (start with !) bypass Clap entirely.
+        if input.trim().starts_with('!') {
+            return Ok(AppCommand::Shell(
                 input
-                    .strip_prefix("!")
+                    .strip_prefix('!')
                     .unwrap_or_default()
                     .trim()
                     .to_string(),
             ));
         }
 
-        let mut tokens = input.trim().split_ascii_whitespace();
-        let command = tokens.next().unwrap();
-        let parameters = tokens.collect::<Vec<_>>();
+        let trimmed = input.trim();
+        let mut tokens = trimmed.split_ascii_whitespace();
+        let first = tokens.next().unwrap_or("");
 
-        // Check if it's a system command (starts with / or :)
-        let is_command = command.starts_with('/') || command.starts_with(':');
+        // Non-command input — pass straight through as a message.
+        let is_command = first.starts_with('/') || first.starts_with(':');
         if !is_command {
-            return Ok(SlashCommand::Message(input.to_string()));
+            return Ok(AppCommand::Message(input.to_string()));
         }
 
-        // Normalise `:cmd` → `/cmd` so the match below only needs `/` prefixes.
-        let normalised_command = if command.starts_with(':') {
-            format!("/{}", &command[1..])
-        } else {
-            command.to_string()
-        };
-        let command = normalised_command.as_str();
+        // Strip the sentinel character so Clap only sees the bare command name.
+        let bare = first.strip_prefix('/').or_else(|| first.strip_prefix(':')).unwrap_or(first);
+        let rest: Vec<&str> = tokens.collect();
 
-        // TODO: Can leverage Clap to parse commands and provide correct error messages
-        match command {
-            "/compact" => Ok(SlashCommand::Compact),
-            "/new" => Ok(SlashCommand::New),
-            "/info" => Ok(SlashCommand::Info),
-            "/usage" => Ok(SlashCommand::Usage),
-            "/exit" => Ok(SlashCommand::Exit),
-            "/update" => Ok(SlashCommand::Update),
-            "/dump" => {
-                let html = !parameters.is_empty() && parameters[0] == "html";
-                Ok(SlashCommand::Dump { html })
+        // Build argv: [bare_command, arg1, arg2, …]
+        let argv: Vec<&str> = std::iter::once(bare).chain(rest.iter().copied()).collect();
+        let parameters: Vec<String> = rest.iter().map(|s| s.to_string()).collect();
+
+        match ClapCmd::try_parse_from(&argv) {
+            Ok(mut cmd) => {
+                // Post-process variants that need Vec<String> → concrete type fixup
+                match &mut cmd.sub {
+                    AppCommand::Commit { args, max_diff_size } => {
+                        *max_diff_size = args.iter().find_map(|p| p.parse::<usize>().ok());
+                    }
+                    AppCommand::Rename { name } => {
+                        let n = name.join(" ");
+                        let n = n.trim().to_string();
+                        if n.is_empty() {
+                            return Err(anyhow::anyhow!(
+                                "Usage: :rename <name>. Please provide a name for the conversation."
+                            ));
+                        }
+                    }
+                    _ => {}
+                }
+                Ok(cmd.sub)
             }
-            "/act" | "/forge" => Ok(SlashCommand::Forge),
-            "/plan" | "/muse" => Ok(SlashCommand::Muse),
-            "/sage" => Ok(SlashCommand::Sage),
-            "/help" => Ok(SlashCommand::Help),
-            "/model" | "/m" => Ok(SlashCommand::Model),
-            "/config-model" | "/cm" => Ok(SlashCommand::ConfigModel),
-            "/config" | "/env" | "/e" => Ok(SlashCommand::Config),
-            "/config-reload" | "/cr" | "/model-reset" | "/mr" => Ok(SlashCommand::ConfigReload),
-            "/reasoning-effort" | "/re" => Ok(SlashCommand::ReasoningEffort),
-            "/config-reasoning-effort" | "/cre" => Ok(SlashCommand::ConfigReasoningEffort),
-            "/config-commit-model" | "/ccm" => Ok(SlashCommand::ConfigCommitModel),
-            "/config-suggest-model" | "/csm" => Ok(SlashCommand::ConfigSuggestModel),
-            "/config-edit" | "/ce" => Ok(SlashCommand::ConfigEdit),
-            "/skill" => Ok(SlashCommand::Skill),
-            "/edit" | "/ed" => {
-                let initial = if parameters.is_empty() {
-                    None
-                } else {
-                    Some(parameters.join(" ").trim().to_string())
-                };
-                Ok(SlashCommand::Edit(initial))
-            }
-            "/commit-preview" => Ok(SlashCommand::CommitPreview),
-            "/suggest" | "/s" => {
-                let description = if parameters.is_empty() {
-                    None
-                } else {
-                    Some(parameters.join(" ").trim().to_string())
-                };
-                Ok(SlashCommand::Suggest(description))
-            }
-            "/clone" => {
-                let id = if parameters.is_empty() {
-                    None
-                } else {
-                    Some(parameters.join(" ").trim().to_string())
-                };
-                Ok(SlashCommand::Clone(id))
-            }
-            "/conversation-rename" => {
-                let args = if parameters.is_empty() {
-                    None
-                } else {
-                    Some(parameters.join(" ").trim().to_string())
-                };
-                Ok(SlashCommand::ConversationRename(args))
-            }
-            "/copy" => Ok(SlashCommand::Copy),
-            "/workspace-sync" | "/sync" => Ok(SlashCommand::WorkspaceSync),
-            "/workspace-status" | "/sync-status" => Ok(SlashCommand::WorkspaceStatus),
-            "/workspace-info" | "/sync-info" => Ok(SlashCommand::WorkspaceInfo),
-            "/workspace-init" | "/sync-init" => Ok(SlashCommand::WorkspaceInit),
-            "/provider" | "/login" | "/provider-login" => Ok(SlashCommand::Login),
-            "/tools" | "/t" => Ok(SlashCommand::Tools),
-            "/agent" | "/a" => Ok(SlashCommand::Agent),
-            "/logout" => Ok(SlashCommand::Logout),
-            "/retry" | "/r" => Ok(SlashCommand::Retry),
-            "/conversation" | "/conversations" | "/c" => Ok(SlashCommand::Conversations),
-            "/commit" => {
-                // Support flexible syntax:
-                // /commit              -> commit with AI message
-                // /commit 5000         -> commit with max-diff of 5000 bytes
-                let max_diff_size = parameters.iter().find_map(|&p| p.parse::<usize>().ok());
-                Ok(SlashCommand::Commit { max_diff_size })
-            }
-            "/index" => Ok(SlashCommand::Index),
-            "/rename" | "/rn" => {
-                let name = parameters.join(" ");
-                let name = name.trim().to_string();
-                if name.is_empty() {
+            Err(clap_err) => {
+                // Clap failed — check whether this is an agent command or a
+                // registered custom workflow command before surfacing the error.
+                let command_name = bare;
+
+                // Give a domain-specific error for rename with no name argument.
+                if (command_name == "rename" || command_name == "rn") && rest.is_empty() {
                     return Err(anyhow::anyhow!(
                         "Usage: :rename <name>. Please provide a name for the conversation."
                     ));
                 }
-                Ok(SlashCommand::Rename(name))
-            }
-            text => {
-                let parts = text.split_ascii_whitespace().collect::<Vec<&str>>();
 
-                if let Some(command) = parts.first() {
-                    // Check if it's an agent command pattern (/agent-*)
-                    if command.starts_with("/agent-") {
-                        let command_name = command.strip_prefix('/').unwrap();
-                        if let Some(found_command) = self.find(command_name) {
-                            // Extract the agent ID from the command value
-                            if let Some(agent_id) = &found_command.value {
-                                return Ok(SlashCommand::AgentSwitch(agent_id.clone()));
-                            }
+                // Check if it's an agent command pattern (agent-*)
+                if command_name.starts_with("agent-") {
+                    if let Some(found_command) = self.find(command_name) {
+                        if let Some(agent_id) = &found_command.value {
+                            return Ok(AppCommand::AgentSwitch(agent_id.clone()));
                         }
-                        return Err(anyhow::anyhow!("{command} is not a valid agent command"));
                     }
-
-                    // Handle custom workflow commands
-                    let command_name = command.strip_prefix('/').unwrap_or(command);
-                    if let Some(command) = self.find(command_name) {
-                        let template = Template::new(
-                            self.extract_command_value(&command, &parts[1..])
-                                .unwrap_or_default(),
-                        );
-                        Ok(SlashCommand::Custom(UserCommand::new(
-                            command.name.clone(),
-                            template,
-                            parameters.into_iter().map(|s| s.to_owned()).collect(),
-                        )))
-                    } else {
-                        Err(anyhow::anyhow!("'{command_name}' is not a valid command"))
-                    }
-                } else {
-                    Err(anyhow::anyhow!("Invalid Command Format."))
+                    return Err(anyhow::anyhow!("/{command_name} is not a valid agent command"));
                 }
+
+                // Handle custom workflow commands
+                if let Some(command) = self.find(command_name) {
+                    let rest_parts: Vec<&str> = rest.to_vec();
+                    let template = Template::new(
+                        self.extract_command_value(&command, &rest_parts)
+                            .unwrap_or_default(),
+                    );
+                    return Ok(AppCommand::Custom(UserCommand::new(
+                        command.name.clone(),
+                        template,
+                        parameters,
+                    )));
+                }
+
+                // Surface a clean error from Clap (strips ANSI + binary name noise).
+                Err(anyhow::anyhow!("{}", clap_err.render().to_string().trim()))
             }
         }
     }
@@ -428,50 +376,58 @@ impl ForgeCommandManager {
 /// - System commands (starting with '/')
 /// - Regular chat messages
 /// - File content
-#[derive(Debug, Clone, PartialEq, Eq, EnumProperty, EnumIter)]
-pub enum SlashCommand {
+#[derive(Debug, Clone, PartialEq, Eq, EnumProperty, EnumIter, Subcommand)]
+pub enum AppCommand {
     /// Display the effective resolved configuration.
     /// This can be triggered with the '/config' command (aliases: env, e).
     #[strum(props(usage = "Display effective resolved configuration"))]
+    #[command(aliases = ["env", "e"])]
     Config,
 
     /// Set the global model via interactive selection.
     /// This can be triggered with the '/config-model' command (alias: cm).
     #[strum(props(usage = "Set the global model [alias: cm]"))]
+    #[command(name = "config-model", alias = "cm")]
     ConfigModel,
 
     /// Reset session overrides to global config.
     /// This can be triggered with the '/config-reload' command (aliases: cr,
     /// model-reset, mr).
     #[strum(props(usage = "Reset session overrides to global config [alias: cr]"))]
+    #[command(name = "config-reload", aliases = ["cr", "model-reset", "mr"])]
     ConfigReload,
 
     /// Set the reasoning effort level.
     /// This can be triggered with the '/reasoning-effort' command (alias: re).
     #[strum(props(usage = "Set reasoning effort for current session [alias: re]"))]
+    #[command(name = "reasoning-effort", alias = "re")]
     ReasoningEffort,
 
     /// Set the reasoning effort level in global config.
     /// This can be triggered with the '/config-reasoning-effort' command
     /// (alias: cre).
     #[strum(props(usage = "Set reasoning effort in global config [alias: cre]"))]
+    #[command(name = "config-reasoning-effort", alias = "cre")]
     ConfigReasoningEffort,
 
     /// Set the model used for commit message generation.
     /// This can be triggered with the '/config-commit-model' command (alias:
     /// ccm).
     #[strum(props(usage = "Set the model used for commit message generation [alias: ccm]"))]
+    #[command(name = "config-commit-model", alias = "ccm")]
     ConfigCommitModel,
 
     /// Set the model used for command suggestion generation.
     /// This can be triggered with the '/config-suggest-model' command (alias:
     /// csm).
     #[strum(props(usage = "Set the model used for suggest generation [alias: csm]"))]
+    #[command(name = "config-suggest-model", alias = "csm")]
     ConfigSuggestModel,
 
     /// Open the global config file in an editor.
     /// This can be triggered with the '/config-edit' command (alias: ce).
     #[strum(props(usage = "Open global config file in an editor [alias: ce]"))]
+    #[command(name = "config-edit", alias = "ce")]
     ConfigEdit,
 
     /// List all available skills.
@@ -482,27 +438,46 @@ pub enum SlashCommand {
     /// Open an external editor to write a prompt.
     /// This can be triggered with the '/edit' command (alias: ed).
     #[strum(props(usage = "Open external editor to write a prompt [alias: ed]"))]
-    Edit(Option<String>),
+    #[command(alias = "ed")]
+    Edit {
+        /// Initial content for the editor (optional)
+        #[arg(trailing_var_arg = true, num_args = 0..)]
+        content: Vec<String>,
+    },
 
     /// Preview the AI-generated commit message without committing.
     /// This can be triggered with the '/commit-preview' command.
     #[strum(props(usage = "Preview AI-generated commit message"))]
+    #[command(name = "commit-preview")]
     CommitPreview,
 
     /// Generate a shell command from a natural language description.
     /// This can be triggered with the '/suggest' command (alias: s).
     #[strum(props(usage = "Generate shell command from natural language [alias: s]"))]
-    Suggest(Option<String>),
+    #[command(alias = "s")]
+    Suggest {
+        /// Natural language description of the shell command
+        #[arg(trailing_var_arg = true, num_args = 0..)]
+        description: Vec<String>,
+    },
 
     /// Clone the current or a selected conversation.
     /// This can be triggered with the '/clone' command.
     #[strum(props(usage = "Clone current or selected conversation"))]
-    Clone(Option<String>),
+    Clone {
+        /// Conversation ID to clone (optional — prompts interactively if absent)
+        id: Option<String>,
+    },
 
     /// Rename any conversation interactively.
     /// This can be triggered with the '/conversation-rename' command.
     #[strum(props(usage = "Rename a conversation interactively"))]
-    ConversationRename(Option<String>),
+    #[command(name = "conversation-rename")]
+    ConversationRename {
+        /// New name for the conversation (optional — prompts interactively if absent)
+        #[arg(trailing_var_arg = true, num_args = 0..)]
+        name: Vec<String>,
+    },
 
     /// Copy the last AI response to the clipboard.
     /// This can be triggered with the '/copy' command.
@@ -512,90 +487,123 @@ pub enum SlashCommand {
     /// Sync the current workspace for semantic search.
     /// This can be triggered with the '/workspace-sync' command (alias: sync).
     #[strum(props(usage = "Sync current workspace for semantic search [alias: sync]"))]
+    #[command(name = "workspace-sync", alias = "sync")]
     WorkspaceSync,
 
     /// Show sync status of all workspace files.
     /// This can be triggered with the '/workspace-status' command.
     #[strum(props(usage = "Show sync status of all workspace files"))]
+    #[command(name = "workspace-status", alias = "sync-status")]
     WorkspaceStatus,
 
     /// Show workspace information with sync details.
     /// This can be triggered with the '/workspace-info' command.
     #[strum(props(usage = "Show workspace information with sync details"))]
+    #[command(name = "workspace-info", alias = "sync-info")]
     WorkspaceInfo,
 
     /// Initialize a new workspace without syncing files.
     /// This can be triggered with the '/workspace-init' command.
     #[strum(props(usage = "Initialize a new workspace without syncing files"))]
+    #[command(name = "workspace-init", alias = "sync-init")]
     WorkspaceInit,
 
     /// Compact the conversation context. This can be triggered with the
     /// '/compact' command.
     #[strum(props(usage = "Compact the conversation context"))]
     Compact,
+
     /// Start a new conversation while preserving history.
     /// This can be triggered with the '/new' command.
     #[strum(props(usage = "Start a new conversation"))]
     New,
+
     /// A regular text message from the user to be processed by the chat system.
     /// Any input that doesn't start with '/' is treated as a message.
     #[strum(props(usage = "Send a regular message"))]
+    #[command(skip)]
     Message(String),
+
     /// Display system environment information.
     /// This can be triggered with the '/info' command.
     #[strum(props(usage = "Display system information"))]
     Info,
+
     /// Display usage information (tokens & requests).
     #[strum(props(usage = "Shows usage information (tokens & requests)"))]
     Usage,
+
     /// Exit the application without any further action.
     #[strum(props(usage = "Exit the application"))]
     Exit,
+
     /// Updates the forge version
     #[strum(props(usage = "Updates to the latest compatible version of forge"))]
     Update,
+
     /// Switch to "forge" agent.
-    /// This can be triggered with the '/forge' command.
+    /// This can be triggered with the '/act' command (alias: forge).
     #[strum(props(usage = "Enable implementation mode with code changes"))]
+    #[command(name = "act", alias = "forge")]
     Forge,
+
     /// Switch to "muse" agent.
-    /// This can be triggered with the '/must' command.
+    /// This can be triggered with the '/plan' command (alias: muse).
     #[strum(props(usage = "Enable planning mode without code changes"))]
+    #[command(name = "plan", alias = "muse")]
     Muse,
+
     /// Switch to "sage" agent.
     /// This can be triggered with the '/sage' command.
     #[strum(props(
         usage = "Enable research mode for systematic codebase exploration and analysis"
     ))]
     Sage,
+
     /// Switch to "help" mode.
     /// This can be triggered with the '/help' command.
     #[strum(props(usage = "Enable help mode for tool questions"))]
+    #[command(name = "help")]
     Help,
+
     /// Dumps the current conversation into a json file or html file
     #[strum(props(usage = "Save conversation as JSON or HTML (use /dump --html for HTML format)"))]
-    Dump { html: bool },
+    Dump {
+        /// Output as HTML instead of JSON
+        #[arg(long)]
+        html: bool,
+    },
+
     /// Switch or select the active model
     /// This can be triggered with the '/model' command.
     #[strum(props(usage = "Switch to a different model"))]
+    #[command(alias = "m")]
     Model,
+
     /// List all available tools with their descriptions and schema
     /// This can be triggered with the '/tools' command.
     #[strum(props(usage = "List all available tools with their descriptions and schema"))]
+    #[command(alias = "t")]
     Tools,
+
     /// Handles custom command defined in workflow file.
+    #[command(skip)]
     Custom(UserCommand),
+
     /// Executes a native shell command.
     /// This can be triggered with commands starting with '!' character.
     #[strum(props(usage = "Execute a native shell command"))]
+    #[command(skip)]
     Shell(String),
 
     /// Allows user to switch the operating agent.
     #[strum(props(usage = "Switch to an agent interactively"))]
+    #[command(alias = "a")]
     Agent,
 
     /// Allows you to configure provider
     #[strum(props(usage = "Allows you to configure provider"))]
+    #[command(name = "provider", aliases = ["login", "provider-login"])]
     Login,
 
     /// Logs out from the configured provider
@@ -604,21 +612,31 @@ pub enum SlashCommand {
 
     /// Retry without modifying model context
     #[strum(props(usage = "Retry the last command"))]
+    #[command(alias = "r")]
     Retry,
+
     /// List all conversations for the active workspace
     #[strum(props(usage = "List all conversations for the active workspace"))]
+    #[command(name = "conversation", aliases = ["conversations", "c"])]
     Conversations,
 
     /// Delete a conversation permanently
     #[strum(props(usage = "Delete a conversation permanently"))]
+    #[command(skip)]
     Delete,
 
     /// Rename the current conversation
     #[strum(props(usage = "Rename the current conversation. Usage: :rename <name>"))]
-    Rename(String),
+    #[command(alias = "rn")]
+    Rename {
+        /// New name for the conversation
+        #[arg(trailing_var_arg = true, required = true)]
+        name: Vec<String>,
+    },
 
     /// Switch directly to a specific agent by ID
     #[strum(props(usage = "Switch directly to a specific agent"))]
+    #[command(skip)]
     AgentSwitch(String),
 
     /// Generate and optionally commit changes with AI-generated message
@@ -629,61 +647,68 @@ pub enum SlashCommand {
     #[strum(props(
         usage = "Generate AI commit message and commit changes. Format: :commit <max-diff|preview>"
     ))]
-    Commit { max_diff_size: Option<usize> },
+    Commit {
+        /// Optional arguments (numeric value sets max diff size in bytes)
+        #[arg(trailing_var_arg = true, num_args = 0..)]
+        args: Vec<String>,
+        /// Parsed max diff size (set by parse() from args)
+        #[clap(skip)]
+        max_diff_size: Option<usize>,
+    },
 
     /// Index the current workspace for semantic code search
     #[strum(props(usage = "Index the current workspace for semantic search"))]
     Index,
 }
 
-impl SlashCommand {
+impl AppCommand {
     pub fn name(&self) -> &str {
         match self {
-            SlashCommand::Compact => "compact",
-            SlashCommand::New => "new",
-            SlashCommand::Message(_) => "message",
-            SlashCommand::Update => "update",
-            SlashCommand::Info => "info",
-            SlashCommand::Usage => "usage",
-            SlashCommand::Exit => "exit",
-            SlashCommand::Forge => "forge",
-            SlashCommand::Muse => "muse",
-            SlashCommand::Sage => "sage",
-            SlashCommand::Help => "help",
-            SlashCommand::Commit { .. } => "commit",
-            SlashCommand::Dump { .. } => "dump",
-            SlashCommand::Model => "model",
-            SlashCommand::Tools => "tools",
-            SlashCommand::Custom(event) => &event.name,
-            SlashCommand::Shell(_) => "!shell",
-            SlashCommand::Agent => "agent",
-            SlashCommand::Login => "login",
-            SlashCommand::Logout => "logout",
-            SlashCommand::Retry => "retry",
-            SlashCommand::Conversations => "conversation",
-            SlashCommand::Delete => "delete",
-            SlashCommand::Rename(_) => "rename",
-            SlashCommand::AgentSwitch(agent_id) => agent_id,
-            SlashCommand::Index => "index",
-            SlashCommand::Config => "config",
-            SlashCommand::ConfigModel => "config-model",
-            SlashCommand::ConfigReload => "config-reload",
-            SlashCommand::ReasoningEffort => "reasoning-effort",
-            SlashCommand::ConfigReasoningEffort => "config-reasoning-effort",
-            SlashCommand::ConfigCommitModel => "config-commit-model",
-            SlashCommand::ConfigSuggestModel => "config-suggest-model",
-            SlashCommand::ConfigEdit => "config-edit",
-            SlashCommand::Skill => "skill",
-            SlashCommand::Edit(_) => "edit",
-            SlashCommand::CommitPreview => "commit-preview",
-            SlashCommand::Suggest(_) => "suggest",
-            SlashCommand::Clone(_) => "clone",
-            SlashCommand::ConversationRename(_) => "conversation-rename",
-            SlashCommand::Copy => "copy",
-            SlashCommand::WorkspaceSync => "workspace-sync",
-            SlashCommand::WorkspaceStatus => "workspace-status",
-            SlashCommand::WorkspaceInfo => "workspace-info",
-            SlashCommand::WorkspaceInit => "workspace-init",
+            AppCommand::Compact => "compact",
+            AppCommand::New => "new",
+            AppCommand::Message(_) => "message",
+            AppCommand::Update => "update",
+            AppCommand::Info => "info",
+            AppCommand::Usage => "usage",
+            AppCommand::Exit => "exit",
+            AppCommand::Forge => "forge",
+            AppCommand::Muse => "muse",
+            AppCommand::Sage => "sage",
+            AppCommand::Help => "help",
+            AppCommand::Commit { .. } => "commit",
+            AppCommand::Dump { .. } => "dump",
+            AppCommand::Model => "model",
+            AppCommand::Tools => "tools",
+            AppCommand::Custom(event) => &event.name,
+            AppCommand::Shell(_) => "!shell",
+            AppCommand::Agent => "agent",
+            AppCommand::Login => "login",
+            AppCommand::Logout => "logout",
+            AppCommand::Retry => "retry",
+            AppCommand::Conversations => "conversation",
+            AppCommand::Delete => "delete",
+            AppCommand::Rename { .. } => "rename",
+            AppCommand::AgentSwitch(agent_id) => agent_id,
+            AppCommand::Index => "index",
+            AppCommand::Config => "config",
+            AppCommand::ConfigModel => "config-model",
+            AppCommand::ConfigReload => "config-reload",
+            AppCommand::ReasoningEffort => "reasoning-effort",
+            AppCommand::ConfigReasoningEffort => "config-reasoning-effort",
+            AppCommand::ConfigCommitModel => "config-commit-model",
+            AppCommand::ConfigSuggestModel => "config-suggest-model",
+            AppCommand::ConfigEdit => "config-edit",
+            AppCommand::Skill => "skill",
+            AppCommand::Edit { .. } => "edit",
+            AppCommand::CommitPreview => "commit-preview",
+            AppCommand::Suggest { .. } => "suggest",
+            AppCommand::Clone { .. } => "clone",
+            AppCommand::ConversationRename { .. } => "conversation-rename",
+            AppCommand::Copy => "copy",
+            AppCommand::WorkspaceSync => "workspace-sync",
+            AppCommand::WorkspaceStatus => "workspace-status",
+            AppCommand::WorkspaceInfo => "workspace-info",
+            AppCommand::WorkspaceInit => "workspace-init",
         }
     }
 
@@ -697,11 +722,11 @@ impl SlashCommand {
     pub fn is_internal(&self) -> bool {
         matches!(
             self,
-            SlashCommand::Message(_)
-                | SlashCommand::Custom(_)
-                | SlashCommand::Shell(_)
-                | SlashCommand::AgentSwitch(_)
-                | SlashCommand::Rename(_)
+            AppCommand::Message(_)
+                | AppCommand::Custom(_)
+                | AppCommand::Shell(_)
+                | AppCommand::AgentSwitch(_)
+                | AppCommand::Rename { .. }
         )
     }
 }
@@ -933,7 +958,7 @@ mod tests {
 
         // Verify
         match result {
-            SlashCommand::Shell(cmd) => assert_eq!(cmd, "ls -la"),
+            AppCommand::Shell(cmd) => assert_eq!(cmd, "ls -la"),
             _ => panic!("Expected Shell command, got {result:?}"),
         }
     }
@@ -948,7 +973,7 @@ mod tests {
 
         // Verify
         match result {
-            SlashCommand::Shell(cmd) => assert_eq!(cmd, ""),
+            AppCommand::Shell(cmd) => assert_eq!(cmd, ""),
             _ => panic!("Expected Shell command, got {result:?}"),
         }
     }
@@ -963,7 +988,7 @@ mod tests {
 
         // Verify
         match result {
-            SlashCommand::Shell(cmd) => assert_eq!(cmd, "echo 'test'"),
+            AppCommand::Shell(cmd) => assert_eq!(cmd, "echo 'test'"),
             _ => panic!("Expected Shell command, got {result:?}"),
         }
     }
@@ -991,7 +1016,7 @@ mod tests {
 
         // Verify
         match result {
-            SlashCommand::Conversations => {
+            AppCommand::Conversations => {
                 // Command parsed correctly
             }
             _ => panic!("Expected List command, got {result:?}"),
@@ -1110,7 +1135,7 @@ mod tests {
 
         // Verify
         match actual {
-            SlashCommand::AgentSwitch(agent_id) => assert_eq!(agent_id, "test-agent"),
+            AppCommand::AgentSwitch(agent_id) => assert_eq!(agent_id, "test-agent"),
             _ => panic!("Expected AgentSwitch command, got {actual:?}"),
         }
     }
@@ -1341,7 +1366,7 @@ mod tests {
         let fixture = ForgeCommandManager::default();
         let actual = fixture.parse("/commit").unwrap();
         match actual {
-            SlashCommand::Commit { max_diff_size } => {
+            AppCommand::Commit { max_diff_size, .. } => {
                 assert_eq!(max_diff_size, None);
             }
             _ => panic!("Expected Commit command, got {actual:?}"),
@@ -1353,7 +1378,7 @@ mod tests {
         let fixture = ForgeCommandManager::default();
         let actual = fixture.parse("/commit preview").unwrap();
         match actual {
-            SlashCommand::Commit { max_diff_size } => {
+            AppCommand::Commit { max_diff_size, .. } => {
                 assert_eq!(max_diff_size, None);
             }
             _ => panic!("Expected Commit command with preview, got {actual:?}"),
@@ -1365,7 +1390,7 @@ mod tests {
         let fixture = ForgeCommandManager::default();
         let actual = fixture.parse("/commit 5000").unwrap();
         match actual {
-            SlashCommand::Commit { max_diff_size } => {
+            AppCommand::Commit { max_diff_size, .. } => {
                 assert_eq!(max_diff_size, Some(5000));
             }
             _ => panic!("Expected Commit command with max_diff_size, got {actual:?}"),
@@ -1377,7 +1402,7 @@ mod tests {
         let fixture = ForgeCommandManager::default();
         let actual = fixture.parse("/commit preview 10000").unwrap();
         match actual {
-            SlashCommand::Commit { max_diff_size } => {
+            AppCommand::Commit { max_diff_size, .. } => {
                 assert_eq!(max_diff_size, Some(10000));
             }
             _ => panic!("Expected Commit command with all flags, got {actual:?}"),
@@ -1423,7 +1448,7 @@ mod tests {
 
         // Verify
         match result {
-            SlashCommand::Tools => {
+            AppCommand::Tools => {
                 // Command parsed correctly
             }
             _ => panic!("Expected Tool command, got {result:?}"),
@@ -1439,20 +1464,20 @@ mod tests {
         let actual = fixture.parse("/dump").unwrap();
 
         // Verify
-        let expected = SlashCommand::Dump { html: false };
+        let expected = AppCommand::Dump { html: false };
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn test_parse_dump_command_html_without_dashes() {
+    fn test_parse_dump_command_html_with_flag() {
         // Setup
         let fixture = ForgeCommandManager::default();
 
         // Execute
-        let actual = fixture.parse("/dump html").unwrap();
+        let actual = fixture.parse("/dump --html").unwrap();
 
         // Verify
-        let expected = SlashCommand::Dump { html: true };
+        let expected = AppCommand::Dump { html: true };
         assert_eq!(actual, expected);
     }
 
@@ -1460,7 +1485,10 @@ mod tests {
     fn test_parse_rename_command() {
         let fixture = ForgeCommandManager::default();
         let actual = fixture.parse("/rename my-session").unwrap();
-        assert_eq!(actual, SlashCommand::Rename("my-session".to_string()));
+        assert_eq!(
+            actual,
+            AppCommand::Rename { name: vec!["my-session".to_string()] }
+        );
     }
 
     #[test]
@@ -1469,7 +1497,7 @@ mod tests {
         let actual = fixture.parse("/rename auth refactor work").unwrap();
         assert_eq!(
             actual,
-            SlashCommand::Rename("auth refactor work".to_string())
+            AppCommand::Rename { name: vec!["auth".to_string(), "refactor".to_string(), "work".to_string()] }
         );
     }
 
@@ -1485,14 +1513,20 @@ mod tests {
     fn test_parse_rename_alias() {
         let fixture = ForgeCommandManager::default();
         let actual = fixture.parse("/rn my-session").unwrap();
-        assert_eq!(actual, SlashCommand::Rename("my-session".to_string()));
+        assert_eq!(
+            actual,
+            AppCommand::Rename { name: vec!["my-session".to_string()] }
+        );
     }
 
     #[test]
     fn test_parse_rename_trims_whitespace() {
         let fixture = ForgeCommandManager::default();
         let actual = fixture.parse("/rename   my title   ").unwrap();
-        assert_eq!(actual, SlashCommand::Rename("my title".to_string()));
+        assert_eq!(
+            actual,
+            AppCommand::Rename { name: vec!["my".to_string(), "title".to_string()] }
+        );
     }
 
     #[test]
@@ -1503,7 +1537,7 @@ mod tests {
 
     #[test]
     fn test_rename_command_name() {
-        let cmd = SlashCommand::Rename("test".to_string());
+        let cmd = AppCommand::Rename { name: vec!["test".to_string()] };
         assert_eq!(cmd.name(), "rename");
     }
 }
