@@ -167,12 +167,8 @@ impl Prompt for ForgePrompt {
             let model_str = model.to_string();
             let short_model = model_str.split('/').next_back().unwrap_or(model.as_str());
             let model_label = format!("{MODEL_SYMBOL} {short_model}");
-            write!(
-                result,
-                " {}",
-                Style::new().fg(COLOR_MODEL).paint(&model_label)
-            )
-            .unwrap();
+            let color = if active { COLOR_MODEL } else { COLOR_DIMMED };
+            write!(result, " {}", Style::new().fg(color).paint(&model_label)).unwrap();
         }
 
         Cow::Owned(result)

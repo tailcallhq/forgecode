@@ -334,7 +334,8 @@ impl ForgeCommandManager {
                             parameters.into_iter().map(|s| s.to_owned()).collect(),
                         )))
                     } else {
-                        Err(anyhow::anyhow!("{command} is not valid"))
+                        
+                        Err(anyhow::anyhow!("'{command_name}' is not a valid command"))
                     }
                 } else {
                     Err(anyhow::anyhow!("Invalid Command Format."))
