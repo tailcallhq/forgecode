@@ -2425,7 +2425,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
 
         // Pre-fill the REPL buffer so the user can review/edit before sending
-        self.console.set_buffer(format!(": {content}"));
+        self.console.set_buffer(content);
 
         Ok(())
     }
