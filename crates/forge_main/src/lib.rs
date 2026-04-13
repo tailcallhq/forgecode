@@ -4,6 +4,7 @@ mod completer;
 mod conversation_selector;
 mod display_constants;
 mod editor;
+mod highlighter;
 mod info;
 mod input;
 mod model;
