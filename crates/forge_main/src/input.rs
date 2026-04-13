@@ -31,7 +31,7 @@ impl Console {
         loop {
             let mut forge_editor = self.editor.lock().unwrap();
             let user_input = forge_editor.prompt(prompt)?;
-            
+
             drop(forge_editor);
             match user_input {
                 ReadResult::Continue => continue,

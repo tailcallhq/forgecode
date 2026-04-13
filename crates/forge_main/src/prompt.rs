@@ -27,7 +27,8 @@ pub struct ForgePrompt {
 }
 
 impl ForgePrompt {
-    /// Creates a new `ForgePrompt`, resolving the git branch once at construction time.
+    /// Creates a new `ForgePrompt`, resolving the git branch once at
+    /// construction time.
     pub fn new(cwd: PathBuf, agent_id: AgentId) -> Self {
         let git_branch = get_git_branch();
         Self { cwd, usage: None, agent_id, model: None, git_branch }
