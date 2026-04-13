@@ -23,13 +23,6 @@ const SUCCESS_SYMBOL: &str = "\u{f013e}"; // 󰄾  chevron     (starship charact
 const AGENT_SYMBOL: &str = "\u{f167a}";
 const MODEL_SYMBOL: &str = "\u{ec19}";
 
-// FIXME: Use color by name instead of hardcoding values
-// ANSI 256-colour indices matching the ZSH rprompt palette
-const COLOR_DIMMED: Color = Color::Fixed(240);
-const COLOR_BRIGHT: Color = Color::Fixed(15);
-const COLOR_GREEN: Color = Color::Fixed(2);
-const COLOR_MODEL: Color = Color::Fixed(134);
-
 /// Very Specialized Prompt for the Agent Chat
 #[derive(Clone, Setters)]
 #[setters(strip_option, borrow_self)]
@@ -117,7 +110,11 @@ impl Prompt for ForgePrompt {
         let total_tokens = self.usage.as_ref().map(|u| u.total_tokens);
         let active = total_tokens.map(|t| *t > 0).unwrap_or(false);
 
-        let agent_color = if active { COLOR_BRIGHT } else { COLOR_DIMMED };
+        let agent_color = if active {
+            Color::LightGray
+        } else {
+            Color::DarkGray
+        };
         let mut result = String::with_capacity(64);
 
         // Agent name with nerd font symbol
@@ -144,7 +141,7 @@ impl Prompt for ForgePrompt {
             write!(
                 result,
                 " {}",
-                Style::new().bold().fg(COLOR_BRIGHT).paint(&count_str)
+                Style::new().bold().fg(Color::LightGray).paint(&count_str)
             )
             .unwrap();
         }
@@ -157,7 +154,7 @@ impl Prompt for ForgePrompt {
             write!(
                 result,
                 " {}",
-                Style::new().bold().fg(COLOR_GREEN).paint(&cost_str)
+                Style::new().bold().fg(Color::Green).paint(&cost_str)
             )
             .unwrap();
         }
@@ -167,7 +164,11 @@ impl Prompt for ForgePrompt {
             let model_str = model.to_string();
             let short_model = model_str.split('/').next_back().unwrap_or(model.as_str());
             let model_label = format!("{MODEL_SYMBOL} {short_model}");
-            let color = if active { COLOR_MODEL } else { COLOR_DIMMED };
+            let color = if active {
+                Color::LightMagenta
+            } else {
+                Color::DarkGray
+            };
             write!(result, " {}", Style::new().fg(color).paint(&model_label)).unwrap();
         }
 
@@ -240,8 +241,6 @@ mod tests {
         let prompt = ForgePrompt::default();
         let actual = prompt.render_prompt_left();
 
-        // Agent name present
-        assert!(actual.contains("FORGE"));
         // Starship directory icon present
         assert!(actual.contains(DIR_SYMBOL));
         // Starship success chevron present
@@ -254,6 +253,7 @@ mod tests {
         prompt.git_branch = Some("main".to_string());
         let actual = prompt.render_prompt_left();
 
+        // Agent name is on the right prompt, not the left
         // Branch icon and name present
         assert!(actual.contains(BRANCH_SYMBOL));
         assert!(actual.contains("main"));
