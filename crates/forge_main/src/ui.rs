@@ -239,14 +239,22 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     }
 
     async fn prompt(&self) -> Result<AppCommand> {
-        // Get usage from current conversation if available
+        // Get usage from current conversation if available.
+        // Use the last message's usage for token count (context window size),
+        // but replace cost with the accumulated session cost so the cost
+        // shown reflects the total spend rather than just the last request.
         let usage = if let Some(conversation_id) = &self.state.conversation_id {
             self.api
                 .conversation(conversation_id)
                 .await
                 .ok()
                 .flatten()
-                .and_then(|conv| conv.accumulated_usage())
+                .and_then(|conv| {
+                    conv.usage().map(|mut u| {
+                        u.cost = conv.accumulated_cost();
+                        u
+                    })
+                })
         } else {
             None
         };
