@@ -39,7 +39,7 @@ impl<I: GrpcInfra> FuzzySearchRepository for ForgeFuzzySearchRepository<I> {
         });
 
         // Call gRPC API
-        let channel = self.infra.channel();
+        let channel = self.infra.channel()?;
         let mut client = ForgeServiceClient::new(channel);
         let response = client
             .fuzzy_search(request)

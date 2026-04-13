@@ -125,6 +125,11 @@ impl Walker {
         'walk_loop: for entry in walk.flatten() {
             let path = entry.path();
 
+            // Skip symlinks — we only process real files and directories.
+            if entry.path_is_symlink() {
+                continue;
+            }
+
             // Calculate depth relative to base directory
             let depth = path
                 .strip_prefix(&self.cwd)
@@ -614,6 +619,66 @@ mod tests {
         assert_eq!(
             actual, expected,
             "should respect nested .gitignore in git repos"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_walker_excludes_symlinks() {
+        let fixture = fixtures::Fixture::default();
+
+        // Real file that should appear in results.
+        fixture.add_file("real.txt", "content").unwrap();
+
+        // Symlink pointing to the real file — must be excluded.
+        let link_path = fixture.as_path().join("link.txt");
+        std::os::unix::fs::symlink(fixture.as_path().join("real.txt"), &link_path).unwrap();
+
+        let actual = Walker::max_all()
+            .cwd(fixture.as_path().to_path_buf())
+            .get()
+            .await
+            .unwrap();
+
+        let actual_files: Vec<_> = actual
+            .iter()
+            .filter(|f| !f.is_dir())
+            .map(|f| f.path.as_str())
+            .collect();
+
+        let expected = vec!["real.txt"];
+        assert_eq!(
+            actual_files, expected,
+            "symlinks should be excluded from walker results"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_walker_excludes_dangling_symlinks() {
+        let fixture = fixtures::Fixture::default();
+
+        // Real file that should appear in results.
+        fixture.add_file("present.txt", "").unwrap();
+
+        // Dangling symlink — target does not exist.
+        let dangling = fixture.as_path().join("dangling.txt");
+        std::os::unix::fs::symlink(fixture.as_path().join("ghost.txt"), &dangling).unwrap();
+
+        let actual = Walker::max_all()
+            .cwd(fixture.as_path().to_path_buf())
+            .get()
+            .await
+            .unwrap();
+
+        let actual_files: Vec<_> = actual
+            .iter()
+            .filter(|f| !f.is_dir())
+            .map(|f| f.path.as_str())
+            .collect();
+
+        let expected = vec!["present.txt"];
+        assert_eq!(
+            actual_files, expected,
+            "dangling symlinks should be excluded from walker results"
         );
     }
 }

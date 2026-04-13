@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use derive_setters::Setters;
@@ -10,6 +11,92 @@ use crate::writer::ConfigWriter;
 use crate::{
     AutoDumpFormat, Compact, Decimal, HttpConfig, ModelConfig, ReasoningConfig, RetryConfig, Update,
 };
+
+/// Wire protocol a provider uses for chat completions.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Dummy)]
+pub enum ProviderResponseType {
+    OpenAI,
+    OpenAIResponses,
+    Anthropic,
+    Bedrock,
+    Google,
+    OpenCode,
+}
+
+/// Category of a provider.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, Dummy)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderTypeEntry {
+    /// LLM provider for chat completions.
+    #[default]
+    Llm,
+    /// Context engine provider for code indexing and search.
+    ContextEngine,
+}
+
+/// Authentication method supported by a provider.
+///
+/// Only the simple (non-OAuth) methods are available here; providers that
+/// require OAuth device or authorization-code flows must be configured via the
+/// file-based `provider.json` override instead.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Dummy)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderAuthMethod {
+    ApiKey,
+    GoogleAdc,
+}
+
+/// A URL parameter variable for a provider, used to substitute template
+/// variables in URL strings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Dummy)]
+#[serde(rename_all = "snake_case")]
+pub struct ProviderUrlParam {
+    /// The environment variable name used as the template variable key.
+    pub name: String,
+    /// Optional preset values for this parameter shown as suggestions in the
+    /// UI.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<String>,
+}
+
+/// A single provider entry defined inline in `forge.toml`.
+///
+/// Inline providers are merged with the built-in provider list; entries with
+/// the same `id` override the corresponding built-in entry field-by-field,
+/// while entries with a new `id` are appended to the list.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Dummy)]
+#[serde(rename_all = "snake_case")]
+pub struct ProviderEntry {
+    /// Unique provider identifier used in model paths (e.g. `"my_provider"`).
+    pub id: String,
+    /// Environment variable holding the API key for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_var: Option<String>,
+    /// URL template for chat completions; may contain `{{VAR}}` placeholders
+    /// that are substituted from the credential's url params.
+    pub url: String,
+    /// URL template for fetching the model list; may contain `{{VAR}}`
+    /// placeholders.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<String>,
+    /// Wire protocol used by this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_type: Option<ProviderResponseType>,
+    /// Environment variables whose values are substituted into `{{VAR}}`
+    /// placeholders in the `url` and `models` templates.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub url_param_vars: Vec<ProviderUrlParam>,
+    /// Additional HTTP headers sent with every request to this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_headers: Option<HashMap<String, String>>,
+    /// Provider category; defaults to `llm` when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_type: Option<ProviderTypeEntry>,
+    /// Authentication methods supported by this provider; defaults to
+    /// `["api_key"]` when omitted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub auth_methods: Vec<ProviderAuthMethod>,
+}
 
 /// Top-level Forge configuration merged from all sources (defaults, file,
 /// environment).
@@ -108,6 +195,10 @@ pub struct ForgeConfig {
     /// Model and provider configuration used for commit message generation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<ModelConfig>,
+    /// Maximum number of recent commits included as context for commit message
+    /// generation.
+    #[serde(default)]
+    pub max_commit_count: usize,
     /// Model and provider configuration used for shell command suggestion
     /// generation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -166,6 +257,30 @@ pub struct ForgeConfig {
     /// token budget, and visibility of the model's thinking process.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ReasoningConfig>,
+
+    /// Additional provider definitions merged with the built-in provider list.
+    ///
+    /// Entries with an `id` matching a built-in provider override its fields;
+    /// entries with a new `id` are appended and become available for model
+    /// selection.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub providers: Vec<ProviderEntry>,
+
+    /// Currency symbol displayed in the shell rprompt next to the session cost
+    /// (e.g. `"$"`, `"€"`, `"₹"`). Defaults to `"$"`.
+    #[serde(default)]
+    pub currency_symbol: String,
+
+    /// Conversion rate applied to costs before display in the shell rprompt.
+    /// The raw USD cost is multiplied by this value, allowing costs to be shown
+    /// in a local currency. Defaults to `1.0` (no conversion).
+    #[serde(default)]
+    pub currency_conversion_rate: Decimal,
+
+    /// Enables the pending todos hook that checks for incomplete todo items
+    /// when a task ends and reminds the LLM about them.
+    #[serde(default)]
+    pub verify_todos: bool,
 }
 
 impl ForgeConfig {

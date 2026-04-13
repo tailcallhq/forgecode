@@ -13,6 +13,7 @@ use tokio::sync::OnceCell;
 use tokio_stream::StreamExt;
 
 use crate::provider::bedrock_cache::SetCache;
+use crate::provider::bedrock_sanitize_ids::SanitizeToolIds;
 use crate::provider::retry::into_retry;
 use crate::provider::{FromDomain, IntoDomain};
 
@@ -200,6 +201,7 @@ impl BedrockProvider {
         let supports_caching = Self::supports_caching(&model_id);
         let bedrock_input = SetCache
             .when(move |_| supports_caching)
+            .pipe(SanitizeToolIds)
             .transform(bedrock_input);
 
         // Build and send the converse_stream request
@@ -405,7 +407,7 @@ impl IntoDomain for aws_sdk_bedrockruntime::types::ConverseStreamOutput {
                         .saturating_add(u.cache_write_input_tokens.unwrap_or(0));
 
                     forge_domain::Usage {
-                        prompt_tokens: forge_domain::TokenCount::Actual(u.total_tokens as usize),
+                        prompt_tokens: forge_domain::TokenCount::Actual(u.input_tokens as usize),
                         completion_tokens: forge_domain::TokenCount::Actual(
                             u.output_tokens as usize,
                         ),
@@ -1416,7 +1418,7 @@ mod tests {
         let actual = fixture.into_domain();
         let expected =
             ChatCompletionMessage::assistant(Content::part("")).usage(forge_domain::Usage {
-                prompt_tokens: TokenCount::Actual(1000),
+                prompt_tokens: TokenCount::Actual(800),
                 completion_tokens: TokenCount::Actual(200),
                 total_tokens: TokenCount::Actual(1000),
                 cached_tokens: TokenCount::Actual(80), // 50 + 30
@@ -1669,6 +1671,7 @@ mod tests {
 
         let fixture = Context {
             conversation_id: None,
+            initiator: None,
             messages: vec![
                 ContextMessage::system("You are a helpful assistant").into(),
                 ContextMessage::Text(TextMessage::new(Role::User, "Hello!")).into(),
@@ -1701,6 +1704,7 @@ mod tests {
 
         let fixture = Context {
             conversation_id: None,
+            initiator: None,
             messages: vec![],
             tools: vec![],
             tool_choice: None,
@@ -1726,6 +1730,7 @@ mod tests {
 
         let fixture = Context {
             conversation_id: None,
+            initiator: None,
             messages: vec![],
             tools: vec![],
             tool_choice: None,
@@ -1759,6 +1764,7 @@ mod tests {
 
         let fixture = Context {
             conversation_id: None,
+            initiator: None,
             messages: vec![],
             tools: vec![],
             tool_choice: None,

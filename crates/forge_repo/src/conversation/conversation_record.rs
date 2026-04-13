@@ -724,6 +724,8 @@ impl From<ReasoningConfigRecord> for forge_domain::ReasoningConfig {
 pub(super) struct ContextRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    initiator: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     messages: Vec<ContextMessageRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -748,6 +750,7 @@ impl From<&Context> for ContextRecord {
     fn from(context: &Context) -> Self {
         Self {
             conversation_id: context.conversation_id.as_ref().map(|id| id.into_string()),
+            initiator: context.initiator.clone(),
             messages: context
                 .messages
                 .iter()
@@ -803,6 +806,7 @@ impl TryFrom<ContextRecord> for Context {
 
         Ok(Context {
             conversation_id,
+            initiator: record.initiator,
             messages: messages?,
             tools: tools?,
             tool_choice: record.tool_choice.map(Into::into),
@@ -956,7 +960,7 @@ impl ConversationRecord {
         let context = conversation
             .context
             .as_ref()
-            .filter(|ctx| !ctx.messages.is_empty())
+            .filter(|ctx| !ctx.messages.is_empty() || ctx.initiator.is_some())
             .map(ContextRecord::from)
             .and_then(|ctx_record| serde_json::to_string(&ctx_record).ok());
         let updated_at = context.as_ref().map(|_| chrono::Utc::now().naive_utc());

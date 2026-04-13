@@ -48,6 +48,7 @@ derive_more.workspace = true
 gray_matter = { workspace = true }
 dirs.workspace = true
 async-openai.workspace = true
+regex.workspace = true
 google-cloud-auth.workspace = true
 
 # gRPC for codebase client

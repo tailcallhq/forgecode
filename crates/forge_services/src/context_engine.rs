@@ -47,7 +47,7 @@ impl<
         + ProviderRepository
         + WorkspaceIndexRepository
         + FileReaderInfra
-        + EnvironmentInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + CommandInfra
         + WalkerInfra,
     D: FileDiscovery + 'static,
@@ -64,7 +64,7 @@ impl<
         emit(SyncProgress::Starting).await;
 
         let (token, user_id) = self.get_workspace_credentials().await?;
-        let batch_size = self.infra.get_config().max_file_read_batch_size;
+        let batch_size = self.infra.get_config()?.max_file_read_batch_size;
         let path = canonicalize_path(path)?;
 
         // Find existing workspace - do NOT auto-create
@@ -219,7 +219,7 @@ impl<
     F: ProviderRepository
         + WorkspaceIndexRepository
         + FileReaderInfra
-        + EnvironmentInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + CommandInfra
         + WalkerInfra
         + 'static,
@@ -359,7 +359,7 @@ impl<
         // sync), avoiding a redundant canonicalize() IO call.
         let canonical_path = PathBuf::from(&workspace.working_dir);
 
-        let batch_size = self.infra.get_config().max_file_read_batch_size;
+        let batch_size = self.infra.get_config()?.max_file_read_batch_size;
 
         WorkspaceSyncEngine::new(
             Arc::clone(&self.infra),

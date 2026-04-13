@@ -118,11 +118,8 @@ mod tests {
             Faker.fake()
         }
 
-        fn get_config(&self) -> forge_config::ForgeConfig {
-            forge_config::ConfigReader::default()
-                .read_defaults()
-                .build()
-                .unwrap()
+        fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+            Ok(forge_config::ForgeConfig::default())
         }
 
         async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {

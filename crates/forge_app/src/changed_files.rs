@@ -20,15 +20,19 @@ impl<S> ChangedFiles<S> {
     }
 }
 
-impl<S: FsReadService + EnvironmentInfra> ChangedFiles<S> {
+impl<S: FsReadService + EnvironmentInfra<Config = forge_config::ForgeConfig>> ChangedFiles<S> {
     /// Detects externally changed files and renders a notification if changes
     /// are found. Updates file hashes in conversation metrics to prevent
     /// duplicate notifications.
     pub async fn update_file_stats(&self, mut conversation: Conversation) -> Conversation {
         use crate::file_tracking::FileChangeDetector;
-        let parallel_file_reads = self.services.get_config().max_parallel_file_reads;
-        let changes = FileChangeDetector::new(self.services.clone(), parallel_file_reads)
-            .detect(&conversation.metrics)
+        let parallel_file_reads = self
+            .services
+            .get_config()
+            .map(|c| c.max_parallel_file_reads)
+            .unwrap_or(4);
+        let changes = FileChangeDetector::new(self.services.clone())
+            .detect(&conversation.metrics, parallel_file_reads)
             .await;
 
         if changes.is_empty() {
@@ -133,11 +137,8 @@ mod tests {
             env
         }
 
-        fn get_config(&self) -> forge_config::ForgeConfig {
-            forge_config::ConfigReader::default()
-                .read_defaults()
-                .build()
-                .unwrap()
+        fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+            Ok(forge_config::ForgeConfig { max_parallel_file_reads: 4, ..Default::default() })
         }
 
         async fn update_environment(

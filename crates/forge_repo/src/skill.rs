@@ -12,19 +12,22 @@ use serde::Deserialize;
 /// Repository implementation for loading skills from multiple sources:
 /// 1. Built-in skills (embedded in the application)
 /// 2. Global custom skills (from ~/forge/skills/ directory)
-/// 3. Project-local skills (from .forge/skills/ directory in current working
+/// 3. Agents skills (from ~/.agents/skills/ directory)
+/// 4. Project-local skills (from .forge/skills/ directory in current working
 ///    directory)
 ///
 /// ## Skill Precedence
 /// When skills have duplicate names across different sources, the precedence
-/// order is: **CWD (project-local) > Global custom > Built-in**
+/// order is: **CWD (project-local) > Agents (~/.agents/skills) > Global
+/// custom > Built-in**
 ///
-/// This means project-local skills can override global skills, and both can
-/// override built-in skills.
+/// This means project-local skills can override agents skills, which can
+/// override global skills, which can override built-in skills.
 ///
 /// ## Directory Resolution
 /// - **Built-in skills**: Embedded in application binary
 /// - **Global skills**: `~/forge/skills/<skill-name>/SKILL.md`
+/// - **Agents skills**: `~/.agents/skills/<skill-name>/SKILL.md`
 /// - **CWD skills**: `./.forge/skills/<skill-name>/SKILL.md` (relative to
 ///   current working directory)
 ///
@@ -84,12 +87,19 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> SkillR
         let global_skills = self.load_skills_from_dir(&global_dir).await?;
         skills.extend(global_skills);
 
+        // Load agents skills (~/.agents/skills)
+        if let Some(agents_dir) = env.agents_skills_path() {
+            let agents_skills = self.load_skills_from_dir(&agents_dir).await?;
+            skills.extend(agents_skills);
+        }
+
         // Load project-local skills
         let cwd_dir = env.local_skills_path();
         let cwd_skills = self.load_skills_from_dir(&cwd_dir).await?;
         skills.extend(cwd_skills);
 
-        // Resolve conflicts by keeping the last occurrence (CWD > Global > Built-in)
+        // Resolve conflicts by keeping the last occurrence (CWD > Agents > Global >
+        // Built-in)
         let skills = resolve_skill_conflicts(skills);
 
         // Render all skills with environment context
@@ -220,11 +230,16 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
     /// * `env` - The environment containing path informations
     fn render_skill(&self, skill: Skill, env: &forge_domain::Environment) -> Skill {
         let global = env.global_skills_path().display().to_string();
+        let agents = env
+            .agents_skills_path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
         let local = env.local_skills_path().display().to_string();
 
         let rendered = skill
             .command
             .replace("{{global_skills_path}}", &global)
+            .replace("{{agents_skills_path}}", &agents)
             .replace("{{local_skills_path}}", &local);
 
         skill.command(rendered)
@@ -288,6 +303,7 @@ fn resolve_skill_conflicts(skills: Vec<Skill>) -> Vec<Skill> {
 
 #[cfg(test)]
 mod tests {
+    use forge_config::ForgeConfig;
     use forge_infra::ForgeInfra;
     use pretty_assertions::assert_eq;
 
@@ -296,7 +312,8 @@ mod tests {
     fn fixture_skill_repo() -> (ForgeSkillRepository<ForgeInfra>, std::path::PathBuf) {
         let skill_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src/fixtures/skills_with_resources");
-        let infra = Arc::new(ForgeInfra::new(std::env::current_dir().unwrap()));
+        let config = ForgeConfig::read().unwrap_or_default();
+        let infra = Arc::new(ForgeInfra::new(std::env::current_dir().unwrap(), config));
         let repo = ForgeSkillRepository::new(infra);
         (repo, skill_dir)
     }

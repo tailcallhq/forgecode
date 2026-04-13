@@ -31,7 +31,7 @@ impl<
         + ShellService
         + FollowUpService
         + ConversationService
-        + EnvironmentInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + PlanCreateService
         + SkillFetchService
         + AgentRegistry
@@ -68,8 +68,9 @@ impl<
     async fn dump_operation(&self, operation: &ToolOperation) -> anyhow::Result<TempContentFiles> {
         match operation {
             ToolOperation::NetFetch { input: _, output } => {
+                let config = self.services.get_config()?;
                 let original_length = output.content.len();
-                let is_truncated = original_length > self.services.get_config().max_fetch_chars;
+                let is_truncated = original_length > config.max_fetch_chars;
                 let mut files = TempContentFiles::default();
 
                 if is_truncated {
@@ -82,7 +83,7 @@ impl<
                 Ok(files)
             }
             ToolOperation::Shell { output } => {
-                let config = self.services.get_config();
+                let config = self.services.get_config()?;
                 let stdout_lines = output.output.stdout.lines().count();
                 let stderr_lines = output.output.stderr.lines().count();
                 let stdout_truncated =
@@ -184,8 +185,8 @@ impl<
                 (input, output).into()
             }
             ToolCatalog::SemSearch(input) => {
+                let config = self.services.get_config()?;
                 let env = self.services.get_environment();
-                let config = self.services.get_config();
                 let services = self.services.clone();
                 let cwd = env.cwd.clone();
                 let limit = config.max_sem_search_results;
@@ -240,6 +241,14 @@ impl<
                         input.new_string.clone(),
                         input.replace_all,
                     )
+                    .await?;
+                (input, output).into()
+            }
+            ToolCatalog::MultiPatch(input) => {
+                let normalized_path = self.normalize_path(input.file_path.clone());
+                let output = self
+                    .services
+                    .multi_patch(normalized_path, input.edits.clone())
                     .await?;
                 (input, output).into()
             }
@@ -315,6 +324,10 @@ impl<
                 let todos = context.get_todos()?;
                 ToolOperation::TodoRead { output: todos }
             }
+            ToolCatalog::Task(_) => {
+                // Task tools are handled in ToolRegistry before reaching here
+                unreachable!("Task tool should be handled in ToolRegistry")
+            }
         })
     }
 
@@ -325,11 +338,17 @@ impl<
     ) -> anyhow::Result<ToolOutput> {
         let tool_kind = tool_input.kind();
         let env = self.services.get_environment();
-        let config = self.services.get_config();
+        let config = self.services.get_config()?;
 
-        // Enforce read-before-edit for patch
-        if let ToolCatalog::Patch(input) = &tool_input {
-            self.require_prior_read(context, &input.file_path, "edit it")?;
+        // Enforce read-before-edit for patch operations
+        let file_path = match &tool_input {
+            ToolCatalog::Patch(input) => Some(&input.file_path),
+            ToolCatalog::MultiPatch(input) => Some(&input.file_path),
+            _ => None,
+        };
+
+        if let Some(path) = file_path {
+            self.require_prior_read(context, path, "edit it")?;
         }
 
         // Enforce read-before-edit for overwrite writes

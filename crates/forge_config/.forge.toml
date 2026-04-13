@@ -1,5 +1,6 @@
 auto_open_dump = false
 max_conversations = 100
+max_commit_count = 20
 max_extensions = 15
 max_fetch_chars = 50000
 max_file_read_batch_size = 50
@@ -21,17 +22,19 @@ model_cache_ttl_secs = 604800
 restricted = false
 sem_search_top_k = 10
 services_url = "https://api.forgecode.dev/"
+terminal_context = false
 tool_supported = true
 tool_timeout_secs = 300
 top_k = 30
 top_p = 0.8
+verify_todos = true
 
 [retry]
 backoff_factor = 2
 initial_backoff_ms = 200
 max_attempts = 8
 min_delay_ms = 1000
-status_codes = [429, 500, 502, 503, 504, 408, 522, 520, 529]
+status_codes = [429, 500, 502, 503, 504, 408, 522, 524, 520, 529]
 suppress_errors = false
 
 [http]
@@ -63,3 +66,6 @@ frequency = "daily"
 [reasoning]
 enabled = true
 effort = "high"
+
+currency_symbol = "$"
+currency_conversion_rate = 1.0

@@ -402,6 +402,10 @@ impl std::ops::DerefMut for MessageEntry {
 pub struct Context {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_id: Option<ConversationId>,
+    /// Indicates who initiated the conversation: "user" or "agent".
+    /// Used for GitHub Copilot billing optimization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initiator: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub messages: Vec<MessageEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -767,6 +771,21 @@ impl std::ops::Add for TokenCount {
 impl Default for TokenCount {
     fn default() -> Self {
         TokenCount::Actual(0)
+    }
+}
+
+impl TokenCount {
+    /// Returns the larger of two TokenCount values by their inner count.
+    /// If both are `Actual`, the result is `Actual`. If either is `Approx`,
+    /// the result is `Approx`.
+    pub fn max(self, other: TokenCount) -> TokenCount {
+        use TokenCount::*;
+        match (self, other) {
+            (Actual(a), Actual(b)) => Actual(a.max(b)),
+            (Actual(a), Approx(b)) => Approx(a.max(b)),
+            (Approx(a), Actual(b)) => Approx(a.max(b)),
+            (Approx(a), Approx(b)) => Approx(a.max(b)),
+        }
     }
 }
 

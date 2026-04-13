@@ -36,6 +36,7 @@ pub(crate) fn into_domain<T: oauth2::TokenResponse>(token: T) -> OAuthTokenRespo
                 .collect::<Vec<_>>()
                 .join(" ")
         }),
+        id_token: None, // oauth2 crate doesn't provide id_token directly
     }
 }
 
@@ -98,6 +99,7 @@ pub(crate) fn build_token_response(
         expires_at: None,
         token_type: "Bearer".to_string(),
         scope: None,
+        id_token: None,
     }
 }
 

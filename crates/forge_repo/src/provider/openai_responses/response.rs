@@ -83,6 +83,10 @@ pub(super) enum StreamItem {
     Message(Box<ChatCompletionMessage>),
 }
 
+/// Converts OpenAI Responses API usage into the domain Usage type.
+/// Usage is sent once in the `response.completed` event (not split across
+/// events).
+/// ref: https://developers.openai.com/api/reference/resources/responses#(resource)%20responses%20%3E%20(model)%20response_usage%20%3E%20(schema)
 impl IntoDomain for oai::ResponseUsage {
     type Domain = Usage;
 

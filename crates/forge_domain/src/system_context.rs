@@ -2,7 +2,7 @@ use derive_setters::Setters;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::{Environment, File, Model, Skill};
+use crate::{Agent, Environment, File, Model, Skill};
 
 /// Statistics for a file extension
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -132,11 +132,11 @@ pub struct SystemContext {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extensions: Option<Extension>,
 
-    /// Configuration values required by tool description templates.
-    ///
-    /// When set, templates can reference `{{config.maxReadSize}}`,
-    /// `{{config.maxLineLength}}`, etc. instead of the removed `env.*`
-    /// counterparts.
+    /// List of available agents for task delegation
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<Agent>,
+
+    /// Template configuration for tool descriptions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<TemplateConfig>,
 }

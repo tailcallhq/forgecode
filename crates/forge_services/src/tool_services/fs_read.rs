@@ -93,16 +93,20 @@ pub async fn assert_file_size<F: FileInfoInfra>(
 /// end_line parameters, ensuring the total range does not exceed 2,000 lines.
 /// Specifying a range exceeding this limit will result in an error. Binary
 /// files are automatically detected and rejected.
-pub struct ForgeFsRead<F>(Arc<F>);
+pub struct ForgeFsRead<F> {
+    infra: Arc<F>,
+}
 
 impl<F> ForgeFsRead<F> {
     pub fn new(infra: Arc<F>) -> Self {
-        Self(infra)
+        Self { infra }
     }
 }
 
 #[async_trait::async_trait]
-impl<F: FileInfoInfra + EnvironmentInfra + InfraFsReadService> FsReadService for ForgeFsRead<F> {
+impl<F: FileInfoInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + InfraFsReadService>
+    FsReadService for ForgeFsRead<F>
+{
     async fn read(
         &self,
         path: String,
@@ -111,15 +115,16 @@ impl<F: FileInfoInfra + EnvironmentInfra + InfraFsReadService> FsReadService for
     ) -> anyhow::Result<ReadOutput> {
         let path = Path::new(&path);
         assert_absolute_path(path)?;
-        let config = self.0.get_config();
+
+        let config = self.infra.get_config()?;
 
         // Validate with the larger limit initially since we don't know file type yet
         let initial_size_limit = config.max_file_size_bytes.max(config.max_image_size_bytes);
-        assert_file_size(&*self.0, path, initial_size_limit).await?;
+        assert_file_size(&*self.infra, path, initial_size_limit).await?;
 
         // Read file content to detect MIME type
         let raw_content = self
-            .0
+            .infra
             .read(path)
             .await
             .with_context(|| format!("Failed to read file from {}", path.display()))?;
@@ -131,7 +136,7 @@ impl<F: FileInfoInfra + EnvironmentInfra + InfraFsReadService> FsReadService for
         if is_visual_content(&mime_type) {
             // Validate against image-specific size limit (may be different from
             // max_file_size)
-            assert_file_size(&*self.0, path, config.max_image_size_bytes)
+            assert_file_size(&*self.infra, path, config.max_image_size_bytes)
                 .await
                 .with_context(|| {
                     if mime_type == "application/pdf" {

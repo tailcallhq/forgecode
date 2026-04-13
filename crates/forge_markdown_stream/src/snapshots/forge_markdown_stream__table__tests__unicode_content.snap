@@ -1,5 +1,5 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
 expression: "render(vec![vec![\"名前\", \"年齢\"], vec![\"田中\", \"25\"],])"
 ---
   ┌──────┬──────┐

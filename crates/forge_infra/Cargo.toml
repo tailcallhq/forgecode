@@ -47,6 +47,7 @@ http.workspace = true
 url.workspace = true
 tonic.workspace = true
 google-cloud-auth.workspace = true
+open.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }

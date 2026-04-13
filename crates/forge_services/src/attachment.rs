@@ -15,8 +15,12 @@ pub struct ForgeChatRequest<F> {
     infra: Arc<F>,
 }
 
-impl<F: FileReaderInfra + EnvironmentInfra + FileInfoInfra + DirectoryReaderInfra>
-    ForgeChatRequest<F>
+impl<
+    F: FileReaderInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + FileInfoInfra
+        + DirectoryReaderInfra,
+> ForgeChatRequest<F>
 {
     pub fn new(infra: Arc<F>) -> Self {
         Self { infra }
@@ -82,11 +86,10 @@ impl<F: FileReaderInfra + EnvironmentInfra + FileInfoInfra + DirectoryReaderInfr
                 AttachmentContent::Image(Image::new_bytes(self.infra.read(&path).await?, mime_type))
             }
             None => {
-                let config = self.infra.get_config();
-
                 let start = tag.loc.as_ref().and_then(|loc| loc.start);
                 let end = tag.loc.as_ref().and_then(|loc| loc.end);
-                let (start_line, end_line) = resolve_range(start, end, config.max_read_lines);
+                let max_read_lines = self.infra.get_config()?.max_read_lines;
+                let (start_line, end_line) = resolve_range(start, end, max_read_lines);
 
                 // range_read_utf8 returns the range content and FileInfo which
                 // carries a content_hash of the **full** file. Using the
@@ -114,8 +117,12 @@ impl<F: FileReaderInfra + EnvironmentInfra + FileInfoInfra + DirectoryReaderInfr
 }
 
 #[async_trait::async_trait]
-impl<F: FileReaderInfra + EnvironmentInfra + FileInfoInfra + DirectoryReaderInfra> AttachmentService
-    for ForgeChatRequest<F>
+impl<
+    F: FileReaderInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + FileInfoInfra
+        + DirectoryReaderInfra,
+> AttachmentService for ForgeChatRequest<F>
 {
     async fn attachments(&self, url: &str) -> anyhow::Result<Vec<Attachment>> {
         self.prepare_attachments(Attachment::parse_all(url)).await
@@ -161,11 +168,8 @@ pub mod tests {
             fixture.cwd(PathBuf::from("/test")) // Set fixed CWD for predictable tests
         }
 
-        fn get_config(&self) -> forge_config::ForgeConfig {
-            forge_config::ConfigReader::default()
-                .read_defaults()
-                .build()
-                .unwrap()
+        fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+            Ok(forge_config::ForgeConfig { max_read_lines: 2000, ..Default::default() })
         }
 
         async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
@@ -388,6 +392,21 @@ pub mod tests {
             Ok(())
         }
 
+        async fn append(&self, path: &Path, contents: Bytes) -> anyhow::Result<()> {
+            let mut existing = bytes::Bytes::new();
+            let index = self.files.lock().unwrap().iter().position(|v| v.0 == path);
+            if let Some(index) = index {
+                existing = self.files.lock().unwrap().remove(index).1;
+            }
+            let mut combined = existing.to_vec();
+            combined.extend_from_slice(&contents);
+            self.files
+                .lock()
+                .unwrap()
+                .push((path.to_path_buf(), combined.into()));
+            Ok(())
+        }
+
         async fn write_temp(&self, _: &str, _: &str, content: &str) -> anyhow::Result<PathBuf> {
             let temp_dir = crate::utils::TempDir::new().unwrap();
             let path = temp_dir.path();
@@ -489,7 +508,7 @@ pub mod tests {
             self.env_service.get_environment()
         }
 
-        fn get_config(&self) -> forge_config::ForgeConfig {
+        fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
             self.env_service.get_config()
         }
 

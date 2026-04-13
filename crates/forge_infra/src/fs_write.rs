@@ -38,6 +38,11 @@ impl FileWriterInfra for ForgeFileWriteService {
         Ok(forge_fs::ForgeFS::write(path, contents.to_vec()).await?)
     }
 
+    async fn append(&self, path: &Path, contents: Bytes) -> anyhow::Result<()> {
+        self.create_parent_dirs(path).await?;
+        Ok(forge_fs::ForgeFS::append(path, contents.to_vec()).await?)
+    }
+
     async fn write_temp(&self, prefix: &str, ext: &str, content: &str) -> anyhow::Result<PathBuf> {
         let path = tempfile::Builder::new()
             .disable_cleanup(true)

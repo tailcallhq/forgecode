@@ -116,7 +116,8 @@ impl<S: SkillFetchService + ShellService> SystemPrompt<S> {
                 model: None,
                 tool_names,
                 extensions,
-                config: Some(self.template_config.clone()),
+                agents: vec![],
+                config: None,
             };
 
             let static_block = TemplateEngine::default()

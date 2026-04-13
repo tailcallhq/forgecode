@@ -1,0 +1,23 @@
+{
+  "id": "chatcmpl-a9db7cc9005c6568",
+  "object": "chat.completion.chunk",
+  "created": 1775233185,
+  "model": "moonshotai/Kimi-K2.5-TEE",
+  "choices": [
+    {
+      "index": 0,
+      "delta": { "reasoning": " The", "reasoning_content": " The" },
+      "logprobs": null,
+      "finish_reason": null,
+      "token_ids": null,
+      "hidden_states": null
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 8764,
+    "total_tokens": 8765,
+    "completion_tokens": 1,
+    "reasoning_tokens": 1
+  },
+  "chutes_verification": "6bbeaf04d5800d774cc497b0a619acee"
+}
