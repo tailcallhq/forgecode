@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use forge_api::Environment;
 
 use crate::editor::{ForgeEditor, ReadResult};
-use crate::model::{ForgeCommandManager, AppCommand};
+use crate::model::{AppCommand, ForgeCommandManager};
 use crate::prompt::ForgePrompt;
 use crate::tracker;
 

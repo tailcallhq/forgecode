@@ -39,7 +39,7 @@ use crate::display_constants::{CommandType, headers, markers, status};
 use crate::editor::ReadLineError;
 use crate::info::Info;
 use crate::input::Console;
-use crate::model::{ForgeCommandManager, AppCommand};
+use crate::model::{AppCommand, ForgeCommandManager};
 use crate::porcelain::Porcelain;
 use crate::prompt::ForgePrompt;
 use crate::state::UIState;

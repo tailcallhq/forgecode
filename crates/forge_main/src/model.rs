@@ -13,7 +13,11 @@ use crate::info::Info;
 /// The sentinel character (`/` or `:`) is stripped before passing tokens here,
 /// so Clap only sees the subcommand name and its arguments.
 #[derive(Debug, Parser)]
-#[command(name = "forge_cmd", no_binary_name = true, disable_help_subcommand = true)]
+#[command(
+    name = "forge_cmd",
+    no_binary_name = true,
+    disable_help_subcommand = true
+)]
 struct ClapCmd {
     #[command(subcommand)]
     sub: AppCommand,
@@ -300,7 +304,10 @@ impl ForgeCommandManager {
         }
 
         // Strip the sentinel character so Clap only sees the bare command name.
-        let bare = first.strip_prefix('/').or_else(|| first.strip_prefix(':')).unwrap_or(first);
+        let bare = first
+            .strip_prefix('/')
+            .or_else(|| first.strip_prefix(':'))
+            .unwrap_or(first);
         let rest: Vec<&str> = tokens.collect();
 
         // Build argv: [bare_command, arg1, arg2, …]
@@ -341,12 +348,13 @@ impl ForgeCommandManager {
 
                 // Check if it's an agent command pattern (agent-*)
                 if command_name.starts_with("agent-") {
-                    if let Some(found_command) = self.find(command_name) {
-                        if let Some(agent_id) = &found_command.value {
+                    if let Some(found_command) = self.find(command_name)
+                        && let Some(agent_id) = &found_command.value {
                             return Ok(AppCommand::AgentSwitch(agent_id.clone()));
                         }
-                    }
-                    return Err(anyhow::anyhow!("/{command_name} is not a valid agent command"));
+                    return Err(anyhow::anyhow!(
+                        "/{command_name} is not a valid agent command"
+                    ));
                 }
 
                 // Handle custom workflow commands
@@ -465,7 +473,8 @@ pub enum AppCommand {
     /// This can be triggered with the '/clone' command.
     #[strum(props(usage = "Clone current or selected conversation"))]
     Clone {
-        /// Conversation ID to clone (optional — prompts interactively if absent)
+        /// Conversation ID to clone (optional — prompts interactively if
+        /// absent)
         id: Option<String>,
     },
 
@@ -474,7 +483,8 @@ pub enum AppCommand {
     #[strum(props(usage = "Rename a conversation interactively"))]
     #[command(name = "conversation-rename")]
     ConversationRename {
-        /// New name for the conversation (optional — prompts interactively if absent)
+        /// New name for the conversation (optional — prompts interactively if
+        /// absent)
         #[arg(trailing_var_arg = true, num_args = 0..)]
         name: Vec<String>,
     },
@@ -619,7 +629,8 @@ pub enum AppCommand {
     #[strum(props(usage = "List all conversations for the active workspace"))]
     #[command(name = "conversation", aliases = ["conversations", "c"])]
     Conversations {
-        /// Conversation ID to switch to directly (optional — shows interactive picker if absent)
+        /// Conversation ID to switch to directly (optional — shows interactive
+        /// picker if absent)
         id: Option<String>,
     },
 
@@ -1517,7 +1528,13 @@ mod tests {
         let actual = fixture.parse("/rename auth refactor work").unwrap();
         assert_eq!(
             actual,
-            AppCommand::Rename { name: vec!["auth".to_string(), "refactor".to_string(), "work".to_string()] }
+            AppCommand::Rename {
+                name: vec![
+                    "auth".to_string(),
+                    "refactor".to_string(),
+                    "work".to_string()
+                ]
+            }
         );
     }
 
