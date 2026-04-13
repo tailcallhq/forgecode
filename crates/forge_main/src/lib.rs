@@ -4,6 +4,7 @@ mod completer;
 mod conversation_selector;
 mod display_constants;
 mod editor;
+mod highlighter;
 mod info;
 mod input;
 mod model;
@@ -26,7 +27,7 @@ mod update;
 
 use std::sync::LazyLock;
 
-pub use cli::{Cli, TopLevelCommand};
+pub use cli::{Cli, ListCommand, ListCommandGroup, TopLevelCommand};
 pub use sandbox::Sandbox;
 pub use title_display::*;
 pub use ui::UI;
