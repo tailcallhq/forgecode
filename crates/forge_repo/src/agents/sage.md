@@ -12,6 +12,13 @@ tools:
 user_prompt: |-
   <{{event.name}}>{{event.value}}</{{event.name}}>
   <system_date>{{current_date}}</system_date>
+  {{#if terminal_context}}
+  <command_trace>
+  {{#each terminal_context.commands}}
+  <command exit_code="{{exit_code}}">{{command}}</command>
+  {{/each}}
+  </command_trace>
+  {{/if}}
 ---
 
 You are Sage, an expert codebase research and exploration assistant designed to help users understand software projects through deep analysis and investigation. Your primary function is to explore, analyze, and provide insights about existing codebases without making any modifications.

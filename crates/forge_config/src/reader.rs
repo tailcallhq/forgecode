@@ -53,27 +53,27 @@ impl ConfigReader {
     ///
     /// Resolution order:
     /// 1. `FORGE_CONFIG` environment variable, if set.
-    /// 2. `~/.forge`, if that directory exists.
-    /// 3. `~/forge` (legacy path) as a fallback, so users who have not yet run
-    ///    `forge config migrate` continue to read from their existing directory
-    ///    without disruption.
+    /// 2. `~/forge` (legacy path), if that directory exists, so users who have
+    ///    not yet run `forge config migrate` continue to read from their
+    ///    existing directory without disruption.
+    /// 3. `~/.forge` as the default path.
     pub fn base_path() -> PathBuf {
         if let Ok(path) = std::env::var("FORGE_CONFIG") {
             return PathBuf::from(path);
         }
 
-        let home = dirs::home_dir().unwrap_or(PathBuf::from("."));
-        let path = home.join(".forge");
+        let base = dirs::home_dir().unwrap_or(PathBuf::from("."));
+        let path = base.join("forge");
 
-        // Prefer ~/.forge when it exists; fall back to ~/forge for users who
-        // have not yet migrated.
+        // Prefer ~/forge (legacy) when it exists so existing users are not
+        // disrupted; fall back to ~/.forge as the default.
         if path.exists() {
-            tracing::info!("Using new path");
+            tracing::info!("Using legacy path");
             return path;
         }
 
-        tracing::info!("Using legacy path");
-        home.join("forge")
+        tracing::info!("Using new path");
+        base.join(".forge")
     }
 
     /// Adds the provided TOML string as a config source without touching the
@@ -165,12 +165,22 @@ mod tests {
     }
 
     impl EnvGuard {
-        /// Sets each `(key, value)` pair in the environment, returning a guard
-        /// that cleans them up on drop.
+        /// Acquires [`ENV_MUTEX`], sets each `(key, value)` pair in the
+        /// environment, and removes each key in `remove` if present. All
+        /// set keys are cleaned up on drop.
         #[must_use]
         fn set(pairs: &[(&'static str, &str)]) -> Self {
+            Self::set_and_remove(pairs, &[])
+        }
+
+        /// Like [`set`] but also removes the listed keys before the test runs.
+        #[must_use]
+        fn set_and_remove(pairs: &[(&'static str, &str)], remove: &[&'static str]) -> Self {
             let lock = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
             let keys = pairs.iter().map(|(k, _)| *k).collect();
+            for key in remove {
+                unsafe { std::env::remove_var(key) };
+            }
             for (key, value) in pairs {
                 unsafe { std::env::set_var(key, value) };
             }
@@ -196,13 +206,17 @@ mod tests {
 
     #[test]
     fn test_base_path_falls_back_to_home_dir_when_env_var_absent() {
+        // Hold the env mutex and ensure FORGE_CONFIG is absent so this test
+        // cannot race with test_base_path_uses_forge_config_env_var.
+        let _guard = EnvGuard::set_and_remove(&[], &["FORGE_CONFIG"]);
+
         let actual = ConfigReader::base_path();
-        // Without FORGE_CONFIG set the path must be either ".forge" (new) or
-        // "forge" (legacy fallback when ~/forge exists on this machine).
+        // Without FORGE_CONFIG set the path must be either "forge" (legacy,
+        // preferred when ~/forge exists) or ".forge" (default new path).
         let name = actual.file_name().unwrap();
         assert!(
-            name == ".forge" || name == "forge",
-            "Expected base_path to end with '.forge' or 'forge', got: {:?}",
+            name == "forge" || name == ".forge",
+            "Expected base_path to end with 'forge' or '.forge', got: {:?}",
             name
         );
     }

@@ -772,23 +772,12 @@ async fn poll_for_tokens(
             }
 
             // No error field - parse as success
-            let (access_token, refresh_token, expires_in) = parse_token_response(&body_text)?;
-
-            return Ok(build_token_response(
-                access_token,
-                refresh_token,
-                expires_in,
-            ));
+            return Ok(parse_token_response(&body_text)?);
         }
 
         // Standard OAuth: HTTP success means tokens
         if !github_compatible && status.is_success() {
-            let (access_token, refresh_token, expires_in) = parse_token_response(&body_text)?;
-            return Ok(build_token_response(
-                access_token,
-                refresh_token,
-                expires_in,
-            ));
+            return Ok(parse_token_response(&body_text)?);
         }
 
         // Handle error responses (non-200 status for standard OAuth)
@@ -911,16 +900,11 @@ async fn codex_poll_for_tokens(
                 .into());
             }
 
-            let (access_token, refresh_token, expires_in) =
-                parse_token_response(&token_response.text().await.map_err(|e| {
+            return Ok(parse_token_response(
+                &token_response.text().await.map_err(|e| {
                     AuthError::PollFailed(format!("Failed to read token response: {e}"))
-                })?)?;
-
-            return Ok(build_token_response(
-                access_token,
-                refresh_token,
-                expires_in,
-            ));
+                })?,
+            )?);
         }
 
         // 403/404 means authorization pending (user hasn't entered code yet)
@@ -1321,6 +1305,49 @@ mod tests {
         }));
         let actual = extract_chatgpt_account_id(&fixture);
         assert_eq!(actual, None);
+    }
+
+    #[test]
+    fn test_enrich_codex_oauth_credential_uses_id_token_claims() {
+        let fixture_id_token = build_jwt(&serde_json::json!({
+            "chatgpt_account_id": "acct_from_id_token"
+        }));
+        let fixture_access_token = "not-a-jwt";
+        let mut actual = AuthCredential::new_oauth(
+            ProviderId::CODEX,
+            OAuthTokens::new(
+                fixture_access_token,
+                None::<String>,
+                chrono::Utc::now() + chrono::Duration::hours(1),
+            ),
+            OAuthConfig {
+                client_id: "test".to_string().into(),
+                auth_url: Url::parse("https://example.com/auth").unwrap(),
+                token_url: Url::parse("https://example.com/token").unwrap(),
+                scopes: vec![],
+                redirect_uri: Some("http://localhost:1455/auth/callback".to_string()),
+                use_pkce: true,
+                token_refresh_url: None,
+                extra_auth_params: None,
+                custom_headers: None,
+            },
+        );
+
+        enrich_codex_oauth_credential(
+            &ProviderId::CODEX,
+            &mut actual,
+            Some(&fixture_id_token),
+            fixture_access_token,
+        );
+
+        let actual = actual
+            .url_params
+            .get(&URLParam::from("chatgpt_account_id".to_string()));
+        let expected = Some(&forge_domain::URLParamValue::from(
+            "acct_from_id_token".to_string(),
+        ));
+
+        assert_eq!(actual, expected);
     }
 
     #[tokio::test]

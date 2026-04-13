@@ -3209,5 +3209,25 @@
         "input_modalities": ["text"]
       }
     ]
+  },
+  {
+    "id": "modal",
+    "api_key_vars": "MODAL_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.us-west-2.modal.direct/v1/chat/completions",
+    "models": [
+      {
+        "id": "zai-org/GLM-5-FP8",
+        "name": "GLM-5",
+        "description": "Z.ai's 745B parameter flagship open-source MoE model for long-horizon agents and systems engineering, hosted on Modal",
+        "context_length": 192000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      }
+    ],
+    "auth_methods": ["api_key"]
   }
 ]

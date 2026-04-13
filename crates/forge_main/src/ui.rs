@@ -254,8 +254,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let model = self
             .get_agent_model(self.api.get_active_agent().await)
             .await;
-        let forge_prompt = ForgePrompt { cwd: self.state.cwd.clone(), usage, model, agent_id };
-        self.console.prompt(forge_prompt).await
+        let mut forge_prompt = ForgePrompt::new(self.state.cwd.clone(), agent_id);
+        if let Some(u) = usage {
+            forge_prompt.usage(u);
+        }
+        if let Some(m) = model {
+            forge_prompt.model(m);
+        }
+        self.console.prompt(&mut forge_prompt).await
     }
 
     pub async fn run(&mut self) {
@@ -458,6 +464,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     }
                     crate::cli::ZshCommandGroup::Keyboard => {
                         self.on_zsh_keyboard().await?;
+                    }
+                    crate::cli::ZshCommandGroup::Format { buffer } => {
+                        print!("{}", crate::zsh::paste::wrap_pasted_text(&buffer));
+                        return Ok(());
                     }
                 }
                 return Ok(());

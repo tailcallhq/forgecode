@@ -36,6 +36,7 @@ anyhow.workspace = true
 derive_setters.workspace = true
 lazy_static.workspace = true
 reedline.workspace = true
+crossterm = "0.29.0"
 nu-ansi-term.workspace = true
 nucleo.workspace = true
 tracing.workspace = true
@@ -47,6 +48,7 @@ strum.workspace = true
 strum_macros.workspace = true
 
 convert_case.workspace = true
+gix.workspace = true
 update-informer = { version = "1.2.0", default-features = false, features = [
     "github",
     "ureq",
