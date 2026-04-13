@@ -281,7 +281,6 @@ pub struct ForgeConfig {
     /// when a task ends and reminds the LLM about them.
     #[serde(default)]
     pub verify_todos: bool,
-
 }
 
 impl ForgeConfig {
