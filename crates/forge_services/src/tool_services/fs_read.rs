@@ -191,11 +191,16 @@ impl<F: FileInfoInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + I
             String::new()
         } else {
             // Return range with line truncation
-            lines[start_pos as usize..=end_pos as usize]
-                .iter()
-                .map(|line| truncate_line(line, config.max_line_chars))
-                .collect::<Vec<_>>()
-                .join("\n")
+            lines
+                .get(start_pos as usize..=end_pos as usize)
+                .map(|slice| {
+                    slice
+                        .iter()
+                        .map(|line| truncate_line(line, config.max_line_chars))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .unwrap_or_default()
         };
 
         let file_info = FileInfo::new(start_line, end_line, total_lines, hash);

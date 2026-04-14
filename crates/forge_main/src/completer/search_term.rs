@@ -33,10 +33,10 @@ impl SearchTerm {
                 .unwrap_or(0)
         };
 
-        let prefix = &self.line[..safe_position];
+        let prefix = self.line.get(..safe_position)?;
         let at_pos = prefix.rfind('@')?;
         let start_pos = at_pos + 1;
-        let term = &self.line[start_pos..safe_position];
+        let term = self.line.get(start_pos..safe_position)?;
 
         Some(TermResult { span: Span::new(start_pos, safe_position), term })
     }

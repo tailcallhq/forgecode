@@ -13,7 +13,7 @@ impl Element {
         let parts: Vec<&str> = full_name.split('.').collect();
 
         let mut element = Element {
-            name: parts[0].to_string(),
+            name: parts.first().unwrap_or(&"").to_string(),
             attr: vec![],
             children: vec![],
             text: None,
@@ -21,7 +21,7 @@ impl Element {
 
         // Add classes if there are any
         if parts.len() > 1 {
-            let classes = parts[1..].join(" ");
+            let classes = parts.get(1..).unwrap_or_default().join(" ");
             element.attr.push(("class".to_string(), classes));
         }
 
@@ -56,9 +56,12 @@ impl Element {
         // Check if class attribute already exists
         if let Some(pos) = self.attr.iter().position(|(key, _)| key == "class") {
             // Append to existing class
-            let (_, current_class) = &self.attr[pos];
-            let new_class = format!("{} {}", current_class, class_name.to_string());
-            self.attr[pos] = ("class".to_string(), new_class);
+            if let Some((_, current_class)) = self.attr.get(pos) {
+                let new_class = format!("{} {}", current_class, class_name.to_string());
+                if let Some(entry) = self.attr.get_mut(pos) {
+                    *entry = ("class".to_string(), new_class);
+                }
+            }
         } else {
             // Add new class attribute
             self.attr

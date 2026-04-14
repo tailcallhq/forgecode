@@ -415,15 +415,13 @@ impl ForgeMcpClient {
         // Read the HTTP request
         let mut buf = vec![0u8; 4096];
         let n = stream.read(&mut buf).await?;
-        let request = String::from_utf8_lossy(&buf[..n]);
-
-        // Parse the request line to extract query parameters
+        let request = String::from_utf8_lossy(buf.get(..n).unwrap_or(&[]));
         let first_line = request.lines().next().unwrap_or("");
         let path = first_line.split_whitespace().nth(1).unwrap_or("/");
 
         // Parse query parameters
         let query_start = path.find('?').unwrap_or(path.len());
-        let query_string = &path[query_start..];
+        let query_string = path.get(query_start..).unwrap_or("");
         let params: std::collections::HashMap<String, String> =
             url::form_urlencoded::parse(query_string.trim_start_matches('?').as_bytes())
                 .into_owned()
@@ -647,14 +645,18 @@ pub async fn mcp_auth(server_url: &str, env: &Environment) -> anyhow::Result<()>
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut buf = vec![0u8; 4096];
     let n = stream.read(&mut buf).await?;
-    let request = String::from_utf8_lossy(&buf[..n]);
+    let request = String::from_utf8_lossy(buf.get(..n).unwrap_or(&[]));
     let first_line = request.lines().next().unwrap_or("");
     let path = first_line.split_whitespace().nth(1).unwrap_or("/");
     let query_start = path.find('?').unwrap_or(path.len());
-    let params: std::collections::HashMap<String, String> =
-        url::form_urlencoded::parse(path[query_start..].trim_start_matches('?').as_bytes())
-            .into_owned()
-            .collect();
+    let params: std::collections::HashMap<String, String> = url::form_urlencoded::parse(
+        path.get(query_start..)
+            .unwrap_or("")
+            .trim_start_matches('?')
+            .as_bytes(),
+    )
+    .into_owned()
+    .collect();
 
     let code = params
         .get("code")

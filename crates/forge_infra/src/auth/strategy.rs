@@ -69,23 +69,28 @@ fn extract_chatgpt_account_id(token: &str) -> Option<String> {
     }
     use base64::Engine;
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(parts[1])
+        .decode(parts.get(1)?)
         .ok()?;
     let claims: serde_json::Value = serde_json::from_slice(&payload).ok()?;
 
     // Try chatgpt_account_id first
-    if let Some(id) = claims["chatgpt_account_id"].as_str() {
+    if let Some(id) = claims.get("chatgpt_account_id").and_then(|v| v.as_str()) {
         return Some(id.to_string());
     }
     // Try nested auth claim
-    if let Some(id) = claims["https://api.openai.com/auth"]["chatgpt_account_id"].as_str() {
+    if let Some(id) = claims
+        .get("https://api.openai.com/auth")
+        .and_then(|v| v.get("chatgpt_account_id"))
+        .and_then(|v| v.as_str())
+    {
         return Some(id.to_string());
     }
     // Fall back to organizations[0].id
-    if let Some(id) = claims["organizations"]
-        .as_array()
+    if let Some(id) = claims
+        .get("organizations")
+        .and_then(|v| v.as_array())
         .and_then(|orgs| orgs.first())
-        .and_then(|org| org["id"].as_str())
+        .and_then(|org| org.get("id").and_then(|v| v.as_str()))
     {
         return Some(id.to_string());
     }
@@ -762,7 +767,7 @@ async fn poll_for_tokens(
                 .unwrap_or_else(|_| serde_json::json!({"error": "parse_error"}));
 
             // Check for error field first
-            if let Some(error) = token_response["error"].as_str() {
+            if let Some(error) = token_response.get("error").and_then(|v| v.as_str()) {
                 if handle_oauth_error(error).is_ok() {
                     // Retryable error - continue polling
                     continue;
@@ -784,7 +789,7 @@ async fn poll_for_tokens(
         let error_response: serde_json::Value = serde_json::from_str(&body_text)
             .unwrap_or_else(|_| serde_json::json!({"error": "unknown_error"}));
 
-        if let Some(error) = error_response["error"].as_str() {
+        if let Some(error) = error_response.get("error").and_then(|v| v.as_str()) {
             if handle_oauth_error(error).is_ok() {
                 // Retryable error - sleep and continue
                 tokio::time::sleep(if error == "slow_down" {
