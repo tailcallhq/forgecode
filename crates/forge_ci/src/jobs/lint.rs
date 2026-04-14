@@ -24,7 +24,13 @@ pub enum ClippyProfile {
 /// The `StringSafety` profile omits `--all-targets` so that test code is
 /// excluded from the check.
 fn clippy_base(profile: ClippyProfile) -> Vec<&'static str> {
-    let mut parts = vec!["cargo", "+nightly", "clippy", "--all-features", "--workspace"];
+    let mut parts = vec![
+        "cargo",
+        "+nightly",
+        "clippy",
+        "--all-features",
+        "--workspace",
+    ];
     if matches!(profile, ClippyProfile::DenyWarnings) {
         parts.push("--all-targets");
     }
