@@ -1333,7 +1333,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             // the list always stays in sync with what the REPL actually supports.
             // Internal/meta variants (Message, Custom, Shell, AgentSwitch, Rename)
             // are excluded via is_internal().
-            for cmd in AppCommand::iter().filter(|c| !c.is_internal()) {
+            // Agent-switch shorthands (forge, muse, sage) are excluded via
+            // is_agent_switch() because they are already emitted as AGENT rows
+            // by the agent-info loop below, and must not appear twice.
+            for cmd in AppCommand::iter().filter(|c| !c.is_internal() && !c.is_agent_switch()) {
                 info = info
                     .add_title(cmd.name())
                     .add_key_value("type", CommandType::Command)
