@@ -105,9 +105,14 @@ impl<S: AgentService> EventHandle<EventData<EndPayload>> for TitleGenerationHand
 
 impl<S> Drop for TitleGenerationHandler<S> {
     fn drop(&mut self) {
-        // Clearing the map drops all `JoinHandle`s (aborting the spawned
-        // tasks) and `oneshot::Receiver`s. The tasks will observe a closed
-        // channel on `tx.send()` and exit gracefully.
+        // Explicitly abort every spawned task before clearing the map.
+        // Dropping a `JoinHandle` does *not* abort the underlying Tokio task —
+        // the task would keep running until completion. Calling `.abort()`
+        // ensures the tasks are cancelled immediately so the runtime can
+        // shut down cleanly without waiting for pending LLM calls.
+        for entry in self.title_tasks.iter() {
+            entry.handle.abort();
+        }
         self.title_tasks.clear();
     }
 }
