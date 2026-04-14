@@ -110,3 +110,7 @@ autolabeler:
       - /perf/i
     files:
       - "/benches/"
+
+  - label: "update: provider"
+    files:
+      - "provider.json"

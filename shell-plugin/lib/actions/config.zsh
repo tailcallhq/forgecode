@@ -72,27 +72,6 @@ function _forge_action_agent() {
     fi
 }
 
-# Action handler: Select provider
-function _forge_action_provider() {
-    local input_text="$1"
-    echo
-    local selected
-    # Only show LLM providers (exclude context_engine and other non-LLM types)
-    # Pass input_text as query parameter for fuzzy search
-    selected=$(_forge_select_provider "" "" "llm" "$input_text")
-    
-    if [[ -n "$selected" ]]; then
-        # Extract the second field (provider ID) from the selected line
-        # Format: "DisplayName  provider_id  host  type  status"
-        local provider_id=$(echo "$selected" | awk '{print $2}')
-        # Use _forge_exec_interactive because config-set may trigger
-        # interactive authentication prompts (rustyline) when the provider
-        # is not yet configured. Without /dev/tty redirection, ZLE's pipes
-        # cause rustyline to see EOF and fail with "API key input cancelled".
-        _forge_exec_interactive config set provider "$provider_id"
-    fi
-}
-
 # Helper: Open an fzf model picker and print the raw selected line.
 #
 # Model list columns (from `forge list models --porcelain`):
@@ -165,7 +144,10 @@ function _forge_action_model() {
             # Field 1 = model_id (raw), field 3 = provider display name,
             # field 4 = provider_id (raw, for config set)
             local model_id provider_display provider_id
-            read -r model_id provider_display provider_id <<<$(echo "$selected" | awk -F '  +' '{print $1, $3, $4}')
+            # Extract fields separately to handle display names with spaces
+            model_id=$(echo "$selected" | awk -F '  +' '{print $1}')
+            provider_display=$(echo "$selected" | awk -F '  +' '{print $3}')
+            provider_id=$(echo "$selected" | awk -F '  +' '{print $4}')
             model_id=${model_id//[[:space:]]/}
             provider_id=${provider_id//[[:space:]]/}
             provider_display=${provider_display//[[:space:]]/}
@@ -173,10 +155,10 @@ function _forge_action_model() {
             # Switch provider first if it differs from the current one
             # current_provider (fetched above) is the display name, compare against that
             if [[ -n "$provider_display" && "$provider_display" != "$current_provider" ]]; then
-                _forge_exec_interactive config set provider "$provider_id" --model "$model_id"
+                _forge_exec_interactive config set model "$provider_id" "$model_id"
                 return
             fi
-             _forge_exec config set model "$model_id"
+            _forge_exec config set model "$provider_id" "$model_id"
         fi
     )
 }
@@ -200,7 +182,9 @@ function _forge_action_commit_model() {
         if [[ -n "$selected" ]]; then
             # Field 1 = model_id (raw), field 4 = provider_id (raw)
             local model_id provider_id
-            read -r model_id provider_id <<<$(echo "$selected" | awk -F '  +' '{print $1, $4}')
+            # Extract fields separately to handle display names with spaces
+            model_id=$(echo "$selected" | awk -F '  +' '{print $1}')
+            provider_id=$(echo "$selected" | awk -F '  +' '{print $4}')
 
             model_id=${model_id//[[:space:]]/}
             provider_id=${provider_id//[[:space:]]/}
@@ -229,7 +213,9 @@ function _forge_action_suggest_model() {
         if [[ -n "$selected" ]]; then
             # Field 1 = model_id (raw), field 4 = provider_id (raw)
             local model_id provider_id
-            read -r model_id provider_id <<<$(echo "$selected" | awk -F '  +' '{print $1, $4}')
+            # Extract fields separately to handle display names with spaces
+            model_id=$(echo "$selected" | awk -F '  +' '{print $1}')
+            provider_id=$(echo "$selected" | awk -F '  +' '{print $4}')
 
             model_id=${model_id//[[:space:]]/}
             provider_id=${provider_id//[[:space:]]/}
@@ -242,16 +228,18 @@ function _forge_action_suggest_model() {
 # Action handler: Sync workspace for codebase search
 function _forge_action_sync() {
     echo
-    # Execute sync with stdin redirected to prevent hanging
-    # Sync doesn't need interactive input, so close stdin immediately
+    # Use _forge_exec_interactive so that the consent prompt (and any other
+    # interactive prompts) can access /dev/tty even though ZLE owns the
+    # terminal's stdin/stdout pipes.
     # --init initializes the workspace first if it has not been set up yet
-    _forge_exec workspace sync --init </dev/null
+    _forge_exec_interactive workspace sync --init
 }
 
 # Action handler: inits workspace for codebase search
 function _forge_action_sync_init() {
     echo
-    _forge_exec workspace init </dev/null
+    # Use _forge_exec_interactive so that the consent prompt can access /dev/tty
+    _forge_exec_interactive workspace init
 }
 
 # Action handler: Show sync status of workspace files
@@ -347,7 +335,10 @@ function _forge_action_session_model() {
 
     if [[ -n "$selected" ]]; then
         local model_id provider_display provider_id
-        read -r model_id provider_display provider_id <<<$(echo "$selected" | awk -F '  +' '{print $1, $3, $4}')
+        # Extract fields separately to handle display names with spaces
+        model_id=$(echo "$selected" | awk -F '  +' '{print $1}')
+        provider_display=$(echo "$selected" | awk -F '  +' '{print $3}')
+        provider_id=$(echo "$selected" | awk -F '  +' '{print $4}')
         model_id=${model_id//[[:space:]]/}
         provider_id=${provider_id//[[:space:]]/}
 
@@ -358,21 +349,23 @@ function _forge_action_session_model() {
     fi
 }
 
-# Action handler: Reset session model and provider to defaults.
-# Clears both _FORGE_SESSION_MODEL and _FORGE_SESSION_PROVIDER,
-# reverting to global config for subsequent forge invocations.
-function _forge_action_model_reset() {
+# Action handler: Reload config by resetting all session-scoped overrides.
+# Clears _FORGE_SESSION_MODEL, _FORGE_SESSION_PROVIDER, and
+# _FORGE_SESSION_REASONING_EFFORT so that every subsequent forge invocation
+# falls back to the permanent global configuration.
+function _forge_action_config_reload() {
     echo
 
-    if [[ -z "$_FORGE_SESSION_MODEL" && -z "$_FORGE_SESSION_PROVIDER" ]]; then
-        _forge_log info "Session model already cleared (using global config)"
+    if [[ -z "$_FORGE_SESSION_MODEL" && -z "$_FORGE_SESSION_PROVIDER" && -z "$_FORGE_SESSION_REASONING_EFFORT" ]]; then
+        _forge_log info "No session overrides active (already using global config)"
         return 0
     fi
 
     _FORGE_SESSION_MODEL=""
     _FORGE_SESSION_PROVIDER=""
+    _FORGE_SESSION_REASONING_EFFORT=""
 
-    _forge_log success "Session model reset to global config"
+    _forge_log success "Session overrides cleared — using global config"
 }
 
 # Action handler: Select reasoning effort for the current session only.
@@ -470,12 +463,22 @@ function _forge_action_config_edit() {
         return 1
     fi
 
-    local config_file="${HOME}/forge/.forge.toml"
+    # Resolve config file path via the forge binary (honours FORGE_CONFIG,
+    # new ~/.forge path, and legacy ~/forge fallback automatically)
+    local config_file
+    config_file=$($FORGE_BIN config path 2>/dev/null)
+    if [[ -z "$config_file" ]]; then
+        _forge_log error "Failed to resolve config path from '$FORGE_BIN config path'"
+        return 1
+    fi
+
+    local config_dir
+    config_dir=$(dirname "$config_file")
 
     # Ensure the config directory exists
-    if [[ ! -d "${HOME}/forge" ]]; then
-        mkdir -p "${HOME}/forge" || {
-            _forge_log error "Failed to create ~/forge directory"
+    if [[ ! -d "$config_dir" ]]; then
+        mkdir -p "$config_dir" || {
+            _forge_log error "Failed to create $config_dir directory"
             return 1
         }
     fi

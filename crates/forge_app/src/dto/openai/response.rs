@@ -136,11 +136,23 @@ pub enum Choice {
     },
 }
 
+/// A message returned by a provider, used for both streaming deltas and
+/// non-streaming responses.
+///
+/// `reasoning` and `reasoning_content` are kept as separate private fields
+/// because some providers (e.g. `moonshotai/Kimi-K2.5-TEE`) emit **both**
+/// keys in the same delta object. Using `#[serde(alias)]` would cause a
+/// `duplicate_field` error in that case. Use [`ResponseMessage::reasoning`]
+/// to read the value in preference order.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ResponseMessage {
     pub content: Option<String>,
-    #[serde(alias = "reasoning_content")]
-    pub reasoning: Option<String>,
+    // Private: some providers (e.g. moonshotai/Kimi-K2.5-TEE) emit both keys
+    // in the same delta object. Exposing them directly would let callers
+    // accidentally read only one and miss the other. Use `reasoning()` instead,
+    // which merges them in preference order.
+    reasoning: Option<String>,
+    reasoning_content: Option<String>,
     pub role: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
     pub refusal: Option<String>,
@@ -150,6 +162,28 @@ pub struct ResponseMessage {
     pub reasoning_opaque: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_content: Option<ExtraContent>,
+}
+
+impl ResponseMessage {
+    /// Returns the reasoning text. When both `reasoning` and
+    /// `reasoning_content` are present, the longer non-empty value is
+    /// returned; otherwise whichever is non-empty is used.
+    pub fn reasoning(&self) -> Option<&str> {
+        match (self.reasoning.as_deref(), self.reasoning_content.as_deref()) {
+            (Some(a), Some(b)) => {
+                let a = a.trim();
+                let b = b.trim();
+                match (a.is_empty(), b.is_empty()) {
+                    (true, _) => Some(b).filter(|s| !s.is_empty()),
+                    (_, true) => Some(a).filter(|s| !s.is_empty()),
+                    _ => Some(if b.len() > a.len() { b } else { a }),
+                }
+            }
+            (Some(a), None) => Some(a).filter(|s| !s.trim().is_empty()),
+            (None, Some(b)) => Some(b).filter(|s| !s.trim().is_empty()),
+            (None, None) => None,
+        }
+    }
 }
 
 impl From<ReasoningDetail> for forge_domain::ReasoningDetail {
@@ -319,8 +353,8 @@ impl TryFrom<Response> for ChatCompletionMessage {
                                     .clone()
                                     .and_then(|s| FinishReason::from_str(&s).ok()),
                             );
-                            if let Some(reasoning) = &message.reasoning {
-                                resp = resp.reasoning(Content::full(reasoning.clone()));
+                            if let Some(reasoning) = message.reasoning() {
+                                resp = resp.reasoning(Content::full(reasoning.to_owned()));
                             }
 
                             if let Some(thought_signature) = message
@@ -387,8 +421,8 @@ impl TryFrom<Response> for ChatCompletionMessage {
                                     .and_then(|s| FinishReason::from_str(&s).ok()),
                             );
 
-                            if let Some(reasoning) = &delta.reasoning {
-                                resp = resp.reasoning(Content::part(reasoning.clone()));
+                            if let Some(reasoning) = delta.reasoning() {
+                                resp = resp.reasoning(Content::part(reasoning.to_owned()));
                             }
 
                             if let Some(thought_signature) = delta
@@ -531,6 +565,66 @@ mod tests {
 
     struct Fixture;
 
+    fn response_message(
+        reasoning: Option<&str>,
+        reasoning_content: Option<&str>,
+    ) -> ResponseMessage {
+        ResponseMessage {
+            content: None,
+            reasoning: reasoning.map(str::to_owned),
+            reasoning_content: reasoning_content.map(str::to_owned),
+            role: None,
+            tool_calls: None,
+            refusal: None,
+            reasoning_details: None,
+            reasoning_text: None,
+            reasoning_opaque: None,
+            extra_content: None,
+        }
+    }
+
+    #[test]
+    fn test_reasoning_only_reasoning_field() {
+        let fixture = response_message(Some("hello"), None);
+        assert_eq!(fixture.reasoning(), Some("hello"));
+    }
+
+    #[test]
+    fn test_reasoning_only_reasoning_content_field() {
+        let fixture = response_message(None, Some("hello"));
+        assert_eq!(fixture.reasoning(), Some("hello"));
+    }
+
+    #[test]
+    fn test_reasoning_both_returns_longer() {
+        let fixture = response_message(Some("short"), Some("much longer text"));
+        assert_eq!(fixture.reasoning(), Some("much longer text"));
+    }
+
+    #[test]
+    fn test_reasoning_both_equal_length_returns_reasoning() {
+        let fixture = response_message(Some("aaa"), Some("bbb"));
+        assert_eq!(fixture.reasoning(), Some("aaa"));
+    }
+
+    #[test]
+    fn test_reasoning_both_present_one_empty_returns_non_empty() {
+        let fixture = response_message(Some(""), Some("content"));
+        assert_eq!(fixture.reasoning(), Some("content"));
+    }
+
+    #[test]
+    fn test_reasoning_both_empty_returns_none() {
+        let fixture = response_message(Some(""), Some(""));
+        assert_eq!(fixture.reasoning(), None);
+    }
+
+    #[test]
+    fn test_reasoning_neither_present_returns_none() {
+        let fixture = response_message(None, None);
+        assert_eq!(fixture.reasoning(), None);
+    }
+
     async fn load_fixture(filename: &str) -> serde_json::Value {
         let fixture_path = format!("src/dto/openai/fixtures/{}", filename);
         let fixture_content = tokio::fs::read_to_string(&fixture_path)
@@ -569,6 +663,17 @@ mod tests {
     fn test_reasoning_response_event() {
         let event = "{\"id\":\"gen-1751626123-nYRpHzdA0thRXF0LoQi0\",\"provider\":\"Google\",\"model\":\"anthropic/claude-3.7-sonnet:thinking\",\"object\":\"chat.completion.chunk\",\"created\":1751626123,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\",\"reasoning\":\"I need to check\",\"reasoning_details\":[{\"type\":\"reasoning.text\",\"text\":\"I need to check\"}]},\"finish_reason\":null,\"native_finish_reason\":null,\"logprobs\":null}]}";
         assert!(Fixture::test_response_compatibility(event));
+    }
+
+    #[tokio::test]
+    async fn test_kimi_k2_both_reasoning_keys_event() {
+        // moonshotai/Kimi-K2.5-TEE emits both "reasoning" and "reasoning_content"
+        // in the same delta object. This must parse without a duplicate_field error.
+        let fixture = load_fixture("chutes_completion_response.json").await;
+        let actual = serde_json::from_value::<Response>(fixture);
+        assert!(actual.is_ok(), "Failed to parse: {:?}", actual.err());
+        let completion_result = ChatCompletionMessage::try_from(actual.unwrap());
+        assert!(completion_result.is_ok());
     }
 
     #[test]
@@ -632,6 +737,7 @@ mod tests {
                 message: ResponseMessage {
                     content: Some("test content".to_string()),
                     reasoning: None,
+                    reasoning_content: None,
                     role: Some("assistant".to_string()),
                     tool_calls: None,
                     refusal: None,
@@ -669,6 +775,7 @@ mod tests {
                 delta: ResponseMessage {
                     content: Some("test content".to_string()),
                     reasoning: None,
+                    reasoning_content: None,
                     role: Some("assistant".to_string()),
                     tool_calls: None,
                     refusal: None,
@@ -706,6 +813,7 @@ mod tests {
                 message: ResponseMessage {
                     content: Some("Hello, world!".to_string()),
                     reasoning: None,
+                    reasoning_content: None,
                     role: Some("assistant".to_string()),
                     tool_calls: None,
                     refusal: None,

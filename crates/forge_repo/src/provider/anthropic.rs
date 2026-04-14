@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use derive_setters::Setters;
 use eventsource_stream::Eventsource;
-use forge_app::HttpInfra;
 use forge_app::domain::{
     ChatCompletionMessage, Context, Model, ModelId, ResultStream, Transformer,
 };
@@ -12,7 +10,7 @@ use forge_app::dto::anthropic::{
     EventData, ListModelResponse, ReasoningTransform, RemoveOutputFormat, Request, SanitizeToolIds,
     SetCache,
 };
-use forge_config::RetryConfig;
+use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider, ProviderId};
 use futures::StreamExt;
 use reqwest::Url;
@@ -282,6 +280,84 @@ where
         forge_domain::Error::Retryable(error).into()
     } else {
         error
+    }
+}
+
+/// Repository for Anthropic provider responses
+pub struct AnthropicResponseRepository<F> {
+    infra: Arc<F>,
+}
+
+impl<F> AnthropicResponseRepository<F> {
+    pub fn new(infra: Arc<F>) -> Self {
+        Self { infra }
+    }
+}
+
+impl<F: HttpInfra> AnthropicResponseRepository<F> {
+    /// Creates an Anthropic client from a provider configuration
+    fn create_client(&self, provider: Provider<Url>) -> anyhow::Result<Anthropic<F>> {
+        // Validate that credentials exist
+        provider
+            .credential
+            .as_ref()
+            .context("Anthropic provider requires credentials")?;
+
+        // Determine OAuth usage based on auth details
+        let is_oauth = provider
+            .credential
+            .as_ref()
+            .map(|c| matches!(c.auth_details, forge_domain::AuthDetails::OAuth { .. }))
+            .unwrap_or(false);
+
+        // Use different API version for Vertex AI
+        let version = if provider.id == ProviderId::VERTEX_AI_ANTHROPIC {
+            "vertex-2023-10-16".to_string()
+        } else {
+            "2023-06-01".to_string()
+        };
+
+        Ok(Anthropic::new(
+            self.infra.clone(),
+            provider,
+            version,
+            is_oauth,
+        ))
+    }
+}
+
+#[async_trait::async_trait]
+impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + 'static> ChatRepository
+    for AnthropicResponseRepository<F>
+{
+    async fn chat(
+        &self,
+        model_id: &ModelId,
+        context: Context,
+        provider: Provider<Url>,
+    ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
+        let retry_config = self.infra.get_config()?.retry.unwrap_or_default();
+        let provider_client = self.create_client(provider)?;
+
+        let stream = provider_client
+            .chat(model_id, context)
+            .await
+            .map_err(|e| into_retry(e, &retry_config))?;
+
+        Ok(Box::pin(stream.map(move |item| {
+            item.map_err(|e| into_retry(e, &retry_config))
+        })))
+    }
+
+    async fn models(&self, provider: Provider<Url>) -> anyhow::Result<Vec<Model>> {
+        let retry_config = self.infra.get_config()?.retry.unwrap_or_default();
+        let provider_client = self.create_client(provider)?;
+
+        provider_client
+            .models()
+            .await
+            .map_err(|e| into_retry(e, &retry_config))
+            .context("Failed to fetch models from Anthropic provider")
     }
 }
 
@@ -778,84 +854,5 @@ mod tests {
             Some("vertex-2023-10-16".to_string()),
             "Vertex AI requests should include anthropic_version"
         );
-    }
-}
-
-/// Repository for Anthropic provider responses
-#[derive(Setters)]
-#[setters(strip_option, into)]
-pub struct AnthropicResponseRepository<F> {
-    infra: Arc<F>,
-    retry_config: Arc<RetryConfig>,
-}
-
-impl<F> AnthropicResponseRepository<F> {
-    pub fn new(infra: Arc<F>) -> Self {
-        Self { infra, retry_config: Arc::new(RetryConfig::default()) }
-    }
-}
-
-impl<F: HttpInfra> AnthropicResponseRepository<F> {
-    /// Creates an Anthropic client from a provider configuration
-    fn create_client(&self, provider: Provider<Url>) -> anyhow::Result<Anthropic<F>> {
-        // Validate that credentials exist
-        provider
-            .credential
-            .as_ref()
-            .context("Anthropic provider requires credentials")?;
-
-        // Determine OAuth usage based on auth details
-        let is_oauth = provider
-            .credential
-            .as_ref()
-            .map(|c| matches!(c.auth_details, forge_domain::AuthDetails::OAuth { .. }))
-            .unwrap_or(false);
-
-        // Use different API version for Vertex AI
-        let version = if provider.id == ProviderId::VERTEX_AI_ANTHROPIC {
-            "vertex-2023-10-16".to_string()
-        } else {
-            "2023-06-01".to_string()
-        };
-
-        Ok(Anthropic::new(
-            self.infra.clone(),
-            provider,
-            version,
-            is_oauth,
-        ))
-    }
-}
-
-#[async_trait::async_trait]
-impl<F: HttpInfra + 'static> ChatRepository for AnthropicResponseRepository<F> {
-    async fn chat(
-        &self,
-        model_id: &ModelId,
-        context: Context,
-        provider: Provider<Url>,
-    ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
-        let retry_config = self.retry_config.clone();
-        let provider_client = self.create_client(provider)?;
-
-        let stream = provider_client
-            .chat(model_id, context)
-            .await
-            .map_err(|e| into_retry(e, &retry_config))?;
-
-        Ok(Box::pin(stream.map(move |item| {
-            item.map_err(|e| into_retry(e, &retry_config))
-        })))
-    }
-
-    async fn models(&self, provider: Provider<Url>) -> anyhow::Result<Vec<Model>> {
-        let retry_config = self.retry_config.clone();
-        let provider_client = self.create_client(provider)?;
-
-        provider_client
-            .models()
-            .await
-            .map_err(|e| into_retry(e, &retry_config))
-            .context("Failed to fetch models from Anthropic provider")
     }
 }

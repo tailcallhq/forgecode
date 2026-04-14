@@ -8,6 +8,7 @@ rust-version.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 sha2.workspace = true
+hex.workspace = true
 infer = "0.19.0" # For binary file detection
 thiserror = "2.0"
 

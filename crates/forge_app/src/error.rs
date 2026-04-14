@@ -1,4 +1,4 @@
-use forge_domain::{InterruptionReason, ToolCallArgumentError, ToolName};
+use forge_domain::{ConversationId, InterruptionReason, ToolCallArgumentError, ToolName};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -39,6 +39,9 @@ pub enum Error {
 
     #[error("Agent '{0}' not found")]
     AgentNotFound(forge_domain::AgentId),
+
+    #[error("Conversation '{id}' not found")]
+    ConversationNotFound { id: ConversationId },
 
     #[error("No active provider configured")]
     NoActiveProvider,

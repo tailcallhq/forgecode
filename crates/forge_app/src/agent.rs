@@ -10,7 +10,7 @@ use merge::Merge;
 
 use crate::services::AppConfigService;
 use crate::tool_registry::ToolRegistry;
-use crate::{ConversationService, ProviderService, Services};
+use crate::{ConversationService, EnvironmentInfra, ProviderService, Services};
 
 /// Agent service trait that provides core chat and tool call functionality.
 /// This trait abstracts the essential operations needed by the Orchestrator.
@@ -38,7 +38,7 @@ pub trait AgentService: Send + Sync + 'static {
 
 /// Blanket implementation of AgentService for any type that implements Services
 #[async_trait::async_trait]
-impl<T: Services> AgentService for T {
+impl<T: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentService for T {
     async fn chat_agent(
         &self,
         id: &ModelId,

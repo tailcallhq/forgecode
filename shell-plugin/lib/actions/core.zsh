@@ -41,12 +41,6 @@ function _forge_action_info() {
     fi
 }
 
-# Action handler: Show environment info
-function _forge_action_env() {
-    echo
-    _forge_exec env
-}
-
 # Action handler: Dump conversation
 function _forge_action_dump() {
     local input_text="$1"

@@ -228,6 +228,12 @@
     "aliases": ["ci:benchmark"]
   },
   {
+    "name": "update: provider",
+    "color": "0075ca",
+    "description": "Updates provider.json configuration.",
+    "aliases": ["provider"]
+  },
+  {
     "name": "ci: test-jit",
     "color": "F9D0C4",
     "description": "Run all integration tests for the JIT optimized engine",

@@ -103,37 +103,38 @@ pub fn estimate_token_count(count: usize) -> usize {
 }
 
 /// Runtime agent representation with required model and provider
-#[derive(Debug, Clone, PartialEq, Setters)]
+#[derive(Debug, Clone, PartialEq, Setters, Serialize, Deserialize, JsonSchema)]
 #[setters(strip_option, into)]
 pub struct Agent {
-    /// Flag to enable/disable tool support for this agent.
-    pub tool_supported: Option<bool>,
-
-    // Unique identifier for the agent
+    /// Unique identifier for the agent
     pub id: AgentId,
-
-    /// Path to the agent definition file, if loaded from a file
-    pub path: Option<String>,
 
     /// Human-readable title for the agent
     pub title: Option<String>,
 
-    // Required provider for the agent
-    pub provider: ProviderId,
-
-    // Required language model ID to be used by this agent
-    pub model: ModelId,
-
-    // Human-readable description of the agent's purpose
+    /// Human-readable description of the agent's purpose
     pub description: Option<String>,
 
-    // Template for the system prompt provided to the agent
+    /// Flag to enable/disable tool support for this agent.
+    pub tool_supported: Option<bool>,
+
+    /// Path to the agent definition file, if loaded from a file
+    pub path: Option<String>,
+
+    /// Required provider for the agent
+    pub provider: ProviderId,
+
+    /// Required language model ID to be used by this agent
+    pub model: ModelId,
+
+    /// Template for the system prompt provided to the agent
     pub system_prompt: Option<Template<SystemContext>>,
 
-    // Template for the user prompt provided to the agent
+    /// Template for the user prompt provided to the agent
     pub user_prompt: Option<Template<EventContext>>,
 
     /// Tools that the agent can use
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolName>>,
 
     /// Maximum number of turns the agent can take
@@ -167,16 +168,31 @@ pub struct Agent {
     pub max_requests_per_turn: Option<usize>,
 }
 
+/// Lightweight metadata about an agent, used for listing without requiring a
+/// configured provider or model.
+#[derive(Debug, Default, Clone, PartialEq, Setters, Serialize, Deserialize, JsonSchema)]
+#[setters(strip_option, into)]
+pub struct AgentInfo {
+    /// Unique identifier for the agent
+    pub id: AgentId,
+
+    /// Human-readable title for the agent
+    pub title: Option<String>,
+
+    /// Human-readable description of the agent's purpose
+    pub description: Option<String>,
+}
+
 impl Agent {
     /// Create a new Agent with required provider and model
     pub fn new(id: impl Into<AgentId>, provider: ProviderId, model: ModelId) -> Self {
         Self {
             id: id.into(),
+            title: Default::default(),
+            description: Default::default(),
             provider,
             model,
-            title: Default::default(),
             tool_supported: Default::default(),
-            description: Default::default(),
             system_prompt: Default::default(),
             user_prompt: Default::default(),
             tools: Default::default(),
