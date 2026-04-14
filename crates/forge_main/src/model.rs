@@ -759,6 +759,18 @@ impl AppCommand {
                 | AppCommand::Rename { .. }
         )
     }
+
+    /// Returns true for variants that are pure agent-switch shorthands whose
+    /// canonical name matches a built-in agent (forge, muse, sage).  These
+    /// commands are already emitted as AGENT rows by the agent-info loop in
+    /// `on_show_commands`, so they must be excluded from the COMMAND loop to
+    /// avoid duplicate entries in `list commands --porcelain`.
+    pub fn is_agent_switch(&self) -> bool {
+        matches!(
+            self,
+            AppCommand::Forge | AppCommand::Muse | AppCommand::Sage
+        )
+    }
 }
 
 #[cfg(test)]
