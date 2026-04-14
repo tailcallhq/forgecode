@@ -3,5 +3,4 @@ source: crates/forge_repo/src/agent.rs
 expression: actual.tools
 ---
 - read
-- sage
 - mcp_*

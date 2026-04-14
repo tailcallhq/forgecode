@@ -162,16 +162,13 @@ fn apply_subagent_tool_config(
 
     tools.retain(|tool| !matches!(tool.as_str(), "task" | "sage"));
 
-    let delegated_tool = if config.subagents {
-        ToolName::new("task")
-    } else {
-        ToolName::new("sage")
-    };
-    let insert_index = tools
-        .iter()
-        .position(|tool| tool.as_str() == "mcp_*")
-        .unwrap_or(tools.len());
-    tools.insert(insert_index, delegated_tool);
+    if config.subagents {
+        let insert_index = tools
+            .iter()
+            .position(|tool| tool.as_str() == "mcp_*")
+            .unwrap_or(tools.len());
+        tools.insert(insert_index, ToolName::new("task"));
+    }
 
     Ok(agent)
 }
