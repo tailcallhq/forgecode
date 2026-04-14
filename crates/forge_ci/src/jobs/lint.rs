@@ -20,15 +20,15 @@ pub enum ClippyProfile {
 }
 
 /// Base parts for clippy commands.
-fn clippy_base() -> Vec<&'static str> {
-    vec![
-        "cargo",
-        "+nightly",
-        "clippy",
-        "--all-features",
-        "--all-targets",
-        "--workspace",
-    ]
+///
+/// The `StringSafety` profile omits `--all-targets` so that test code is
+/// excluded from the check.
+fn clippy_base(profile: ClippyProfile) -> Vec<&'static str> {
+    let mut parts = vec!["cargo", "+nightly", "clippy", "--all-features", "--workspace"];
+    if matches!(profile, ClippyProfile::DenyWarnings) {
+        parts.push("--all-targets");
+    }
+    parts
 }
 
 /// Additional lint arguments for clippy commands.
@@ -57,7 +57,7 @@ pub fn fmt_cmd(fix: bool) -> String {
 
 /// Build a cargo clippy command for a CI profile.
 pub fn clippy_cmd(fix: bool, profile: ClippyProfile) -> String {
-    let mut parts = clippy_base();
+    let mut parts = clippy_base(profile);
 
     if fix {
         parts.extend(["--fix", "--allow-dirty"]);
