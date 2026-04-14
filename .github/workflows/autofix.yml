@@ -52,7 +52,7 @@ jobs:
     - name: Cargo Fmt
       run: cargo +nightly fmt --all
     - name: Cargo Clippy
-      run: cargo +nightly clippy --all-features --all-targets --workspace --fix --allow-dirty -- -D warnings
+      run: cargo +nightly clippy --all-features --workspace --all-targets --fix --allow-dirty -- -D warnings
     - name: Cargo Clippy String Safety
       run: cargo +nightly clippy --all-features --workspace --fix --allow-dirty -- -D clippy::string_slice -D clippy::indexing_slicing
     - name: Autofix
