@@ -101,10 +101,10 @@ fn format_mcp_headers(server: &forge_domain::McpServerConfig) -> Option<String> 
     }
 }
 
-pub struct UI<A: ConsoleWriter, F: Fn(ForgeConfig) -> A> {
+pub struct UI<A: ConsoleWriter, F: Fn(ForgeConfig) -> anyhow::Result<A>> {
     markdown: MarkdownFormat,
     state: UIState,
-    api: Arc<F::Output>,
+    api: Arc<A>,
     new_api: Arc<F>,
     console: Console,
     command: Arc<ForgeCommandManager>,
@@ -115,7 +115,7 @@ pub struct UI<A: ConsoleWriter, F: Fn(ForgeConfig) -> A> {
     _guard: forge_tracker::Guard,
 }
 
-impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI<A, F> {
+impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> anyhow::Result<A> + Send + Sync> UI<A, F> {
     /// Writes a line to the console output
     /// Takes anything that implements ToString trait
     fn writeln<T: ToString>(&mut self, content: T) -> anyhow::Result<()> {
@@ -161,7 +161,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_new(&mut self) -> Result<()> {
         let config = forge_config::ForgeConfig::read().unwrap_or_default();
         self.config = config.clone();
-        self.api = Arc::new((self.new_api)(config));
+        self.api = Arc::new((self.new_api)(config)?);
         self.init_state(false).await?;
 
         // Set agent if provided via CLI
@@ -216,7 +216,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     ///   from `forge config set` are reflected in new conversations
     pub fn init(cli: Cli, config: ForgeConfig, f: F) -> Result<Self> {
         // Parse CLI arguments first to get flags
-        let api = Arc::new(f(config.clone()));
+        let api = Arc::new(f(config.clone())?);
         let env = api.environment();
         let command = Arc::new(ForgeCommandManager::default());
         let spinner = SharedSpinner::new(SpinnerManager::new(api.clone()));

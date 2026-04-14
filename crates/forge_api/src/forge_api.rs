@@ -10,7 +10,6 @@ use forge_app::{
     FileDiscoveryService, ForgeApp, GitApp, GrpcInfra, McpConfigManager, McpService,
     ProviderAuthService, ProviderService, Services, User, UserUsage, Walker, WorkspaceService,
 };
-use forge_config::ForgeConfig;
 use forge_domain::{Agent, ConsoleWriter, *};
 use forge_infra::ForgeInfra;
 use forge_repo::ForgeRepo;
@@ -42,19 +41,6 @@ impl<A, F> ForgeAPI<A, F> {
 }
 
 impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
-    /// Creates a fully-initialized [`ForgeAPI`] from a pre-read configuration.
-    ///
-    /// # Arguments
-    /// * `cwd` - The working directory path for environment and file resolution
-    /// * `config` - Pre-read application configuration (from startup)
-    /// * `services_url` - Pre-validated URL for the gRPC workspace server
-    pub fn init(cwd: PathBuf, config: ForgeConfig) -> Self {
-        let infra = Arc::new(ForgeInfra::new(cwd, config));
-        let repo = Arc::new(ForgeRepo::new(infra.clone()));
-        let app = Arc::new(ForgeServices::new(repo.clone()));
-        ForgeAPI::new(app, repo)
-    }
-
     pub async fn get_skills_internal(&self) -> Result<Vec<Skill>> {
         use forge_domain::SkillRepository;
         self.infra.load_skills().await

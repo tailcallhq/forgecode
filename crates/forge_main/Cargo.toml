@@ -23,6 +23,9 @@ forge_display.workspace = true
 forge_tracker.workspace = true
 
 forge_spinner.workspace = true
+forge_repo.workspace = true
+forge_infra.workspace = true
+forge_services.workspace = true
 forge_select.workspace = true
 
 merge.workspace = true

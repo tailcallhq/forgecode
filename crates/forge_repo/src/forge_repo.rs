@@ -26,7 +26,7 @@ use url::Url;
 use crate::agent::ForgeAgentRepository;
 use crate::context_engine::ForgeContextEngineRepository;
 use crate::conversation::ConversationRepositoryImpl;
-use crate::database::{DatabasePool, PoolConfig};
+use crate::database::DatabasePool;
 use crate::fs_snap::ForgeFileSnapshotService;
 use crate::fuzzy_search::ForgeFuzzySearchRepository;
 use crate::provider::{ForgeChatRepository, ForgeProviderRepository};
@@ -60,13 +60,17 @@ impl<
         + HttpInfra,
 > ForgeRepo<F>
 {
-    pub fn new(infra: Arc<F>) -> Self {
+    /// Creates a new [`ForgeRepo`] with the provided infrastructure and a
+    /// shared database pool.
+    ///
+    /// The pool is created once at application startup and reused across
+    /// `/new` conversation resets so that a fresh `ForgeRepo` never races
+    /// with the previous instance for the same SQLite file.
+    pub fn new(infra: Arc<F>, db_pool: Arc<DatabasePool>) -> Self {
         let env = infra.get_environment();
         let file_snapshot_service = Arc::new(ForgeFileSnapshotService::new(env.clone()));
-        let db_pool =
-            Arc::new(DatabasePool::try_from(PoolConfig::new(env.database_path())).unwrap());
         let conversation_repository = Arc::new(ConversationRepositoryImpl::new(
-            db_pool.clone(),
+            db_pool,
             env.workspace_hash(),
         ));
 

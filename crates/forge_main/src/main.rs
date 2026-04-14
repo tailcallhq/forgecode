@@ -1,12 +1,15 @@
 use std::io::Read;
 use std::panic;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use forge_api::ForgeAPI;
+use forge_app::EnvironmentInfra;
 use forge_config::ForgeConfig;
 use forge_domain::TitleFormat;
+use forge_infra::ForgeInfra;
 use forge_main::{Cli, Sandbox, TitleDisplayExt, UI, tracker};
 
 /// Enables ENABLE_VIRTUAL_TERMINAL_PROCESSING on the stdout console handle.
@@ -120,8 +123,25 @@ async fn run() -> Result<()> {
         (_, _) => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     };
 
+    // ForgeInfra is created once and reused across /new — it owns long-lived
+    // resources (HTTP client, gRPC) that don't need to reset per conversation.
+    let infra = Arc::new(ForgeInfra::new(cwd.clone(), config.clone()));
+
     let mut ui = UI::init(cli, config, move |config| {
-        ForgeAPI::init(cwd.clone(), config)
+        // Config is intentionally unused here — ForgeInfra is frozen at startup.
+        let _ = config;
+
+        // Fresh pool on every /new. SQLite's busy_timeout handles any brief
+        // contention while the old pool drains from lingering hydration tasks.
+        let db_pool = Arc::new(
+            forge_repo::DatabasePool::try_from(forge_repo::PoolConfig::new(
+                infra.get_environment().database_path(),
+            ))
+            .context("Failed to open Forge database")?,
+        );
+        let repo = Arc::new(forge_repo::ForgeRepo::new(infra.clone(), db_pool));
+        let services = Arc::new(forge_services::ForgeServices::new(repo.clone()));
+        Ok(ForgeAPI::new(services, repo))
     })?;
     ui.run().await;
 
