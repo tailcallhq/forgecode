@@ -93,7 +93,10 @@ impl<A: Services> DataGenerationApp<A> {
             concurrency
         );
 
-        let model_config = self.services.get_session_config().await
+        let model_config = self
+            .services
+            .get_session_config()
+            .await
             .ok_or_else(|| forge_domain::Error::NoDefaultSession)?;
         let provider = self.services.get_provider(model_config.provider).await?;
         let model_id = model_config.model;

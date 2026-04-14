@@ -4334,13 +4334,16 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .and_then(|str| ConversationId::from_str(str.as_str()).ok());
 
         // Make IO calls in parallel
-        let (model_id, conversation) = tokio::join!(async { self.api.get_session_config().await.map(|c| c.model) }, async {
-            if let Some(cid) = cid {
-                self.api.conversation(&cid).await.ok().flatten()
-            } else {
-                None
+        let (model_id, conversation) = tokio::join!(
+            async { self.api.get_session_config().await.map(|c| c.model) },
+            async {
+                if let Some(cid) = cid {
+                    self.api.conversation(&cid).await.ok().flatten()
+                } else {
+                    None
+                }
             }
-        });
+        );
 
         // Calculate total cost including related conversations
         let cost = if let Some(ref conv) = conversation {

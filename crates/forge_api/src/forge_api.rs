@@ -407,7 +407,8 @@ impl<
     }
 
     async fn get_default_provider(&self) -> Result<Provider<Url>> {
-        let model_config = self.services
+        let model_config = self
+            .services
             .get_session_config()
             .await
             .ok_or_else(|| forge_domain::Error::NoDefaultSession)?;

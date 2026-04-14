@@ -23,7 +23,6 @@ impl<F> ForgeAppConfigService<F> {
 impl<F: ProviderRepository + EnvironmentInfra<Config = forge_config::ForgeConfig> + Send + Sync>
     AppConfigService for ForgeAppConfigService<F>
 {
-
     async fn get_session_config(&self) -> Option<ModelConfig> {
         let config = self.infra.get_config().ok()?;
         let session = config.session.as_ref()?;
@@ -351,7 +350,10 @@ mod tests {
 
         assert_eq!(
             result,
-            Some(DomainModelConfig::new(ProviderId::OPENAI, ModelId::new("gpt-4")))
+            Some(DomainModelConfig::new(
+                ProviderId::OPENAI,
+                ModelId::new("gpt-4")
+            ))
         );
         Ok(())
     }
