@@ -20,7 +20,8 @@ pub fn generate_autofix_workflow() {
         )
         .add_step(Step::new("Cargo Fmt").run(jobs::fmt_cmd(true)))
         .add_step(
-            Step::new("Cargo Clippy").run(jobs::clippy_cmd(true, jobs::ClippyProfile::DenyWarnings)),
+            Step::new("Cargo Clippy")
+                .run(jobs::clippy_cmd(true, jobs::ClippyProfile::DenyWarnings)),
         )
         .add_step(
             Step::new("Cargo Clippy String Safety")

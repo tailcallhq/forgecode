@@ -36,7 +36,12 @@ fn clippy_lints(profile: ClippyProfile) -> Vec<&'static str> {
     match profile {
         ClippyProfile::DenyWarnings => vec!["-D", "warnings"],
         ClippyProfile::StringSafety => {
-            vec!["-W", "clippy::string_slice", "-W", "clippy::indexing_slicing"]
+            vec![
+                "-W",
+                "clippy::string_slice",
+                "-W",
+                "clippy::indexing_slicing",
+            ]
         }
     }
 }
