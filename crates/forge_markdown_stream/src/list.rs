@@ -149,9 +149,18 @@ pub fn render_list_item<S: InlineStyler + ListStyler>(
             format!("{}.", num)
         }
         ListBullet::PlusExpand => "⊞".to_string(),
-        ListBullet::Dash => BULLETS_DASH[level % BULLETS_DASH.len()].to_string(),
-        ListBullet::Asterisk => BULLETS_ASTERISK[level % BULLETS_ASTERISK.len()].to_string(),
-        ListBullet::Plus => BULLETS_PLUS[level % BULLETS_PLUS.len()].to_string(),
+        ListBullet::Dash => BULLETS_DASH
+            .get(level % BULLETS_DASH.len())
+            .unwrap_or(&"•")
+            .to_string(),
+        ListBullet::Asterisk => BULLETS_ASTERISK
+            .get(level % BULLETS_ASTERISK.len())
+            .unwrap_or(&"∗")
+            .to_string(),
+        ListBullet::Plus => BULLETS_PLUS
+            .get(level % BULLETS_PLUS.len())
+            .unwrap_or(&"⊕")
+            .to_string(),
     };
 
     // Calculate indentation

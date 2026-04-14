@@ -31,7 +31,10 @@ pub fn render_table<S: TableStyler + InlineStyler>(
     let mut w: Vec<usize> = vec![0; n];
     for row in &rendered_rows {
         for (i, cell) in row.iter().enumerate() {
-            w[i] = w[i].max(visible_length(cell));
+            let new_width = visible_length(cell);
+            if let Some(wi) = w.get_mut(i) {
+                *wi = (*wi).max(new_width);
+            }
         }
     }
 
@@ -62,15 +65,23 @@ pub fn render_table<S: TableStyler + InlineStyler>(
     for (ri, row) in rendered_rows.iter().enumerate() {
         // Wrap each cell's content
         let wrapped: Vec<Vec<String>> = (0..n)
-            .map(|i| wrap(row.get(i).map(|s| s.as_str()).unwrap_or(""), w[i]))
+            .map(|i| {
+                let width = w.get(i).copied().unwrap_or(0);
+                wrap(row.get(i).map(|s| s.as_str()).unwrap_or(""), width)
+            })
             .collect();
 
         // Render each line of the wrapped cells
         for li in 0..wrapped.iter().map(|c| c.len()).max().unwrap_or(1) {
             let cells: String = (0..n)
                 .map(|i| {
-                    let c = wrapped[i].get(li).map(|s| s.as_str()).unwrap_or("");
-                    let p = " ".repeat(w[i].saturating_sub(visible_length(c)));
+                    let c = wrapped
+                        .get(i)
+                        .and_then(|w| w.get(li))
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
+                    let width = w.get(i).copied().unwrap_or(0);
+                    let p = " ".repeat(width.saturating_sub(visible_length(c)));
                     if ri == 0 && li == 0 && !c.is_empty() {
                         format!(" {}{} ", styler.header(c), p)
                     } else {
@@ -119,7 +130,7 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
     let mut i = 0;
 
     while i < chars.len() {
-        let c = chars[i];
+        let c = chars.get(i).copied().unwrap_or('\0');
 
         // Handle escape sequences
         if c == '\x1b' {
@@ -128,14 +139,14 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
 
             // Check what type of sequence
             if i < chars.len() {
-                let next = chars[i];
+                let next = chars.get(i).copied().unwrap_or('\0');
                 esc.push(next);
                 i += 1;
 
                 if next == '[' {
                     // CSI sequence - read until 'm' or other terminator
                     while i < chars.len() {
-                        let sc = chars[i];
+                        let sc = chars.get(i).copied().unwrap_or('\0');
                         esc.push(sc);
                         i += 1;
                         if sc == 'm' || sc == 'K' || sc == 'H' || sc == 'J' {
@@ -156,7 +167,7 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
                     // OSC sequence - read until \x1b\\
                     in_osc = true;
                     while i < chars.len() {
-                        let sc = chars[i];
+                        let sc = chars.get(i).copied().unwrap_or('\0');
                         esc.push(sc);
                         i += 1;
                         if sc == '\\' && esc.len() >= 2 {
@@ -279,7 +290,7 @@ fn split_word_at_width(word: &str, width: usize) -> (String, String) {
     let mut i = 0;
 
     while i < chars.len() {
-        let c = chars[i];
+        let c = chars.get(i).copied().unwrap_or('\0');
 
         // Handle escape sequences
         if c == '\x1b' {
@@ -287,14 +298,14 @@ fn split_word_at_width(word: &str, width: usize) -> (String, String) {
             i += 1;
 
             if i < chars.len() {
-                let next = chars[i];
+                let next = chars.get(i).copied().unwrap_or('\0');
                 esc.push(next);
                 i += 1;
 
                 if next == '[' {
                     // CSI sequence
                     while i < chars.len() {
-                        let sc = chars[i];
+                        let sc = chars.get(i).copied().unwrap_or('\0');
                         esc.push(sc);
                         i += 1;
                         if sc == 'm' || sc == 'K' || sc == 'H' || sc == 'J' {
@@ -304,7 +315,7 @@ fn split_word_at_width(word: &str, width: usize) -> (String, String) {
                 } else if next == ']' {
                     // OSC sequence - read until \x1b\\ or BEL
                     while i < chars.len() {
-                        let sc = chars[i];
+                        let sc = chars.get(i).copied().unwrap_or('\0');
                         esc.push(sc);
                         i += 1;
                         if sc == '\\' && esc.len() >= 2 {

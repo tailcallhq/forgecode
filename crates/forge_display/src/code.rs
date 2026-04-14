@@ -63,7 +63,9 @@ impl SyntaxHighlighter {
         } else {
             EmbeddedThemeName::InspiredGithub
         };
-        let theme = &self.theme_set.themes[theme_name.as_name()];
+        let Some(theme) = self.theme_set.themes.get(theme_name.as_name()) else {
+            return code.to_string();
+        };
         let mut hl = HighlightLines::new(syntax, theme);
 
         code.lines()

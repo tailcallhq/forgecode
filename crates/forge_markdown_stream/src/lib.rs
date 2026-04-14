@@ -80,7 +80,7 @@ impl<W: Write> StreamdownRenderer<W> {
         self.line_buffer.push_str(token);
 
         while let Some(pos) = self.line_buffer.find('\n') {
-            let line = self.line_buffer[..pos].to_string();
+            let line = self.line_buffer.get(..pos).unwrap_or("").to_string();
 
             for repaired in repair_line(&line, self.parser.state()) {
                 for event in self.parser.parse_line(&repaired) {
@@ -88,7 +88,7 @@ impl<W: Write> StreamdownRenderer<W> {
                 }
             }
 
-            self.line_buffer = self.line_buffer[pos + 1..].to_string();
+            self.line_buffer = self.line_buffer.get(pos + 1..).unwrap_or("").to_string();
         }
         Ok(())
     }

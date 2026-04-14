@@ -90,7 +90,7 @@ impl<P: ConsoleWriter> SpinnerManager<P> {
                 let idx = *self
                     .word_index
                     .get_or_insert_with(|| rand::rng().random_range(0..words.len()));
-                words[idx].to_string()
+                words.get(idx).unwrap_or(&"Loading").to_string()
             }
         };
 

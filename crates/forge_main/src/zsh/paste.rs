@@ -33,8 +33,12 @@ pub fn wrap_pasted_text(pasted: &str) -> String {
     if let Some(resolved) = resolve_file_path(unquoted) {
         // Reconstruct with the same leading/trailing whitespace the
         // original normalised string had.
-        let leading = &normalised[..normalised.len() - normalised.trim_start().len()];
-        let trailing = &normalised[normalised.trim_end().len()..];
+        let trim_start_len = normalised.trim_start().len();
+        let trim_end_len = normalised.trim_end().len();
+        let leading = normalised
+            .get(..normalised.len() - trim_start_len)
+            .unwrap_or("");
+        let trailing = normalised.get(trim_end_len..).unwrap_or("");
         return format!("{leading}@[{resolved}]{trailing}");
     }
 
@@ -49,7 +53,7 @@ fn strip_surrounding_quotes(s: &str) -> &str {
         return s;
     }
     if (s.starts_with('\'') && s.ends_with('\'')) || (s.starts_with('"') && s.ends_with('"')) {
-        &s[1..s.len() - 1]
+        s.get(1..s.len().saturating_sub(1)).unwrap_or(s)
     } else {
         s
     }
@@ -115,10 +119,14 @@ fn find_token_end(input: &str) -> usize {
     let bytes = input.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+        if bytes.get(i) == Some(&b'\\') && i + 1 < bytes.len() {
             // Skip escaped character
             i += 2;
-        } else if (bytes[i] as char).is_whitespace() {
+        } else if bytes
+            .get(i)
+            .map(|b| (*b as char).is_whitespace())
+            .unwrap_or(false)
+        {
             return i;
         } else {
             i += 1;
@@ -141,8 +149,8 @@ fn wrap_tokens(input: &str) -> String {
         let ws_end = remaining
             .find(|c: char| !c.is_whitespace())
             .unwrap_or(remaining.len());
-        result.push_str(&remaining[..ws_end]);
-        remaining = &remaining[ws_end..];
+        result.push_str(remaining.get(..ws_end).unwrap_or(""));
+        remaining = remaining.get(ws_end..).unwrap_or("");
 
         if remaining.is_empty() {
             break;
@@ -152,26 +160,26 @@ fn wrap_tokens(input: &str) -> String {
         if remaining.starts_with("@[")
             && let Some(close) = remaining.find(']')
         {
-            result.push_str(&remaining[..=close]);
-            remaining = &remaining[close + 1..];
+            result.push_str(remaining.get(..=close).unwrap_or(""));
+            remaining = remaining.get(close.saturating_add(1)..).unwrap_or("");
             continue;
         }
 
         // If the token starts with a quote, consume everything up to the
         // matching closing quote so that paths with spaces stay together.
-        let first_char = remaining.as_bytes()[0];
+        let first_char = remaining.as_bytes().first().copied().unwrap_or(0);
         if first_char == b'\'' || first_char == b'"' {
             let quote = first_char as char;
-            if let Some(close) = remaining[1..].find(quote) {
-                let token_end = close + 2; // include both quotes
-                let token = &remaining[..token_end];
+            if let Some(close) = remaining.get(1..).and_then(|s| s.find(quote)) {
+                let token_end = close.saturating_add(2); // include both quotes
+                let token = remaining.get(..token_end).unwrap_or("");
                 let clean = strip_surrounding_quotes(token);
                 if let Some(resolved) = resolve_file_path(clean) {
                     result.push_str(&format!("@[{}]", resolved));
                 } else {
                     result.push_str(token);
                 }
-                remaining = &remaining[token_end..];
+                remaining = remaining.get(token_end..).unwrap_or("");
                 continue;
             }
         }
@@ -180,7 +188,7 @@ fn wrap_tokens(input: &str) -> String {
         // (e.g. `\ `) as part of the token.  This handles terminals like
         // Ghostty that send `/path/my\ file.txt` for drag-and-drop.
         let token_end = find_token_end(remaining);
-        let token = &remaining[..token_end];
+        let token = remaining.get(..token_end).unwrap_or("");
 
         if let Some(resolved) = resolve_file_path(token) {
             result.push_str(&format!("@[{}]", resolved));
@@ -188,7 +196,7 @@ fn wrap_tokens(input: &str) -> String {
             result.push_str(token);
         }
 
-        remaining = &remaining[token_end..];
+        remaining = remaining.get(token_end..).unwrap_or("");
     }
 
     result
