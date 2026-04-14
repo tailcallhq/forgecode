@@ -253,8 +253,11 @@ mod tests {
         );
 
         // Agent has reasoning explicitly enabled.
-        let agent =
-            fixture_agent().reasoning(ReasoningConfig::default().enabled(true).effort(Effort::High));
+        let agent = fixture_agent().reasoning(
+            ReasoningConfig::default()
+                .enabled(true)
+                .effort(Effort::High),
+        );
 
         let actual = agent.apply_config(&config).reasoning;
 
