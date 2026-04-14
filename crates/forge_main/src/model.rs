@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
-use clap::{Parser, Subcommand, error::ErrorKind};
+use clap::error::ErrorKind;
+use clap::{Parser, Subcommand};
 use forge_api::{AgentInfo, Model, Template};
 use forge_domain::UserCommand;
 use strum::{EnumProperty, IntoEnumIterator};
