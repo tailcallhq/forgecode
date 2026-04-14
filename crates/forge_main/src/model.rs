@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use forge_api::{AgentInfo, Model, Template};
 use forge_domain::UserCommand;
@@ -308,6 +309,11 @@ impl ForgeCommandManager {
             .strip_prefix('/')
             .or_else(|| first.strip_prefix(':'))
             .unwrap_or(first);
+        let command_prefix = first
+            .chars()
+            .next()
+            .filter(|c| *c == '/' || *c == ':')
+            .unwrap_or(':');
         let rest: Vec<&str> = tokens.collect();
 
         // Build argv: [bare_command, arg1, arg2, …]
@@ -372,8 +378,17 @@ impl ForgeCommandManager {
                     )));
                 }
 
-                // Surface a clean error from Clap (strips ANSI + binary name noise).
-                Err(anyhow::anyhow!("{}", clap_err.render().to_string().trim()))
+                // Surface user-friendly errors for unknown commands.
+                if clap_err.kind() == ErrorKind::InvalidSubcommand {
+                    return Err(anyhow::anyhow!(
+                        "Unknown command '{command_prefix}{command_name}'. Run '{command_prefix}help' to list available commands."
+                    ));
+                }
+
+                // Surface a clean error from Clap (strips ANSI + internal parser name).
+                let rendered = clap_err.render().to_string();
+                let cleaned = rendered.replace("forge_cmd", "forge");
+                Err(anyhow::anyhow!("{}", cleaned.trim()))
             }
         }
     }
@@ -1468,6 +1483,24 @@ mod tests {
                 .to_string()
                 .contains("not a valid agent command")
         );
+    }
+
+    #[test]
+    fn test_parse_invalid_command_with_colon_returns_helpful_error() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse(":celar").unwrap_err().to_string();
+        let expected =
+            "Unknown command ':celar'. Run ':help' to list available commands.".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_invalid_command_with_slash_returns_helpful_error() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/celar").unwrap_err().to_string();
+        let expected =
+            "Unknown command '/celar'. Run '/help' to list available commands.".to_string();
+        assert_eq!(actual, expected);
     }
 
     #[test]
