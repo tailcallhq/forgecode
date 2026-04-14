@@ -145,7 +145,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn get_agent_model(&self, agent_id: Option<AgentId>) -> Option<ModelId> {
         match agent_id {
             Some(agent_id) => self.api.get_agent_model(agent_id).await,
-            None => self.api.get_default_model().await,
+            None => self.api.get_session_config().await.map(|c| c.model),
         }
     }
 
@@ -2711,7 +2711,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         provider_filter: Option<ProviderId>,
     ) -> Result<Option<(ModelId, ProviderId)>> {
         // Check if provider is set otherwise first ask to select a provider
-        if provider_filter.is_none() && self.api.get_default_provider().await.is_err() {
+        if provider_filter.is_none() && self.api.get_session_config().await.is_none() {
             if !self.on_provider_selection().await? {
                 return Ok(None);
             }
@@ -2719,7 +2719,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             // Provider activation may have already completed model selection.
             // If it did not, continue below and show the full cross-provider
             // model list.
-            if self.api.get_default_model().await.is_some() {
+            if self.api.get_session_config().await.is_some() {
                 return Ok(None);
             }
         }
@@ -3424,7 +3424,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.activate_provider(any_provider).await?;
         // Check if provider was actually saved — if user cancelled model selection
         // inside activate_provider, nothing was written
-        Ok(self.api.get_default_provider().await.is_ok())
+        Ok(self.api.get_session_config().await.is_some())
     }
 
     /// Activates a provider by configuring it if needed, setting it as default,
@@ -3493,7 +3493,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
 
         // Check if the current model is available for the new provider
-        let current_model = self.api.get_default_model().await;
+        let current_model = self.api.get_session_config().await.map(|c| c.model);
         let (needs_model_selection, compatible_model) = match current_model {
             None => (true, None),
             Some(current_model) => {
@@ -3642,7 +3642,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // Validate provider is configured before loading agents
         // If provider is set in config but not configured (no credentials), prompt user
         // to login
-        if self.api.get_default_provider().await.is_err() && !self.on_provider_selection().await? {
+        if self.api.get_session_config().await.is_none() && !self.on_provider_selection().await? {
             return Ok(());
         }
 
@@ -4274,9 +4274,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             ConfigGetField::Model => {
                 let model = self
                     .api
-                    .get_default_model()
+                    .get_session_config()
                     .await
-                    .map(|m| m.as_str().to_string());
+                    .map(|c| c.model.as_str().to_string());
                 match model {
                     Some(v) => self.writeln(v.to_string())?,
                     None => self.writeln("Model: Not set")?,
@@ -4285,10 +4285,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             ConfigGetField::Provider => {
                 let provider = self
                     .api
-                    .get_default_provider()
+                    .get_session_config()
                     .await
-                    .ok()
-                    .map(|p| p.id.to_string());
+                    .map(|c| c.provider.to_string());
                 match provider {
                     Some(v) => self.writeln(v.to_string())?,
                     None => self.writeln("Provider: Not set")?,
@@ -4335,13 +4334,16 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .and_then(|str| ConversationId::from_str(str.as_str()).ok());
 
         // Make IO calls in parallel
-        let (model_id, conversation) = tokio::join!(self.api.get_default_model(), async {
-            if let Some(cid) = cid {
-                self.api.conversation(&cid).await.ok().flatten()
-            } else {
-                None
+        let (model_id, conversation) = tokio::join!(
+            async { self.api.get_session_config().await.map(|c| c.model) },
+            async {
+                if let Some(cid) = cid {
+                    self.api.conversation(&cid).await.ok().flatten()
+                } else {
+                    None
+                }
             }
-        });
+        );
 
         // Calculate total cost including related conversations
         let cost = if let Some(ref conv) = conversation {

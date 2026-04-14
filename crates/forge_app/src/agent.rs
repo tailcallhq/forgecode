@@ -48,7 +48,10 @@ impl<T: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentSe
         let provider_id = if let Some(provider_id) = provider_id {
             provider_id
         } else {
-            self.get_default_provider().await?
+            self.get_session_config()
+                .await
+                .map(|c| c.provider)
+                .ok_or_else(|| forge_domain::Error::NoDefaultSession)?
         };
         let provider = self.get_provider(provider_id).await?;
 
