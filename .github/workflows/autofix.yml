@@ -53,6 +53,8 @@ jobs:
       run: cargo +nightly fmt --all
     - name: Cargo Clippy
       run: cargo +nightly clippy --all-features --all-targets --workspace --fix --allow-dirty -- -D warnings
+    - name: Cargo Clippy String Safety
+      run: cargo +nightly clippy --all-features --all-targets --workspace --fix --allow-dirty -- -W clippy::string_slice -W clippy::indexing_slicing
     - name: Autofix
       uses: autofix-ci/action@7a166d7532b277f34e16238930461bf77f9d7ed8
 concurrency:

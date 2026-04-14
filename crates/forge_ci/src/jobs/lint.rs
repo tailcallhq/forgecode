@@ -10,7 +10,16 @@ fn fmt_base() -> Vec<&'static str> {
     vec!["cargo", "+nightly", "fmt", "--all"]
 }
 
-/// Base parts for clippy commands
+/// Available cargo clippy command profiles for CI.
+#[derive(Clone, Copy)]
+pub enum ClippyProfile {
+    /// Run the default lint configuration and fail on warnings.
+    DenyWarnings,
+    /// Run UTF-8 and indexing safety lints for string and slice operations.
+    StringSafety,
+}
+
+/// Base parts for clippy commands.
 fn clippy_base() -> Vec<&'static str> {
     vec![
         "cargo",
@@ -22,6 +31,16 @@ fn clippy_base() -> Vec<&'static str> {
     ]
 }
 
+/// Additional lint arguments for clippy commands.
+fn clippy_lints(profile: ClippyProfile) -> Vec<&'static str> {
+    match profile {
+        ClippyProfile::DenyWarnings => vec!["-D", "warnings"],
+        ClippyProfile::StringSafety => {
+            vec!["-W", "clippy::string_slice", "-W", "clippy::indexing_slicing"]
+        }
+    }
+}
+
 /// Build a cargo fmt command
 pub fn fmt_cmd(fix: bool) -> String {
     let mut parts = fmt_base();
@@ -31,15 +50,16 @@ pub fn fmt_cmd(fix: bool) -> String {
     cargo_cmd(&parts)
 }
 
-/// Build a cargo clippy command
-pub fn clippy_cmd(fix: bool) -> String {
+/// Build a cargo clippy command for a CI profile.
+pub fn clippy_cmd(fix: bool, profile: ClippyProfile) -> String {
     let mut parts = clippy_base();
 
     if fix {
         parts.extend(["--fix", "--allow-dirty"]);
     }
 
-    parts.extend(["--", "-D", "warnings"]);
+    parts.push("--");
+    parts.extend(clippy_lints(profile));
 
     cargo_cmd(&parts)
 }
