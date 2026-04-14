@@ -157,6 +157,9 @@ function forge-accept-line() {
         retry|r)
             _forge_action_retry
         ;;
+        help)
+            _forge_action_help
+        ;;
         agent|a)
             _forge_action_agent "$input_text"
         ;;
@@ -243,12 +246,6 @@ function forge-accept-line() {
         ;;
         logout)
             _forge_action_logout "$input_text"
-        ;;
-        doctor)
-            _forge_action_doctor
-        ;;
-        keyboard-shortcuts|kb)
-            _forge_action_keyboard
         ;;
         *)
             _forge_action_default "$user_action" "$input_text"

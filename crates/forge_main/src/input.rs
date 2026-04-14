@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use forge_api::Environment;
 
 use crate::editor::{ForgeEditor, ReadResult};
-use crate::model::{ForgeCommandManager, SlashCommand};
+use crate::model::{AppCommand, ForgeCommandManager};
 use crate::prompt::ForgePrompt;
 use crate::tracker;
 
@@ -27,7 +27,7 @@ impl Console {
 }
 
 impl Console {
-    pub async fn prompt(&self, prompt: &mut ForgePrompt) -> anyhow::Result<SlashCommand> {
+    pub async fn prompt(&self, prompt: &mut ForgePrompt) -> anyhow::Result<AppCommand> {
         loop {
             let mut forge_editor = self.editor.lock().unwrap();
             let user_input = forge_editor.prompt(prompt)?;
@@ -35,7 +35,7 @@ impl Console {
             drop(forge_editor);
             match user_input {
                 ReadResult::Continue => continue,
-                ReadResult::Exit => return Ok(SlashCommand::Exit),
+                ReadResult::Exit => return Ok(AppCommand::Exit),
                 ReadResult::Empty => continue,
                 ReadResult::Success(text) => {
                     tracker::prompt(text.clone());

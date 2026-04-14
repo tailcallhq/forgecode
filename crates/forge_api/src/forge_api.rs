@@ -297,10 +297,6 @@ impl<
         agent_provider_resolver.get_model(Some(agent_id)).await.ok()
     }
 
-    async fn get_default_model(&self) -> Option<ModelId> {
-        self.services.get_provider_model(None).await.ok()
-    }
-
     async fn reload_mcp(&self) -> Result<()> {
         self.services.mcp_service().reload_mcp().await
     }
@@ -402,9 +398,17 @@ impl<
         app.execute(data_parameters).await
     }
 
+    async fn get_session_config(&self) -> Option<forge_domain::ModelConfig> {
+        self.services.get_session_config().await
+    }
+
     async fn get_default_provider(&self) -> Result<Provider<Url>> {
-        let provider_id = self.services.get_default_provider().await?;
-        self.services.get_provider(provider_id).await
+        let model_config = self
+            .services
+            .get_session_config()
+            .await
+            .ok_or_else(|| forge_domain::Error::NoDefaultSession)?;
+        self.services.get_provider(model_config.provider).await
     }
 
     async fn mcp_auth(&self, server_url: &str) -> Result<()> {

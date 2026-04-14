@@ -290,7 +290,9 @@ fn resolve_skill_conflicts(skills: Vec<Skill>) -> Vec<Skill> {
     for skill in skills {
         if let Some(idx) = seen.get(&skill.name) {
             // Replace the earlier skill with the same name
-            result[*idx] = skill.clone();
+            if let Some(existing) = result.get_mut(*idx) {
+                *existing = skill.clone();
+            }
         } else {
             // First occurrence of this skill name
             seen.insert(skill.name.clone(), result.len());

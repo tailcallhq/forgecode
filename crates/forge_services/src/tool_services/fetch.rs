@@ -115,7 +115,10 @@ impl ForgeFetch {
         } else {
             page_raw.len()
         };
-        let is_page_html = page_raw[..sniff_end].contains("<html")
+        let is_page_html = page_raw
+            .get(..sniff_end)
+            .map(|s| s.contains("<html"))
+            .unwrap_or(false)
             || content_type.contains("text/html")
             || content_type.is_empty();
 

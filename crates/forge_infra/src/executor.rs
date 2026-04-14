@@ -195,10 +195,10 @@ async fn stream<A: AsyncReadExt + Unpin, W: Write>(
             if n == 0 {
                 break;
             }
-            writer.write_all(&buff[..n])?;
+            writer.write_all(buff.get(..n).unwrap_or(&[]))?;
             // note: flush is necessary else we get the cursor could not be found error.
             writer.flush()?;
-            output.extend_from_slice(&buff[..n]);
+            output.extend_from_slice(buff.get(..n).unwrap_or(&[]));
         }
     }
     Ok(output)

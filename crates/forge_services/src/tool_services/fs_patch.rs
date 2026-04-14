@@ -90,7 +90,7 @@ impl Range {
             if start_idx >= lines.len() {
                 0 // Out of bounds match
             } else {
-                lines[start_idx].len()
+                lines.get(start_idx).map_or(0, |l| l.len())
             }
         } else {
             // Multi-line match: include newlines between lines but NOT after the last line
@@ -98,7 +98,9 @@ impl Range {
             let content_len: usize = if start_idx >= lines.len() || end_idx > lines.len() {
                 0 // Out of bounds match
             } else {
-                lines[start_idx..end_idx].iter().map(|l| l.len()).sum()
+                lines
+                    .get(start_idx..end_idx)
+                    .map_or(0, |slice| slice.iter().map(|l| l.len()).sum())
             };
             let newlines_between = end_idx - start_idx - 1;
             // Count actual newline bytes (\r\n = 2, \n = 1) to handle mixed endings
@@ -207,36 +209,48 @@ fn apply_replacement(
         }
 
         // Extract the matched text from haystack
-        let needle = &haystack[patch.start..patch.end()];
+        let needle = haystack
+            .get(patch.start..patch.end())
+            .ok_or_else(|| Error::RangeOutOfBounds(patch.start, patch.end(), haystack.len()))?;
 
         // Apply the operation based on its type
         match operation {
             // Prepend content before the matched text
-            PatchOperation::Prepend => Ok(format!(
-                "{}{}{}",
-                &haystack[..patch.start],
-                normalized_content,
-                &haystack[patch.start..]
-            )),
+            PatchOperation::Prepend => {
+                let before = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
+                    0,
+                    patch.start,
+                    haystack.len(),
+                ))?;
+                let after = haystack.get(patch.start..).ok_or({
+                    Error::RangeOutOfBounds(patch.start, haystack.len(), haystack.len())
+                })?;
+                Ok(format!("{}{}{}", before, normalized_content, after))
+            }
 
             // Replace all occurrences of the matched text with new content
             PatchOperation::ReplaceAll => Ok(haystack.replace(needle, &normalized_content)),
 
             // Append content after the matched text
-            PatchOperation::Append => Ok(format!(
-                "{}{}{}{}",
-                &haystack[..patch.end()],
-                line_ending,
-                normalized_content,
-                &haystack[patch.end()..]
-            )),
+            PatchOperation::Append => {
+                let before = haystack
+                    .get(..patch.end())
+                    .ok_or_else(|| Error::RangeOutOfBounds(0, patch.end(), haystack.len()))?;
+                let after = haystack.get(patch.end()..).ok_or_else(|| {
+                    Error::RangeOutOfBounds(patch.end(), haystack.len(), haystack.len())
+                })?;
+                Ok(format!(
+                    "{}{}{}{}",
+                    before, line_ending, normalized_content, after
+                ))
+            }
 
             // Replace matched text with new content
             PatchOperation::Replace => {
                 // Check if there are multiple matches
                 let mut match_count = 0;
                 let mut search_start = 0;
-                while let Some(pos) = haystack[search_start..].find(needle) {
+                while let Some(pos) = haystack.get(search_start..).and_then(|s| s.find(needle)) {
                     match_count += 1;
                     if match_count > 1 {
                         return Err(Error::MultipleMatches(needle.to_string()));
@@ -244,12 +258,15 @@ fn apply_replacement(
                     search_start += pos + needle.len();
                 }
 
-                Ok(format!(
-                    "{}{}{}",
-                    &haystack[..patch.start],
-                    normalized_content,
-                    &haystack[patch.end()..]
-                ))
+                let before = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
+                    0,
+                    patch.start,
+                    haystack.len(),
+                ))?;
+                let after = haystack.get(patch.end()..).ok_or_else(|| {
+                    Error::RangeOutOfBounds(patch.end(), haystack.len(), haystack.len())
+                })?;
+                Ok(format!("{}{}{}", before, normalized_content, after))
             }
 
             // Swap with another text in the source
@@ -263,34 +280,59 @@ fn apply_replacement(
                     || (target_patch.start <= patch.start && target_patch.end() > patch.start)
                 {
                     // For overlapping ranges, we just do an ordinary replacement
-                    return Ok(format!(
-                        "{}{}{}",
-                        &haystack[..patch.start],
-                        normalized_content,
-                        &haystack[patch.end()..]
-                    ));
+                    let before = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
+                        0,
+                        patch.start,
+                        haystack.len(),
+                    ))?;
+                    let after = haystack.get(patch.end()..).ok_or_else(|| {
+                        Error::RangeOutOfBounds(patch.end(), haystack.len(), haystack.len())
+                    })?;
+                    return Ok(format!("{}{}{}", before, normalized_content, after));
                 }
 
                 // We need to handle different ordering of patches
                 if patch.start < target_patch.start {
                     // Original text comes first
+                    let part1 = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
+                        0,
+                        patch.start,
+                        haystack.len(),
+                    ))?;
+                    let part2 = haystack
+                        .get(patch.end()..target_patch.start)
+                        .ok_or_else(|| {
+                            Error::RangeOutOfBounds(patch.end(), target_patch.start, haystack.len())
+                        })?;
+                    let part3 = haystack.get(patch.start..patch.end()).ok_or_else(|| {
+                        Error::RangeOutOfBounds(patch.start, patch.end(), haystack.len())
+                    })?;
+                    let part4 = haystack.get(target_patch.end()..).ok_or_else(|| {
+                        Error::RangeOutOfBounds(target_patch.end(), haystack.len(), haystack.len())
+                    })?;
                     Ok(format!(
                         "{}{}{}{}{}",
-                        &haystack[..patch.start],
-                        normalized_content,
-                        &haystack[patch.end()..target_patch.start],
-                        &haystack[patch.start..patch.end()],
-                        &haystack[target_patch.end()..]
+                        part1, normalized_content, part2, part3, part4
                     ))
                 } else {
                     // Target text comes first
+                    let part1 = haystack.get(..target_patch.start).ok_or({
+                        Error::RangeOutOfBounds(0, target_patch.start, haystack.len())
+                    })?;
+                    let part2 = haystack.get(patch.start..patch.end()).ok_or_else(|| {
+                        Error::RangeOutOfBounds(patch.start, patch.end(), haystack.len())
+                    })?;
+                    let part3 = haystack
+                        .get(target_patch.end()..patch.start)
+                        .ok_or_else(|| {
+                            Error::RangeOutOfBounds(target_patch.end(), patch.start, haystack.len())
+                        })?;
+                    let part4 = haystack.get(patch.end()..).ok_or_else(|| {
+                        Error::RangeOutOfBounds(patch.end(), haystack.len(), haystack.len())
+                    })?;
                     Ok(format!(
                         "{}{}{}{}{}",
-                        &haystack[..target_patch.start],
-                        &haystack[patch.start..patch.end()],
-                        &haystack[target_patch.end()..patch.start],
-                        normalized_content,
-                        &haystack[patch.end()..]
+                        part1, part2, part3, normalized_content, part4
                     ))
                 }
             }
@@ -375,7 +417,9 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
                 {
                     Ok(matches) if !matches.is_empty() => {
                         // Use the first fuzzy match
-                        Some(Range::from_search_match(&current_content, &matches[0]))
+                        matches
+                            .first()
+                            .map(|m| Range::from_search_match(&current_content, m))
                     }
                     _ => return Err(Error::NoMatch(search_text).into()),
                 }
@@ -453,7 +497,9 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
                     {
                         Ok(matches) if !matches.is_empty() => {
                             // Use the first fuzzy match
-                            Some(Range::from_search_match(&current_content, &matches[0]))
+                            matches
+                                .first()
+                                .map(|m| Range::from_search_match(&current_content, m))
                         }
                         _ => return Err(Error::NoMatch(search_text).into()),
                     }
