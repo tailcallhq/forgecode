@@ -766,7 +766,10 @@ impl AppCommand {
     /// `on_show_commands`, so they must be excluded from the COMMAND loop to
     /// avoid duplicate entries in `list commands --porcelain`.
     pub fn is_agent_switch(&self) -> bool {
-        matches!(self, AppCommand::Forge | AppCommand::Muse | AppCommand::Sage)
+        matches!(
+            self,
+            AppCommand::Forge | AppCommand::Muse | AppCommand::Sage
+        )
     }
 }
 
