@@ -1,4 +1,6 @@
 use std::sync::Arc;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
@@ -6,6 +8,12 @@ use syntect::parsing::SyntaxSet;
 use syntect::util::as_24_bit_terminal_escaped;
 use terminal_colorsaurus::{QueryOptions, ThemeMode, theme_mode};
 use two_face::theme::EmbeddedThemeName;
+
+/// Maximum time to wait for a terminal color query response.
+const THEME_DETECT_TIMEOUT: Duration = Duration::from_millis(100);
+
+/// Process-wide cache for whether the terminal uses a dark background.
+static IS_DARK_THEME: OnceLock<bool> = OnceLock::new();
 
 /// Loads and caches syntax highlighting resources.
 #[derive(Clone)]
@@ -25,12 +33,19 @@ impl Default for SyntaxHighlighter {
 }
 
 impl SyntaxHighlighter {
-    /// Detects whether the terminal is using a dark or light background.
+    /// Detects whether the terminal is using a dark or light background,
+    /// querying the terminal at most once per process lifetime. Subsequent
+    /// calls return the cached result. Falls back to dark mode on timeout or
+    /// if the terminal does not support color queries.
     fn is_dark_theme() -> bool {
-        match theme_mode(QueryOptions::default()) {
-            Ok(ThemeMode::Light) => false,
-            Ok(ThemeMode::Dark) | Err(_) => true,
-        }
+        *IS_DARK_THEME.get_or_init(|| {
+            let mut opts = QueryOptions::default();
+            opts.timeout = THEME_DETECT_TIMEOUT;
+            match theme_mode(opts) {
+                Ok(ThemeMode::Light) => false,
+                Ok(ThemeMode::Dark) | Err(_) => true,
+            }
+        })
     }
 
     /// Syntax-highlights `code` for the given language token (e.g. `"toml"`,
