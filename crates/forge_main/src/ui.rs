@@ -2007,7 +2007,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 self.on_agent_change(AgentId::MUSE).await?;
             }
             AppCommand::Sage => {
-                self.on_agent_change(AgentId::SAGE).await?;
+                if !self.config.deep_research {
+                    self.writeln("Sage agent is disabled. Set `deep_research = true` in .forge.toml to enable it.")?;
+                } else {
+                    self.on_agent_change(AgentId::SAGE).await?;
+                }
             }
             AppCommand::Help => {
                 let info = Info::from(self.command.as_ref());

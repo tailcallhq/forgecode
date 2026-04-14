@@ -28,6 +28,7 @@ tool_timeout_secs = 300
 top_k = 30
 top_p = 0.8
 verify_todos = true
+deep_research = false
 
 [retry]
 backoff_factor = 2

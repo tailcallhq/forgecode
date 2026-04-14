@@ -66,6 +66,11 @@
         "null"
       ]
     },
+    "deep_research": {
+      "description": "Whether the deep research agent is available.\n\nWhen set to `true`, the Sage agent is added to the agent list and\nthe `:sage` app command is enabled. Defaults to `false`.",
+      "type": "boolean",
+      "default": false
+    },
     "http": {
       "description": "HTTP client settings including proxy, TLS, and timeout configuration.",
       "anyOf": [
