@@ -75,7 +75,15 @@ impl Compactor {
                     .cloned()
                     .collect::<Vec<_>>()
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                tracing::error!(
+                    "Compaction range [{}..={}] out of bounds for {} messages",
+                    start,
+                    end,
+                    context.messages.len()
+                );
+                Vec::new()
+            });
 
         // Create a temporary context for the sequence to generate summary
         let sequence_context = Context::default().messages(compaction_sequence.clone());
