@@ -78,11 +78,7 @@ mod tests {
             unsafe {
                 env::set_var(key, value);
             }
-            Self {
-                key,
-                original_value,
-                _lock: lock,
-            }
+            Self { key, original_value, _lock: lock }
         }
     }
 
