@@ -1388,7 +1388,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             self.writeln(porcelain)?;
         } else {
             // Non-porcelain: render in the same flat format as :help in the REPL.
+            // Fetch custom commands from the API (same as the porcelain path) so
+            // they appear alongside the built-in commands.
             let command_manager = ForgeCommandManager::default();
+            let custom_commands = self.api.get_commands().await?;
+            command_manager.register_all(custom_commands);
             let info = Info::from(&command_manager);
             self.writeln(info)?;
         }
