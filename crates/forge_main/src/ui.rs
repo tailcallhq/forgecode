@@ -37,6 +37,7 @@ use crate::cli::{
 use crate::conversation_selector::ConversationSelector;
 use crate::display_constants::{CommandType, headers, markers, status};
 use crate::editor::ReadLineError;
+use crate::error::UIError;
 use crate::info::Info;
 use crate::input::Console;
 use crate::model::{AppCommand, ForgeCommandManager};
@@ -2087,9 +2088,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 let mut display_agents = Vec::new();
                 // Header row (non-selectable via header_lines=1)
+                let Some(header) = all_lines.first() else {
+                    return Err(UIError::MissingHeaderLine.into());
+                };
                 display_agents.push(Agent {
                     id: AgentId::new("__header__".to_string()),
-                    label: all_lines.first().unwrap().to_string(),
+                    label: header.to_string(),
                 });
                 // Data rows
                 for line in all_lines.iter().skip(1) {
@@ -2840,10 +2844,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let mut rows: Vec<ModelRow> = Vec::with_capacity(all_lines.len());
         // Header row (non-selectable via header_lines=1)
+        let Some(header) = all_lines.first() else {
+            return Err(UIError::MissingHeaderLine.into());
+        };
         rows.push(ModelRow {
             model_id: None,
             provider_id: None,
-            display: all_lines.first().unwrap().to_string(),
+            display: header.to_string(),
         });
         // Data rows
         for (i, line) in all_lines.iter().skip(1).enumerate() {
@@ -3148,12 +3155,15 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         use colored::Colorize;
 
         if auth_methods.is_empty() {
-            anyhow::bail!("No authentication methods available for provider {provider_id}");
+            return Err(UIError::NoAuthMethodsAvailable { provider: provider_id.clone() }.into());
         }
 
         // If only one auth method, use it directly
         if auth_methods.len() == 1 {
-            return Ok(Some(auth_methods.first().unwrap().clone()));
+            let Some(method) = auth_methods.first() else {
+                return Err(UIError::NoAuthMethodsAvailable { provider: provider_id.clone() }.into());
+            };
+            return Ok(Some(method.clone()));
         }
 
         // Multiple auth methods - ask user to choose
@@ -3179,11 +3189,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         {
             Some(selected_name) => {
                 // Find the corresponding auth method
-                let index = method_names
-                    .iter()
-                    .position(|name| name == &selected_name)
-                    .expect("Selected method should exist");
-                Ok(Some(auth_methods.get(index).unwrap().clone()))
+                let Some(index) = method_names.iter().position(|name| name == &selected_name)
+                else {
+                    return Err(UIError::AuthMethodNotFound.into());
+                };
+                let Some(method) = auth_methods.get(index) else {
+                    return Err(UIError::AuthMethodNotFound.into());
+                };
+                Ok(Some(method.clone()))
             }
             None => Ok(None),
         }
@@ -3335,9 +3348,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let mut rows: Vec<ProviderRow> = Vec::with_capacity(all_lines.len());
         // Header row (non-selectable via header_lines=1)
+        let Some(header) = all_lines.first() else {
+            return Err(UIError::MissingHeaderLine.into());
+        };
         rows.push(ProviderRow {
             provider: None,
-            display: all_lines.first().unwrap().to_string(),
+            display: header.to_string(),
         });
         // Data rows
         for (i, line) in all_lines.iter().skip(1).enumerate() {
