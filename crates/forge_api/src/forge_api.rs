@@ -297,10 +297,6 @@ impl<
         agent_provider_resolver.get_model(Some(agent_id)).await.ok()
     }
 
-    async fn get_default_model(&self) -> Option<ModelId> {
-        self.get_session_config().await.map(|c| c.model)
-    }
-
     async fn reload_mcp(&self) -> Result<()> {
         self.services.mcp_service().reload_mcp().await
     }

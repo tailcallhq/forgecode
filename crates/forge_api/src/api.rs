@@ -161,11 +161,6 @@ pub trait API: Sync + Send {
     /// Gets the model for the specified agent
     async fn get_agent_model(&self, agent_id: AgentId) -> Option<ModelId>;
 
-    /// Gets the default model from the current session configuration.
-    ///
-    /// Delegates to [`Self::get_session_config`] and extracts the model.
-    async fn get_default_model(&self) -> Option<ModelId>;
-
     /// Gets the commit configuration (provider and model for commit message
     /// generation).
     async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;

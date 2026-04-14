@@ -249,8 +249,7 @@ mod tests {
 
     #[test]
     fn test_render_prompt_left_with_branch() {
-        let mut prompt = ForgePrompt::default();
-        prompt.git_branch = Some("main".to_string());
+        let prompt = ForgePrompt { git_branch: Some("main".to_string()), ..Default::default() };
         let actual = prompt.render_prompt_left();
 
         // Agent name is on the right prompt, not the left
