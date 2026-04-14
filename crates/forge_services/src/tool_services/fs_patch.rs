@@ -217,9 +217,11 @@ fn apply_replacement(
         match operation {
             // Prepend content before the matched text
             PatchOperation::Prepend => {
-                let before = haystack
-                    .get(..patch.start)
-                    .ok_or(Error::RangeOutOfBounds(0, patch.start, haystack.len()))?;
+                let before = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
+                    0,
+                    patch.start,
+                    haystack.len(),
+                ))?;
                 let after = haystack.get(patch.start..).ok_or({
                     Error::RangeOutOfBounds(patch.start, haystack.len(), haystack.len())
                 })?;
@@ -256,9 +258,11 @@ fn apply_replacement(
                     search_start += pos + needle.len();
                 }
 
-                let before = haystack
-                    .get(..patch.start)
-                    .ok_or(Error::RangeOutOfBounds(0, patch.start, haystack.len()))?;
+                let before = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
+                    0,
+                    patch.start,
+                    haystack.len(),
+                ))?;
                 let after = haystack.get(patch.end()..).ok_or_else(|| {
                     Error::RangeOutOfBounds(patch.end(), haystack.len(), haystack.len())
                 })?;
@@ -276,9 +280,11 @@ fn apply_replacement(
                     || (target_patch.start <= patch.start && target_patch.end() > patch.start)
                 {
                     // For overlapping ranges, we just do an ordinary replacement
-                    let before = haystack
-                        .get(..patch.start)
-                        .ok_or(Error::RangeOutOfBounds(0, patch.start, haystack.len()))?;
+                    let before = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
+                        0,
+                        patch.start,
+                        haystack.len(),
+                    ))?;
                     let after = haystack.get(patch.end()..).ok_or_else(|| {
                         Error::RangeOutOfBounds(patch.end(), haystack.len(), haystack.len())
                     })?;
@@ -288,9 +294,11 @@ fn apply_replacement(
                 // We need to handle different ordering of patches
                 if patch.start < target_patch.start {
                     // Original text comes first
-                    let part1 = haystack
-                        .get(..patch.start)
-                        .ok_or(Error::RangeOutOfBounds(0, patch.start, haystack.len()))?;
+                    let part1 = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
+                        0,
+                        patch.start,
+                        haystack.len(),
+                    ))?;
                     let part2 = haystack
                         .get(patch.end()..target_patch.start)
                         .ok_or_else(|| {

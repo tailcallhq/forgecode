@@ -29,9 +29,10 @@ impl Highlighter for ForgeHighlighter {
                 line.get(..end).unwrap_or(line).to_string(),
             ));
             if end < line.len()
-                && let Some(args) = line.get(end..) {
-                    highlight_mentions(args, &mut styled);
-                }
+                && let Some(args) = line.get(end..)
+            {
+                highlight_mentions(args, &mut styled);
+            }
             return styled;
         }
 
@@ -71,9 +72,10 @@ fn highlight_mentions(line: &str, styled: &mut StyledText) {
             Some(start) => {
                 // Emit any plain text before the `@[`.
                 if start > 0
-                    && let Some(before) = remaining.get(..start) {
-                        styled.push((Style::new(), before.to_string()));
-                    }
+                    && let Some(before) = remaining.get(..start)
+                {
+                    styled.push((Style::new(), before.to_string()));
+                }
 
                 // `after_open` starts at `@[`.
                 let after_open = match remaining.get(start..) {
