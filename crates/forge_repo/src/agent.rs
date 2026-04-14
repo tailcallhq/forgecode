@@ -84,10 +84,7 @@ impl<I: FileInfoInfra + EnvironmentInfra<Config = ForgeConfig> + DirectoryReader
         )
     }
 
-    async fn init_agent_dir(
-        &self,
-        dir: &std::path::Path,
-    ) -> anyhow::Result<Vec<AgentDefinition>> {
+    async fn init_agent_dir(&self, dir: &std::path::Path) -> anyhow::Result<Vec<AgentDefinition>> {
         let config = self.infra.get_config()?;
         if !self.infra.exists(dir).await? {
             return Ok(vec![]);
