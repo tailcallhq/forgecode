@@ -3229,5 +3229,46 @@
       }
     ],
     "auth_methods": ["api_key"]
+  },
+  {
+    "id": "xiaomi_mimo",
+    "api_key_vars": "XIAOMI_MIMO_API_KEY",
+    "url_param_vars": [
+      { "name": "CLUSTER", "options": ["token-plan-sgp.xiaomimimo.com", "token-plan-cn.xiaomimimo.com", "token-plan-ams.xiaomimimo.com"] }
+    ],
+    "response_type": "OpenAI",
+    "url": "https://{{#if CLUSTER}}{{CLUSTER}}{{else}}token-plan-sgp.xiaomimimo.com{{/if}}/v1/chat/completions",
+    "models": [
+      {
+        "id": "mimo-v2-pro",
+        "name": "MiMo V2 Pro",
+        "description": "Xiaomi's flagship foundation model with 1T+ parameters and 1M context length",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "mimo-v2-omni",
+        "name": "MiMo V2 Omni",
+        "description": "Xiaomi's omni-modal model that natively processes image, video, and audio inputs",
+        "context_length": 262100,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "mimo-v2-tts",
+        "name": "MiMo V2 TTS",
+        "description": "Xiaomi's text-to-speech model",
+        "context_length": 8192,
+        "tools_supported": false,
+        "supports_parallel_tool_calls": false,
+        "input_modalities": ["text"]
+      }
+    ],
+    "auth_methods": ["api_key"]
   }
 ]
