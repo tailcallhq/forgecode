@@ -1320,56 +1320,58 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     /// Lists all the commands
     async fn on_show_commands(&mut self, porcelain: bool) -> anyhow::Result<()> {
-        let mut info = Info::new();
-
-        // Generate built-in commands directly from the SlashCommand enum so
-        // the list always stays in sync with what the REPL actually supports.
-        // Internal/meta variants (Message, Custom, Shell, AgentSwitch, Rename)
-        // are excluded via is_internal().
-        for cmd in AppCommand::iter().filter(|c| !c.is_internal()) {
-            info = info
-                .add_title(cmd.name())
-                .add_key_value("type", CommandType::Command)
-                .add_key_value("description", cmd.usage());
-        }
-
-        // Add agent aliases
-        info = info
-            .add_title("ask")
-            .add_key_value("type", CommandType::Agent)
-            .add_key_value(
-                "description",
-                "Research and investigation agent [alias for: sage]",
-            )
-            .add_title("plan")
-            .add_key_value("type", CommandType::Agent)
-            .add_key_value(
-                "description",
-                "Planning and strategy agent [alias for: muse]",
-            );
-
-        // Fetch agent infos and add them to the commands list.
-        // Uses get_agent_infos() so no provider/model is required for listing.
-        let agent_infos = self.api.get_agent_infos().await?;
-        for agent_info in agent_infos {
-            let title = agent_info
-                .title
-                .map(|title| title.lines().collect::<Vec<_>>().join(" "));
-            info = info
-                .add_title(agent_info.id.to_string())
-                .add_key_value("type", CommandType::Agent)
-                .add_key_value("description", title);
-        }
-
-        let custom_commands = self.api.get_commands().await?;
-        for command in custom_commands {
-            info = info
-                .add_title(command.name.clone())
-                .add_key_value("type", CommandType::Custom)
-                .add_key_value("description", command.description.clone());
-        }
-
         if porcelain {
+            // Build the full info with type/description columns for porcelain
+            // (used by the shell plugin for tab completion).
+            let mut info = Info::new();
+
+            // Generate built-in commands directly from the SlashCommand enum so
+            // the list always stays in sync with what the REPL actually supports.
+            // Internal/meta variants (Message, Custom, Shell, AgentSwitch, Rename)
+            // are excluded via is_internal().
+            for cmd in AppCommand::iter().filter(|c| !c.is_internal()) {
+                info = info
+                    .add_title(cmd.name())
+                    .add_key_value("type", CommandType::Command)
+                    .add_key_value("description", cmd.usage());
+            }
+
+            // Add agent aliases
+            info = info
+                .add_title("ask")
+                .add_key_value("type", CommandType::Agent)
+                .add_key_value(
+                    "description",
+                    "Research and investigation agent [alias for: sage]",
+                )
+                .add_title("plan")
+                .add_key_value("type", CommandType::Agent)
+                .add_key_value(
+                    "description",
+                    "Planning and strategy agent [alias for: muse]",
+                );
+
+            // Fetch agent infos and add them to the commands list.
+            // Uses get_agent_infos() so no provider/model is required for listing.
+            let agent_infos = self.api.get_agent_infos().await?;
+            for agent_info in agent_infos {
+                let title = agent_info
+                    .title
+                    .map(|title| title.lines().collect::<Vec<_>>().join(" "));
+                info = info
+                    .add_title(agent_info.id.to_string())
+                    .add_key_value("type", CommandType::Agent)
+                    .add_key_value("description", title);
+            }
+
+            let custom_commands = self.api.get_commands().await?;
+            for command in custom_commands {
+                info = info
+                    .add_title(command.name.clone())
+                    .add_key_value("type", CommandType::Custom)
+                    .add_key_value("description", command.description.clone());
+            }
+
             // Original order from Info: [$ID, type, description]
             // So the original order is fine! But $ID should become COMMAND
             let porcelain = Porcelain::from(&info)
@@ -1385,6 +1387,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 });
             self.writeln(porcelain)?;
         } else {
+            // Non-porcelain: render in the same flat format as :help in the REPL.
+            let command_manager = ForgeCommandManager::default();
+            let info = Info::from(&command_manager);
             self.writeln(info)?;
         }
 
