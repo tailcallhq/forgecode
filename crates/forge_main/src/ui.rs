@@ -3161,7 +3161,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // If only one auth method, use it directly
         if auth_methods.len() == 1 {
             let Some(method) = auth_methods.first() else {
-                return Err(UIError::NoAuthMethodsAvailable { provider: provider_id.clone() }.into());
+                return Err(
+                    UIError::NoAuthMethodsAvailable { provider: provider_id.clone() }.into(),
+                );
             };
             return Ok(Some(method.clone()));
         }
@@ -3351,10 +3353,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let Some(header) = all_lines.first() else {
             return Err(UIError::MissingHeaderLine.into());
         };
-        rows.push(ProviderRow {
-            provider: None,
-            display: header.to_string(),
-        });
+        rows.push(ProviderRow { provider: None, display: header.to_string() });
         // Data rows
         for (i, line) in all_lines.iter().skip(1).enumerate() {
             rows.push(ProviderRow { provider: sorted.get(i).cloned(), display: line.to_string() });

@@ -18,7 +18,8 @@ pub enum UIError {
     AuthMethodNotFound,
 
     /// Display data is missing a header line - occurs when the data source
-    /// (agents, models, or providers list) produces empty output after formatting
+    /// (agents, models, or providers list) produces empty output after
+    /// formatting
     #[error(
         "Unable to display the selection list - the data appears to be empty. \
          This can happen if the agents, models, or providers list could not be retrieved"
