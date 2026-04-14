@@ -297,7 +297,9 @@ impl Porcelain {
             return self;
         }
 
-        let headers = self.0.first().expect("vec is not empty");
+        let Some(headers) = self.0.first() else {
+            return self;
+        };
         let data_rows = self.0.get(1..).unwrap_or(&[]);
 
         if data_rows.is_empty() || headers.is_empty() {
