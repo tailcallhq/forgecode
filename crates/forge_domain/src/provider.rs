@@ -77,6 +77,7 @@ impl ProviderId {
     pub const GOOGLE_AI_STUDIO: ProviderId = ProviderId(Cow::Borrowed("google_ai_studio"));
     pub const MODAL: ProviderId = ProviderId(Cow::Borrowed("modal"));
     pub const ADAL: ProviderId = ProviderId(Cow::Borrowed("adal"));
+    pub const XIAOMI_MIMO: ProviderId = ProviderId(Cow::Borrowed("xiaomi_mimo"));
 
     /// Returns all built-in provider IDs
     ///
@@ -114,6 +115,7 @@ impl ProviderId {
             ProviderId::GOOGLE_AI_STUDIO,
             ProviderId::MODAL,
             ProviderId::ADAL,
+            ProviderId::XIAOMI_MIMO,
         ]
     }
 
@@ -145,6 +147,7 @@ impl ProviderId {
             "google_ai_studio" => "GoogleAIStudio".to_string(),
             "modal" => "Modal".to_string(),
             "adal" => "AdaL".to_string(),
+            "xiaomi_mimo" => "XiaomiMimo".to_string(),
             _ => {
                 // For other providers, use UpperCamelCase conversion
                 use convert_case::{Case, Casing};
@@ -197,6 +200,7 @@ impl std::str::FromStr for ProviderId {
             "google_ai_studio" => ProviderId::GOOGLE_AI_STUDIO,
             "modal" => ProviderId::MODAL,
             "adal" => ProviderId::ADAL,
+            "xiaomi_mimo" => ProviderId::XIAOMI_MIMO,
             // For custom providers, use Cow::Owned to avoid memory leaks
             custom => ProviderId(Cow::Owned(custom.to_string())),
         };
@@ -654,6 +658,24 @@ mod tests {
     fn test_adal_in_built_in_providers() {
         let built_in = ProviderId::built_in_providers();
         assert!(built_in.contains(&ProviderId::ADAL));
+    }
+
+    #[test]
+    fn test_xiaomi_mimo_from_str() {
+        let actual = ProviderId::from_str("xiaomi_mimo").unwrap();
+        let expected = ProviderId::XIAOMI_MIMO;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_xiaomi_mimo_display_name() {
+        assert_eq!(ProviderId::XIAOMI_MIMO.to_string(), "XiaomiMimo");
+    }
+
+    #[test]
+    fn test_xiaomi_mimo_in_built_in_providers() {
+        let built_in = ProviderId::built_in_providers();
+        assert!(built_in.contains(&ProviderId::XIAOMI_MIMO));
     }
 
     #[test]
