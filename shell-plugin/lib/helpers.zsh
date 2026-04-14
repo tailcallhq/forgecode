@@ -29,7 +29,7 @@ function _forge_exec() {
     # can legitimately contain colons (URLs, port mappings, paths, etc.).
     # Use `local -x` so the variables are exported only to the child forge
     # process and do not leak into the caller's shell environment.
-    if [[ "$_FORGE_TERM_ENABLED" == "true" && ${#_FORGE_TERM_COMMANDS} -gt 0 ]]; then
+    if [[ "$_FORGE_TERM" == "true" && ${#_FORGE_TERM_COMMANDS} -gt 0 ]]; then
         # Join the ring-buffer arrays with the ASCII Unit Separator (\x1F).
         # We use IFS-based joining ("${arr[*]}") rather than ${(j.SEP.)arr} because
         # zsh does NOT expand $'...' ANSI-C escapes inside parameter expansion flags.
@@ -66,7 +66,7 @@ function _forge_exec_interactive() {
     # Use `local -x` so the variables are exported only for the duration of
     # this function call (i.e. inherited by the child forge process) and do
     # not leak into the caller's shell environment.
-    if [[ "$_FORGE_TERM_ENABLED" == "true" && ${#_FORGE_TERM_COMMANDS} -gt 0 ]]; then
+    if [[ "$_FORGE_TERM" == "true" && ${#_FORGE_TERM_COMMANDS} -gt 0 ]]; then
         local _old_ifs="$IFS" _sep=$'\x1f'
         IFS="$_sep"
         local -x _FORGE_TERM_COMMANDS="${_FORGE_TERM_COMMANDS[*]}"

@@ -67,7 +67,7 @@ typeset -g _FORGE_TERM_PENDING_TS=""
 # Called before each command executes.
 # Records the command text and timestamp, emits OSC 133 B+C markers.
 function _forge_context_preexec() {
-    [[ "$_FORGE_TERM_ENABLED" != "true" ]] && return
+    [[ "$_FORGE_TERM" != "true" ]] && return
     _FORGE_TERM_PENDING_CMD="$1"
     _FORGE_TERM_PENDING_TS="$(date +%s)"
     # OSC 133 B: prompt end / command start
@@ -87,7 +87,7 @@ function _forge_context_precmd() {
     # even when context capture is disabled.
     _forge_osc133_emit "D;$last_exit"
 
-    [[ "$_FORGE_TERM_ENABLED" != "true" ]] && return
+    [[ "$_FORGE_TERM" != "true" ]] && return
 
     # Only record if we have a pending command from preexec
     if [[ -n "$_FORGE_TERM_PENDING_CMD" ]]; then
@@ -115,7 +115,7 @@ function _forge_context_precmd() {
 # Register using standard zsh hook arrays for coexistence with other plugins.
 # precmd is prepended so it runs first and captures the real $? from the
 # command, before other plugins (powerlevel10k, starship, etc.) overwrite it.
-if [[ "$_FORGE_TERM_ENABLED" == "true" ]]; then
+if [[ "$_FORGE_TERM" == "true" ]]; then
     preexec_functions+=(_forge_context_preexec)
     precmd_functions=(_forge_context_precmd "${precmd_functions[@]}")
 fi
