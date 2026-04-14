@@ -1,6 +1,6 @@
 # Fix Auto-Sync Workspace Registration Issue
 
-**Issue:** [#2288](https://github.com/antinomyhq/forge/issues/2288)
+**Issue:** [#2288](https://github.com/tailcallhq/forgecode/issues/2288)
 
 **Problem:** The zsh plugin automatically syncs workspaces in the background on every directory change, causing unintended parent directories to be registered as workspaces. When users run `forge workspace list`, ancestor directories appear as "Current" instead of the actual working directory.
 

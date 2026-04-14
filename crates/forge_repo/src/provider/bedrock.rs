@@ -407,7 +407,7 @@ impl IntoDomain for aws_sdk_bedrockruntime::types::ConverseStreamOutput {
                         .saturating_add(u.cache_write_input_tokens.unwrap_or(0));
 
                     forge_domain::Usage {
-                        prompt_tokens: forge_domain::TokenCount::Actual(u.total_tokens as usize),
+                        prompt_tokens: forge_domain::TokenCount::Actual(u.input_tokens as usize),
                         completion_tokens: forge_domain::TokenCount::Actual(
                             u.output_tokens as usize,
                         ),
@@ -1418,7 +1418,7 @@ mod tests {
         let actual = fixture.into_domain();
         let expected =
             ChatCompletionMessage::assistant(Content::part("")).usage(forge_domain::Usage {
-                prompt_tokens: TokenCount::Actual(1000),
+                prompt_tokens: TokenCount::Actual(800),
                 completion_tokens: TokenCount::Actual(200),
                 total_tokens: TokenCount::Actual(1000),
                 cached_tokens: TokenCount::Actual(80), // 50 + 30

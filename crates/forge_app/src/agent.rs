@@ -10,7 +10,7 @@ use merge::Merge;
 
 use crate::services::AppConfigService;
 use crate::tool_registry::ToolRegistry;
-use crate::{ConversationService, ProviderService, Services};
+use crate::{ConversationService, EnvironmentInfra, ProviderService, Services};
 
 /// Agent service trait that provides core chat and tool call functionality.
 /// This trait abstracts the essential operations needed by the Orchestrator.
@@ -38,7 +38,7 @@ pub trait AgentService: Send + Sync + 'static {
 
 /// Blanket implementation of AgentService for any type that implements Services
 #[async_trait::async_trait]
-impl<T: Services> AgentService for T {
+impl<T: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentService for T {
     async fn chat_agent(
         &self,
         id: &ModelId,
@@ -48,7 +48,10 @@ impl<T: Services> AgentService for T {
         let provider_id = if let Some(provider_id) = provider_id {
             provider_id
         } else {
-            self.get_default_provider().await?
+            self.get_session_config()
+                .await
+                .map(|c| c.provider)
+                .ok_or_else(|| forge_domain::Error::NoDefaultSession)?
         };
         let provider = self.get_provider(provider_id).await?;
 
@@ -145,6 +148,8 @@ impl AgentExt for Agent {
 
         // Apply workflow reasoning configuration to agents.
         // Agent-level fields take priority; config fills in any unset fields.
+        // Exception: config `enabled = false` always wins — it is an explicit
+        // global disable that must override any per-agent setting.
         if let Some(ref config_reasoning) = config.reasoning {
             use forge_config::Effort as ConfigEffort;
             let config_as_domain = ReasoningConfig {
@@ -164,6 +169,11 @@ impl AgentExt for Agent {
             // Start from the agent's own settings and fill unset fields from config.
             let mut merged = agent.reasoning.clone().unwrap_or_default();
             merged.merge(config_as_domain);
+            // If the config explicitly disables reasoning, honour that override
+            // regardless of what the agent definition says.
+            if config_reasoning.enabled == Some(false) {
+                merged.enabled = Some(false);
+            }
             agent.reasoning = Some(merged);
         }
 
@@ -232,5 +242,29 @@ mod tests {
         );
 
         assert_eq!(actual, expected);
+    }
+
+    /// When config sets `enabled = false`, it must override the agent's
+    /// `enabled = true`. This prevents reasoning parameters from being sent to
+    /// models that don't support them (e.g. claude-haiku with effort set).
+    #[test]
+    fn test_config_disabled_overrides_agent_enabled() {
+        let config = ForgeConfig::default().reasoning(
+            ConfigReasoningConfig::default()
+                .enabled(false)
+                .effort(ConfigEffort::None),
+        );
+
+        // Agent has reasoning explicitly enabled.
+        let agent = fixture_agent().reasoning(
+            ReasoningConfig::default()
+                .enabled(true)
+                .effort(Effort::High),
+        );
+
+        let actual = agent.apply_config(&config).reasoning;
+
+        // enabled must be false even though the agent said true.
+        assert_eq!(actual.as_ref().and_then(|r| r.enabled), Some(false));
     }
 }

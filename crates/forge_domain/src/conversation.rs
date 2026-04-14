@@ -160,6 +160,21 @@ impl Conversation {
         Some(costs.iter().sum())
     }
 
+    /// Returns the number of messages in the conversation context.
+    ///
+    /// Returns `0` if the context has not been initialized yet.
+    pub fn len(&self) -> usize {
+        self.context
+            .as_ref()
+            .map(|ctx| ctx.messages.len())
+            .unwrap_or(0)
+    }
+
+    /// Returns `true` if the conversation context has no messages.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Extracts all related conversation IDs from agent tool calls.
     ///
     /// This method scans through all tool results in the conversation's context

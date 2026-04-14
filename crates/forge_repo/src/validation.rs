@@ -42,7 +42,7 @@ impl<I: GrpcInfra> ValidationRepository for ForgeValidationRepository<I> {
         let request = tonic::Request::new(ValidateFilesRequest { files: vec![proto_file] });
 
         // Call gRPC API
-        let channel = self.infra.channel();
+        let channel = self.infra.channel()?;
         let mut client = ForgeServiceClient::new(channel);
         let response = client
             .validate_files(request)

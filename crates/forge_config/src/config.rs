@@ -265,6 +265,22 @@ pub struct ForgeConfig {
     /// selection.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub providers: Vec<ProviderEntry>,
+
+    /// Currency symbol displayed in the shell rprompt next to the session cost
+    /// (e.g. `"$"`, `"€"`, `"₹"`). Defaults to `"$"`.
+    #[serde(default)]
+    pub currency_symbol: String,
+
+    /// Conversion rate applied to costs before display in the shell rprompt.
+    /// The raw USD cost is multiplied by this value, allowing costs to be shown
+    /// in a local currency. Defaults to `1.0` (no conversion).
+    #[serde(default)]
+    pub currency_conversion_rate: Decimal,
+
+    /// Enables the pending todos hook that checks for incomplete todo items
+    /// when a task ends and reminds the LLM about them.
+    #[serde(default)]
+    pub verify_todos: bool,
 }
 
 impl ForgeConfig {

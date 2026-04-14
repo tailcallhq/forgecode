@@ -2,9 +2,10 @@ use std::io::Read;
 use std::panic;
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use forge_api::ForgeAPI;
+use forge_config::ForgeConfig;
 use forge_domain::TitleFormat;
 use forge_main::{Cli, Sandbox, TitleDisplayExt, UI, tracker};
 
@@ -44,7 +45,17 @@ fn enable_stdout_vt_processing() {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    if let Err(err) = run().await {
+        eprintln!("{}", TitleFormat::error(format!("{err}")).display());
+        if let Some(cause) = err.chain().nth(1) {
+            eprintln!("{cause}");
+        }
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<()> {
     // Enable ANSI escape code support on Windows console.
     // `enable_ansi_support` sets VT processing on the `CONOUT$` screen buffer
     // handle. We additionally set it on `STD_OUTPUT_HANDLE` directly, since
@@ -89,6 +100,11 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Read and validate configuration at startup so any errors are surfaced
+    // immediately rather than silently falling back to defaults at runtime.
+    let config =
+        ForgeConfig::read().context("Failed to read Forge configuration from .forge.toml")?;
+
     // Handle worktree creation if specified
     let cwd: PathBuf = match (&cli.sandbox, &cli.directory) {
         (Some(sandbox), Some(cli)) => {
@@ -104,7 +120,9 @@ async fn main() -> Result<()> {
         (_, _) => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     };
 
-    let mut ui = UI::init(cli, move || ForgeAPI::init(cwd.clone()))?;
+    let mut ui = UI::init(cli, config, move |config| {
+        ForgeAPI::init(cwd.clone(), config)
+    })?;
     ui.run().await;
 
     Ok(())

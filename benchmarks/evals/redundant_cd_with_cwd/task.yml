@@ -1,5 +1,5 @@
 run:
-  - git clone --depth=1 --branch main https://github.com/antinomyhq/forge .
+  - git clone --depth=1 --branch main https://github.com/tailcallhq/forgecode .
   - mkdir ../test-dir && cd ../test-dir
   - FORGE_DEBUG_REQUESTS='{{dir}}/context.json' forgee --provider open_router --model {{model}} -p '{{task}}'
 parallelism: 5
