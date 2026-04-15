@@ -163,3 +163,8 @@ forge_test_kit = { path = "crates/forge_test_kit" }
 
 forge_markdown_stream = { path = "crates/forge_markdown_stream" }
 forge_config = { path = "crates/forge_config" }
+
+# Patch crossterm with Windows VT input support (bracketed paste)
+# https://github.com/crossterm-rs/crossterm/pull/1030
+[patch.crates-io]
+crossterm = { git = "https://github.com/crossterm-rs/crossterm", rev = "e81d5d643700f6a1de17c130327acfd7df70420f" }

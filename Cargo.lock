@@ -1177,13 +1177,11 @@ dependencies = [
 [[package]]
 name = "crossterm"
 version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8b9f2e4c67f833b660cdb0a3523065869fb35570177239812ed4c905aeff87b"
+source = "git+https://github.com/crossterm-rs/crossterm?rev=e81d5d643700f6a1de17c130327acfd7df70420f#e81d5d643700f6a1de17c130327acfd7df70420f"
 dependencies = [
  "bitflags",
  "crossterm_winapi",
  "derive_more",
- "document-features",
  "mio",
  "parking_lot",
  "rustix 1.1.4",
