@@ -1,24 +1,27 @@
+use std::borrow::Cow;
+
 use forge_domain::Transformer;
 
 use crate::dto::anthropic::{Request, SystemMessage};
 
 /// Adds authentication system message when OAuth is enabled.
+#[derive(Clone)]
 pub struct AuthSystemMessage {
-    message: String,
+    message: Cow<'static, str>,
 }
 
 impl AuthSystemMessage {
     const AUTH_MESSAGE: &'static str = include_str!("claude_code.md");
 
-    /// Creates a new AuthSystemMessage with the provided message.
-    pub fn new(message: String) -> Self {
-        Self { message }
+    /// Creates a new `AuthSystemMessage` with the provided message.
+    pub fn new(message: impl Into<Cow<'static, str>>) -> Self {
+        Self { message: message.into() }
     }
 }
 
 impl Default for AuthSystemMessage {
     fn default() -> Self {
-        Self::new(Self::AUTH_MESSAGE.to_string())
+        Self::new(Self::AUTH_MESSAGE.trim())
     }
 }
 
@@ -29,7 +32,7 @@ impl Transformer for AuthSystemMessage {
     fn transform(&mut self, mut request: Self::Value) -> Self::Value {
         let auth_system_message = SystemMessage {
             r#type: "text".to_string(),
-            text: self.message.trim().to_string(),
+            text: self.message.trim().to_owned(),
             cache_control: None,
         };
 

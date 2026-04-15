@@ -2,13 +2,19 @@ use derive_setters::Setters;
 use forge_domain::{ContextMessage, Image};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Default, Setters)]
+#[derive(Serialize, Deserialize, Default, Setters)]
 #[setters(into, strip_option)]
 pub struct Request {
-    pub max_tokens: u64,
-    pub messages: Vec<Message>,
+    // NOTE: Field declaration order controls JSON serialization order.
+    // `system` MUST appear before `messages` so that CCH signing (which
+    // computes a hash over the serialized body) produces the same byte
+    // sequence as the final outbound request body. Do NOT reorder these two
+    // fields.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<Vec<SystemMessage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    pub max_tokens: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -16,12 +22,10 @@ pub struct Request {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system: Option<Vec<SystemMessage>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<ToolChoice>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub tools: Vec<ToolDefinition>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_k: Option<u64>,
@@ -35,9 +39,13 @@ pub struct Request {
     pub output_format: Option<OutputFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub anthropic_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub research_preview_2026_02: Option<String>,
+    // messages MUST come after system — see note above.
+    pub messages: Vec<Message>,
 }
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct SystemMessage {
     pub r#type: String,
     pub text: String,
@@ -60,7 +68,7 @@ impl SystemMessage {
     }
 }
 
-#[derive(Serialize, Default, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq)]
 pub struct Thinking {
     pub r#type: ThinkingType,
     pub budget_tokens: u64,
@@ -70,7 +78,7 @@ pub struct Thinking {
 ///
 /// Only the variants officially supported by Anthropic's `output_config.effort`
 /// field. Mutually exclusive with the `thinking` object.
-#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputEffort {
     Low,
@@ -81,19 +89,19 @@ pub enum OutputEffort {
 
 /// Output configuration for newer Anthropic models that support effort-based
 /// reasoning (e.g. `claude-opus-4-6`).  Mutually exclusive with `thinking`.
-#[derive(Serialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct OutputConfig {
     pub effort: OutputEffort,
 }
 
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OutputFormat {
     #[serde(rename = "json_schema")]
     JsonSchema { schema: schemars::Schema },
 }
 
-#[derive(Serialize, Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ThinkingType {
     #[default]
@@ -218,13 +226,13 @@ impl Request {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Metadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Message {
     pub content: Vec<Content>,
     pub role: Role,
@@ -341,7 +349,7 @@ impl From<Image> for Content {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ImageSource {
     #[serde(rename = "type")]
     pub type_: String,
@@ -353,7 +361,7 @@ pub struct ImageSource {
     pub url: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum Content {
     Image {
@@ -463,7 +471,7 @@ impl TryFrom<forge_domain::ToolResult> for Content {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CacheControl {
     Ephemeral,
@@ -476,7 +484,7 @@ pub enum Role {
     Assistant,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum ToolChoice {
     Auto {
@@ -510,7 +518,7 @@ impl From<forge_domain::ToolChoice> for ToolChoice {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ToolDefinition {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]

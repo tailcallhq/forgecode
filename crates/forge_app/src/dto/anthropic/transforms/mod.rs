@@ -1,5 +1,6 @@
 mod auth_system_message;
 mod capitalize_tool_names;
+mod cch_signing;
 mod drop_invalid_toolcalls;
 mod enforce_schema;
 mod reasoning_transform;
@@ -9,6 +10,7 @@ mod set_cache;
 
 pub use auth_system_message::AuthSystemMessage;
 pub use capitalize_tool_names::CapitalizeToolNames;
+pub use cch_signing::CchSigning;
 pub use drop_invalid_toolcalls::DropInvalidToolUse;
 pub use enforce_schema::EnforceStrictObjectSchema;
 pub use reasoning_transform::ReasoningTransform;

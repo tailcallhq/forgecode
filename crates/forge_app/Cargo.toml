@@ -37,6 +37,7 @@ backon.workspace = true
 sha2.workspace = true
 hex.workspace = true
 dashmap.workspace = true
+xxhash-rust.workspace = true
 
 url.workspace = true
 reqwest.workspace = true

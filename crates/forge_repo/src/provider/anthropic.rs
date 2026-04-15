@@ -6,9 +6,9 @@ use forge_app::domain::{
     ChatCompletionMessage, Context, Model, ModelId, ResultStream, Transformer,
 };
 use forge_app::dto::anthropic::{
-    AuthSystemMessage, CapitalizeToolNames, DropInvalidToolUse, EnforceStrictObjectSchema,
-    EventData, ListModelResponse, ReasoningTransform, RemoveOutputFormat, Request, SanitizeToolIds,
-    SetCache,
+    AuthSystemMessage, CapitalizeToolNames, CchSigning, DropInvalidToolUse,
+    EnforceStrictObjectSchema, EventData, ListModelResponse, ReasoningTransform,
+    RemoveOutputFormat, Request, SanitizeToolIds, SetCache,
 };
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider, ProviderId};
@@ -27,11 +27,20 @@ struct Anthropic<T> {
     provider: Provider<Url>,
     anthropic_version: String,
     use_oauth: bool,
+    auth_system_message: AuthSystemMessage,
+    cch_signing: CchSigning,
 }
 
 impl<H: HttpInfra> Anthropic<H> {
     pub fn new(http: Arc<H>, provider: Provider<Url>, version: String, use_oauth: bool) -> Self {
-        Self { http, provider, anthropic_version: version, use_oauth }
+        Self {
+            http,
+            provider,
+            anthropic_version: version,
+            use_oauth,
+            auth_system_message: AuthSystemMessage::default(),
+            cch_signing: CchSigning::default(),
+        }
     }
 
     fn get_headers(&self) -> Vec<(String, String)> {
@@ -67,11 +76,21 @@ impl<H: HttpInfra> Anthropic<H> {
         // Add beta flags (not needed for Vertex AI)
         if self.provider.id != ProviderId::VERTEX_AI_ANTHROPIC {
             if self.use_oauth {
+                let is_claude_code = self.should_sign_claude_code_request();
+
                 // OAuth requires multiple beta flags including structured outputs
-                headers.push((
-                    "anthropic-beta".to_string(),
-                    "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,structured-outputs-2025-11-13".to_string(),
-                ));
+                let beta_flags = if is_claude_code {
+                    // claude_code provider gets research preview flags for fast mode
+                    "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,structured-outputs-2025-11-13,research-preview-2026-02-01,adaptive-thinking-2026-01-28".to_string()
+                } else {
+                    "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,structured-outputs-2025-11-13".to_string()
+                };
+                headers.push(("anthropic-beta".to_string(), beta_flags));
+
+                // Add x-app header for claude_code provider
+                if is_claude_code {
+                    headers.push(("x-app".to_string(), "cli".to_string()));
+                }
             } else {
                 // API key auth also needs beta flags for structured outputs and thinking
                 headers.push((
@@ -92,6 +111,34 @@ impl<T: HttpInfra> Anthropic<T> {
         self.provider.id == ProviderId::OPENCODE_ZEN
     }
 
+    /// Returns `true` when Claude Code request signing should be applied.
+    fn should_sign_claude_code_request(&self) -> bool {
+        self.use_oauth && self.provider.id == ProviderId::CLAUDE_CODE
+    }
+
+    /// Applies semantic Anthropic request mutations in the intended order.
+    fn transform_request(&self, mut request: Request) -> Request {
+        if self.use_oauth {
+            request = self.auth_system_message.clone().transform(request);
+        }
+
+        let base_pipeline = CapitalizeToolNames
+            .pipe(DropInvalidToolUse)
+            .pipe(SanitizeToolIds);
+
+        if self.provider.id == ProviderId::VERTEX_AI_ANTHROPIC {
+            base_pipeline
+                .pipe(RemoveOutputFormat)
+                .pipe(SetCache)
+                .transform(request)
+        } else {
+            base_pipeline
+                .pipe(EnforceStrictObjectSchema)
+                .pipe(SetCache)
+                .transform(request)
+        }
+    }
+
     pub async fn chat(
         &self,
         model: &ModelId,
@@ -110,24 +157,14 @@ impl<T: HttpInfra> Anthropic<T> {
             request = request.model(model.as_str().to_string());
         }
 
-        let pipeline = AuthSystemMessage::default()
-            .when(|_| self.use_oauth)
-            .pipe(CapitalizeToolNames)
-            .pipe(DropInvalidToolUse)
-            .pipe(SanitizeToolIds);
+        let request = self.transform_request(request);
 
-        // Vertex AI does not support output_format, so we skip schema enforcement
-        // and remove any output_format field
-        let request = if self.provider.id == ProviderId::VERTEX_AI_ANTHROPIC {
-            pipeline
-                .pipe(RemoveOutputFormat)
-                .pipe(SetCache)
-                .transform(request)
+        let json_bytes = if self.should_sign_claude_code_request() {
+            self.cch_signing
+                .serialize_signed_request(request)
+                .with_context(|| "Failed to serialize signed Claude Code request")?
         } else {
-            pipeline
-                .pipe(EnforceStrictObjectSchema)
-                .pipe(SetCache)
-                .transform(request)
+            serde_json::to_vec(&request).with_context(|| "Failed to serialize request")?
         };
 
         let url = if self.provider.id == ProviderId::VERTEX_AI_ANTHROPIC {
@@ -140,9 +177,6 @@ impl<T: HttpInfra> Anthropic<T> {
         };
 
         debug!(url = %url, model = %model, "Connecting Upstream");
-
-        let json_bytes =
-            serde_json::to_vec(&request).with_context(|| "Failed to serialize request")?;
 
         let parsed_url = Url::parse(&url).with_context(|| format!("Invalid URL: {}", url))?;
         let headers = create_headers(self.get_headers());
@@ -372,6 +406,7 @@ mod tests {
     };
     use reqwest::header::HeaderMap;
     use reqwest_eventsource::EventSource;
+    use std::sync::{Arc, Mutex};
 
     use super::*;
     use crate::provider::mock_server::{MockServer, normalize_ports};
@@ -385,6 +420,75 @@ mod tests {
     impl MockHttpClient {
         fn new() -> Self {
             Self { client: reqwest::Client::new() }
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct CapturedRequest {
+        url: Url,
+        headers: HeaderMap,
+        body: Vec<u8>,
+    }
+
+    #[derive(Clone, Default)]
+    struct CapturingHttpClient {
+        captured_request: Arc<Mutex<Option<CapturedRequest>>>,
+    }
+
+    impl CapturingHttpClient {
+        fn new() -> Self {
+            Self::default()
+        }
+
+        fn captured_request(&self) -> Option<CapturedRequest> {
+            self.captured_request.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl HttpInfra for CapturingHttpClient {
+        async fn http_get(
+            &self,
+            _url: &Url,
+            _headers: Option<HeaderMap>,
+        ) -> anyhow::Result<reqwest::Response> {
+            Err(anyhow::anyhow!("GET not implemented in capturing mock"))
+        }
+
+        async fn http_post(
+            &self,
+            url: &Url,
+            headers: Option<HeaderMap>,
+            body: Bytes,
+        ) -> anyhow::Result<reqwest::Response> {
+            *self.captured_request.lock().unwrap() = Some(CapturedRequest {
+                url: url.clone(),
+                headers: headers.unwrap_or_default(),
+                body: body.to_vec(),
+            });
+            Err(anyhow::anyhow!(
+                "POST intentionally not completed in capturing mock"
+            ))
+        }
+
+        async fn http_delete(&self, _url: &Url) -> anyhow::Result<reqwest::Response> {
+            Err(anyhow::anyhow!("DELETE not implemented in capturing mock"))
+        }
+
+        async fn http_eventsource(
+            &self,
+            url: &Url,
+            headers: Option<HeaderMap>,
+            body: Bytes,
+        ) -> anyhow::Result<EventSource> {
+            *self.captured_request.lock().unwrap() = Some(CapturedRequest {
+                url: url.clone(),
+                headers: headers.unwrap_or_default(),
+                body: body.to_vec(),
+            });
+            Err(anyhow::anyhow!(
+                "EventSource intentionally not completed in capturing mock"
+            ))
         }
     }
 
@@ -453,6 +557,61 @@ mod tests {
             provider,
             "2023-06-01".to_string(),
             false,
+        ))
+    }
+
+    fn oauth_credential(provider_id: ProviderId) -> forge_domain::AuthCredential {
+        forge_domain::AuthCredential {
+            id: provider_id,
+            auth_details: forge_domain::AuthDetails::OAuth {
+                tokens: forge_domain::OAuthTokens::new(
+                    "oauth-token",
+                    None::<String>,
+                    chrono::Utc::now() + chrono::Duration::hours(1),
+                ),
+                config: forge_domain::OAuthConfig {
+                    auth_url: reqwest::Url::parse("https://example.com/auth").unwrap(),
+                    token_url: reqwest::Url::parse("https://example.com/token").unwrap(),
+                    client_id: forge_domain::ClientId::from("client-id".to_string()),
+                    scopes: vec![],
+                    redirect_uri: None,
+                    use_pkce: false,
+                    token_refresh_url: None,
+                    custom_headers: None,
+                    extra_auth_params: None,
+                },
+            },
+            url_params: std::collections::HashMap::new(),
+        }
+    }
+
+    fn create_provider_with_oauth(id: ProviderId, chat_url: Url, model_url: Url) -> Provider<Url> {
+        Provider {
+            id: id.clone(),
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(forge_app::domain::ProviderResponse::Anthropic),
+            url: chat_url,
+            credential: Some(oauth_credential(id)),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: Some(forge_domain::ModelSource::Url(model_url)),
+            custom_headers: None,
+        }
+    }
+
+    fn create_claude_code_anthropic(
+        http: Arc<CapturingHttpClient>,
+        base_url: &str,
+    ) -> anyhow::Result<Anthropic<CapturingHttpClient>> {
+        let chat_url = Url::parse(base_url)?.join("messages")?;
+        let model_url = Url::parse(base_url)?.join("models")?;
+        let provider = create_provider_with_oauth(ProviderId::CLAUDE_CODE, chat_url, model_url);
+
+        Ok(Anthropic::new(
+            http,
+            provider,
+            "2023-06-01".to_string(),
+            true,
         ))
     }
 
@@ -773,6 +932,139 @@ mod tests {
         assert!(
             beta_value.contains("oauth-2025-04-20"),
             "Beta header should include oauth flag for OAuth auth"
+        );
+    }
+
+    #[test]
+    fn test_get_headers_with_claude_code_oauth_includes_cli_headers() {
+        let chat_url = Url::parse("https://api.anthropic.com/v1/messages").unwrap();
+        let model_url = Url::parse("https://api.anthropic.com/v1/models").unwrap();
+        let provider = create_provider_with_oauth(ProviderId::CLAUDE_CODE, chat_url, model_url);
+
+        let fixture = Anthropic::new(
+            Arc::new(MockHttpClient::new()),
+            provider,
+            "2023-06-01".to_string(),
+            true,
+        );
+
+        let actual = fixture.get_headers();
+
+        assert!(
+            actual
+                .iter()
+                .any(|(k, v)| k == "authorization" && v == "Bearer oauth-token")
+        );
+        assert!(actual.iter().any(|(k, v)| k == "x-app" && v == "cli"));
+
+        let beta_header = actual.iter().find(|(k, _)| k == "anthropic-beta").unwrap();
+        let (_, beta_value) = beta_header;
+        assert!(beta_value.contains("research-preview-2026-02-01"));
+        assert!(beta_value.contains("adaptive-thinking-2026-01-28"));
+    }
+
+    #[tokio::test]
+    async fn test_chat_claude_code_oauth_signs_final_outbound_request() -> anyhow::Result<()> {
+        let http = Arc::new(CapturingHttpClient::new());
+        let anthropic = create_claude_code_anthropic(http.clone(), "https://example.com/v1/")?;
+        let model = ModelId::new("claude-3-5-sonnet-20241022");
+        let context = Context::default().add_message(ContextMessage::user(
+            "Say 'hello' and nothing else.",
+            model.clone().into(),
+        ));
+
+        let actual = anthropic.chat(&model, context).await;
+        assert!(
+            actual.is_err(),
+            "capturing mock should stop the request before streaming"
+        );
+
+        let captured = http
+            .captured_request()
+            .expect("expected the final outbound request to be captured");
+        assert_eq!(captured.url.as_str(), "https://example.com/v1/messages");
+        assert_eq!(
+            captured
+                .headers
+                .get("x-app")
+                .and_then(|value| value.to_str().ok()),
+            Some("cli")
+        );
+
+        let body =
+            String::from_utf8(captured.body).expect("request body should be valid UTF-8 JSON");
+        let request: Request = serde_json::from_str(&body)?;
+        let system = request
+            .system
+            .as_ref()
+            .expect("signed request should contain system messages");
+        assert!(
+            system[0].text.starts_with("x-anthropic-billing-header:"),
+            "first system message should be the billing header"
+        );
+        assert!(
+            system[0].cache_control.is_none(),
+            "billing header should not be marked cacheable"
+        );
+        assert!(
+            system
+                .iter()
+                .skip(1)
+                .any(|message| message.cache_control.is_some()),
+            "auth system message should already be cached before signing"
+        );
+
+        let actual_hash: String = system[0]
+            .text
+            .split("cch=")
+            .nth(1)
+            .expect("billing header should contain cch")
+            .chars()
+            .take(5)
+            .collect();
+        assert_eq!(actual_hash.len(), 5);
+        assert!(actual_hash.chars().all(|c| c.is_ascii_hexdigit()));
+
+        let placeholder_body = body.replacen(&format!("cch={actual_hash}"), "cch=00000", 1);
+        let expected_hash = anthropic.cch_signing.compute_cch_hash(&placeholder_body);
+        assert_eq!(
+            actual_hash, expected_hash,
+            "final outbound JSON must match the embedded cch hash"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_transform_request_adds_auth_message_without_signing_for_non_claude_code_oauth() {
+        let chat_url = Url::parse("https://api.anthropic.com/v1/messages").unwrap();
+        let model_url = Url::parse("https://api.anthropic.com/v1/models").unwrap();
+        let provider = create_provider_with_oauth(ProviderId::ANTHROPIC, chat_url, model_url);
+        let fixture = Anthropic::new(
+            Arc::new(MockHttpClient::new()),
+            provider,
+            "2023-06-01".to_string(),
+            true,
+        );
+        let request = Request::try_from(Context::default().add_message(ContextMessage::user(
+            "Hello",
+            ModelId::new("claude-3-5-sonnet-20241022").into(),
+        )))
+        .unwrap()
+        .model("claude-3-5-sonnet-20241022".to_string())
+        .max_tokens(4000u64);
+
+        let actual = fixture.transform_request(request);
+        let system = actual
+            .system
+            .expect("oauth requests should include auth system message");
+        assert!(
+            !system[0].text.starts_with("x-anthropic-billing-header:"),
+            "non-Claude-Code OAuth requests should not be CCH-signed"
+        );
+        assert!(
+            system.iter().any(|message| message.cache_control.is_some()),
+            "auth system message should still participate in cache setup"
         );
     }
 
