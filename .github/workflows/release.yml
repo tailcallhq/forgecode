@@ -153,3 +153,28 @@ jobs:
         token: ${{ secrets.HOMEBREW_ACCESS }}
     - name: Update Homebrew Formula
       run: GITHUB_TOKEN="${{ secrets.HOMEBREW_ACCESS }}" ./update-formula.sh ${{ github.event.release.tag_name }}
+  bench:
+    needs:
+    - build_release
+    name: bench
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: 'false'
+    - name: Download forge musl binary
+      run: gh release download ${{ github.event.release.tag_name }} --pattern forge-x86_64-unknown-linux-musl --output forge && chmod +x forge
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Run Benchmarks
+      run: uvx harbor run -e modal -d terminal-bench@2.0 --agent-import-path bench.forge_agent:ForgeAgent --timeout-multiplier 2.0 --export-traces --export-verifier-metadata --force-build -n 32
+      env:
+        FORGE_BIN: ${{ github.workspace }}/forge
+        FORGE_OVERRIDE_PROVIDER: open_router
+        FORGE_OVERRIDE_MODEL: z-ai/glm-5.1
+        OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+        MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}

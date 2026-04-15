@@ -33,7 +33,9 @@ pub fn release_bench_job() -> Job {
                       -n 32",
                 )
                 .add_env(("FORGE_BIN", "${{ github.workspace }}/forge"))
-                .add_env(("ANTHROPIC_API_KEY", "${{ secrets.ANTHROPIC_API_KEY }}"))
+                .add_env(("FORGE_OVERRIDE_PROVIDER", "open_router"))
+                .add_env(("FORGE_OVERRIDE_MODEL", "z-ai/glm-5.1"))
+                .add_env(("OPENROUTER_API_KEY", "${{ secrets.OPENROUTER_API_KEY }}"))
                 .add_env(("MODAL_TOKEN_ID", "${{ secrets.MODAL_TOKEN_ID }}"))
                 .add_env(("MODAL_TOKEN_SECRET", "${{ secrets.MODAL_TOKEN_SECRET }}")),
         )
