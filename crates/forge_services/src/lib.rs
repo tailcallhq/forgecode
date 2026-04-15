@@ -27,6 +27,7 @@ mod utils;
 pub use app_config::*;
 pub use clipper::*;
 pub use command::*;
+pub use conversation::*;
 pub use context_engine::*;
 pub use discovery::*;
 pub use error::*;

@@ -14,5 +14,7 @@ mod proto_generated {
     tonic::include_proto!("forge.v1");
 }
 
-// Only expose forge_repo container
+// Expose conversation persistence building blocks for benchmarks and focused validation.
+pub use conversation::ConversationRepositoryImpl;
+pub use database::{DatabasePool, PoolConfig};
 pub use forge_repo::*;

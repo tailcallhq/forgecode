@@ -16,101 +16,129 @@ impl ConversationRepositoryImpl {
     pub fn new(pool: Arc<DatabasePool>, workspace_id: WorkspaceHash) -> Self {
         Self { pool, wid: workspace_id }
     }
+
+    async fn run_blocking<F, T>(&self, operation: F) -> anyhow::Result<T>
+    where
+        F: FnOnce(Arc<DatabasePool>, WorkspaceHash) -> anyhow::Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let pool = self.pool.clone();
+        let wid = self.wid;
+        tokio::task::spawn_blocking(move || operation(pool, wid))
+            .await
+            .map_err(|e| anyhow::anyhow!("Conversation repository task failed: {e}"))?
+    }
 }
 
 #[async_trait::async_trait]
 impl ConversationRepository for ConversationRepositoryImpl {
     async fn upsert_conversation(&self, conversation: Conversation) -> anyhow::Result<()> {
-        let mut connection = self.pool.get_connection()?;
+        self.run_blocking(move |pool, wid| {
+            let mut connection = pool.get_connection()?;
 
-        let wid = self.wid;
-        let record = ConversationRecord::new(conversation, wid);
-        diesel::insert_into(conversations::table)
-            .values(&record)
-            .on_conflict(conversations::conversation_id)
-            .do_update()
-            .set((
-                conversations::title.eq(&record.title),
-                conversations::context.eq(&record.context),
-                conversations::updated_at.eq(record.updated_at),
-                conversations::metrics.eq(&record.metrics),
-            ))
-            .execute(&mut connection)?;
-        Ok(())
+            let record = ConversationRecord::new(conversation, wid);
+            diesel::insert_into(conversations::table)
+                .values(&record)
+                .on_conflict(conversations::conversation_id)
+                .do_update()
+                .set((
+                    conversations::title.eq(&record.title),
+                    conversations::context.eq(&record.context),
+                    conversations::updated_at.eq(record.updated_at),
+                    conversations::metrics.eq(&record.metrics),
+                ))
+                .execute(&mut connection)?;
+            Ok(())
+        })
+        .await
     }
 
     async fn get_conversation(
         &self,
         conversation_id: &ConversationId,
     ) -> anyhow::Result<Option<Conversation>> {
-        let mut connection = self.pool.get_connection()?;
+        let conversation_id = *conversation_id;
+        self.run_blocking(move |pool, _wid| {
+            let mut connection = pool.get_connection()?;
 
-        let record: Option<ConversationRecord> = conversations::table
-            .filter(conversations::conversation_id.eq(conversation_id.into_string()))
-            .first(&mut connection)
-            .optional()?;
+            let record: Option<ConversationRecord> = conversations::table
+                .filter(conversations::conversation_id.eq(conversation_id.into_string()))
+                .first(&mut connection)
+                .optional()?;
 
-        match record {
-            Some(record) => Ok(Some(Conversation::try_from(record)?)),
-            None => Ok(None),
-        }
+            match record {
+                Some(record) => Ok(Some(Conversation::try_from(record)?)),
+                None => Ok(None),
+            }
+        })
+        .await
     }
 
     async fn get_all_conversations(
         &self,
         limit: Option<usize>,
     ) -> anyhow::Result<Option<Vec<Conversation>>> {
-        let mut connection = self.pool.get_connection()?;
+        self.run_blocking(move |pool, wid| {
+            let mut connection = pool.get_connection()?;
 
-        let workspace_id = self.wid.id() as i64;
-        let mut query = conversations::table
-            .filter(conversations::workspace_id.eq(&workspace_id))
-            .filter(conversations::context.is_not_null())
-            .order(conversations::updated_at.desc())
-            .into_boxed();
+            let workspace_id = wid.id() as i64;
+            let mut query = conversations::table
+                .filter(conversations::workspace_id.eq(&workspace_id))
+                .filter(conversations::context.is_not_null())
+                .order(conversations::updated_at.desc())
+                .into_boxed();
 
-        if let Some(limit_value) = limit {
-            query = query.limit(limit_value as i64);
-        }
+            if let Some(limit_value) = limit {
+                query = query.limit(limit_value as i64);
+            }
 
-        let records: Vec<ConversationRecord> = query.load(&mut connection)?;
+            let records: Vec<ConversationRecord> = query.load(&mut connection)?;
 
-        if records.is_empty() {
-            return Ok(None);
-        }
+            if records.is_empty() {
+                return Ok(None);
+            }
 
-        let conversations: Result<Vec<Conversation>, _> =
-            records.into_iter().map(Conversation::try_from).collect();
-        Ok(Some(conversations?))
+            let conversations: Result<Vec<Conversation>, _> =
+                records.into_iter().map(Conversation::try_from).collect();
+            Ok(Some(conversations?))
+        })
+        .await
     }
 
     async fn get_last_conversation(&self) -> anyhow::Result<Option<Conversation>> {
-        let mut connection = self.pool.get_connection()?;
-        let workspace_id = self.wid.id() as i64;
-        let record: Option<ConversationRecord> = conversations::table
-            .filter(conversations::workspace_id.eq(&workspace_id))
-            .filter(conversations::context.is_not_null())
-            .order(conversations::updated_at.desc())
-            .first(&mut connection)
-            .optional()?;
-        let conversation = match record {
-            Some(record) => Some(Conversation::try_from(record)?),
-            None => None,
-        };
-        Ok(conversation)
+        self.run_blocking(move |pool, wid| {
+            let mut connection = pool.get_connection()?;
+            let workspace_id = wid.id() as i64;
+            let record: Option<ConversationRecord> = conversations::table
+                .filter(conversations::workspace_id.eq(&workspace_id))
+                .filter(conversations::context.is_not_null())
+                .order(conversations::updated_at.desc())
+                .first(&mut connection)
+                .optional()?;
+            let conversation = match record {
+                Some(record) => Some(Conversation::try_from(record)?),
+                None => None,
+            };
+            Ok(conversation)
+        })
+        .await
     }
 
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> anyhow::Result<()> {
-        let mut connection = self.pool.get_connection()?;
-        let workspace_id = self.wid.id() as i64;
+        let conversation_id = *conversation_id;
+        self.run_blocking(move |pool, wid| {
+            let mut connection = pool.get_connection()?;
+            let workspace_id = wid.id() as i64;
 
-        // Security: Ensure users can only delete conversations within their workspace
-        diesel::delete(conversations::table)
-            .filter(conversations::workspace_id.eq(&workspace_id))
-            .filter(conversations::conversation_id.eq(conversation_id.into_string()))
-            .execute(&mut connection)?;
+            // Security: Ensure users can only delete conversations within their workspace
+            diesel::delete(conversations::table)
+                .filter(conversations::workspace_id.eq(&workspace_id))
+                .filter(conversations::conversation_id.eq(conversation_id.into_string()))
+                .execute(&mut connection)?;
 
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 }
 
