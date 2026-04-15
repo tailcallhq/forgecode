@@ -7,15 +7,17 @@ use forge_app::domain::{Conversation, ConversationId};
 use forge_domain::ConversationRepository;
 use tokio::sync::Mutex;
 
-/// Service for managing conversations with serialized database writes to prevent
-/// SQLite contention. SQLite only allows one writer at a time, so all write
-/// operations are serialized at the service layer to prevent pool exhaustion.
+/// Service for managing conversations with serialized database writes to
+/// prevent SQLite contention. SQLite only allows one writer at a time, so all
+/// write operations are serialized at the service layer to prevent pool
+/// exhaustion.
 #[derive(Clone)]
 pub struct ForgeConversationService<S> {
     conversation_repository: Arc<S>,
     /// Global write lock to serialize all database writes.
     /// SQLite only allows one writer at a time, so we queue all writes
-    /// to prevent pool contention when multiple tasks try to write concurrently.
+    /// to prevent pool contention when multiple tasks try to write
+    /// concurrently.
     write_lock: Arc<Mutex<()>>,
 }
 
@@ -29,9 +31,9 @@ impl<S: ConversationRepository> ForgeConversationService<S> {
     }
 
     /// Runs a write operation serialized behind a global lock.
-    /// 
-    /// This prevents multiple concurrent writes from exhausting the connection pool
-    /// while waiting for SQLite's single writer lock.
+    ///
+    /// This prevents multiple concurrent writes from exhausting the connection
+    /// pool while waiting for SQLite's single writer lock.
     async fn run_serialized_write<F, Fut, T>(&self, operation: F) -> Result<T>
     where
         F: FnOnce() -> Fut + Send,
@@ -190,8 +192,10 @@ mod tests {
         let repository = Arc::new(RecordingConversationRepository::new());
         let service = Arc::new(ForgeConversationService::new(repository.clone()));
 
-        let conversation1 = Conversation::new(ConversationId::generate()).title("First".to_string());
-        let conversation2 = Conversation::new(ConversationId::generate()).title("Second".to_string());
+        let conversation1 =
+            Conversation::new(ConversationId::generate()).title("First".to_string());
+        let conversation2 =
+            Conversation::new(ConversationId::generate()).title("Second".to_string());
 
         // Spawn two tasks writing DIFFERENT conversations concurrently
         let service1 = service.clone();
@@ -206,7 +210,10 @@ mod tests {
         // With global serialization, no two writes should overlap
         let actual = repository.overlapping_upserts().await;
         let expected = Vec::<ConversationId>::new();
-        assert_eq!(actual, expected, "Different-conversation writes should not overlap");
+        assert_eq!(
+            actual, expected,
+            "Different-conversation writes should not overlap"
+        );
         Ok(())
     }
 
