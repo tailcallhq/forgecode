@@ -161,7 +161,13 @@ mod tests {
             &self,
             _limit: Option<usize>,
         ) -> Result<Option<Vec<Conversation>>> {
-            let actual = self.conversations.lock().await.values().cloned().collect::<Vec<_>>();
+            let actual = self
+                .conversations
+                .lock()
+                .await
+                .values()
+                .cloned()
+                .collect::<Vec<_>>();
             if actual.is_empty() {
                 Ok(None)
             } else {
@@ -187,7 +193,8 @@ mod tests {
 
         let first_service = service.clone();
         let first_fixture = fixture.clone();
-        let first_task = tokio::spawn(async move { first_service.upsert_conversation(first_fixture).await });
+        let first_task =
+            tokio::spawn(async move { first_service.upsert_conversation(first_fixture).await });
 
         let second_service = service.clone();
         let second_fixture = fixture.clone();

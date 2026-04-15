@@ -27,10 +27,7 @@ impl BenchmarkFixture {
         let repository = Arc::new(ConversationRepositoryImpl::new(pool, WorkspaceHash::new(0)));
         let service = Arc::new(ForgeConversationService::new(repository));
 
-        Self {
-            _temp_dir: temp_dir,
-            service,
-        }
+        Self { _temp_dir: temp_dir, service }
     }
 }
 
