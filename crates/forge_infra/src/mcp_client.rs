@@ -78,10 +78,9 @@ impl ForgeMcpClient {
             env_vars,
         );
 
-        let http_client = match resolved {
-            Ok(http) => Self::build_http_client(&http).unwrap_or_else(|_| Client::new()),
-            _ => Client::new(),
-        };
+        let http_client = resolved
+            .and_then(|http| Self::build_http_client(&http))
+            .unwrap_or_default();
 
         Self {
             client: Default::default(),
