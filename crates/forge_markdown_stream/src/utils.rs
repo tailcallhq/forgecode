@@ -49,6 +49,13 @@ struct WrapSegment {
     word: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WrapLayout<'a> {
+    next_width: usize,
+    first_prefix: &'a str,
+    next_prefix: &'a str,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WrapAtom {
     Escape(String),
@@ -79,6 +86,11 @@ pub(crate) fn wrap_text_preserving_spaces(
     let mut current_line = String::new();
     let mut current_style: Vec<String> = Vec::new();
     let mut current_width = first_width;
+    let layout = WrapLayout {
+        next_width,
+        first_prefix,
+        next_prefix,
+    };
 
     for segment in segments {
         let line_width = visible_length(&current_line);
@@ -115,9 +127,7 @@ pub(crate) fn wrap_text_preserving_spaces(
             &mut current_style,
             &segment.word,
             &mut current_width,
-            next_width,
-            first_prefix,
-            next_prefix,
+            layout,
         );
     }
 
@@ -146,9 +156,7 @@ fn append_wrapped_word(
     current_style: &mut Vec<String>,
     word: &str,
     current_width: &mut usize,
-    next_width: usize,
-    first_prefix: &str,
-    next_prefix: &str,
+    layout: WrapLayout<'_>,
 ) {
     let mut remainder = word.to_string();
 
@@ -157,9 +165,9 @@ fn append_wrapped_word(
         let mut available = current_width.saturating_sub(line_width);
 
         if available == 0 {
-            push_wrapped_line(lines, current_line, first_prefix, next_prefix);
+            push_wrapped_line(lines, current_line, layout.first_prefix, layout.next_prefix);
             *current_line = current_style.join("");
-            *current_width = next_width;
+            *current_width = layout.next_width;
             available = (*current_width).max(1);
         }
 
@@ -181,9 +189,9 @@ fn append_wrapped_word(
             .to_string();
 
         if !remainder.is_empty() {
-            push_wrapped_line(lines, current_line, first_prefix, next_prefix);
+            push_wrapped_line(lines, current_line, layout.first_prefix, layout.next_prefix);
             *current_line = current_style.join("");
-            *current_width = next_width;
+            *current_width = layout.next_width;
         }
     }
 }
