@@ -9,7 +9,6 @@ use crate::dto::anthropic::Request;
 /// `thinking` object or the `output_config.effort` parameter. Other models
 /// (for example, `claude-haiku-4-5`) support `thinking` but still reject
 /// `output_config.effort`.
-
 /// This transformer is constructed with the target model ID and removes the
 /// unsupported fields before the request is serialized and sent.
 ///
