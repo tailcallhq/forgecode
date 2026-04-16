@@ -84,10 +84,7 @@ impl Transformer for SetDeferLoading {
             .iter()
             .filter(|tool| {
                 // Filter out tool_search if it exists (we'll add our own)
-                match tool {
-                    Tool::ToolSearch(_) => false,
-                    _ => true,
-                }
+                !matches!(tool, Tool::ToolSearch(_))
             })
             .map(|tool| {
                 match tool {
