@@ -111,7 +111,7 @@ fn extract_status_code(error_msg: &str) -> Option<u16> {
 fn extract_unexpected_response_reason(error_msg: &str) -> Option<String> {
     let body_marker = "body: ";
     let body_start = error_msg.find(body_marker)? + body_marker.len();
-    let body = &error_msg[body_start..];
+    let body = error_msg.get(body_start..)?;
     Some(body.trim_end_matches(')').to_string())
 }
 

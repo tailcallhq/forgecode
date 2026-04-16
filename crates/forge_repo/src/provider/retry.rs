@@ -78,7 +78,7 @@ fn extract_status_from_message(msg: &str) -> Option<u16> {
     let patterns = ["status: ", "status code ", "HTTP ", "("];
     for pattern in patterns {
         if let Some(pos) = msg.find(pattern) {
-            let after_pattern = &msg[pos + pattern.len()..];
+            let after_pattern = msg.get(pos + pattern.len()..).unwrap_or("");
             // Try to parse a number after the pattern
             let num_str: String = after_pattern
                 .chars()

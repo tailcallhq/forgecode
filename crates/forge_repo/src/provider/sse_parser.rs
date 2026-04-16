@@ -77,8 +77,8 @@ where
             // Try to find a complete event in the buffer (double newline marks end of
             // event)
             if let Some(pos) = self.buffer.find("\n\n") {
-                let event_text = self.buffer[..pos].to_string();
-                self.buffer = self.buffer[pos + 2..].to_string();
+                let event_text = self.buffer.get(..pos).unwrap_or("").to_string();
+                self.buffer = self.buffer.get(pos + 2..).unwrap_or("").to_string();
 
                 // Parse the event
                 let mut event_type = None;
@@ -87,8 +87,8 @@ where
 
                 for line in event_text.lines() {
                     if let Some(colon_pos) = line.find(':') {
-                        let field = &line[..colon_pos];
-                        let value = line[colon_pos + 1..].trim_start();
+                        let field = line.get(..colon_pos).unwrap_or("");
+                        let value = line.get(colon_pos + 1..).unwrap_or("").trim_start();
 
                         match field {
                             "event" => event_type = Some(value.to_string()),
@@ -142,8 +142,8 @@ where
 
                         for line in remaining.lines() {
                             if let Some(colon_pos) = line.find(':') {
-                                let field = &line[..colon_pos];
-                                let value = line[colon_pos + 1..].trim_start();
+                                let field = line.get(..colon_pos).unwrap_or("");
+                                let value = line.get(colon_pos + 1..).unwrap_or("").trim_start();
 
                                 match field {
                                     "event" => event_type = Some(value.to_string()),
