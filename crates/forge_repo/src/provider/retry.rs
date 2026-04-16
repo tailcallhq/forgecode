@@ -348,7 +348,9 @@ mod tests {
         let error = anyhow::Error::from(Error::Response(
             ErrorResponse::default()
                 .code(ErrorCode::String("server_is_overloaded".to_string()))
-                .message("Our servers are currently overloaded. Please try again later.".to_string()),
+                .message(
+                    "Our servers are currently overloaded. Please try again later.".to_string(),
+                ),
         ));
 
         assert!(is_retryable(into_retry(error, &retry_config)));
