@@ -1077,8 +1077,8 @@ mod tests {
 
         // Pre-populate some data
         for i in 0..10 {
-            let conv = Conversation::new(ConversationId::generate())
-                .title(Some(format!("Initial {}", i)));
+            let conv =
+                Conversation::new(ConversationId::generate()).title(Some(format!("Initial {}", i)));
             repo.upsert_conversation(conv).await?;
         }
 
