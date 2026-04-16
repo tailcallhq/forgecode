@@ -192,18 +192,21 @@ impl BedrockProvider {
         let model_id = self.transform_model_id(model.as_str());
 
         // Convert context to AWS SDK types using FromDomain trait
-        let bedrock_input =
+        let mut bedrock_input =
             aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamInput::from_domain(
                 context,
             )
             .context("Failed to convert context to Bedrock ConverseStreamInput")?;
+
+        // Set model_id on the input so transformers can read it from the request
+        bedrock_input.model_id = Some(model_id.clone());
 
         // Apply transformers pipeline
         let supports_caching = Self::supports_caching(&model_id);
         let bedrock_input = SetCache
             .when(move |_| supports_caching)
             .pipe(SanitizeToolIds)
-            .pipe(StripUnsupportedReasoning::new(model_id.clone()))
+            .pipe(StripUnsupportedReasoning)
             .transform(bedrock_input);
 
         // Build and send the converse_stream request

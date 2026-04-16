@@ -9,31 +9,17 @@ use forge_domain::Transformer;
 /// Claude models without thinking support (for example, Claude 3.5 Haiku),
 /// but should remain for models that support thinking and not effort (for
 /// example, Claude Haiku 4.5). It should never be sent to non-Anthropic
-/// models.
-pub struct StripUnsupportedReasoning {
-    model: String,
-}
-
-impl StripUnsupportedReasoning {
-    /// Creates a new transformer for the target Bedrock model ID.
-    ///
-    /// # Arguments
-    ///
-    /// * `model` - Bedrock model identifier used to evaluate thinking support.
-    pub fn new(model: impl Into<String>) -> Self {
-        Self { model: model.into() }
-    }
-}
+/// models. The model is read from [`ConverseStreamInput::model_id`].
+pub struct StripUnsupportedReasoning;
 
 impl Transformer for StripUnsupportedReasoning {
     type Value = ConverseStreamInput;
 
     fn transform(&mut self, mut request: Self::Value) -> Self::Value {
-        if request.additional_model_request_fields.is_some()
-            && !model_supports_thinking(&self.model)
-        {
+        let model = request.model_id().unwrap_or("");
+        if request.additional_model_request_fields.is_some() && !model_supports_thinking(model) {
             tracing::debug!(
-                model = %self.model,
+                model = %model,
                 "Model does not support Bedrock thinking; stripping additional_model_request_fields"
             );
             request.additional_model_request_fields = None;
@@ -106,13 +92,13 @@ mod tests {
 
     #[test]
     fn test_strip_reasoning_for_claude_3_5_haiku() {
-        let fixture =
+        let mut fixture =
             ConverseStreamInput::from_domain(reasoning_context_fixture()).expect("valid context");
+        fixture.model_id = Some("us.anthropic.claude-3-5-haiku-20241022-v1:0".to_string());
 
         assert!(fixture.additional_model_request_fields().is_some());
 
-        let mut transformer =
-            StripUnsupportedReasoning::new("us.anthropic.claude-3-5-haiku-20241022-v1:0");
+        let mut transformer = StripUnsupportedReasoning;
         let actual = transformer.transform(fixture);
         let expected = None;
 
@@ -121,13 +107,13 @@ mod tests {
 
     #[test]
     fn test_keep_reasoning_for_claude_3_5_sonnet() {
-        let fixture =
+        let mut fixture =
             ConverseStreamInput::from_domain(reasoning_context_fixture()).expect("valid context");
+        fixture.model_id = Some("us.anthropic.claude-3-5-sonnet-20241022-v2:0".to_string());
 
         assert!(fixture.additional_model_request_fields().is_some());
 
-        let mut transformer =
-            StripUnsupportedReasoning::new("us.anthropic.claude-3-5-sonnet-20241022-v2:0");
+        let mut transformer = StripUnsupportedReasoning;
         let actual = transformer.transform(fixture);
 
         assert!(actual.additional_model_request_fields().is_some());
@@ -135,13 +121,13 @@ mod tests {
 
     #[test]
     fn test_keep_reasoning_for_claude_haiku_4_5() {
-        let fixture =
+        let mut fixture =
             ConverseStreamInput::from_domain(reasoning_context_fixture()).expect("valid context");
+        fixture.model_id = Some("anthropic.claude-haiku-4-5-20251001-v1:0".to_string());
 
         assert!(fixture.additional_model_request_fields().is_some());
 
-        let mut transformer =
-            StripUnsupportedReasoning::new("anthropic.claude-haiku-4-5-20251001-v1:0");
+        let mut transformer = StripUnsupportedReasoning;
         let actual = transformer.transform(fixture);
 
         assert!(actual.additional_model_request_fields().is_some());
@@ -149,12 +135,13 @@ mod tests {
 
     #[test]
     fn test_strip_reasoning_for_non_anthropic_model() {
-        let fixture =
+        let mut fixture =
             ConverseStreamInput::from_domain(reasoning_context_fixture()).expect("valid context");
+        fixture.model_id = Some("amazon.nova-pro-v1:0".to_string());
 
         assert!(fixture.additional_model_request_fields().is_some());
 
-        let mut transformer = StripUnsupportedReasoning::new("amazon.nova-pro-v1:0");
+        let mut transformer = StripUnsupportedReasoning;
         let actual = transformer.transform(fixture);
         let expected = None;
 
