@@ -4,8 +4,8 @@ use diesel::prelude::*;
 use forge_domain::{Conversation, ConversationId, ConversationRepository, WorkspaceHash};
 
 use crate::conversation::conversation_record::ConversationRecord;
-use crate::database::DatabasePool;
 use crate::database::schema::conversations;
+use crate::database::{DatabasePool, PooledSqliteConnection};
 
 pub struct ConversationRepositoryImpl {
     pool: Arc<DatabasePool>,
@@ -28,14 +28,24 @@ impl ConversationRepositoryImpl {
             .await
             .map_err(|e| anyhow::anyhow!("Conversation repository task failed: {e}"))?
     }
+
+    async fn run_with_connection<F, T>(&self, operation: F) -> anyhow::Result<T>
+    where
+        F: FnOnce(&mut PooledSqliteConnection, WorkspaceHash) -> anyhow::Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.run_blocking(move |pool, wid| {
+            let mut connection = pool.get_connection()?;
+            operation(&mut connection, wid)
+        })
+        .await
+    }
 }
 
 #[async_trait::async_trait]
 impl ConversationRepository for ConversationRepositoryImpl {
     async fn upsert_conversation(&self, conversation: Conversation) -> anyhow::Result<()> {
-        self.run_blocking(move |pool, wid| {
-            let mut connection = pool.get_connection()?;
-
+        self.run_with_connection(move |connection, wid| {
             let record = ConversationRecord::new(conversation, wid);
             diesel::insert_into(conversations::table)
                 .values(&record)
@@ -47,7 +57,7 @@ impl ConversationRepository for ConversationRepositoryImpl {
                     conversations::updated_at.eq(record.updated_at),
                     conversations::metrics.eq(&record.metrics),
                 ))
-                .execute(&mut connection)?;
+                .execute(connection)?;
             Ok(())
         })
         .await
@@ -58,12 +68,10 @@ impl ConversationRepository for ConversationRepositoryImpl {
         conversation_id: &ConversationId,
     ) -> anyhow::Result<Option<Conversation>> {
         let conversation_id = *conversation_id;
-        self.run_blocking(move |pool, _wid| {
-            let mut connection = pool.get_connection()?;
-
+        self.run_with_connection(move |connection, _wid| {
             let record: Option<ConversationRecord> = conversations::table
                 .filter(conversations::conversation_id.eq(conversation_id.into_string()))
-                .first(&mut connection)
+                .first(connection)
                 .optional()?;
 
             match record {
@@ -78,9 +86,7 @@ impl ConversationRepository for ConversationRepositoryImpl {
         &self,
         limit: Option<usize>,
     ) -> anyhow::Result<Option<Vec<Conversation>>> {
-        self.run_blocking(move |pool, wid| {
-            let mut connection = pool.get_connection()?;
-
+        self.run_with_connection(move |connection, wid| {
             let workspace_id = wid.id() as i64;
             let mut query = conversations::table
                 .filter(conversations::workspace_id.eq(&workspace_id))
@@ -92,7 +98,7 @@ impl ConversationRepository for ConversationRepositoryImpl {
                 query = query.limit(limit_value as i64);
             }
 
-            let records: Vec<ConversationRecord> = query.load(&mut connection)?;
+            let records: Vec<ConversationRecord> = query.load(connection)?;
 
             if records.is_empty() {
                 return Ok(None);
@@ -106,14 +112,13 @@ impl ConversationRepository for ConversationRepositoryImpl {
     }
 
     async fn get_last_conversation(&self) -> anyhow::Result<Option<Conversation>> {
-        self.run_blocking(move |pool, wid| {
-            let mut connection = pool.get_connection()?;
+        self.run_with_connection(move |connection, wid| {
             let workspace_id = wid.id() as i64;
             let record: Option<ConversationRecord> = conversations::table
                 .filter(conversations::workspace_id.eq(&workspace_id))
                 .filter(conversations::context.is_not_null())
                 .order(conversations::updated_at.desc())
-                .first(&mut connection)
+                .first(connection)
                 .optional()?;
             let conversation = match record {
                 Some(record) => Some(Conversation::try_from(record)?),
@@ -126,15 +131,14 @@ impl ConversationRepository for ConversationRepositoryImpl {
 
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> anyhow::Result<()> {
         let conversation_id = *conversation_id;
-        self.run_blocking(move |pool, wid| {
-            let mut connection = pool.get_connection()?;
+        self.run_with_connection(move |connection, wid| {
             let workspace_id = wid.id() as i64;
 
             // Security: Ensure users can only delete conversations within their workspace
             diesel::delete(conversations::table)
                 .filter(conversations::workspace_id.eq(&workspace_id))
                 .filter(conversations::conversation_id.eq(conversation_id.into_string()))
-                .execute(&mut connection)?;
+                .execute(connection)?;
 
             Ok(())
         })
