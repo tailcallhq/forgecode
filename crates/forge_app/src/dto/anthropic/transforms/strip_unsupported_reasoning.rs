@@ -108,9 +108,8 @@ mod tests {
     use forge_domain::{Context, Effort, ReasoningConfig, Transformer};
     use pretty_assertions::assert_eq;
 
-    use crate::dto::anthropic::request::Request;
-
     use super::*;
+    use crate::dto::anthropic::request::Request;
 
     // --- model_supports_thinking tests ---
 
