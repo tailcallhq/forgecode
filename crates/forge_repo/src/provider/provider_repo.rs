@@ -923,7 +923,15 @@ mod env_tests {
             _url: &reqwest::Url,
             _headers: Option<reqwest::header::HeaderMap>,
             _body: bytes::Bytes,
-        ) -> anyhow::Result<reqwest_eventsource::EventSource> {
+        ) -> anyhow::Result<
+            std::pin::Pin<
+                Box<
+                    dyn futures::Stream<Item = anyhow::Result<eventsource_client::SSE>>
+                        + Send
+                        + Sync,
+                >,
+            >,
+        > {
             Err(anyhow::anyhow!("HTTP not implemented in mock"))
         }
     }
@@ -1409,7 +1417,15 @@ mod env_tests {
                 _url: &reqwest::Url,
                 _headers: Option<reqwest::header::HeaderMap>,
                 _body: bytes::Bytes,
-            ) -> anyhow::Result<reqwest_eventsource::EventSource> {
+            ) -> anyhow::Result<
+                std::pin::Pin<
+                    Box<
+                        dyn futures::Stream<Item = anyhow::Result<eventsource_client::SSE>>
+                            + Send
+                            + Sync,
+                    >,
+                >,
+            > {
                 Err(anyhow::anyhow!("HTTP not implemented in mock"))
             }
         }

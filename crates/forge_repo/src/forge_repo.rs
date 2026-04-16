@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use eventsource_client::SSE;
 use forge_app::{
     AgentRepository, CommandInfra, DirectoryReaderInfra, EnvironmentInfra, FileDirectoryInfra,
     FileInfoInfra, FileReaderInfra, FileRemoverInfra, FileWriterInfra, GrpcInfra, HttpInfra,
@@ -20,7 +22,7 @@ use forge_domain::{
 pub use forge_infra::CacacheStorage;
 use reqwest::Response;
 use reqwest::header::HeaderMap;
-use reqwest_eventsource::EventSource;
+use tokio_stream::Stream;
 use url::Url;
 
 use crate::agent::ForgeAgentRepository;
@@ -285,7 +287,7 @@ impl<F: HttpInfra> HttpInfra for ForgeRepo<F> {
         url: &Url,
         headers: Option<HeaderMap>,
         body: Bytes,
-    ) -> anyhow::Result<EventSource> {
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = anyhow::Result<SSE>> + Send + Sync>>> {
         self.infra.http_eventsource(url, headers, body).await
     }
 }

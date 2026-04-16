@@ -16,6 +16,7 @@ mod inquire;
 mod kv_storage;
 mod mcp_client;
 mod mcp_server;
+mod transport;
 mod walker;
 
 pub use console::StdConsoleWriter;

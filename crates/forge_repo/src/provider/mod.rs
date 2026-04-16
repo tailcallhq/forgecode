@@ -12,6 +12,7 @@ mod openai_responses;
 mod opencode;
 mod provider_repo;
 mod retry;
+mod sse_parser;
 mod utils;
 
 pub use chat::*;

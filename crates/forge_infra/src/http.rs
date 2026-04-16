@@ -1,17 +1,21 @@
 use std::fs;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use bytes::Bytes;
+use eventsource_client::{Client as EsClient, ClientBuilder, ReconnectOptions, SSE};
 use forge_app::HttpInfra;
 use forge_config::{ForgeConfig, TlsBackend, TlsVersion};
+use futures::{Stream, StreamExt};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use reqwest::redirect::Policy;
 use reqwest::{Certificate, Client, Response, StatusCode, Url};
-use reqwest_eventsource::{EventSource, RequestBuilderExt};
 use tracing::{debug, warn};
+
+use crate::transport::ReqwestTransport;
 
 const VERSION: &str = match option_env!("APP_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
@@ -22,6 +26,28 @@ pub struct ForgeHttpInfra<F> {
     client: Client,
     debug_requests: Option<PathBuf>,
     file: Arc<F>,
+}
+
+#[derive(Debug, thiserror::Error)]
+enum EventSourceRequestError {
+    #[error("Invalid SSE URL")]
+    InvalidUrl {
+        #[source]
+        source: eventsource_client::Error,
+    },
+    #[error("Invalid SSE header '{name}'")]
+    InvalidHeader {
+        name: String,
+        #[source]
+        source: eventsource_client::Error,
+    },
+    #[error("UnexpectedResponse(status: {status}, body: [omitted to avoid blocking stream])")]
+    UnexpectedResponse { status: String },
+    #[error("EventSource error")]
+    EventSource {
+        #[source]
+        source: eventsource_client::Error,
+    },
 }
 
 fn to_reqwest_tls(tls: TlsVersion) -> reqwest::tls::Version {
@@ -250,19 +276,72 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
         url: &Url,
         headers: Option<HeaderMap>,
         body: Bytes,
-    ) -> anyhow::Result<EventSource> {
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = anyhow::Result<SSE>> + Send + Sync>>> {
         let mut request_headers = self.headers(headers);
         request_headers.insert("Content-Type", HeaderValue::from_static("application/json"));
 
         self.write_debug_request(&body);
 
-        self.client
-            .post(url.clone())
-            .headers(request_headers)
-            .body(body)
-            .eventsource()
-            .with_context(|| format_http_context(None, "POST (EventSource)", url))
+        // Build the URL string
+        let url_str = url.to_string();
+
+        // Create the client builder
+        let mut builder = ClientBuilder::for_url(&url_str)
+            .map_err(|source| EventSourceRequestError::InvalidUrl { source })?
+            .method("POST".to_string())
+            .body(String::from_utf8_lossy(&body).to_string())
+            // Disable auto-reconnect: LLM streaming endpoints end the stream
+            // after each response; reconnecting would send duplicate POSTs.
+            .reconnect(ReconnectOptions::reconnect(false).build());
+
+        // Add headers to the builder
+        for (name, value) in request_headers.iter() {
+            if let Ok(value_str) = value.to_str() {
+                builder = builder.header(name.as_str(), value_str).map_err(|source| {
+                    EventSourceRequestError::InvalidHeader { name: name.to_string(), source }
+                })?;
+            }
+        }
+
+        // Create the transport using our reqwest client
+        let transport = ReqwestTransport::new(self.client.clone());
+
+        // Build the client with our transport
+        let client = builder.build_with_transport(transport);
+
+        // Return the stream with error mapping
+        let stream = client.stream().take_while(|result| {
+            let should_continue = match result {
+                Ok(_) => true,
+                Err(error) => !is_terminal_eventsource_error(error),
+            };
+            futures::future::ready(should_continue)
+        });
+
+        Ok(Box::pin(stream.then(|result| async move {
+            match result {
+                Ok(event) => Ok(event),
+                Err(eventsource_client::Error::UnexpectedResponse(response, _body)) => {
+                    let status = response.status();
+                    let status_display = StatusCode::from_u16(status)
+                        .map(|status| status.to_string())
+                        .unwrap_or_else(|_| status.to_string());
+                    Err(
+                        EventSourceRequestError::UnexpectedResponse { status: status_display }
+                            .into(),
+                    )
+                }
+                Err(error) => Err(EventSourceRequestError::EventSource { source: error }.into()),
+            }
+        })))
     }
+}
+
+fn is_terminal_eventsource_error(error: &eventsource_client::Error) -> bool {
+    matches!(
+        error,
+        eventsource_client::Error::Eof | eventsource_client::Error::UnexpectedEof
+    )
 }
 
 /// Helper function to format HTTP request/response context for logging and
@@ -299,7 +378,7 @@ impl<F: forge_app::FileWriterInfra + 'static> HttpInfra for ForgeHttpInfra<F> {
         url: &Url,
         headers: Option<HeaderMap>,
         body: Bytes,
-    ) -> anyhow::Result<EventSource> {
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = anyhow::Result<SSE>> + Send + Sync>>> {
         self.eventsource(url, headers, body).await
     }
 }
@@ -505,6 +584,36 @@ mod tests {
         let mut expected = body.to_vec();
         expected.push(b'\n');
         assert_eq!(writes[0].1, Bytes::from(expected));
+    }
+
+    #[test]
+    fn test_is_terminal_eventsource_error_with_eof() {
+        let fixture = eventsource_client::Error::Eof;
+
+        let actual = is_terminal_eventsource_error(&fixture);
+
+        let expected = true;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_is_terminal_eventsource_error_with_unexpected_eof() {
+        let fixture = eventsource_client::Error::UnexpectedEof;
+
+        let actual = is_terminal_eventsource_error(&fixture);
+
+        let expected = true;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_is_terminal_eventsource_error_with_non_terminal_error() {
+        let fixture = eventsource_client::Error::TimedOut;
+
+        let actual = is_terminal_eventsource_error(&fixture);
+
+        let expected = false;
+        assert_eq!(actual, expected);
     }
 
     #[test]

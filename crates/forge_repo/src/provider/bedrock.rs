@@ -143,19 +143,29 @@ impl BedrockProvider {
         }
     }
 
+    /// Returns true when Bedrock indicates a connection-capacity limit.
+    fn is_connection_limit_message(message: Option<&str>) -> bool {
+        message
+            .map(str::to_ascii_lowercase)
+            .is_some_and(|message| message.contains("too many connections"))
+    }
+
     /// Checks if a ConverseStreamError service error is retryable
     fn is_retryable_converse_error(
         err: &aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamError,
     ) -> bool {
         use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamError;
-        matches!(
-            err,
+
+        match err {
             ConverseStreamError::ThrottlingException(_)
-                | ConverseStreamError::ServiceUnavailableException(_)
-                | ConverseStreamError::InternalServerException(_)
-                | ConverseStreamError::ModelStreamErrorException(_)
-                | ConverseStreamError::ModelNotReadyException(_)
-        )
+            | ConverseStreamError::InternalServerException(_)
+            | ConverseStreamError::ModelStreamErrorException(_)
+            | ConverseStreamError::ModelNotReadyException(_) => true,
+            ConverseStreamError::ServiceUnavailableException(error) => {
+                !Self::is_connection_limit_message(error.message())
+            }
+            _ => false,
+        }
     }
 
     /// Checks if a ConverseStreamOutputError service error is retryable
@@ -163,13 +173,16 @@ impl BedrockProvider {
         err: &aws_sdk_bedrockruntime::types::error::ConverseStreamOutputError,
     ) -> bool {
         use aws_sdk_bedrockruntime::types::error::ConverseStreamOutputError;
-        matches!(
-            err,
+
+        match err {
             ConverseStreamOutputError::ThrottlingException(_)
-                | ConverseStreamOutputError::ServiceUnavailableException(_)
-                | ConverseStreamOutputError::InternalServerException(_)
-                | ConverseStreamOutputError::ModelStreamErrorException(_)
-        )
+            | ConverseStreamOutputError::InternalServerException(_)
+            | ConverseStreamOutputError::ModelStreamErrorException(_) => true,
+            ConverseStreamOutputError::ServiceUnavailableException(error) => {
+                !Self::is_connection_limit_message(error.message())
+            }
+            _ => false,
+        }
     }
 
     /// Checks if an SDK error is retryable based on error type (network/timeout
@@ -228,26 +241,26 @@ impl BedrockProvider {
                     _ => Self::is_retryable_sdk_error(&sdk_error),
                 };
 
-                // Extract the source error for better error messages
-                // SAFETY: into_source() always returns Ok for all SdkError variants
-                // (see aws-smithy-runtime-api/src/client/result.rs:448-459)
-                let source = sdk_error.into_source().unwrap();
+                let source_error = match sdk_error.into_source() {
+                    Ok(source) => anyhow::Error::from_boxed(source),
+                    Err(error) => anyhow::Error::new(error),
+                };
 
                 if is_retryable {
-                    forge_domain::Error::Retryable(anyhow::anyhow!("{}", source)).into()
+                    forge_domain::Error::Retryable(source_error).into()
                 } else {
-                    anyhow::anyhow!("{}", source)
+                    source_error
                 }
             })?;
 
         // Convert the Bedrock event stream to ChatCompletionMessage stream
-        let stream = futures::stream::unfold(output.stream, |mut event_stream| async move {
+        let stream = futures::stream::try_unfold(output.stream, |mut event_stream| async move {
             match event_stream.recv().await {
                 Ok(Some(event)) => {
                     let message = event.into_domain();
-                    Some((Ok(message), event_stream))
+                    Ok(Some((message, event_stream)))
                 }
-                Ok(None) => None, // End of stream
+                Ok(None) => Ok(None), // End of stream
                 Err(stream_error) => {
                     use aws_sdk_bedrockruntime::error::SdkError;
 
@@ -259,16 +272,18 @@ impl BedrockProvider {
                         _ => Self::is_retryable_sdk_error(&stream_error),
                     };
 
-                    let error = if is_retryable {
-                        forge_domain::Error::Retryable(anyhow::anyhow!(
-                            "Bedrock stream error: {:?}",
-                            stream_error
-                        ))
-                        .into()
-                    } else {
-                        anyhow::anyhow!("Bedrock stream error: {:?}", stream_error)
+                    let source_error = match stream_error.into_source() {
+                        Ok(source) => anyhow::Error::from_boxed(source),
+                        Err(error) => anyhow::Error::new(error),
                     };
-                    Some((Err(error), event_stream))
+
+                    let error = if is_retryable {
+                        forge_domain::Error::Retryable(source_error).into()
+                    } else {
+                        source_error
+                    };
+
+                    Err(error)
                 }
             }
         });
@@ -1145,6 +1160,66 @@ mod tests {
         let fixture = bedrock_provider_fixture("us-gov-west-1");
         let actual = fixture.transform_model_id("anthropic.claude-3-sonnet");
         let expected = "anthropic.claude-3-sonnet";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_retryable_converse_service_unavailable_non_capacity_message() {
+        use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamError;
+
+        let fixture = ConverseStreamError::ServiceUnavailableException(
+            aws_sdk_bedrockruntime::types::error::ServiceUnavailableException::builder()
+                .message("temporarily unavailable")
+                .build(),
+        );
+
+        let actual = BedrockProvider::is_retryable_converse_error(&fixture);
+        let expected = true;
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_non_retryable_converse_service_unavailable_too_many_connections() {
+        use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamError;
+
+        let fixture = ConverseStreamError::ServiceUnavailableException(
+            aws_sdk_bedrockruntime::types::error::ServiceUnavailableException::builder()
+                .message("Too many connections, please wait before trying again.")
+                .build(),
+        );
+
+        let actual = BedrockProvider::is_retryable_converse_error(&fixture);
+        let expected = false;
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_retryable_stream_output_service_unavailable_non_capacity_message() {
+        let fixture = aws_sdk_bedrockruntime::types::error::ConverseStreamOutputError::ServiceUnavailableException(
+            aws_sdk_bedrockruntime::types::error::ServiceUnavailableException::builder()
+                .message("temporarily unavailable")
+                .build(),
+        );
+
+        let actual = BedrockProvider::is_retryable_stream_output_error(&fixture);
+        let expected = true;
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_non_retryable_stream_output_service_unavailable_too_many_connections() {
+        let fixture = aws_sdk_bedrockruntime::types::error::ConverseStreamOutputError::ServiceUnavailableException(
+            aws_sdk_bedrockruntime::types::error::ServiceUnavailableException::builder()
+                .message("Too many connections, please wait before trying again.")
+                .build(),
+        );
+
+        let actual = BedrockProvider::is_retryable_stream_output_error(&fixture);
+        let expected = false;
+
         assert_eq!(actual, expected);
     }
 

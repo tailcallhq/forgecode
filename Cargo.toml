@@ -73,8 +73,7 @@ reqwest = { version = "0.12.23", features = [
     "http2",
 ], default-features = false }
 rustls = { version = "0.23", features = ["ring"], default-features = false }
-reqwest-eventsource = "0.6.0"
-eventsource-stream = "0.2.3"
+eventsource-client = "0.17.2"
 include_dir = "0.7.4"
 schemars = "1.2"
 serde = { version = "1.0.217", features = ["derive"] }

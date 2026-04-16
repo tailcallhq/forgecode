@@ -373,7 +373,6 @@ mod tests {
     use forge_app::domain::{Provider, ProviderId, ProviderResponse};
     use forge_app::dto::openai::{ContentPart, ImageUrl, Message, MessageContent, Role};
     use reqwest::header::HeaderMap;
-    use reqwest_eventsource::EventSource;
     use url::Url;
 
     use super::*;
@@ -498,7 +497,15 @@ mod tests {
             _url: &Url,
             _headers: Option<HeaderMap>,
             _body: Bytes,
-        ) -> anyhow::Result<EventSource> {
+        ) -> anyhow::Result<
+            std::pin::Pin<
+                Box<
+                    dyn futures::Stream<Item = anyhow::Result<eventsource_client::SSE>>
+                        + Send
+                        + Sync,
+                >,
+            >,
+        > {
             unimplemented!()
         }
     }

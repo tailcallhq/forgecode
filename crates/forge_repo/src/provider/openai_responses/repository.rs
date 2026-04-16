@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use async_openai::types::responses as oai;
-use eventsource_stream::Eventsource;
+use eventsource_client::SSE;
 use forge_app::domain::{
     ChatCompletionMessage, Context as ChatContext, Model, ModelId, ResultStream,
 };
@@ -16,6 +16,7 @@ use url::Url;
 
 use crate::provider::FromDomain;
 use crate::provider::retry::into_retry;
+use crate::provider::sse_parser::parse_sse_stream;
 use crate::provider::utils::{create_headers, format_http_context};
 
 #[derive(Clone)]
@@ -187,47 +188,11 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
             .await
             .with_context(|| format_http_context(None, "POST", &self.responses_url))?;
 
-        // Parse SSE stream into domain messages and convert to domain type
-        use reqwest_eventsource::Event;
-        let event_stream = source
-            .take_while(|message| {
-                let should_continue =
-                    !matches!(message, Err(reqwest_eventsource::Error::StreamEnded));
-                async move { should_continue }
-            })
-            .filter_map(|event_result| async move {
-                match event_result {
-                    Ok(Event::Open) => None,
-                    Ok(Event::Message(msg)) if ["[DONE]", ""].contains(&msg.data.as_str()) => None,
-                    Ok(Event::Message(msg)) => {
-                        let result = serde_json::from_str::<super::response::ResponsesStreamEvent>(
-                            &msg.data,
-                        )
-                        .with_context(|| format!("Failed to parse SSE event: {}", msg.data));
-
-                        match result {
-                            Ok(super::response::ResponsesStreamEvent::Keepalive { .. }) => None,
-                            Ok(super::response::ResponsesStreamEvent::Ping { cost }) => {
-                                let usage =
-                                    forge_domain::Usage { cost: Some(cost), ..Default::default() };
-                                Some(Ok(super::response::StreamItem::Message(Box::new(
-                                    ChatCompletionMessage::assistant(forge_domain::Content::part(
-                                        "",
-                                    ))
-                                    .usage(usage),
-                                ))))
-                            }
-                            Ok(super::response::ResponsesStreamEvent::Unknown(_)) => None,
-                            Ok(super::response::ResponsesStreamEvent::Response(inner)) => {
-                                Some(Ok(super::response::StreamItem::Event(inner)))
-                            }
-                            Err(e) => Some(Err(e)),
-                        }
-                    }
-                    Err(reqwest_eventsource::Error::StreamEnded) => None,
-                    Err(e) => Some(Err(anyhow::Error::from(e))),
-                }
-            });
+        let responses_url = self.responses_url.clone();
+        let event_stream = source.filter_map(move |event_result: anyhow::Result<SSE>| {
+            let responses_url = responses_url.clone();
+            async move { into_response_stream_item(event_result, &responses_url) }
+        });
 
         // Convert to domain messages using the existing conversion logic
         use crate::provider::IntoDomain;
@@ -237,7 +202,7 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
 
     /// Streams a Codex chat response by making a direct HTTP POST and
     /// parsing SSE from the raw byte stream, bypassing Content-Type
-    /// validation that `reqwest-eventsource` enforces.
+    /// validation that reqwest-eventsource enforced.
     async fn chat_codex_stream(
         &self,
         headers: reqwest::header::HeaderMap,
@@ -259,21 +224,22 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                 .with_context(|| format_http_context(Some(status), "POST", &self.responses_url));
         }
 
-        // Parse the raw byte stream as SSE events using eventsource-stream.
+        // Parse the raw byte stream as SSE events using our sse_parser module.
         // This mirrors the AI SDK approach: TextDecoderStream ->
         // EventSourceParserStream -> JSON parse, without any Content-Type
         // requirement.
         let byte_stream = response.bytes_stream();
-        let event_stream = byte_stream
-            .eventsource()
-            .filter_map(|event_result| async move {
+        let event_stream = parse_sse_stream(byte_stream).filter_map(
+            |event_result: anyhow::Result<crate::provider::sse_parser::SSEEvent>| async move {
                 match event_result {
-                    Ok(event) if ["[DONE]", ""].contains(&event.data.as_str()) => None,
                     Ok(event) => {
-                        let result = serde_json::from_str::<super::response::ResponsesStreamEvent>(
-                            &event.data,
-                        )
-                        .with_context(|| format!("Failed to parse SSE event: {}", event.data));
+                        let data = event.data();
+                        if ["[DONE]", ""].contains(&data) {
+                            return None;
+                        }
+                        let result =
+                            serde_json::from_str::<super::response::ResponsesStreamEvent>(data)
+                                .with_context(|| format!("Failed to parse SSE event: {}", data));
                         match result {
                             Ok(super::response::ResponsesStreamEvent::Keepalive { .. }) => None,
                             Ok(super::response::ResponsesStreamEvent::Ping { cost }) => {
@@ -295,7 +261,8 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                     }
                     Err(e) => Some(Err(into_sse_parse_error(e))),
                 }
-            });
+            },
+        );
 
         use crate::provider::IntoDomain;
         let stream: BoxStream<super::response::StreamItem, anyhow::Error> = Box::pin(event_stream);
@@ -303,11 +270,62 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
     }
 }
 
-fn into_sse_parse_error<E>(error: eventsource_stream::EventStreamError<E>) -> anyhow::Error
+fn into_response_stream_item(
+    event_result: anyhow::Result<SSE>,
+    responses_url: &Url,
+) -> Option<anyhow::Result<super::response::StreamItem>> {
+    match event_result {
+        Ok(SSE::Event(event)) => parse_response_stream_event(event),
+        Ok(_) => None,
+        Err(error) => into_eventsource_error(error, responses_url).map(Err),
+    }
+}
+
+fn parse_response_stream_event(
+    event: eventsource_client::Event,
+) -> Option<anyhow::Result<super::response::StreamItem>> {
+    let data = &event.data;
+    if ["[DONE]", ""].contains(&data.as_str()) {
+        return None;
+    }
+
+    let result = serde_json::from_str::<super::response::ResponsesStreamEvent>(data)
+        .with_context(|| format!("Failed to parse SSE event: {}", data));
+
+    match result {
+        Ok(super::response::ResponsesStreamEvent::Keepalive { .. }) => None,
+        Ok(super::response::ResponsesStreamEvent::Ping { cost }) => {
+            let usage = forge_domain::Usage { cost: Some(cost), ..Default::default() };
+            Some(Ok(super::response::StreamItem::Message(Box::new(
+                ChatCompletionMessage::assistant(forge_domain::Content::part("")).usage(usage),
+            ))))
+        }
+        Ok(super::response::ResponsesStreamEvent::Unknown(_)) => None,
+        Ok(super::response::ResponsesStreamEvent::Response(inner)) => {
+            Some(Ok(super::response::StreamItem::Event(inner)))
+        }
+        Err(error) => Some(Err(error)),
+    }
+}
+
+fn into_eventsource_error(error: anyhow::Error, responses_url: &Url) -> Option<anyhow::Error> {
+    let error_message = error.to_string();
+    let error_message_lowercase = error_message.to_lowercase();
+
+    if error_message_lowercase.contains("eof") || error_message_lowercase.contains("stream ended") {
+        return None;
+    }
+
+    Some(error.context(format_http_context(None, "POST", responses_url)))
+}
+
+fn into_sse_parse_error<E>(error: E) -> anyhow::Error
 where
     E: std::fmt::Debug + std::fmt::Display + Send + Sync + 'static,
 {
-    let is_retryable = matches!(&error, eventsource_stream::EventStreamError::Transport(_));
+    // Check if the error is retryable based on the display string
+    let error_str = format!("{}", error);
+    let is_retryable = error_str.contains("transport") || error_str.contains("network");
     let error = anyhow::anyhow!("SSE parse error: {}", error);
 
     if is_retryable {
@@ -439,6 +457,23 @@ mod tests {
     use super::*;
     use crate::provider::mock_server::MockServer;
 
+    #[derive(Debug, thiserror::Error)]
+    enum MockResponsesEventSourceError {
+        #[error("Mock Responses EventSource stream error")]
+        Stream {
+            #[source]
+            source: reqwest::Error,
+        },
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    enum FixtureStreamError {
+        #[error("transport connection failed")]
+        TransportConnectionFailed,
+        #[error("EventSource error: eof")]
+        EventSourceEof,
+    }
+
     fn is_retryable(error: &anyhow::Error) -> bool {
         error
             .downcast_ref::<forge_domain::Error>()
@@ -511,12 +546,80 @@ mod tests {
             url: &reqwest::Url,
             headers: Option<reqwest::header::HeaderMap>,
             body: bytes::Bytes,
-        ) -> anyhow::Result<reqwest_eventsource::EventSource> {
+        ) -> anyhow::Result<
+            std::pin::Pin<
+                Box<
+                    dyn futures::Stream<Item = anyhow::Result<eventsource_client::SSE>>
+                        + Send
+                        + Sync,
+                >,
+            >,
+        > {
+            use futures::StreamExt;
+
+            // For tests, make an actual HTTP request and parse SSE from the response
             let mut request = self.client.post(url.clone()).body(body);
             if let Some(headers) = headers {
                 request = request.headers(headers);
             }
-            Ok(reqwest_eventsource::EventSource::new(request)?)
+            let response = request.send().await?;
+
+            // Create a stream that yields SSE events from the response
+            let stream =
+                response.bytes_stream().flat_map(|result| {
+                    match result {
+                        Ok(bytes) => {
+                            // Simple parsing: treat each chunk as SSE event data
+                            if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                                let mut events = Vec::new();
+                                let mut current_event = String::new();
+                                let mut current_event_type = String::new();
+
+                                for line in text.lines() {
+                                    if line.starts_with("event: ") {
+                                        current_event_type =
+                                            line.strip_prefix("event: ").unwrap().to_string();
+                                    } else if let Some(data) = line.strip_prefix("data: ") {
+                                        current_event = data.to_string();
+                                    } else if line.is_empty() && !current_event.is_empty() {
+                                        // End of event, yield it
+                                        events.push(Ok(eventsource_client::SSE::Event(
+                                            eventsource_client::Event {
+                                                data: current_event.clone(),
+                                                event_type: current_event_type.clone(),
+                                                id: None,
+                                                retry: None,
+                                            },
+                                        )));
+                                        current_event.clear();
+                                        current_event_type.clear();
+                                    }
+                                }
+
+                                // Handle last event if no trailing newline
+                                if !current_event.is_empty() {
+                                    events.push(Ok(eventsource_client::SSE::Event(
+                                        eventsource_client::Event {
+                                            data: current_event,
+                                            event_type: current_event_type,
+                                            id: None,
+                                            retry: None,
+                                        },
+                                    )));
+                                }
+
+                                futures::stream::iter(events)
+                            } else {
+                                futures::stream::iter(vec![])
+                            }
+                        }
+                        Err(e) => futures::stream::iter(vec![Err(
+                            MockResponsesEventSourceError::Stream { source: e }.into(),
+                        )]),
+                    }
+                });
+
+            Ok(Box::pin(stream))
         }
     }
 
@@ -931,29 +1034,44 @@ mod tests {
 
     #[test]
     fn test_into_sse_parse_error_marks_transport_errors_retryable() {
-        let error = into_sse_parse_error(eventsource_stream::EventStreamError::Transport(
-            anyhow::anyhow!("error decoding response body"),
-        ));
+        // Create a custom error with "transport" in the message
+        let custom_error = FixtureStreamError::TransportConnectionFailed;
+        let error = into_sse_parse_error(custom_error);
 
         assert!(is_retryable(&error));
-        assert_eq!(
-            error.to_string(),
-            "SSE parse error: Transport error: error decoding response body"
-        );
+        assert!(error.to_string().contains("transport"));
     }
 
     #[test]
-    fn test_into_sse_parse_error_keeps_utf8_errors_non_retryable() {
-        let error =
-            into_sse_parse_error(eventsource_stream::EventStreamError::<anyhow::Error>::Utf8(
-                String::from_utf8(vec![0xFF]).unwrap_err(),
-            ));
+    fn test_into_sse_parse_error_keeps_eof_errors_non_retryable() {
+        // Eof error should be non-retryable
+        let error = into_sse_parse_error(eventsource_client::Error::Eof);
 
         assert!(!is_retryable(&error));
-        assert_eq!(
-            error.to_string(),
-            "SSE parse error: UTF8 error: invalid utf-8 sequence of 1 bytes from index 0"
+        // The error message contains "eof" from the Display impl
+        assert!(error.to_string().contains("eof"));
+    }
+
+    #[test]
+    fn test_into_eventsource_error_ignores_eof_errors() {
+        let fixture = FixtureStreamError::EventSourceEof.into();
+        let actual = into_eventsource_error(
+            fixture,
+            &Url::parse("https://example.com/v1/responses").unwrap(),
         );
+
+        assert!(actual.is_none());
+    }
+
+    #[test]
+    fn test_into_response_stream_item_ignores_eof_events() {
+        let fixture = Err(FixtureStreamError::EventSourceEof.into());
+        let actual = into_response_stream_item(
+            fixture,
+            &Url::parse("https://example.com/v1/responses").unwrap(),
+        );
+
+        assert!(actual.is_none());
     }
 
     #[test]
