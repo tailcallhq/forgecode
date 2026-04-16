@@ -1012,6 +1012,110 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_concurrent_operations_dont_block_runtime() -> anyhow::Result<()> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::{Duration, Instant};
+
+        let repo = Arc::new(repository()?);
+        let heartbeat = Arc::new(AtomicUsize::new(0));
+
+        // Heartbeat task - if runtime is blocked, this won't increment
+        let heartbeat_clone = heartbeat.clone();
+        let heartbeat_handle = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                heartbeat_clone.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+
+        // Spawn many concurrent DB operations
+        let mut handles = vec![];
+        let start = Instant::now();
+
+        for i in 0..20 {
+            let repo = repo.clone();
+            let handle = tokio::spawn(async move {
+                for j in 0..10 {
+                    let conversation = Conversation::new(ConversationId::generate())
+                        .title(Some(format!("Task {} - Write {}", i, j)));
+                    repo.upsert_conversation(conversation).await?;
+                }
+                anyhow::Result::<()>::Ok(())
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all operations
+        for handle in handles {
+            handle.await??;
+        }
+        let elapsed = start.elapsed();
+
+        // Stop heartbeat
+        heartbeat_handle.abort();
+
+        // Verify runtime wasn't blocked
+        let heartbeat_count = heartbeat.load(Ordering::Relaxed);
+        let expected_heartbeats = elapsed.as_millis() as usize / 10;
+
+        // Heartbeat should have fired at least 80% of expected times
+        assert!(
+            heartbeat_count > expected_heartbeats * 8 / 10,
+            "Runtime was blocked! Expected ~{} heartbeats, got {}",
+            expected_heartbeats,
+            heartbeat_count
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mixed_read_write_contention() -> anyhow::Result<()> {
+        let repo = Arc::new(repository()?);
+        let mut handles = vec![];
+
+        // Pre-populate some data
+        for i in 0..10 {
+            let conv = Conversation::new(ConversationId::generate())
+                .title(Some(format!("Initial {}", i)));
+            repo.upsert_conversation(conv).await?;
+        }
+
+        // Spawn writers
+        for i in 0..10 {
+            let repo = repo.clone();
+            handles.push(tokio::spawn(async move {
+                for j in 0..10 {
+                    let conv = Conversation::new(ConversationId::generate())
+                        .title(Some(format!("Writer {} - {}", i, j)));
+                    repo.upsert_conversation(conv).await?;
+                }
+                anyhow::Result::<()>::Ok(())
+            }));
+        }
+
+        // Spawn readers (interleave with writers)
+        for _ in 0..10 {
+            let repo = repo.clone();
+            handles.push(tokio::spawn(async move {
+                for _ in 0..10 {
+                    // Read all conversations
+                    let _ = repo.get_all_conversations(Some(50)).await?;
+                    tokio::task::yield_now().await;
+                }
+                anyhow::Result::<()>::Ok(())
+            }));
+        }
+
+        // All should complete without timeout
+        for handle in handles {
+            handle.await??;
+        }
+
+        Ok(())
+    }
+
     #[test]
     fn test_legacy_tool_value_file_diff_deserialization() {
         use crate::conversation::conversation_record::ToolOutputRecord;
