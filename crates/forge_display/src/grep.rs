@@ -39,20 +39,17 @@ impl<'a> ParsedLine<'a> {
             return None;
         }
 
+        let path = parts.first()?.trim();
+        let line_num = parts.get(1)?.trim();
+        let content = parts.get(2)?.trim();
+
         // Validate that path and line number parts are not empty
         // and that line number contains only digits
-        if parts[0].is_empty()
-            || parts[1].is_empty()
-            || !parts[1].chars().all(|c| c.is_ascii_digit())
-        {
+        if path.is_empty() || line_num.is_empty() || !line_num.chars().all(|c| c.is_ascii_digit()) {
             return None;
         }
 
-        Some(Self {
-            path: parts[0].trim(),
-            line_num: parts[1].trim(),
-            content: parts[2].trim(),
-        })
+        Some(Self { path, line_num, content })
     }
 }
 
@@ -90,9 +87,11 @@ impl GrepFormat {
                 |mat| {
                     format!(
                         "{}{}{}",
-                        &content[..mat.start()],
-                        style(&content[mat.start()..mat.end()]).yellow().bold(),
-                        &content[mat.end()..]
+                        content.get(..mat.start()).unwrap_or(""),
+                        style(content.get(mat.start()..mat.end()).unwrap_or(""))
+                            .yellow()
+                            .bold(),
+                        content.get(mat.end()..).unwrap_or("")
                     )
                 },
             ),

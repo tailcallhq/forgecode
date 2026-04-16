@@ -22,11 +22,14 @@ model_cache_ttl_secs = 604800
 restricted = false
 sem_search_top_k = 10
 services_url = "https://api.forgecode.dev/"
+terminal_context = false
 tool_supported = true
 tool_timeout_secs = 300
 top_k = 30
 top_p = 0.8
 verify_todos = true
+currency_symbol = "$"
+currency_conversion_rate = 1.0
 
 [retry]
 backoff_factor = 2
@@ -65,6 +68,3 @@ frequency = "daily"
 [reasoning]
 enabled = true
 effort = "high"
-
-currency_symbol = "$"
-currency_conversion_rate = 1.0

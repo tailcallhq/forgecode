@@ -348,7 +348,7 @@ mod tests {
 
         // On Windows, paths are recognized and stripped
         #[cfg(windows)]
-        let expected = ContextSummary::new(vec![SummaryMessage::new(
+        let expected = ContextSummary::new(vec![SummaryBlock::new(
             Role::Assistant,
             vec![
                 SummaryToolCall::read(r"src\main.rs").into(),
@@ -403,7 +403,7 @@ mod tests {
         let actual = StripWorkingDir::new(r"C:\Users\user\project").transform(fixture);
 
         #[cfg(windows)]
-        let expected = ContextSummary::new(vec![SummaryMessage::new(
+        let expected = ContextSummary::new(vec![SummaryBlock::new(
             Role::Assistant,
             vec![
                 SummaryToolCall::read(r"src\main.rs").into(),
@@ -436,7 +436,7 @@ mod tests {
         let actual = StripWorkingDir::new(r"C:\Users\user\project").transform(fixture);
 
         #[cfg(windows)]
-        let expected = ContextSummary::new(vec![SummaryMessage::new(
+        let expected = ContextSummary::new(vec![SummaryBlock::new(
             Role::Assistant,
             vec![
                 SummaryToolCall::read(r"src\main.rs").into(),
@@ -470,7 +470,7 @@ mod tests {
         let actual = StripWorkingDir::new(r"\\server\share\project").transform(fixture);
 
         #[cfg(windows)]
-        let expected = ContextSummary::new(vec![SummaryMessage::new(
+        let expected = ContextSummary::new(vec![SummaryBlock::new(
             Role::Assistant,
             vec![
                 SummaryToolCall::read(r"src\main.rs").into(),
@@ -499,7 +499,7 @@ mod tests {
         let actual = StripWorkingDir::new(r"C:\Users\user\project\").transform(fixture);
 
         #[cfg(windows)]
-        let expected = ContextSummary::new(vec![SummaryMessage::new(
+        let expected = ContextSummary::new(vec![SummaryBlock::new(
             Role::Assistant,
             vec![SummaryToolCall::read(r"src\main.rs").into()],
         )]);
@@ -530,7 +530,7 @@ mod tests {
         // On Unix: case-sensitive matching, neither path strips (Windows paths not
         // recognized)
         #[cfg(windows)]
-        let expected = ContextSummary::new(vec![SummaryMessage::new(
+        let expected = ContextSummary::new(vec![SummaryBlock::new(
             Role::Assistant,
             vec![
                 SummaryToolCall::read(r"src\main.rs").into(),
@@ -573,18 +573,18 @@ mod tests {
 
         #[cfg(windows)]
         let expected = ContextSummary::new(vec![
-            SummaryMessage::new(
+            SummaryBlock::new(
                 Role::User,
                 vec![SummaryToolCall::read(r"src\main.rs").into()],
             ),
-            SummaryMessage::new(
+            SummaryBlock::new(
                 Role::Assistant,
                 vec![
                     SummaryToolCall::read(r"src\lib.rs").into(),
                     SummaryToolCall::update("README.md").into(),
                 ],
             ),
-            SummaryMessage::new(Role::User, vec![SummaryToolCall::remove("old.rs").into()]),
+            SummaryBlock::new(Role::User, vec![SummaryToolCall::remove("old.rs").into()]),
         ]);
 
         #[cfg(not(windows))]

@@ -14,7 +14,7 @@ function forge-completion() {
             $_FORGE_PREVIEW_WINDOW
         )
         
-        local file_list=$($_FORGE_FD_CMD --type f --type d --hidden --exclude .git)
+        local file_list=$(${FORGE_BIN:-forge} list files --porcelain)
         if [[ -n "$filter_text" ]]; then
             selected=$(echo "$file_list" | _forge_fzf --query "$filter_text" "${fzf_args[@]}")
         else

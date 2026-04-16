@@ -366,6 +366,13 @@ pub enum ListCommand {
         #[arg(long)]
         custom: bool,
     },
+
+    /// List files and directories in the current workspace.
+    ///
+    /// Includes hidden files and directories (dotfiles), respects .gitignore,
+    /// and outputs one path per line. Directories are suffixed with `/`.
+    #[command(alias = "files")]
+    File,
 }
 
 /// Shell extension commands.
@@ -387,6 +394,16 @@ pub enum ZshCommandGroup {
 
     /// Show keyboard shortcuts for ZSH line editor
     Keyboard,
+
+    /// Format buffer text by wrapping file paths in @[...] syntax.
+    ///
+    /// Used by the zsh plugin to delegate path detection and wrapping to
+    /// Rust where the logic is well-tested across all terminal environments.
+    Format {
+        /// The text buffer to format.
+        #[arg(long)]
+        buffer: String,
+    },
 }
 
 /// Command group for MCP server management.
@@ -1734,6 +1751,18 @@ mod tests {
         let actual = match fixture.subcommands {
             Some(TopLevelCommand::Zsh(terminal)) => {
                 matches!(terminal, ZshCommandGroup::Keyboard)
+            }
+            _ => false,
+        };
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_zsh_format() {
+        let fixture = Cli::parse_from(["forge", "zsh", "format", "--buffer", "hello world"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Zsh(ZshCommandGroup::Format { buffer })) => {
+                buffer == "hello world"
             }
             _ => false,
         };

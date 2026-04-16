@@ -25,7 +25,9 @@ use forge_fs::ForgeFS;
 use forge_select::ForgeWidget;
 use forge_spinner::SpinnerManager;
 use forge_tracker::ToolCallPayload;
+use forge_walker::Walker;
 use futures::future;
+use strum::IntoEnumIterator;
 use tokio_stream::StreamExt;
 use url::Url;
 
@@ -35,9 +37,10 @@ use crate::cli::{
 use crate::conversation_selector::ConversationSelector;
 use crate::display_constants::{CommandType, headers, markers, status};
 use crate::editor::ReadLineError;
+use crate::error::UIError;
 use crate::info::Info;
 use crate::input::Console;
-use crate::model::{ForgeCommandManager, SlashCommand};
+use crate::model::{AppCommand, ForgeCommandManager};
 use crate::porcelain::Porcelain;
 use crate::prompt::ForgePrompt;
 use crate::state::UIState;
@@ -143,7 +146,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn get_agent_model(&self, agent_id: Option<AgentId>) -> Option<ModelId> {
         match agent_id {
             Some(agent_id) => self.api.get_agent_model(agent_id).await,
-            None => self.api.get_default_model().await,
+            None => self.api.get_session_config().await.map(|c| c.model),
         }
     }
 
@@ -236,15 +239,23 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         })
     }
 
-    async fn prompt(&self) -> Result<SlashCommand> {
-        // Get usage from current conversation if available
+    async fn prompt(&self) -> Result<AppCommand> {
+        // Get usage from current conversation if available.
+        // Use the last message's usage for token count (context window size),
+        // but replace cost with the accumulated session cost so the cost
+        // shown reflects the total spend rather than just the last request.
         let usage = if let Some(conversation_id) = &self.state.conversation_id {
             self.api
                 .conversation(conversation_id)
                 .await
                 .ok()
                 .flatten()
-                .and_then(|conv| conv.accumulated_usage())
+                .and_then(|conv| {
+                    conv.usage().map(|mut u| {
+                        u.cost = conv.accumulated_cost();
+                        u
+                    })
+                })
         } else {
             None
         };
@@ -254,8 +265,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let model = self
             .get_agent_model(self.api.get_active_agent().await)
             .await;
-        let forge_prompt = ForgePrompt { cwd: self.state.cwd.clone(), usage, model, agent_id };
-        self.console.prompt(forge_prompt).await
+        let mut forge_prompt = ForgePrompt::new(self.state.cwd.clone(), agent_id);
+        if let Some(u) = usage {
+            forge_prompt.usage(u);
+        }
+        if let Some(m) = model {
+            forge_prompt.model(m);
+        }
+        self.console.prompt(&mut forge_prompt).await
     }
 
     pub async fn run(&mut self) {
@@ -433,6 +450,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     ListCommand::Skill { custom } => {
                         self.on_show_skills(porcelain, custom).await?;
                     }
+                    ListCommand::File => {
+                        self.on_list_files(porcelain).await?;
+                    }
                 }
                 return Ok(());
             }
@@ -458,6 +478,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     }
                     crate::cli::ZshCommandGroup::Keyboard => {
                         self.on_zsh_keyboard().await?;
+                    }
+                    crate::cli::ZshCommandGroup::Format { buffer } => {
+                        print!("{}", crate::zsh::paste::wrap_pasted_text(&buffer));
+                        return Ok(());
                     }
                 }
                 return Ok(());
@@ -1297,66 +1321,63 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     /// Lists all the commands
     async fn on_show_commands(&mut self, porcelain: bool) -> anyhow::Result<()> {
-        let mut info = Info::new();
-
-        // Load built-in commands from JSON
-        // NOTE: When adding a new command, update built_in_commands.json AND
-        //       shell-plugin/forge.plugin.zsh (case statement around line 745)
-        const COMMANDS_JSON: &str = include_str!("built_in_commands.json");
-
-        #[derive(serde::Deserialize)]
-        struct Command<'a> {
-            command: &'a str,
-            description: &'a str,
-        }
-
-        let built_in_commands: Vec<Command> =
-            serde_json::from_str(COMMANDS_JSON).expect("Failed to parse built_in_commands.json");
-
-        for cmd in &built_in_commands {
-            info = info
-                .add_title(cmd.command)
-                .add_key_value("type", CommandType::Command)
-                .add_key_value("description", cmd.description);
-        }
-
-        // Add agent aliases
-        info = info
-            .add_title("ask")
-            .add_key_value("type", CommandType::Agent)
-            .add_key_value(
-                "description",
-                "Research and investigation agent [alias for: sage]",
-            )
-            .add_title("plan")
-            .add_key_value("type", CommandType::Agent)
-            .add_key_value(
-                "description",
-                "Planning and strategy agent [alias for: muse]",
-            );
-
-        // Fetch agent infos and add them to the commands list.
-        // Uses get_agent_infos() so no provider/model is required for listing.
-        let agent_infos = self.api.get_agent_infos().await?;
-        for agent_info in agent_infos {
-            let title = agent_info
-                .title
-                .map(|title| title.lines().collect::<Vec<_>>().join(" "));
-            info = info
-                .add_title(agent_info.id.to_string())
-                .add_key_value("type", CommandType::Agent)
-                .add_key_value("description", title);
-        }
-
+        // Fetch custom commands once — used by both the porcelain and plain paths.
         let custom_commands = self.api.get_commands().await?;
-        for command in custom_commands {
-            info = info
-                .add_title(command.name.clone())
-                .add_key_value("type", CommandType::Custom)
-                .add_key_value("description", command.description.clone());
-        }
 
         if porcelain {
+            // Build the full info with type/description columns for porcelain
+            // (used by the shell plugin for tab completion).
+            let mut info = Info::new();
+
+            // Generate built-in commands directly from the SlashCommand enum so
+            // the list always stays in sync with what the REPL actually supports.
+            // Internal/meta variants (Message, Custom, Shell, AgentSwitch, Rename)
+            // are excluded via is_internal().
+            // Agent-switch shorthands (forge, muse, sage) are excluded via
+            // is_agent_switch() because they are already emitted as AGENT rows
+            // by the agent-info loop below, and must not appear twice.
+            for cmd in AppCommand::iter().filter(|c| !c.is_internal() && !c.is_agent_switch()) {
+                info = info
+                    .add_title(cmd.name())
+                    .add_key_value("type", CommandType::Command)
+                    .add_key_value("description", cmd.usage());
+            }
+
+            // Add agent aliases
+            info = info
+                .add_title("ask")
+                .add_key_value("type", CommandType::Agent)
+                .add_key_value(
+                    "description",
+                    "Research and investigation agent [alias for: sage]",
+                )
+                .add_title("plan")
+                .add_key_value("type", CommandType::Agent)
+                .add_key_value(
+                    "description",
+                    "Planning and strategy agent [alias for: muse]",
+                );
+
+            // Fetch agent infos and add them to the commands list.
+            // Uses get_agent_infos() so no provider/model is required for listing.
+            let agent_infos = self.api.get_agent_infos().await?;
+            for agent_info in agent_infos {
+                let title = agent_info
+                    .title
+                    .map(|title| title.lines().collect::<Vec<_>>().join(" "));
+                info = info
+                    .add_title(agent_info.id.to_string())
+                    .add_key_value("type", CommandType::Agent)
+                    .add_key_value("description", title);
+            }
+
+            for command in custom_commands {
+                info = info
+                    .add_title(command.name.clone())
+                    .add_key_value("type", CommandType::Custom)
+                    .add_key_value("description", command.description.clone());
+            }
+
             // Original order from Info: [$ID, type, description]
             // So the original order is fine! But $ID should become COMMAND
             let porcelain = Porcelain::from(&info)
@@ -1372,6 +1393,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 });
             self.writeln(porcelain)?;
         } else {
+            // Non-porcelain: render in the same flat format as :help in the REPL.
+            let command_manager = ForgeCommandManager::default();
+            command_manager.register_all(custom_commands);
+            let info = Info::from(&command_manager);
             self.writeln(info)?;
         }
 
@@ -1435,6 +1460,35 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 .uppercase_headers();
             self.writeln(porcelain)?;
         } else {
+            self.writeln(info)?;
+        }
+
+        Ok(())
+    }
+
+    /// Lists files and directories in the current workspace.
+    ///
+    /// Uses the same `Walker::max_all()` configuration as the REPL file picker
+    /// and the shell plugin (`fd --type f --type d --hidden --exclude .git`):
+    /// hidden files included, respects `.gitignore`, directories suffixed with
+    /// `/`.
+    async fn on_list_files(&mut self, porcelain: bool) -> anyhow::Result<()> {
+        let env = self.api.environment();
+        let files = Walker::max_all()
+            .cwd(env.cwd.clone())
+            .get()
+            .await
+            .context("Failed to walk workspace files")?;
+
+        if porcelain {
+            for file in files {
+                self.writeln(file.path)?;
+            }
+        } else {
+            let mut info = Info::new();
+            for file in &files {
+                info = info.add_key_value("path", file.path.clone());
+            }
             self.writeln(info)?;
         }
 
@@ -1908,85 +1962,100 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
-    async fn on_command(&mut self, command: SlashCommand) -> anyhow::Result<bool> {
+    async fn on_command(&mut self, command: AppCommand) -> anyhow::Result<bool> {
         match command {
-            SlashCommand::Conversations => {
-                self.list_conversations().await?;
+            AppCommand::Conversations { id } => {
+                if let Some(raw_id) = id {
+                    let conversation_id = ConversationId::parse(&raw_id)
+                        .context(format!("Invalid conversation ID: {raw_id}"))?;
+                    let conversation = self.validate_conversation_exists(&conversation_id).await?;
+                    self.state.conversation_id = Some(conversation_id);
+                    self.on_show_last_message(conversation, false).await?;
+                    self.writeln_title(TitleFormat::info(format!(
+                        "Switched to conversation {}",
+                        conversation_id.into_string().bold()
+                    )))?;
+                    self.on_info(false, Some(conversation_id)).await?;
+                } else {
+                    self.list_conversations().await?;
+                }
             }
-            SlashCommand::Compact => {
+            AppCommand::Compact => {
                 self.spinner.start(Some("Compacting"))?;
                 self.on_compaction().await?;
             }
-            SlashCommand::Delete => {
+            AppCommand::Delete => {
                 self.handle_delete_conversation().await?;
             }
-            SlashCommand::Rename(ref name) => {
-                self.handle_rename_conversation(name.clone()).await?;
+            AppCommand::Rename { ref name } => {
+                self.handle_rename_conversation(name.join(" ")).await?;
             }
-            SlashCommand::Dump { html } => {
+            AppCommand::Dump { html, .. } => {
                 self.spinner.start(Some("Dumping"))?;
                 self.on_dump(html).await?;
             }
-            SlashCommand::New => {
+            AppCommand::New => {
                 self.on_new().await?;
             }
-            SlashCommand::Info => {
+            AppCommand::Info => {
                 self.on_info(false, self.state.conversation_id).await?;
             }
-            SlashCommand::Usage => {
+            AppCommand::Usage => {
                 self.on_usage().await?;
             }
-            SlashCommand::Message(ref content) => {
+            AppCommand::Message(ref content) => {
                 self.spinner.start(None)?;
                 self.on_message(Some(content.clone())).await?;
             }
-            SlashCommand::Forge => {
+            AppCommand::Forge => {
                 self.on_agent_change(AgentId::FORGE).await?;
             }
-            SlashCommand::Muse => {
+            AppCommand::Muse => {
                 self.on_agent_change(AgentId::MUSE).await?;
             }
-            SlashCommand::Sage => {
+            AppCommand::Sage => {
                 self.on_agent_change(AgentId::SAGE).await?;
             }
-            SlashCommand::Help => {
+            AppCommand::Help => {
                 let info = Info::from(self.command.as_ref());
                 self.writeln(info)?;
             }
-            SlashCommand::Tools => {
+            AppCommand::Tools => {
                 let agent_id = self.api.get_active_agent().await.unwrap_or_default();
                 self.on_show_tools(agent_id, false).await?;
             }
-            SlashCommand::Update => {
+            AppCommand::Update => {
                 on_update(self.api.clone(), None).await;
             }
-            SlashCommand::Exit => {
+            AppCommand::Exit => {
                 return Ok(true);
             }
 
-            SlashCommand::Custom(event) => {
+            AppCommand::Custom(event) => {
                 self.spinner.start(None)?;
                 self.on_custom_event(event.into()).await?;
             }
-            SlashCommand::Model => {
+            AppCommand::Model => {
                 self.on_model_selection(None).await?;
             }
-            SlashCommand::Shell(ref command) => {
+            AppCommand::Shell(ref command) => {
                 self.api.execute_shell_command_raw(command).await?;
             }
-            SlashCommand::Commit { max_diff_size } => {
+            AppCommand::Commit { max_diff_size, .. } => {
                 let args = CommitCommandGroup {
-                    preview: true,
+                    preview: false,
                     max_diff_size: max_diff_size.or(Some(100_000)),
                     diff: None,
                     text: Vec::new(),
                 };
                 let result = self.handle_commit_command(args).await?;
-                let flags = if result.has_staged_files { "" } else { " -a" };
-                let commit_command = format!("!git commit{flags} -m '{}'", result.message);
-                self.console.set_buffer(commit_command);
+                if !result.git_output.is_empty() {
+                    self.writeln(result.git_output.trim_end())?;
+                } else {
+                    self.writeln(result.message.trim_end())?;
+                }
             }
-            SlashCommand::Agent => {
+            AppCommand::Agent => {
                 #[derive(Clone)]
                 struct Agent {
                     id: AgentId,
@@ -2025,9 +2094,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 let mut display_agents = Vec::new();
                 // Header row (non-selectable via header_lines=1)
+                let Some(header) = all_lines.first() else {
+                    return Err(UIError::MissingHeaderLine.into());
+                };
                 display_agents.push(Agent {
                     id: AgentId::new("__header__".to_string()),
-                    label: all_lines[0].to_string(),
+                    label: header.to_string(),
                 });
                 // Data rows
                 for line in all_lines.iter().skip(1) {
@@ -2061,21 +2133,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     self.on_agent_change(selected_agent.id).await?;
                 }
             }
-            SlashCommand::Login => {
+            AppCommand::Login => {
                 self.handle_provider_login(None).await?;
             }
-            SlashCommand::Logout => {
+            AppCommand::Logout => {
                 return self.handle_provider_logout(None).await;
             }
-            SlashCommand::Retry => {
+            AppCommand::Retry => {
                 self.spinner.start(None)?;
                 self.on_message(None).await?;
             }
-            SlashCommand::Index => {
+            AppCommand::Index => {
                 let working_dir = self.state.cwd.clone();
                 self.on_index(working_dir, false).await?;
             }
-            SlashCommand::AgentSwitch(agent_id) => {
+            AppCommand::AgentSwitch(agent_id) => {
                 // Validate that the agent exists by checking against loaded agents
                 let agents = self.api.get_agent_infos().await?;
                 let agent_exists = agents.iter().any(|agent| agent.id.as_str() == agent_id);
@@ -2087,6 +2159,93 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         "Agent '{agent_id}' not found or unavailable"
                     ));
                 }
+            }
+            AppCommand::Config => {
+                self.on_show_config(false).await?;
+            }
+            AppCommand::ConfigModel => {
+                self.on_model_selection(None).await?;
+            }
+            AppCommand::ConfigReload => {
+                self.writeln_title(TitleFormat::info(
+                    "No session overrides in REPL mode. Use :model to switch the active model.",
+                ))?;
+            }
+            AppCommand::ReasoningEffort => {
+                self.on_reasoning_effort_selection(false).await?;
+            }
+            AppCommand::ConfigReasoningEffort => {
+                self.on_reasoning_effort_selection(true).await?;
+            }
+            AppCommand::ConfigCommitModel => {
+                self.on_config_commit_model().await?;
+            }
+            AppCommand::ConfigSuggestModel => {
+                self.on_config_suggest_model().await?;
+            }
+            AppCommand::ConfigEdit => {
+                self.on_config_edit().await?;
+            }
+            AppCommand::Skill => {
+                self.on_show_skills(false, false).await?;
+            }
+            AppCommand::Edit { content } => {
+                let initial = if content.is_empty() {
+                    None
+                } else {
+                    Some(content.join(" ").trim().to_string())
+                };
+                self.on_edit_buffer(initial).await?;
+            }
+            AppCommand::CommitPreview => {
+                let args = CommitCommandGroup {
+                    preview: true,
+                    max_diff_size: Some(100_000),
+                    diff: None,
+                    text: Vec::new(),
+                };
+                let result = self.handle_commit_command(args).await?;
+                let flags = if result.has_staged_files { "" } else { " -a" };
+                let commit_command = format!("!git commit{flags} -m '{}'", result.message);
+                self.console.set_buffer(commit_command);
+            }
+            AppCommand::Suggest { description } => {
+                let desc = if description.is_empty() {
+                    None
+                } else {
+                    Some(description.join(" ").trim().to_string())
+                };
+                self.on_suggest(desc).await?;
+            }
+            AppCommand::Clone { id } => {
+                self.on_slash_clone(id).await?;
+            }
+            AppCommand::ConversationRename { name } => {
+                let args = if name.is_empty() {
+                    None
+                } else {
+                    Some(name.join(" ").trim().to_string())
+                };
+                self.on_slash_conversation_rename(args).await?;
+            }
+            AppCommand::Copy => {
+                self.on_copy().await?;
+            }
+            AppCommand::WorkspaceSync => {
+                let working_dir = self.state.cwd.clone();
+                self.on_index(working_dir, true).await?;
+            }
+            AppCommand::WorkspaceStatus => {
+                let cwd = self.state.cwd.clone();
+                self.on_workspace_status(cwd, false).await?;
+            }
+            AppCommand::WorkspaceInfo => {
+                let cwd = self.state.cwd.clone();
+                self.on_workspace_info(cwd).await?;
+            }
+            AppCommand::WorkspaceInit => {
+                let cwd = self.state.cwd.clone();
+                self.on_workspace_init(cwd, false).await?;
             }
         }
 
@@ -2122,6 +2281,431 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    /// Selects and sets the reasoning effort level interactively.
+    ///
+    /// # Arguments
+    /// * `global` - If true, persists the change to the global config file. If
+    ///   false, applies to the session (REPL has no separate session scope, so
+    ///   this always writes to the config).
+    async fn on_reasoning_effort_selection(&mut self, global: bool) -> anyhow::Result<()> {
+        use std::str::FromStr;
+
+        let effort_levels: Vec<String> = vec![
+            "none".to_string(),
+            "minimal".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+            "max".to_string(),
+        ];
+
+        let current_effort = self.api.get_reasoning_effort().await.ok().flatten();
+        let current_str = current_effort.as_ref().map(|e| e.to_string());
+
+        let starting_cursor = current_str
+            .as_ref()
+            .and_then(|c| effort_levels.iter().position(|e| e == c))
+            .unwrap_or(0);
+
+        let prompt = if global {
+            "Config Reasoning Effort"
+        } else {
+            "Reasoning Effort"
+        };
+
+        let selected = ForgeWidget::select(prompt, effort_levels)
+            .with_starting_cursor(starting_cursor)
+            .prompt()?;
+
+        if let Some(effort_str) = selected {
+            let effort = forge_domain::Effort::from_str(&effort_str)
+                .map_err(|_| anyhow::anyhow!("Invalid effort level: {effort_str}"))?;
+            self.api
+                .update_config(vec![ConfigOperation::SetReasoningEffort(effort.clone())])
+                .await?;
+            self.writeln_title(
+                TitleFormat::action(effort_str).sub_title("is now the reasoning effort"),
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Selects and sets the commit model via interactive model picker.
+    async fn on_config_commit_model(&mut self) -> anyhow::Result<()> {
+        let selection = self.select_model(None).await?;
+        if let Some((model, provider_id)) = selection {
+            let commit_config = forge_domain::ModelConfig::new(provider_id.clone(), model.clone());
+            self.api
+                .update_config(vec![ConfigOperation::SetCommitConfig(Some(commit_config))])
+                .await?;
+            self.writeln_title(TitleFormat::action(model.as_str()).sub_title(format!(
+                "is now the commit model for provider '{provider_id}'"
+            )))?;
+        }
+        Ok(())
+    }
+
+    /// Selects and sets the suggest model via interactive model picker.
+    async fn on_config_suggest_model(&mut self) -> anyhow::Result<()> {
+        let selection = self.select_model(None).await?;
+        if let Some((model, provider_id)) = selection {
+            let suggest_config = forge_domain::ModelConfig::new(provider_id.clone(), model.clone());
+            self.api
+                .update_config(vec![ConfigOperation::SetSuggestConfig(suggest_config)])
+                .await?;
+            self.writeln_title(TitleFormat::action(model.as_str()).sub_title(format!(
+                "is now the suggest model for provider '{provider_id}'"
+            )))?;
+        }
+        Ok(())
+    }
+
+    /// Opens the global config file in the system editor.
+    async fn on_config_edit(&mut self) -> anyhow::Result<()> {
+        let config_path = forge_config::ConfigReader::config_path();
+
+        // Ensure parent directory exists
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // Create config file if it does not exist
+        if !config_path.exists() {
+            std::fs::File::create(&config_path)?;
+        }
+
+        let editor = std::env::var("FORGE_EDITOR")
+            .or_else(|_| std::env::var("EDITOR"))
+            .unwrap_or_else(|_| "nano".to_string());
+        let editor_binary = editor
+            .split_whitespace()
+            .next()
+            .unwrap_or("nano")
+            .to_string();
+
+        let status = std::process::Command::new(&editor_binary)
+            .arg(&config_path)
+            .status()
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to open editor '{}': {}. Set FORGE_EDITOR or EDITOR.",
+                    editor_binary,
+                    e
+                )
+            })?;
+
+        if !status.success() {
+            return Err(anyhow::anyhow!("Editor exited with error code: {}", status));
+        }
+
+        self.writeln_title(TitleFormat::info(format!(
+            "Config saved: {}",
+            config_path.display()
+        )))?;
+
+        Ok(())
+    }
+
+    /// Opens an external editor to compose a prompt and sets it in the REPL
+    /// buffer on exit.
+    ///
+    /// # Arguments
+    /// * `initial` - Optional text to pre-populate the editor with.
+    async fn on_edit_buffer(&mut self, initial: Option<String>) -> anyhow::Result<()> {
+        use std::io::Write as _;
+
+        let editor = std::env::var("FORGE_EDITOR")
+            .or_else(|_| std::env::var("EDITOR"))
+            .unwrap_or_else(|_| "nano".to_string());
+
+        // Split the editor string into binary + pre-configured flags
+        // (e.g. "code --wait" → binary="code", extra_args=["--wait"])
+        let mut editor_parts = editor.split_whitespace();
+        let editor_binary = editor_parts.next().unwrap_or("nano").to_string();
+        let editor_flags: Vec<&str> = editor_parts.collect();
+
+        // Create .forge directory for the temp file
+        let forge_dir = self.state.cwd.join(".forge");
+        std::fs::create_dir_all(&forge_dir)?;
+        let temp_file = forge_dir.join("FORGE_EDITMSG.md");
+
+        // Write initial content
+        let mut file = std::fs::File::create(&temp_file)?;
+        if let Some(text) = initial {
+            file.write_all(text.as_bytes())?;
+        }
+        drop(file);
+
+        let status = std::process::Command::new(&editor_binary)
+            .args(&editor_flags)
+            .arg(&temp_file)
+            .status()
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to open editor '{}': {}. Set FORGE_EDITOR or EDITOR.",
+                    editor_binary,
+                    e
+                )
+            })?;
+
+        if !status.success() {
+            return Err(anyhow::anyhow!("Editor exited with error code: {}", status));
+        }
+
+        let content = std::fs::read_to_string(&temp_file)?;
+        let content = content.trim().to_string();
+
+        if content.is_empty() {
+            self.writeln_title(TitleFormat::info("Editor closed with no content"))?;
+            return Ok(());
+        }
+
+        // Pre-fill the REPL buffer so the user can review/edit before sending
+        self.console.set_buffer(content);
+
+        Ok(())
+    }
+
+    /// Generates a shell command from a natural language description and sets
+    /// it in the REPL buffer.
+    ///
+    /// # Arguments
+    /// * `description` - Optional natural language description. If `None`, an
+    ///   interactive prompt is shown.
+    async fn on_suggest(&mut self, description: Option<String>) -> anyhow::Result<()> {
+        let description = match description {
+            Some(d) if !d.is_empty() => d,
+            _ => {
+                let input = ForgeWidget::input("Describe the command you want")
+                    .allow_empty(false)
+                    .prompt()?;
+                match input {
+                    Some(d) if !d.is_empty() => d,
+                    _ => {
+                        self.writeln_title(TitleFormat::error(
+                            "No description provided. Usage: :suggest <description>",
+                        ))?;
+                        return Ok(());
+                    }
+                }
+            }
+        };
+
+        self.spinner.start(Some("Generating"))?;
+
+        let prompt = UserPrompt::from(description);
+        match self.api.generate_command(prompt).await {
+            Ok(command) => {
+                self.spinner.stop(None)?;
+                self.writeln(command.clone())?;
+                // Set the generated command in the buffer for review
+                self.console.set_buffer(command);
+                Ok(())
+            }
+            Err(err) => {
+                self.spinner.stop(None)?;
+                Err(err)
+            }
+        }
+    }
+
+    /// Clones a conversation (current or selected) and switches to the clone.
+    ///
+    /// # Arguments
+    /// * `id` - Optional conversation ID to clone. If `None`, the current
+    ///   conversation is used; if no active conversation, an interactive picker
+    ///   is shown.
+    async fn on_slash_clone(&mut self, id: Option<String>) -> anyhow::Result<()> {
+        let target_id = if let Some(id_str) = id {
+            ConversationId::parse(&id_str)
+                .map_err(|_| anyhow::anyhow!("Invalid conversation ID: {id_str}"))?
+        } else {
+            // Show conversation picker
+            let conversations = self
+                .api
+                .get_conversations(Some(self.config.max_conversations))
+                .await?;
+
+            if conversations.is_empty() {
+                self.writeln_title(TitleFormat::error(
+                    "No conversations found. Start a conversation first.",
+                ))?;
+                return Ok(());
+            }
+
+            let selected = ConversationSelector::select_conversation(
+                &conversations,
+                self.state.conversation_id,
+            )
+            .await?;
+
+            match selected {
+                Some(conv) => conv.id,
+                None => return Ok(()),
+            }
+        };
+
+        // Fetch the conversation to clone
+        let original = self
+            .api
+            .conversation(&target_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Conversation '{target_id}' not found"))?;
+
+        let original_id = original.id;
+
+        // Create the clone
+        let new_id = ConversationId::generate();
+        let mut cloned = original;
+        cloned.id = new_id;
+        self.api.upsert_conversation(cloned).await?;
+
+        // Switch to the cloned conversation
+        self.state.conversation_id = Some(new_id);
+
+        self.writeln_title(
+            TitleFormat::info("Cloned").sub_title(format!("[{original_id} → {new_id}]")),
+        )?;
+
+        Ok(())
+    }
+
+    /// Renames any conversation interactively or by explicit ID and name.
+    ///
+    /// # Arguments
+    /// * `args` - Optional `"<id> <name>"` string. If `None`, shows a
+    ///   conversation picker and prompts for a new name.
+    async fn on_slash_conversation_rename(&mut self, args: Option<String>) -> anyhow::Result<()> {
+        if let Some(args) = args {
+            // Parse as "<id> <name>"
+            let mut parts = args.splitn(2, ' ');
+            let id_str = parts.next().unwrap_or("").trim();
+            let name = parts.next().unwrap_or("").trim();
+
+            if id_str.is_empty() || name.is_empty() {
+                return Err(anyhow::anyhow!("Usage: :conversation-rename <id> <name>"));
+            }
+
+            let conversation_id = ConversationId::parse(id_str)
+                .map_err(|_| anyhow::anyhow!("Invalid conversation ID: {id_str}"))?;
+
+            self.api
+                .rename_conversation(&conversation_id, name.to_string())
+                .await?;
+            self.writeln_title(TitleFormat::info(format!(
+                "Conversation '{}' renamed to '{}'",
+                conversation_id.into_string().bold(),
+                name.bold()
+            )))?;
+        } else {
+            // Interactive: show picker then prompt for new name
+            let conversations = self
+                .api
+                .get_conversations(Some(self.config.max_conversations))
+                .await?;
+
+            if conversations.is_empty() {
+                self.writeln_title(TitleFormat::error("No conversations found."))?;
+                return Ok(());
+            }
+
+            let selected = ConversationSelector::select_conversation(
+                &conversations,
+                self.state.conversation_id,
+            )
+            .await?;
+
+            if let Some(conv) = selected {
+                let name_result = ForgeWidget::input("New name").allow_empty(false).prompt()?;
+
+                if let Some(name) = name_result
+                    && !name.is_empty()
+                {
+                    self.api.rename_conversation(&conv.id, name.clone()).await?;
+                    self.writeln_title(TitleFormat::info(format!(
+                        "Conversation renamed to '{}'",
+                        name.bold()
+                    )))?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Copies the last AI response from the active conversation to the
+    /// system clipboard.
+    async fn on_copy(&mut self) -> anyhow::Result<()> {
+        let conversation_id = match &self.state.conversation_id {
+            Some(cid) => *cid,
+            None => {
+                self.writeln_title(TitleFormat::error(
+                    "No active conversation. Start a conversation first.",
+                ))?;
+                return Ok(());
+            }
+        };
+
+        let conversation = match self.api.conversation(&conversation_id).await? {
+            Some(conv) => conv,
+            None => {
+                self.writeln_title(TitleFormat::error("Conversation not found."))?;
+                return Ok(());
+            }
+        };
+
+        let context = match &conversation.context {
+            Some(ctx) => ctx.clone(),
+            None => {
+                self.writeln_title(TitleFormat::error("Conversation has no messages."))?;
+                return Ok(());
+            }
+        };
+
+        // Find the last assistant message
+        let content = context.messages.iter().rev().find_map(|msg| match &**msg {
+            forge_domain::ContextMessage::Text(forge_api::TextMessage {
+                content,
+                role: forge_domain::Role::Assistant,
+                ..
+            }) => Some(content.clone()),
+            _ => None,
+        });
+
+        match content {
+            None => {
+                self.writeln_title(TitleFormat::error(
+                    "No assistant message found in this conversation.",
+                ))?;
+            }
+            Some(content) => {
+                #[cfg(not(target_os = "android"))]
+                let copied = arboard::Clipboard::new()
+                    .and_then(|mut cb| cb.set_text(content.clone()))
+                    .is_ok();
+
+                #[cfg(target_os = "android")]
+                let copied = false;
+
+                if copied {
+                    let line_count = content.lines().count();
+                    let byte_count = content.len();
+                    self.writeln_title(TitleFormat::info(format!(
+                        "Copied to clipboard [{line_count} lines, {byte_count} bytes]"
+                    )))?;
+                } else {
+                    self.writeln_title(TitleFormat::error(
+                        "Failed to copy to clipboard. Ensure xclip/xsel (Linux) or pbcopy (macOS) is available.",
+                    ))?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Select a model from all configured providers using porcelain-style
     /// tabular display matching the shell plugin's `:model` UI.
     ///
@@ -2142,7 +2726,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         provider_filter: Option<ProviderId>,
     ) -> Result<Option<(ModelId, ProviderId)>> {
         // Check if provider is set otherwise first ask to select a provider
-        if provider_filter.is_none() && self.api.get_default_provider().await.is_err() {
+        if provider_filter.is_none() && self.api.get_session_config().await.is_none() {
             if !self.on_provider_selection().await? {
                 return Ok(None);
             }
@@ -2150,7 +2734,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             // Provider activation may have already completed model selection.
             // If it did not, continue below and show the full cross-provider
             // model list.
-            if self.api.get_default_model().await.is_some() {
+            if self.api.get_session_config().await.is_some() {
                 return Ok(None);
             }
         }
@@ -2266,10 +2850,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let mut rows: Vec<ModelRow> = Vec::with_capacity(all_lines.len());
         // Header row (non-selectable via header_lines=1)
+        let Some(header) = all_lines.first() else {
+            return Err(UIError::MissingHeaderLine.into());
+        };
         rows.push(ModelRow {
             model_id: None,
             provider_id: None,
-            display: all_lines[0].to_string(),
+            display: header.to_string(),
         });
         // Data rows
         for (i, line) in all_lines.iter().skip(1).enumerate() {
@@ -2574,12 +3161,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         use colored::Colorize;
 
         if auth_methods.is_empty() {
-            anyhow::bail!("No authentication methods available for provider {provider_id}");
+            return Err(UIError::NoAuthMethodsAvailable { provider: provider_id.clone() }.into());
         }
 
         // If only one auth method, use it directly
         if auth_methods.len() == 1 {
-            return Ok(Some(auth_methods[0].clone()));
+            let Some(method) = auth_methods.first() else {
+                return Err(
+                    UIError::NoAuthMethodsAvailable { provider: provider_id.clone() }.into(),
+                );
+            };
+            return Ok(Some(method.clone()));
         }
 
         // Multiple auth methods - ask user to choose
@@ -2605,11 +3197,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         {
             Some(selected_name) => {
                 // Find the corresponding auth method
-                let index = method_names
-                    .iter()
-                    .position(|name| name == &selected_name)
-                    .expect("Selected method should exist");
-                Ok(Some(auth_methods[index].clone()))
+                let Some(index) = method_names.iter().position(|name| name == &selected_name)
+                else {
+                    return Err(UIError::AuthMethodNotFound.into());
+                };
+                let Some(method) = auth_methods.get(index) else {
+                    return Err(UIError::AuthMethodNotFound.into());
+                };
+                Ok(Some(method.clone()))
             }
             None => Ok(None),
         }
@@ -2761,7 +3356,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let mut rows: Vec<ProviderRow> = Vec::with_capacity(all_lines.len());
         // Header row (non-selectable via header_lines=1)
-        rows.push(ProviderRow { provider: None, display: all_lines[0].to_string() });
+        let Some(header) = all_lines.first() else {
+            return Err(UIError::MissingHeaderLine.into());
+        };
+        rows.push(ProviderRow { provider: None, display: header.to_string() });
         // Data rows
         for (i, line) in all_lines.iter().skip(1).enumerate() {
             rows.push(ProviderRow { provider: sorted.get(i).cloned(), display: line.to_string() });
@@ -2855,7 +3453,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.activate_provider(any_provider).await?;
         // Check if provider was actually saved — if user cancelled model selection
         // inside activate_provider, nothing was written
-        Ok(self.api.get_default_provider().await.is_ok())
+        Ok(self.api.get_session_config().await.is_some())
     }
 
     /// Activates a provider by configuring it if needed, setting it as default,
@@ -2924,7 +3522,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
 
         // Check if the current model is available for the new provider
-        let current_model = self.api.get_default_model().await;
+        let current_model = self.api.get_session_config().await.map(|c| c.model);
         let (needs_model_selection, compatible_model) = match current_model {
             None => (true, None),
             Some(current_model) => {
@@ -3073,7 +3671,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // Validate provider is configured before loading agents
         // If provider is set in config but not configured (no credentials), prompt user
         // to login
-        if self.api.get_default_provider().await.is_err() && !self.on_provider_selection().await? {
+        if self.api.get_session_config().await.is_none() && !self.on_provider_selection().await? {
             return Ok(());
         }
 
@@ -3705,9 +4303,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             ConfigGetField::Model => {
                 let model = self
                     .api
-                    .get_default_model()
+                    .get_session_config()
                     .await
-                    .map(|m| m.as_str().to_string());
+                    .map(|c| c.model.as_str().to_string());
                 match model {
                     Some(v) => self.writeln(v.to_string())?,
                     None => self.writeln("Model: Not set")?,
@@ -3716,10 +4314,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             ConfigGetField::Provider => {
                 let provider = self
                     .api
-                    .get_default_provider()
+                    .get_session_config()
                     .await
-                    .ok()
-                    .map(|p| p.id.to_string());
+                    .map(|c| c.provider.to_string());
                 match provider {
                     Some(v) => self.writeln(v.to_string())?,
                     None => self.writeln("Provider: Not set")?,
@@ -3766,13 +4363,16 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .and_then(|str| ConversationId::from_str(str.as_str()).ok());
 
         // Make IO calls in parallel
-        let (model_id, conversation) = tokio::join!(self.api.get_default_model(), async {
-            if let Some(cid) = cid {
-                self.api.conversation(&cid).await.ok().flatten()
-            } else {
-                None
+        let (model_id, conversation) = tokio::join!(
+            async { self.api.get_session_config().await.map(|c| c.model) },
+            async {
+                if let Some(cid) = cid {
+                    self.api.conversation(&cid).await.ok().flatten()
+                } else {
+                    None
+                }
             }
-        });
+        );
 
         // Calculate total cost including related conversations
         let cost = if let Some(ref conv) = conversation {
