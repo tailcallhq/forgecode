@@ -158,42 +158,11 @@ impl EnvironmentInfra for ForgeEnvironmentInfra {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-    use std::sync::{Mutex, MutexGuard};
 
     use forge_config::ForgeConfig;
     use pretty_assertions::assert_eq;
 
     use super::*;
-
-    /// Serializes tests that mutate environment variables to prevent races.
-    static ENV_MUTEX: Mutex<()> = Mutex::new(());
-
-    /// Holds env vars set for a test's duration and removes them on drop,
-    /// while holding [`ENV_MUTEX`].
-    struct EnvGuard {
-        keys: Vec<&'static str>,
-        _lock: MutexGuard<'static, ()>,
-    }
-
-    impl EnvGuard {
-        #[must_use]
-        fn set(pairs: &[(&'static str, &str)]) -> Self {
-            let lock = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-            let keys = pairs.iter().map(|(k, _)| *k).collect();
-            for (key, value) in pairs {
-                unsafe { std::env::set_var(key, value) };
-            }
-            Self { keys, _lock: lock }
-        }
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            for key in &self.keys {
-                unsafe { std::env::remove_var(key) };
-            }
-        }
-    }
 
     #[test]
     fn test_to_environment_sets_cwd() {
@@ -203,10 +172,9 @@ mod tests {
     }
 
     #[test]
-    fn test_to_environment_uses_forge_config_env_var() {
-        let _guard = EnvGuard::set(&[("FORGE_CONFIG", "/custom/config/dir")]);
+    fn test_to_environment_uses_config_reader_base_path() {
         let actual = to_environment(PathBuf::from("/any/cwd"));
-        let expected = PathBuf::from("/custom/config/dir");
+        let expected = ConfigReader::base_path();
         assert_eq!(actual.base_path, expected);
     }
 
