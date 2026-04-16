@@ -440,7 +440,7 @@ fn extract_array_from_string(s: &str) -> Option<Value> {
     // Check if there's anything after '[' that looks like array content
     // This helps us avoid extracting arrays from clearly invalid strings like
     // "[invalid json"
-    let after_bracket = &s[start_idx + 1..];
+    let after_bracket = s.get(start_idx + 1..).unwrap_or("");
     let has_array_like_content = after_bracket.contains('"')
         || after_bracket.contains(',')
         || after_bracket.contains(']')
@@ -458,7 +458,9 @@ fn extract_array_from_string(s: &str) -> Option<Value> {
         if end_idx <= start_idx {
             break;
         }
-        let candidate = &s[start_idx..end_idx];
+        let Some(candidate) = s.get(start_idx..end_idx) else {
+            continue;
+        };
 
         // Try to repair and parse this candidate
         if let Ok(parsed) = crate::json_repair::<Value>(candidate)
@@ -470,7 +472,7 @@ fn extract_array_from_string(s: &str) -> Option<Value> {
 
     // Also try the full string as a last resort (end at s.len() which is
     // always a valid boundary)
-    let candidate = &s[start_idx..];
+    let candidate = s.get(start_idx..)?;
     if let Ok(parsed) = crate::json_repair::<Value>(candidate)
         && parsed.is_array()
     {

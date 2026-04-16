@@ -181,20 +181,10 @@ pub trait ProviderService: Send + Sync {
 /// Manages user preferences for default providers and models.
 #[async_trait::async_trait]
 pub trait AppConfigService: Send + Sync {
-    /// Gets the user's default provider ID.
-    async fn get_default_provider(&self) -> anyhow::Result<ProviderId>;
-
-    /// Gets the user's default model for a specific provider or the currently
-    /// active provider. When provider_id is None, uses the currently active
-    /// provider.
+    /// Gets the current session configuration (provider and model pair).
     ///
-    /// # Errors
-    /// - Returns `Error::NoDefaultSession` when no provider and model are
-    ///   configured.
-    async fn get_provider_model(
-        &self,
-        provider_id: Option<&forge_domain::ProviderId>,
-    ) -> anyhow::Result<ModelId>;
+    /// Returns `None` when no session has been configured yet.
+    async fn get_session_config(&self) -> Option<forge_domain::ModelConfig>;
 
     /// Gets the commit configuration (provider and model for commit message
     /// generation).
@@ -956,15 +946,8 @@ impl<I: Services> PolicyService for I {
 
 #[async_trait::async_trait]
 impl<I: Services> AppConfigService for I {
-    async fn get_default_provider(&self) -> anyhow::Result<ProviderId> {
-        self.config_service().get_default_provider().await
-    }
-
-    async fn get_provider_model(
-        &self,
-        provider_id: Option<&forge_domain::ProviderId>,
-    ) -> anyhow::Result<ModelId> {
-        self.config_service().get_provider_model(provider_id).await
+    async fn get_session_config(&self) -> Option<forge_domain::ModelConfig> {
+        self.config_service().get_session_config().await
     }
 
     async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>> {

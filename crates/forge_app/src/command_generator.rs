@@ -62,10 +62,13 @@ where
                 (provider, config.model)
             }
             None => {
-                let provider_id = self.services.get_default_provider().await?;
-                let provider = self.services.get_provider(provider_id).await?;
-                let model = self.services.get_provider_model(Some(&provider.id)).await?;
-                (provider, model)
+                let model_config = self
+                    .services
+                    .get_session_config()
+                    .await
+                    .ok_or_else(|| forge_domain::Error::NoDefaultSession)?;
+                let provider = self.services.get_provider(model_config.provider).await?;
+                (provider, model_config.model)
             }
         };
 
@@ -296,15 +299,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl AppConfigService for MockServices {
-        async fn get_default_provider(&self) -> Result<ProviderId> {
-            Ok(ProviderId::OPENAI)
-        }
-
-        async fn get_provider_model(
-            &self,
-            _provider_id: Option<&ProviderId>,
-        ) -> anyhow::Result<ModelId> {
-            Ok(ModelId::new("test-model"))
+        async fn get_session_config(&self) -> Option<forge_domain::ModelConfig> {
+            Some(forge_domain::ModelConfig::new(
+                ProviderId::OPENAI,
+                ModelId::new("test-model"),
+            ))
         }
 
         async fn get_commit_config(&self) -> Result<Option<forge_domain::ModelConfig>> {

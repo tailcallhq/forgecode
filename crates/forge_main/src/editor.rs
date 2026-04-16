@@ -12,6 +12,7 @@ use reedline::{
 
 use super::completer::InputCompleter;
 use super::zsh::paste::wrap_pasted_text;
+use crate::highlighter::ForgeHighlighter;
 use crate::model::ForgeCommandManager;
 use crate::prompt::ForgePrompt;
 
@@ -92,6 +93,7 @@ impl ForgeEditor {
         let editor = Reedline::create()
             .with_completer(Box::new(InputCompleter::new(env.cwd, manager)))
             .with_history(history)
+            .with_highlighter(Box::new(ForgeHighlighter))
             .with_hinter(Box::new(
                 DefaultHinter::default().with_style(Style::new().fg(Color::DarkGray)),
             ))
@@ -175,8 +177,17 @@ impl From<Signal> for ReadResult {
                     ReadResult::Success(trimmed.to_string())
                 }
             }
+            Signal::ExternalBreak(buffer) => {
+                let trimmed = buffer.trim();
+                if trimmed.is_empty() {
+                    ReadResult::Empty
+                } else {
+                    ReadResult::Success(trimmed.to_string())
+                }
+            }
             Signal::CtrlC => ReadResult::Continue,
             Signal::CtrlD => ReadResult::Exit,
+            _ => ReadResult::Continue,
         }
     }
 }

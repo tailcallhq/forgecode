@@ -65,11 +65,25 @@ impl Compactor {
 
         // The sequence from the original message that needs to be compacted
         // Filter out droppable messages (e.g., attachments) from compaction
-        let compaction_sequence = context.messages[start..=end]
-            .iter()
-            .filter(|msg| !msg.is_droppable())
-            .cloned()
-            .collect::<Vec<_>>();
+        let compaction_sequence = context
+            .messages
+            .get(start..=end)
+            .map(|slice| {
+                slice
+                    .iter()
+                    .filter(|msg| !msg.is_droppable())
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|| {
+                tracing::error!(
+                    "Compaction range [{}..={}] out of bounds for {} messages",
+                    start,
+                    end,
+                    context.messages.len()
+                );
+                Vec::new()
+            });
 
         // Create a temporary context for the sequence to generate summary
         let sequence_context = Context::default().messages(compaction_sequence.clone());
@@ -121,11 +135,13 @@ impl Compactor {
 
         // Accumulate usage from all messages in the compaction range before they are
         // destroyed
-        let compacted_usage = context.messages[start..=end]
-            .iter()
-            .filter_map(|entry| entry.usage.as_ref())
-            .cloned()
-            .reduce(|a, b| a.accumulate(&b));
+        let compacted_usage = context.messages.get(start..=end).and_then(|slice| {
+            slice
+                .iter()
+                .filter_map(|entry| entry.usage.as_ref())
+                .cloned()
+                .reduce(|a, b| a.accumulate(&b))
+        });
 
         // Replace the range with the summary, transferring the accumulated usage
         let mut summary_entry = MessageEntry::from(ContextMessage::user(summary, None));

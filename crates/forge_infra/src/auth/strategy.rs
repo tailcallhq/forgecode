@@ -69,23 +69,28 @@ fn extract_chatgpt_account_id(token: &str) -> Option<String> {
     }
     use base64::Engine;
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(parts[1])
+        .decode(parts.get(1)?)
         .ok()?;
     let claims: serde_json::Value = serde_json::from_slice(&payload).ok()?;
 
     // Try chatgpt_account_id first
-    if let Some(id) = claims["chatgpt_account_id"].as_str() {
+    if let Some(id) = claims.get("chatgpt_account_id").and_then(|v| v.as_str()) {
         return Some(id.to_string());
     }
     // Try nested auth claim
-    if let Some(id) = claims["https://api.openai.com/auth"]["chatgpt_account_id"].as_str() {
+    if let Some(id) = claims
+        .get("https://api.openai.com/auth")
+        .and_then(|v| v.get("chatgpt_account_id"))
+        .and_then(|v| v.as_str())
+    {
         return Some(id.to_string());
     }
     // Fall back to organizations[0].id
-    if let Some(id) = claims["organizations"]
-        .as_array()
+    if let Some(id) = claims
+        .get("organizations")
+        .and_then(|v| v.as_array())
         .and_then(|orgs| orgs.first())
-        .and_then(|org| org["id"].as_str())
+        .and_then(|org| org.get("id").and_then(|v| v.as_str()))
     {
         return Some(id.to_string());
     }
@@ -762,7 +767,7 @@ async fn poll_for_tokens(
                 .unwrap_or_else(|_| serde_json::json!({"error": "parse_error"}));
 
             // Check for error field first
-            if let Some(error) = token_response["error"].as_str() {
+            if let Some(error) = token_response.get("error").and_then(|v| v.as_str()) {
                 if handle_oauth_error(error).is_ok() {
                     // Retryable error - continue polling
                     continue;
@@ -772,30 +777,19 @@ async fn poll_for_tokens(
             }
 
             // No error field - parse as success
-            let (access_token, refresh_token, expires_in) = parse_token_response(&body_text)?;
-
-            return Ok(build_token_response(
-                access_token,
-                refresh_token,
-                expires_in,
-            ));
+            return Ok(parse_token_response(&body_text)?);
         }
 
         // Standard OAuth: HTTP success means tokens
         if !github_compatible && status.is_success() {
-            let (access_token, refresh_token, expires_in) = parse_token_response(&body_text)?;
-            return Ok(build_token_response(
-                access_token,
-                refresh_token,
-                expires_in,
-            ));
+            return Ok(parse_token_response(&body_text)?);
         }
 
         // Handle error responses (non-200 status for standard OAuth)
         let error_response: serde_json::Value = serde_json::from_str(&body_text)
             .unwrap_or_else(|_| serde_json::json!({"error": "unknown_error"}));
 
-        if let Some(error) = error_response["error"].as_str() {
+        if let Some(error) = error_response.get("error").and_then(|v| v.as_str()) {
             if handle_oauth_error(error).is_ok() {
                 // Retryable error - sleep and continue
                 tokio::time::sleep(if error == "slow_down" {
@@ -911,16 +905,11 @@ async fn codex_poll_for_tokens(
                 .into());
             }
 
-            let (access_token, refresh_token, expires_in) =
-                parse_token_response(&token_response.text().await.map_err(|e| {
+            return Ok(parse_token_response(
+                &token_response.text().await.map_err(|e| {
                     AuthError::PollFailed(format!("Failed to read token response: {e}"))
-                })?)?;
-
-            return Ok(build_token_response(
-                access_token,
-                refresh_token,
-                expires_in,
-            ));
+                })?,
+            )?);
         }
 
         // 403/404 means authorization pending (user hasn't entered code yet)
@@ -1321,6 +1310,49 @@ mod tests {
         }));
         let actual = extract_chatgpt_account_id(&fixture);
         assert_eq!(actual, None);
+    }
+
+    #[test]
+    fn test_enrich_codex_oauth_credential_uses_id_token_claims() {
+        let fixture_id_token = build_jwt(&serde_json::json!({
+            "chatgpt_account_id": "acct_from_id_token"
+        }));
+        let fixture_access_token = "not-a-jwt";
+        let mut actual = AuthCredential::new_oauth(
+            ProviderId::CODEX,
+            OAuthTokens::new(
+                fixture_access_token,
+                None::<String>,
+                chrono::Utc::now() + chrono::Duration::hours(1),
+            ),
+            OAuthConfig {
+                client_id: "test".to_string().into(),
+                auth_url: Url::parse("https://example.com/auth").unwrap(),
+                token_url: Url::parse("https://example.com/token").unwrap(),
+                scopes: vec![],
+                redirect_uri: Some("http://localhost:1455/auth/callback".to_string()),
+                use_pkce: true,
+                token_refresh_url: None,
+                extra_auth_params: None,
+                custom_headers: None,
+            },
+        );
+
+        enrich_codex_oauth_credential(
+            &ProviderId::CODEX,
+            &mut actual,
+            Some(&fixture_id_token),
+            fixture_access_token,
+        );
+
+        let actual = actual
+            .url_params
+            .get(&URLParam::from("chatgpt_account_id".to_string()));
+        let expected = Some(&forge_domain::URLParamValue::from(
+            "acct_from_id_token".to_string(),
+        ));
+
+        assert_eq!(actual, expected);
     }
 
     #[tokio::test]

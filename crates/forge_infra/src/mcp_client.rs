@@ -9,7 +9,8 @@ use forge_app::McpClientInfra;
 use forge_domain::{
     Environment, Image, McpHttpServer, McpServerConfig, ToolDefinition, ToolName, ToolOutput,
 };
-use http::{HeaderName, HeaderValue, header};
+use reqwest::Client;
+use reqwest::header::{HeaderName, HeaderValue};
 use rmcp::model::{CallToolRequestParam, ClientInfo, Implementation, InitializeRequestParam};
 use rmcp::service::RunningService;
 use rmcp::transport::sse_client::SseClientConfig;
@@ -33,6 +34,7 @@ type RmcpClient = RunningService<RoleClient, InitializeRequestParam>;
 #[derive(Clone)]
 pub struct ForgeMcpClient {
     client: Arc<RwLock<Option<Arc<RmcpClient>>>>,
+    http_client: Arc<Client>,
     config: McpServerConfig,
     env_vars: BTreeMap<String, String>,
     environment: Environment,
@@ -40,13 +42,49 @@ pub struct ForgeMcpClient {
 }
 
 impl ForgeMcpClient {
+    /// Build a reqwest client with default headers from the MCP server config.
+    fn build_http_client(http: &McpHttpServer) -> anyhow::Result<Client> {
+        let mut header_map = reqwest::header::HeaderMap::new();
+        for (key, value) in &http.headers {
+            if let Ok(name) = HeaderName::from_str(key)
+                && let Ok(val) = HeaderValue::from_str(value)
+            {
+                header_map.insert(name, val);
+            }
+        }
+
+        Ok(Client::builder().default_headers(header_map).build()?)
+    }
+
     pub fn new(
         config: McpServerConfig,
         env_vars: &BTreeMap<String, String>,
         environment: Environment,
     ) -> Self {
+        // Try to resolve config early so we can extract headers for the HTTP client.
+        // If resolution fails, fall back to a plain client (headers will be missing
+        // but the error will surface when create_connection is called).
+        let resolved = resolve_http_templates(
+            match &config {
+                McpServerConfig::Http(http) => http.clone(),
+                McpServerConfig::Stdio(_) => McpHttpServer {
+                    url: String::new(),
+                    headers: BTreeMap::new(),
+                    timeout: None,
+                    disable: false,
+                    oauth: forge_domain::McpOAuthSetting::default(),
+                },
+            },
+            env_vars,
+        );
+
+        let http_client = resolved
+            .and_then(|http| Self::build_http_client(&http))
+            .unwrap_or_default();
+
         Self {
             client: Default::default(),
+            http_client: Arc::new(http_client),
             config,
             env_vars: env_vars.clone(),
             environment,
@@ -181,16 +219,16 @@ impl ForgeMcpClient {
         http: &McpHttpServer,
     ) -> anyhow::Result<RmcpClient> {
         // Try HTTP first, fall back to SSE if it fails
-        let client = self.reqwest_client(http)?;
+        let client = self.reqwest_client();
         let transport = StreamableHttpClientTransport::with_client(
-            client.clone(),
+            client.as_ref().clone(),
             StreamableHttpClientTransportConfig::with_uri(http.url.clone()),
         );
         match self.client_info().serve(transport).await {
             Ok(client) => Ok(client),
             Err(_e) => {
                 let transport = SseClientTransport::start_with_client(
-                    client,
+                    client.as_ref().clone(),
                     SseClientConfig { sse_endpoint: http.url.clone().into(), ..Default::default() },
                 )
                 .await?;
@@ -358,9 +396,9 @@ impl ForgeMcpClient {
         http: &McpHttpServer,
         token: &str,
     ) -> anyhow::Result<Arc<RmcpClient>> {
-        let client = self.reqwest_client(http)?;
+        let client = self.reqwest_client();
         let transport = StreamableHttpClientTransport::with_client(
-            client,
+            client.as_ref().clone(),
             StreamableHttpClientTransportConfig::with_uri(http.url.clone()).auth_header(token),
         );
 
@@ -415,15 +453,13 @@ impl ForgeMcpClient {
         // Read the HTTP request
         let mut buf = vec![0u8; 4096];
         let n = stream.read(&mut buf).await?;
-        let request = String::from_utf8_lossy(&buf[..n]);
-
-        // Parse the request line to extract query parameters
+        let request = String::from_utf8_lossy(buf.get(..n).unwrap_or(&[]));
         let first_line = request.lines().next().unwrap_or("");
         let path = first_line.split_whitespace().nth(1).unwrap_or("/");
 
         // Parse query parameters
         let query_start = path.find('?').unwrap_or(path.len());
-        let query_string = &path[query_start..];
+        let query_string = path.get(query_start..).unwrap_or("");
         let params: std::collections::HashMap<String, String> =
             url::form_urlencoded::parse(query_string.trim_start_matches('?').as_bytes())
                 .into_owned()
@@ -458,14 +494,12 @@ impl ForgeMcpClient {
         Ok((code, state))
     }
 
-    fn reqwest_client(&self, config: &McpHttpServer) -> anyhow::Result<reqwest::Client> {
-        let mut headers = header::HeaderMap::new();
-        for (key, value) in config.headers.iter() {
-            headers.insert(HeaderName::from_str(key)?, HeaderValue::from_str(value)?);
-        }
-
-        let client = reqwest::Client::builder().default_headers(headers);
-        Ok(client.build()?)
+    fn reqwest_client(&self) -> Arc<Client> {
+        // Reuse the cached HTTP client (with pre-configured default headers)
+        // to prevent file descriptor leaks. Each reqwest::Client manages its
+        // own connection pool, so creating new clients for each connection
+        // leads to "Too many open files" errors.
+        self.http_client.clone()
     }
 
     async fn list(&self) -> anyhow::Result<Vec<ToolDefinition>> {
@@ -647,14 +681,18 @@ pub async fn mcp_auth(server_url: &str, env: &Environment) -> anyhow::Result<()>
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut buf = vec![0u8; 4096];
     let n = stream.read(&mut buf).await?;
-    let request = String::from_utf8_lossy(&buf[..n]);
+    let request = String::from_utf8_lossy(buf.get(..n).unwrap_or(&[]));
     let first_line = request.lines().next().unwrap_or("");
     let path = first_line.split_whitespace().nth(1).unwrap_or("/");
     let query_start = path.find('?').unwrap_or(path.len());
-    let params: std::collections::HashMap<String, String> =
-        url::form_urlencoded::parse(path[query_start..].trim_start_matches('?').as_bytes())
-            .into_owned()
-            .collect();
+    let params: std::collections::HashMap<String, String> = url::form_urlencoded::parse(
+        path.get(query_start..)
+            .unwrap_or("")
+            .trim_start_matches('?')
+            .as_bytes(),
+    )
+    .into_owned()
+    .collect();
 
     let code = params
         .get("code")

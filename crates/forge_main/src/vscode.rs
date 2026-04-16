@@ -58,28 +58,49 @@ pub fn should_install_extension() -> bool {
 #[cfg(test)]
 mod tests {
     use std::env;
+    use std::ffi::OsString;
+    use std::sync::{LazyLock, Mutex, MutexGuard};
 
     use super::*;
 
-    fn with_env_var<F>(key: &str, value: &str, test: F)
+    static ENV_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    struct EnvGuard {
+        key: &'static str,
+        original_value: Option<OsString>,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let lock = ENV_MUTEX.lock().unwrap_or_else(|error| error.into_inner());
+            let original_value = env::var_os(key);
+            unsafe {
+                env::set_var(key, value);
+            }
+            Self { key, original_value, _lock: lock }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.original_value {
+                Some(value) => unsafe {
+                    env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    env::remove_var(self.key);
+                },
+            }
+        }
+    }
+
+    fn with_env_var<F>(key: &'static str, value: &str, test: F)
     where
         F: FnOnce(),
     {
-        // Set the environment variable
-        // SAFETY: This is only used in single-threaded tests and cleaned up immediately
-        // after
-        unsafe {
-            env::set_var(key, value);
-        }
-
-        // Run the test
+        let _guard = EnvGuard::set(key, value);
         test();
-
-        // Clean up
-        // SAFETY: This is only used in single-threaded tests
-        unsafe {
-            env::remove_var(key);
-        }
     }
 
     #[test]
