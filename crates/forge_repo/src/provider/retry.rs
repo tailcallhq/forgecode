@@ -104,19 +104,11 @@ fn has_error_code(error: &ErrorResponse, retryable_code: RetryableApiErrorCode) 
         .is_some_and(|nested| has_error_code(nested, retryable_code))
 }
 
-fn has_transport_error_code(error: &ErrorResponse) -> bool {
-    has_error_code(error, RetryableApiErrorCode::Transport)
-}
-
-fn has_overloaded_error_code(error: &ErrorResponse) -> bool {
-    has_error_code(error, RetryableApiErrorCode::OpenAIOverloaded)
-}
-
 fn is_api_transport_error(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<Error>()
         .is_some_and(|error| match error {
-            Error::Response(error) => has_transport_error_code(error),
+            Error::Response(error) => has_error_code(error, RetryableApiErrorCode::Transport),
             _ => false,
         })
 }
@@ -125,7 +117,9 @@ fn is_openai_overloaded_error(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<Error>()
         .is_some_and(|error| match error {
-            Error::Response(error) => has_overloaded_error_code(error),
+            Error::Response(error) => {
+                has_error_code(error, RetryableApiErrorCode::OpenAIOverloaded)
+            }
             _ => false,
         })
 }
@@ -288,21 +282,21 @@ mod tests {
         for code in transport_codes {
             let error = ErrorResponse::default().code(ErrorCode::String(code.to_string()));
             assert!(
-                has_transport_error_code(&error),
+                has_error_code(&error, RetryableApiErrorCode::Transport),
                 "Code {code} should be transport error"
             );
         }
 
         let error = ErrorResponse::default().code(ErrorCode::String("UNKNOWN".to_string()));
-        assert!(!has_transport_error_code(&error));
+        assert!(!has_error_code(&error, RetryableApiErrorCode::Transport));
 
         let error = ErrorResponse::default();
-        assert!(!has_transport_error_code(&error));
+        assert!(!has_error_code(&error, RetryableApiErrorCode::Transport));
 
         // Nested transport codes
         let nested = ErrorResponse::default().code(ErrorCode::String("ECONNRESET".to_string()));
         let error = ErrorResponse::default().error(Box::new(nested));
-        assert!(has_transport_error_code(&error));
+        assert!(has_error_code(&error, RetryableApiErrorCode::Transport));
 
         // is_empty_error
         let error = anyhow::Error::from(Error::Response(ErrorResponse::default()));
