@@ -11,7 +11,7 @@ use crate::{
     AgentRegistry, ConversationService, EnvironmentInfra, FollowUpService, FsPatchService,
     FsReadService, FsRemoveService, FsSearchService, FsUndoService, FsWriteService,
     ImageReadService, NetFetchService, PlanCreateService, ProviderService, SkillFetchService,
-    WorkspaceService,
+    SkillSearchService, WorkspaceService,
 };
 
 pub struct ToolExecutor<S> {
@@ -34,6 +34,7 @@ impl<
         + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + PlanCreateService
         + SkillFetchService
+        + SkillSearchService
         + AgentRegistry
         + ProviderService
         + Services,
@@ -313,6 +314,13 @@ impl<
             ToolCatalog::Skill(input) => {
                 let skill = self.services.fetch_skill(input.name.clone()).await?;
                 ToolOperation::Skill { output: skill }
+            }
+            ToolCatalog::SkillSearch(input) => {
+                let skills = self
+                    .services
+                    .search_skills(input.query.clone(), input.limit)
+                    .await?;
+                ToolOperation::SkillSearch { output: skills }
             }
             ToolCatalog::TodoWrite(input) => {
                 let before = context.get_todos()?;

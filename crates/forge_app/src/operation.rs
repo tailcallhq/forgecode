@@ -79,6 +79,9 @@ pub enum ToolOperation {
     Skill {
         output: forge_domain::Skill,
     },
+    SkillSearch {
+        output: Vec<forge_domain::Skill>,
+    },
     TodoWrite {
         before: Vec<forge_domain::Todo>,
         after: Vec<forge_domain::Todo>,
@@ -728,6 +731,18 @@ impl ToolOperation {
                         .attr("status", todo.status.to_string())
                         .text(&todo.content);
                     elm = elm.append(todo_elm);
+                }
+
+                forge_domain::ToolOutput::text(elm)
+            }
+            ToolOperation::SkillSearch { output } => {
+                let mut elm = Element::new("skill_search_results").attr("count", output.len());
+
+                for skill in output {
+                    let skill_elm = Element::new("skill")
+                        .attr("name", skill.name.clone())
+                        .text(skill.description.clone());
+                    elm = elm.append(skill_elm);
                 }
 
                 forge_domain::ToolOutput::text(elm)

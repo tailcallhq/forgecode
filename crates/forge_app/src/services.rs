@@ -505,6 +505,27 @@ pub trait SkillFetchService: Send + Sync {
     async fn list_skills(&self) -> anyhow::Result<Vec<forge_domain::Skill>>;
 }
 
+/// Skill search service
+#[async_trait::async_trait]
+pub trait SkillSearchService: Send + Sync {
+    /// Searches for relevant skills based on a query
+    ///
+    /// Takes a natural language description of what the agent wants to achieve
+    /// and returns skills ranked by relevance from the forge backend.
+    ///
+    /// # Arguments
+    /// * `query` - Natural language description of the task
+    /// * `limit` - Maximum number of skills to return
+    ///
+    /// # Errors
+    /// Returns an error if the search fails or skills cannot be loaded
+    async fn search_skills(
+        &self,
+        query: String,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<forge_domain::Skill>>;
+}
+
 /// Provider authentication service
 #[async_trait::async_trait]
 pub trait ProviderAuthService: Send + Sync {
@@ -559,6 +580,7 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     type ProviderAuthService: ProviderAuthService;
     type WorkspaceService: WorkspaceService;
     type SkillFetchService: SkillFetchService;
+    type SkillSearchService: SkillSearchService;
 
     fn provider_service(&self) -> &Self::ProviderService;
     fn config_service(&self) -> &Self::AppConfigService;
@@ -587,6 +609,7 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     fn provider_auth_service(&self) -> &Self::ProviderAuthService;
     fn workspace_service(&self) -> &Self::WorkspaceService;
     fn skill_fetch_service(&self) -> &Self::SkillFetchService;
+    fn skill_search_service(&self) -> &Self::SkillSearchService;
 }
 
 #[async_trait::async_trait]
@@ -975,6 +998,19 @@ impl<I: Services> SkillFetchService for I {
 
     async fn list_skills(&self) -> anyhow::Result<Vec<forge_domain::Skill>> {
         self.skill_fetch_service().list_skills().await
+    }
+}
+
+#[async_trait::async_trait]
+impl<I: Services> SkillSearchService for I {
+    async fn search_skills(
+        &self,
+        query: String,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<forge_domain::Skill>> {
+        self.skill_search_service()
+            .search_skills(query, limit)
+            .await
     }
 }
 

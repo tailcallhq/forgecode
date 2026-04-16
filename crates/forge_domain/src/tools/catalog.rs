@@ -54,6 +54,7 @@ pub enum ToolCatalog {
     Followup(Followup),
     Plan(PlanCreate),
     Skill(SkillFetch),
+    SkillSearch(SkillSearch),
     TodoWrite(TodoWrite),
     TodoRead(TodoRead),
     #[serde(alias = "Task")]
@@ -682,6 +683,22 @@ pub struct SkillFetch {
     pub name: String,
 }
 
+/// Searches for relevant skills from skills.sh based on a natural language
+/// description of what the agent wants to achieve. Use this tool when you need
+/// to find a specialized skill for a task type but don't know the specific
+/// skill name. Returns ranked skills with relevance scores.
+#[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
+#[tool_description_file = "crates/forge_domain/src/tools/descriptions/skill_search.md"]
+pub struct SkillSearch {
+    /// Natural language description of what the agent wants to achieve
+    /// (e.g., "generate a PDF from markdown", "write tests using TDD",
+    /// "deploy to Vercel", "create a React component with proper types")
+    pub query: String,
+    /// Maximum number of skills to return (default: 5)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
 /// A single todo item sent by the model.
 ///
 /// The model always provides `content` and `status`. The server uses `content`
@@ -816,6 +833,7 @@ impl ToolDescription for ToolCatalog {
             ToolCatalog::Write(v) => v.description(),
             ToolCatalog::Plan(v) => v.description(),
             ToolCatalog::Skill(v) => v.description(),
+            ToolCatalog::SkillSearch(v) => v.description(),
             ToolCatalog::TodoWrite(v) => v.description(),
             ToolCatalog::TodoRead(v) => v.description(),
             ToolCatalog::Task(v) => v.description(),
@@ -876,6 +894,7 @@ impl ToolCatalog {
             ToolCatalog::Plan(_) => r#gen.into_root_schema_for::<PlanCreate>(),
             ToolCatalog::Skill(_) => r#gen.into_root_schema_for::<SkillFetch>(),
             ToolCatalog::Task(_) => r#gen.into_root_schema_for::<TaskInput>(),
+            ToolCatalog::SkillSearch(_) => r#gen.into_root_schema_for::<SkillSearch>(),
             ToolCatalog::TodoWrite(_) => r#gen.into_root_schema_for::<TodoWrite>(),
             ToolCatalog::TodoRead(_) => r#gen.into_root_schema_for::<TodoRead>(),
         };
@@ -1001,6 +1020,7 @@ impl ToolCatalog {
             | ToolCatalog::Followup(_)
             | ToolCatalog::Plan(_)
             | ToolCatalog::Skill(_)
+            | ToolCatalog::SkillSearch(_)
             | ToolCatalog::TodoWrite(_)
             | ToolCatalog::TodoRead(_)
             | ToolCatalog::Task(_) => None,

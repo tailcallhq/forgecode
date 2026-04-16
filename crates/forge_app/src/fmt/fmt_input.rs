@@ -127,6 +127,11 @@ impl FormatContent for ToolCatalog {
                     .sub_title(input.name.to_lowercase())
                     .into(),
             ),
+            ToolCatalog::SkillSearch(input) => Some(
+                TitleFormat::debug("Skill Search")
+                    .sub_title(&input.query)
+                    .into(),
+            ),
             ToolCatalog::TodoWrite(input) => Some(
                 TitleFormat::debug("Update Todos")
                     .sub_title(format!("{} item(s)", input.todos.len()))

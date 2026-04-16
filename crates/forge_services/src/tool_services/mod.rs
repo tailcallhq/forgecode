@@ -10,6 +10,7 @@ mod image_read;
 mod plan_create;
 mod shell;
 mod skill;
+mod skill_search;
 
 pub use fetch::*;
 pub use followup::*;
@@ -23,3 +24,4 @@ pub use image_read::*;
 pub use plan_create::*;
 pub use shell::*;
 pub use skill::*;
+pub use skill_search::*;

@@ -33,13 +33,3 @@ Important:
 - Skills are not CLI commands - use the skill tool to load them
 - After loading a skill, follow its specific instructions to help the user
 
-<available_skills>
-{{#each skills}}
-<skill>
-<name>{{this.name}}</name>
-<description>
-{{this.description}}
-</description>
-</skill>
-{{/each}}
-</available_skills>

@@ -403,6 +403,27 @@ expression: tools
   ]
 }
 {
+  "title": "SkillSearch",
+  "description": "Searches for relevant skills from skills.sh based on a natural language\ndescription of what the agent wants to achieve. Use this tool when you need\nto find a specialized skill for a task type but don't know the specific\nskill name. Returns ranked skills with relevance scores.",
+  "type": "object",
+  "properties": {
+    "limit": {
+      "description": "Maximum number of skills to return (default: 5)",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "nullable": true
+    },
+    "query": {
+      "description": "Natural language description of what the agent wants to achieve\n(e.g., \"generate a PDF from markdown\", \"write tests using TDD\",\n\"deploy to Vercel\", \"create a React component with proper types\")",
+      "type": "string"
+    }
+  },
+  "required": [
+    "query"
+  ]
+}
+{
   "title": "TodoWrite",
   "type": "object",
   "properties": {

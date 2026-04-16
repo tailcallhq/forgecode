@@ -13,8 +13,8 @@ use forge_domain::{
     AnyProvider, AuthCredential, ChatCompletionMessage, ChatRepository, CommandOutput, Context,
     Conversation, ConversationId, ConversationRepository, Environment, FileInfo,
     FuzzySearchRepository, McpServerConfig, MigrationResult, Model, ModelId, Provider, ProviderId,
-    ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository, Snapshot,
-    SnapshotRepository,
+    ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository, SkillSearchRepository,
+    Snapshot, SnapshotRepository,
 };
 // Re-export CacacheStorage from forge_infra
 pub use forge_infra::CacacheStorage;
@@ -31,6 +31,7 @@ use crate::fs_snap::ForgeFileSnapshotService;
 use crate::fuzzy_search::ForgeFuzzySearchRepository;
 use crate::provider::{ForgeChatRepository, ForgeProviderRepository};
 use crate::skill::ForgeSkillRepository;
+use crate::skill_search::ForgeSkillSearchRepository;
 use crate::validation::ForgeValidationRepository;
 
 /// Repository layer that implements all domain repository traits
@@ -48,6 +49,7 @@ pub struct ForgeRepo<F> {
     codebase_repo: Arc<ForgeContextEngineRepository<F>>,
     agent_repository: Arc<ForgeAgentRepository<F>>,
     skill_repository: Arc<ForgeSkillRepository<F>>,
+    skill_search_repository: Arc<ForgeSkillSearchRepository<F>>,
     validation_repository: Arc<ForgeValidationRepository<F>>,
     fuzzy_search_repository: Arc<ForgeFuzzySearchRepository<F>>,
 }
@@ -81,6 +83,7 @@ impl<
         let codebase_repo = Arc::new(ForgeContextEngineRepository::new(infra.clone()));
         let agent_repository = Arc::new(ForgeAgentRepository::new(infra.clone()));
         let skill_repository = Arc::new(ForgeSkillRepository::new(infra.clone()));
+        let skill_search_repository = Arc::new(ForgeSkillSearchRepository::new(infra.clone()));
         let validation_repository = Arc::new(ForgeValidationRepository::new(infra.clone()));
         let fuzzy_search_repository = Arc::new(ForgeFuzzySearchRepository::new(infra.clone()));
         Self {
@@ -93,6 +96,7 @@ impl<
             codebase_repo,
             agent_repository,
             skill_repository,
+            skill_search_repository,
             validation_repository,
             fuzzy_search_repository,
         }
@@ -624,6 +628,21 @@ impl<F: GrpcInfra + Send + Sync> FuzzySearchRepository for ForgeRepo<F> {
     ) -> anyhow::Result<Vec<SearchMatch>> {
         self.fuzzy_search_repository
             .fuzzy_search(needle, haystack, search_all)
+            .await
+    }
+}
+
+#[async_trait::async_trait]
+impl<F: GrpcInfra + Send + Sync> SkillSearchRepository for ForgeRepo<F> {
+    async fn search_skills(
+        &self,
+        query: &str,
+        skills: Vec<Skill>,
+        limit: Option<u32>,
+        auth_token: &forge_domain::ApiKey,
+    ) -> anyhow::Result<Vec<Skill>> {
+        self.skill_search_repository
+            .search_skills(query, skills, limit, auth_token)
             .await
     }
 }

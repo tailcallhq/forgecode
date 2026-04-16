@@ -185,6 +185,35 @@ pub trait SkillRepository: Send + Sync {
     async fn load_skills(&self) -> Result<Vec<Skill>>;
 }
 
+/// Repository for searching and ranking skills
+/// Repository for searching skills
+///
+/// This repository provides operations for searching skills based on a query
+/// and returning them ranked by relevance from the forge backend.
+#[async_trait::async_trait]
+pub trait SkillSearchRepository: Send + Sync {
+    /// Searches for relevant skills based on a query
+    ///
+    /// Takes all available skills and a search query, sends them to the
+    /// forge backend, and returns skills ranked by relevance.
+    ///
+    /// # Arguments
+    /// * `query` - Natural language description of what the agent wants to
+    ///   achieve
+    /// * `skills` - All available skills to search through
+    /// * `limit` - Maximum number of skills to return
+    /// * `auth_token` - Authentication token for the forge backend
+    ///
+    /// # Errors
+    /// Returns an error if the search fails
+    async fn search_skills(
+        &self,
+        query: &str,
+        skills: Vec<Skill>,
+        limit: Option<u32>,
+        auth_token: &crate::ApiKey,
+    ) -> Result<Vec<Skill>>;
+}
 /// Repository for validating file syntax
 ///
 /// This repository provides operations for validating the syntax of source

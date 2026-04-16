@@ -1,0 +1,550 @@
+# Skill Search Quality Eval - Task Definition
+#
+# This eval validates that the skill_search tool correctly identifies
+# and ranks relevant skills from the available skill library based on the
+# user's task description.
+#
+# Before running forge, skills are downloaded from 9 GitHub repos into
+# ~/forge/skills/, giving the model 100+ real skills to search over.
+#
+# Repos downloaded (and their skill counts):
+#   anthropics/skills           17 skills  (pdf, docx, pptx, xlsx, webapp-testing, mcp-builder, ...)
+#   obra/superpowers            14 skills  (test-driven-development, systematic-debugging, writing-plans, ...)
+#   vercel-labs/agent-skills     7 skills  (deploy-to-vercel, vercel-react-best-practices, web-design-guidelines, ...)
+#   vercel-labs/next-skills      3 skills  (next-best-practices, next-cache-components, next-upgrade)
+#   antfu/skills                17 skills  (vue, vite, vitest, nuxt, pinia, vitepress, ...)
+#   coreyhaines31/marketingskills 34 skills (seo-audit, copywriting, content-strategy, ...)
+#   supabase/agent-skills        1 skill   (supabase-postgres-best-practices)
+#   shadcn/ui                    1 skill   (shadcn)
+#   vercel/turborepo             1 skill   (turborepo)
+#   vercel/ai                    8 skills  (ai-sdk, add-function-examples, ...)
+# Total: ~103 skills
+#
+# Validation Strategy:
+# 1. Check that skill_search tool was called (deterministic jq check)
+# 2. Check that skill_search did NOT return an error
+# 3. Check that all expected_skills appear in the results
+# 4. Check that must_be_first skill is ranked #1
+#
+# If skill_search returns a tool_call_error (auth failure, backend down, etc.)
+# the eval FAILS — a broken backend is a real bug, not something to skip over.
+
+run:
+  - git clone --depth=1 --branch main https://github.com/antinomyhq/forge .
+  # Download skills from skills.sh GitHub repos into forge's global skills dir.
+  # The `skills` CLI does not know about forge as an agent, so we clone source
+  # repos and copy the skills/ subdirectory contents manually.
+  - mkdir -p ~/forge/skills
+  # anthropics/skills: pdf, docx, pptx, xlsx, webapp-testing, mcp-builder, canvas-design,
+  #   doc-coauthoring, algorithmic-art, frontend-design, brand-guidelines, theme-factory,
+  #   web-artifacts-builder, internal-comms, slack-gif-creator, skill-creator, claude-api
+  - git clone --depth=1 https://github.com/anthropics/skills /tmp/anthropics-skills 2>/dev/null; cp -r /tmp/anthropics-skills/skills/. ~/forge/skills/; rm -rf /tmp/anthropics-skills
+  # obra/superpowers: test-driven-development, systematic-debugging, writing-plans,
+  #   executing-plans, brainstorming, requesting-code-review, receiving-code-review,
+  #   verification-before-completion, subagent-driven-development, dispatching-parallel-agents,
+  #   using-git-worktrees, finishing-a-development-branch, writing-skills, using-superpowers
+  - git clone --depth=1 https://github.com/obra/superpowers /tmp/obra-superpowers 2>/dev/null; cp -r /tmp/obra-superpowers/skills/. ~/forge/skills/; rm -rf /tmp/obra-superpowers
+  # vercel-labs/agent-skills: deploy-to-vercel, vercel-react-best-practices, web-design-guidelines,
+  #   vercel-composition-patterns, vercel-react-native-skills, vercel-react-view-transitions, vercel-cli-with-tokens
+  - git clone --depth=1 https://github.com/vercel-labs/agent-skills /tmp/vercel-agent-skills 2>/dev/null; for d in /tmp/vercel-agent-skills/skills/*/; do [ -f "$d/SKILL.md" ] && cp -r "$d" ~/forge/skills/; done; rm -rf /tmp/vercel-agent-skills
+  # vercel-labs/next-skills: next-best-practices, next-cache-components, next-upgrade
+  - git clone --depth=1 https://github.com/vercel-labs/next-skills /tmp/vercel-next-skills 2>/dev/null; cp -r /tmp/vercel-next-skills/skills/. ~/forge/skills/; rm -rf /tmp/vercel-next-skills
+  # antfu/skills: vue, vite, vitest, nuxt, pinia, pnpm, slidev, tsdown, turborepo, unocss,
+  #   vitepress, vueuse-functions, vue-best-practices, vue-router-best-practices,
+  #   vue-testing-best-practices, web-design-guidelines, antfu
+  - git clone --depth=1 https://github.com/antfu/skills /tmp/antfu-skills 2>/dev/null; cp -r /tmp/antfu-skills/skills/. ~/forge/skills/; rm -rf /tmp/antfu-skills
+  # coreyhaines31/marketingskills: seo-audit, copywriting, content-strategy, analytics-tracking,
+  #   marketing-psychology, ad-creative, social-content, email-sequence, cold-email, launch-strategy,
+  #   pricing-strategy, programmatic-seo, competitor-alternatives, customer-research, referral-program,
+  #   lead-magnets, free-tool-strategy, marketing-ideas, copy-editing, product-marketing-context,
+  #   sales-enablement, site-architecture, revops, schema-markup, ab-test-setup, paid-ads,
+  #   form-cro, page-cro, onboarding-cro, paywall-upgrade-cro, popup-cro, signup-flow-cro,
+  #   churn-prevention, ai-seo
+  - git clone --depth=1 https://github.com/coreyhaines31/marketingskills /tmp/marketing-skills 2>/dev/null; cp -r /tmp/marketing-skills/skills/. ~/forge/skills/; rm -rf /tmp/marketing-skills
+  # supabase/agent-skills: supabase-postgres-best-practices
+  - git clone --depth=1 https://github.com/supabase/agent-skills /tmp/supabase-skills 2>/dev/null; cp -r /tmp/supabase-skills/skills/. ~/forge/skills/; rm -rf /tmp/supabase-skills
+  # shadcn/ui: shadcn
+  - git clone --depth=1 https://github.com/shadcn/ui /tmp/shadcn-ui 2>/dev/null; cp -r /tmp/shadcn-ui/skills/. ~/forge/skills/; rm -rf /tmp/shadcn-ui
+  # vercel/turborepo: turborepo
+  - git clone --depth=1 https://github.com/vercel/turborepo /tmp/vercel-turborepo 2>/dev/null; cp -r /tmp/vercel-turborepo/skills/. ~/forge/skills/; rm -rf /tmp/vercel-turborepo
+  # vercel/ai: ai-sdk, add-function-examples, add-provider-package, adr-skill,
+  #   capture-api-response-test-fixture, develop-ai-functions-example, list-npm-package-content,
+  #   update-provider-models
+  - git clone --depth=1 https://github.com/vercel/ai /tmp/vercel-ai-sdk 2>/dev/null; cp -r /tmp/vercel-ai-sdk/skills/. ~/forge/skills/; rm -rf /tmp/vercel-ai-sdk
+  - FORGE_DEBUG_REQUESTS='{{dir}}/context.json' FORGE_PROVIDER='open_router' FORGE_MODEL='{{model}}' /Users/amit/code-forge/target/debug/forge -p '{{task}}'
+
+parallelism: 3
+timeout: 240
+early_exit: false
+
+validations:
+  - name: "Uses skill_search tool"
+    type: shell
+    command: |
+      cat '{{dir}}/context.json' | jq -e '[.messages[]?.tool_calls[]? | select(.function.name == "skill_search")] | any' > /dev/null 2>&1 || {
+        echo "✗ FAILED: skill_search tool was not called"
+        exit 1
+      }
+      echo "✓ skill_search tool was called"
+
+  - name: "skill_search did not error"
+    type: shell
+    command: |
+      response_text=$(cat '{{dir}}/context.json' | jq -r '
+        .messages[]? |
+        select(.role == "tool" and .name == "skill_search") |
+        .content' 2>/dev/null | head -1)
+
+      if [ -z "$response_text" ] || [ "$response_text" = "null" ]; then
+        echo "✗ FAILED: no skill_search tool response found in context"
+        exit 1
+      fi
+
+      if echo "$response_text" | grep -q "tool_call_error"; then
+        echo "✗ FAILED: skill_search returned an error:"
+        echo "$response_text" | head -10
+        exit 1
+      fi
+
+      echo "✓ skill_search returned a valid response"
+
+  - name: "Expected skills returned (if specified)"
+    type: shell
+    command: |
+      if [ -z "{{expected_skills}}" ]; then
+        echo "No expected skills specified, skipping check"
+        exit 0
+      fi
+
+      # Output format: <skill_search_results count="N"><skill name="foo">desc</skill>...</skill_search_results>
+      results=$(cat '{{dir}}/context.json' | jq -r '
+        .messages[]? |
+        select(.role == "tool" and .name == "skill_search") |
+        .content' 2>/dev/null | grep -oP 'name="\K[^"]+' | head -20)
+
+      if [ -z "$results" ]; then
+        echo "✗ FAILED: could not extract skill names from skill_search results"
+        cat '{{dir}}/context.json' | jq -r '
+          .messages[]? |
+          select(.role == "tool" and .name == "skill_search") |
+          .content' 2>/dev/null | head -5
+        exit 1
+      fi
+
+      echo "Skills returned: $(echo "$results" | tr '\n' ' ')"
+
+      IFS=',' read -ra EXPECTED <<< "{{expected_skills}}"
+      missing_skills=()
+      for expected in "${EXPECTED[@]}"; do
+        expected=$(echo "$expected" | xargs)
+        if ! echo "$results" | grep -qF "$expected"; then
+          missing_skills+=("$expected")
+        fi
+      done
+
+      if [ ${#missing_skills[@]} -gt 0 ]; then
+        echo "✗ FAILED: missing expected skills in results:"
+        printf '  - %s\n' "${missing_skills[@]}"
+        exit 1
+      fi
+
+      echo "✓ All expected skills found in results"
+
+  - name: "Must-be-first skill ranked #1"
+    type: shell
+    command: |
+      if [ -z "{{must_be_first}}" ]; then
+        echo "No must_be_first requirement, skipping check"
+        exit 0
+      fi
+
+      first_skill=$(cat '{{dir}}/context.json' | jq -r '
+        .messages[]? |
+        select(.role == "tool" and .name == "skill_search") |
+        .content' 2>/dev/null | grep -oP 'name="\K[^"]+' | head -1)
+
+      if [ -z "$first_skill" ]; then
+        echo "✗ FAILED: could not extract first skill from skill_search results"
+        exit 1
+      fi
+
+      expected_first="{{must_be_first}}"
+
+      if [ "$first_skill" != "$expected_first" ]; then
+        echo "✗ FAILED: first skill mismatch"
+        echo "  Expected: $expected_first"
+        echo "  Actual:   $first_skill"
+        exit 1
+      fi
+
+      echo "✓ Must-be-first skill is correctly ranked #1: $first_skill"
+
+sources:
+  - value:
+      - model: "anthropic/claude-sonnet-4.6"
+
+  - value:
+      # ── Document generation (anthropics/skills) ──────────────────────────────
+      # expected_skills: all plausible skills the reranker should surface
+      # must_be_first: only set when there is one unambiguous top result
+
+      - task: "I want to create a PDF document from markdown content"
+        expected_skills: "pdf, doc-coauthoring"
+        must_be_first: "pdf"
+
+      - task: "Generate a Word document report from my data"
+        expected_skills: "docx, doc-coauthoring"
+        must_be_first: "docx"
+
+      - task: "Create a PowerPoint presentation with multiple slides"
+        expected_skills: "pptx, canvas-design"
+        must_be_first: "pptx"
+
+      - task: "Export my data analysis results to an Excel spreadsheet"
+        expected_skills: "xlsx"
+        must_be_first: "xlsx"
+
+      - task: "Build a Model Context Protocol server for my custom data source"
+        expected_skills: "mcp-builder, claude-api"
+        must_be_first: "mcp-builder"
+
+      - task: "I want to use the Claude API to build an LLM-powered application"
+        expected_skills: "claude-api, mcp-builder, ai-sdk"
+        must_be_first: "claude-api"
+
+      - task: "Help me co-author and collaboratively edit a technical document"
+        expected_skills: "doc-coauthoring, docx, pdf"
+        must_be_first: "doc-coauthoring"
+
+      - task: "Create a Slack GIF for our team announcement"
+        expected_skills: "slack-gif-creator, internal-comms"
+        must_be_first: "slack-gif-creator"
+
+      - task: "Generate generative algorithmic art using code"
+        expected_skills: "algorithmic-art, canvas-design"
+        must_be_first: "algorithmic-art"
+
+      - task: "Design a web app UI using canvas and visual design tools"
+        expected_skills: "canvas-design, web-design-guidelines, frontend-design"
+        must_be_first: "canvas-design"
+
+      - task: "Set up automated end-to-end testing for my web application"
+        expected_skills: "webapp-testing, test-driven-development"
+        must_be_first: "webapp-testing"
+
+      - task: "Help me create a new skill for my AI agent"
+        expected_skills: "skill-creator"
+        must_be_first: "skill-creator"
+
+      - task: "Apply consistent brand guidelines and visual identity to my product"
+        expected_skills: "brand-guidelines, canvas-design, theme-factory"
+        must_be_first: "brand-guidelines"
+
+      - task: "Generate and customize a colour theme for my web application"
+        expected_skills: "theme-factory, canvas-design, frontend-design"
+        must_be_first: "theme-factory"
+
+      - task: "Write internal company communications and announcements"
+        expected_skills: "internal-comms, doc-coauthoring"
+        must_be_first: "internal-comms"
+
+      - task: "Build interactive web artifacts, demos, or mini apps directly in chat"
+        expected_skills: "web-artifacts-builder, frontend-design, canvas-design"
+        must_be_first: "web-artifacts-builder"
+
+      # ── Development workflow (obra/superpowers) ──────────────────────────────
+      - task: "Help me write tests for my code using test-driven development"
+        expected_skills: "test-driven-development, webapp-testing, vitest"
+        must_be_first: "test-driven-development"
+
+      - task: "My application has a mysterious bug I can't figure out, help me debug it systematically"
+        expected_skills: "systematic-debugging, verification-before-completion"
+        must_be_first: "systematic-debugging"
+
+      - task: "Write a detailed implementation plan for adding authentication to my app"
+        expected_skills: "writing-plans, executing-plans, brainstorming"
+        must_be_first: "writing-plans"
+
+      - task: "Execute the plan I have written for the new feature implementation"
+        expected_skills: "executing-plans, writing-plans, verification-before-completion"
+        must_be_first: "executing-plans"
+
+      - task: "I want to ask for a code review on my recent changes"
+        expected_skills: "requesting-code-review, receiving-code-review"
+        must_be_first: "requesting-code-review"
+
+      - task: "I received a code review and need help addressing the feedback"
+        expected_skills: "receiving-code-review, requesting-code-review"
+        must_be_first: "receiving-code-review"
+
+      - task: "Brainstorm ideas for a new feature in my application"
+        expected_skills: "brainstorming, writing-plans, marketing-ideas"
+        must_be_first: "brainstorming"
+
+      - task: "Run multiple agents in parallel to complete different parts of this task"
+        expected_skills: "dispatching-parallel-agents, subagent-driven-development"
+        must_be_first: "dispatching-parallel-agents"
+
+      - task: "Use git worktrees to work on multiple features simultaneously"
+        expected_skills: "using-git-worktrees, finishing-a-development-branch"
+        must_be_first: "using-git-worktrees"
+
+      - task: "Finish up this development branch and prepare it for merge"
+        expected_skills: "finishing-a-development-branch, requesting-code-review, verification-before-completion"
+        must_be_first: "finishing-a-development-branch"
+
+      - task: "Verify my implementation is complete before marking this task done"
+        expected_skills: "verification-before-completion, systematic-debugging"
+        must_be_first: "verification-before-completion"
+
+      - task: "Delegate tasks to sub-agents and orchestrate an agentic workflow"
+        expected_skills: "subagent-driven-development, dispatching-parallel-agents"
+        must_be_first: "subagent-driven-development"
+
+      # ── Vercel / React / Next.js (vercel-labs) ───────────────────────────────
+      - task: "Deploy my application to Vercel"
+        expected_skills: "deploy-to-vercel, vercel-cli-with-tokens"
+        must_be_first: "deploy-to-vercel"
+
+      - task: "Optimize my React app for performance following best practices"
+        expected_skills: "vercel-react-best-practices, vercel-composition-patterns, next-best-practices"
+        must_be_first: "vercel-react-best-practices"
+
+      - task: "Review my UI for web design guidelines and accessibility compliance"
+        expected_skills: "web-design-guidelines, frontend-design, canvas-design"
+        must_be_first: "web-design-guidelines"
+
+      - task: "I'm building a React Native mobile app and need best practices"
+        expected_skills: "vercel-react-native-skills, vercel-react-best-practices"
+        must_be_first: "vercel-react-native-skills"
+
+      - task: "Implement smooth view transitions in my Next.js app"
+        expected_skills: "vercel-react-view-transitions, next-best-practices, vercel-react-best-practices"
+        must_be_first: "vercel-react-view-transitions"
+
+      - task: "Use the Vercel CLI with access tokens for automated deployments"
+        expected_skills: "vercel-cli-with-tokens, deploy-to-vercel"
+        must_be_first: "vercel-cli-with-tokens"
+
+      - task: "Apply React composition patterns to improve my component architecture"
+        expected_skills: "vercel-composition-patterns, vercel-react-best-practices"
+        must_be_first: "vercel-composition-patterns"
+
+      # ── Next.js (vercel-labs/next-skills) ────────────────────────────────────
+      - task: "Follow Next.js best practices for my web application"
+        expected_skills: "next-best-practices, vercel-react-best-practices, deploy-to-vercel"
+        must_be_first: "next-best-practices"
+
+      - task: "Use the Next.js cache directive and PPR for optimized rendering"
+        expected_skills: "next-cache-components, next-best-practices"
+        must_be_first: "next-cache-components"
+
+      - task: "Upgrade my Next.js application to the latest version"
+        expected_skills: "next-upgrade, next-best-practices"
+        must_be_first: "next-upgrade"
+
+      # ── Vue / Vite ecosystem (antfu/skills) ──────────────────────────────────
+      - task: "Write Vue 3 components using the Composition API and script setup"
+        expected_skills: "vue, pinia, vue-best-practices, vueuse-functions"
+        must_be_first: "vue"
+
+      - task: "Configure my Vite build tool and write custom Vite plugins"
+        expected_skills: "vite, vitest, vitepress"
+        must_be_first: "vite"
+
+      - task: "Write unit tests using Vitest for my TypeScript project"
+        expected_skills: "vitest, test-driven-development, vue-testing-best-practices"
+        must_be_first: "vitest"
+
+      - task: "Manage state in my Vue app using Pinia stores"
+        expected_skills: "pinia, vue, vue-best-practices"
+        must_be_first: "pinia"
+
+      - task: "Build a full-stack application with Nuxt including SSR and server routes"
+        expected_skills: "nuxt, vue, vue-best-practices"
+        must_be_first: "nuxt"
+
+      - task: "Build a documentation site with VitePress"
+        expected_skills: "vitepress, vite"
+        must_be_first: "vitepress"
+
+      - task: "Create interactive slides and presentations using Slidev"
+        expected_skills: "slidev, vite"
+        must_be_first: "slidev"
+
+      - task: "Use VueUse composables in my Vue application"
+        expected_skills: "vueuse-functions, vue, vue-best-practices"
+        must_be_first: "vueuse-functions"
+
+      - task: "Add atomic CSS styling with UnoCSS to my project"
+        expected_skills: "unocss, vite"
+        must_be_first: "unocss"
+
+      - task: "Manage my monorepo packages with pnpm workspaces"
+        expected_skills: "pnpm, turborepo"
+        must_be_first: "pnpm"
+
+      - task: "Write Vue components following Vue 3 best practices"
+        expected_skills: "vue-best-practices, vue, pinia"
+        must_be_first: "vue-best-practices"
+
+      - task: "Set up Vue Router navigation guards and route configuration"
+        expected_skills: "vue-router-best-practices, vue, nuxt"
+        must_be_first: "vue-router-best-practices"
+
+      - task: "Write tests for my Vue components and composables"
+        expected_skills: "vue-testing-best-practices, vitest, vue"
+        must_be_first: "vue-testing-best-practices"
+
+      # ── Marketing (coreyhaines31/marketingskills) ────────────────────────────
+      - task: "Audit the SEO of my website and fix technical SEO issues"
+        expected_skills: "seo-audit, programmatic-seo, schema-markup, ai-seo"
+        must_be_first: "seo-audit"
+
+      - task: "Write compelling marketing copy for my landing page"
+        expected_skills: "copywriting, copy-editing, content-strategy"
+        must_be_first: "copywriting"
+
+      - task: "Develop a content marketing strategy for my SaaS product"
+        expected_skills: "content-strategy, marketing-ideas, copywriting, social-content"
+        must_be_first: "content-strategy"
+
+      - task: "Set up Google Analytics 4 event tracking and conversion measurement"
+        expected_skills: "analytics-tracking, ab-test-setup"
+        must_be_first: "analytics-tracking"
+
+      - task: "Apply psychological principles to improve my marketing conversion rate"
+        expected_skills: "marketing-psychology, page-cro, copywriting"
+        must_be_first: "marketing-psychology"
+
+      - task: "Create ad creative for a Google Ads and Facebook campaign"
+        expected_skills: "ad-creative, paid-ads, copywriting"
+        must_be_first: "ad-creative"
+
+      - task: "Write social media content for our product launch"
+        expected_skills: "social-content, copywriting, launch-strategy"
+        must_be_first: "social-content"
+
+      - task: "Write a cold email outreach sequence for my B2B SaaS product"
+        expected_skills: "cold-email, email-sequence, copywriting"
+        must_be_first: "cold-email"
+
+      - task: "Plan our product launch strategy and go-to-market approach"
+        expected_skills: "launch-strategy, content-strategy, marketing-ideas"
+        must_be_first: "launch-strategy"
+
+      - task: "Develop a pricing strategy for my SaaS tiers"
+        expected_skills: "pricing-strategy, marketing-psychology, revops"
+        must_be_first: "pricing-strategy"
+
+      - task: "Research competitors and create an alternatives comparison page"
+        expected_skills: "competitor-alternatives, seo-audit, programmatic-seo"
+        must_be_first: "competitor-alternatives"
+
+      - task: "Run A/B tests on my landing page to improve conversions"
+        expected_skills: "ab-test-setup, page-cro, analytics-tracking"
+        must_be_first: "ab-test-setup"
+
+      - task: "Improve the conversion rate of my signup form"
+        expected_skills: "form-cro, signup-flow-cro, page-cro, onboarding-cro"
+        must_be_first: "form-cro"
+
+      - task: "Reduce customer churn and improve retention for my SaaS"
+        expected_skills: "churn-prevention, email-sequence, pricing-strategy"
+        must_be_first: "churn-prevention"
+
+      - task: "Build a referral program for my product"
+        expected_skills: "referral-program, launch-strategy, marketing-ideas"
+        must_be_first: "referral-program"
+
+      - task: "Add schema markup structured data to my website for SEO"
+        expected_skills: "schema-markup, seo-audit, programmatic-seo"
+        must_be_first: "schema-markup"
+
+      - task: "Set up programmatic SEO pages for my content site"
+        expected_skills: "programmatic-seo, seo-audit, schema-markup, ai-seo"
+        must_be_first: "programmatic-seo"
+
+      - task: "Set up revenue operations and sales funnel automation"
+        expected_skills: "revops, sales-enablement, analytics-tracking"
+        must_be_first: "revops"
+
+      - task: "Improve my SaaS onboarding flow to activate more users"
+        expected_skills: "onboarding-cro, signup-flow-cro, churn-prevention"
+        must_be_first: "onboarding-cro"
+
+      - task: "Improve conversion rate of my paywall and upgrade prompts"
+        expected_skills: "paywall-upgrade-cro, pricing-strategy, marketing-psychology"
+        must_be_first: "paywall-upgrade-cro"
+
+      - task: "Optimise exit-intent popups to capture more leads"
+        expected_skills: "popup-cro, page-cro, form-cro"
+        must_be_first: "popup-cro"
+
+      - task: "Improve the conversion rate of my signup page"
+        expected_skills: "signup-flow-cro, form-cro, onboarding-cro, page-cro"
+        must_be_first: "signup-flow-cro"
+
+      - task: "Create lead magnets to grow my email list"
+        expected_skills: "lead-magnets, email-sequence, content-strategy"
+        must_be_first: "lead-magnets"
+
+      - task: "Generate ideas for blog posts and marketing content"
+        expected_skills: "marketing-ideas, content-strategy, copywriting"
+        must_be_first: "marketing-ideas"
+
+      - task: "Edit and polish my marketing copy for clarity"
+        expected_skills: "copy-editing, copywriting, content-strategy"
+        must_be_first: "copy-editing"
+
+      - task: "Plan the site architecture and information structure for my marketing site"
+        expected_skills: "site-architecture, seo-audit, content-strategy"
+        must_be_first: "site-architecture"
+
+      - task: "Conduct customer research and interviews to understand user needs"
+        expected_skills: "customer-research, marketing-psychology, content-strategy"
+        must_be_first: "customer-research"
+
+      - task: "Set up and optimise paid advertising campaigns"
+        expected_skills: "paid-ads, ad-creative, analytics-tracking"
+        must_be_first: "paid-ads"
+
+      - task: "Write a nurture email sequence for trial users"
+        expected_skills: "email-sequence, cold-email, copywriting"
+        must_be_first: "email-sequence"
+
+      - task: "Build sales enablement content and battle cards for my sales team"
+        expected_skills: "sales-enablement, revops, copywriting"
+        must_be_first: "sales-enablement"
+
+      - task: "Create a free SEO tool to drive organic traffic"
+        expected_skills: "free-tool-strategy, seo-audit, programmatic-seo"
+        must_be_first: "free-tool-strategy"
+
+      - task: "Improve product context and positioning in my marketing materials"
+        expected_skills: "product-marketing-context, copywriting, content-strategy"
+        must_be_first: "product-marketing-context"
+
+      - task: "Use AI to improve my SEO content and keyword targeting"
+        expected_skills: "ai-seo, seo-audit, programmatic-seo"
+        must_be_first: "ai-seo"
+
+      # ── Database (supabase) ──────────────────────────────────────────────────
+      - task: "Optimize my PostgreSQL queries and database schema for better performance"
+        expected_skills: "supabase-postgres-best-practices"
+        must_be_first: "supabase-postgres-best-practices"
+
+      # ── UI components (shadcn/ui) ────────────────────────────────────────────
+      - task: "Add shadcn/ui components to my project and customize them"
+        expected_skills: "shadcn, frontend-design, web-design-guidelines"
+        must_be_first: "shadcn"
+
+      # ── Monorepo (vercel/turborepo) ──────────────────────────────────────────
+      - task: "Set up and configure Turborepo for my monorepo"
+        expected_skills: "turborepo, pnpm"
+        must_be_first: "turborepo"
+
+      # ── AI SDK (vercel/ai) ───────────────────────────────────────────────────
+      - task: "Build an AI-powered chatbot using the Vercel AI SDK with streaming"
+        expected_skills: "ai-sdk, claude-api, mcp-builder"
+        must_be_first: "ai-sdk"

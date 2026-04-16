@@ -663,6 +663,41 @@ expression: actual.tools
   },
   {
     "type": "function",
+    "name": "skill_search",
+    "parameters": {
+      "additionalProperties": false,
+      "description": "Searches for relevant skills from skills.sh based on a natural language\ndescription of what the agent wants to achieve. Use this tool when you need\nto find a specialized skill for a task type but don't know the specific\nskill name. Returns ranked skills with relevance scores.",
+      "properties": {
+        "limit": {
+          "anyOf": [
+            {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Maximum number of skills to return (default: 5)"
+        },
+        "query": {
+          "description": "Natural language description of what the agent wants to achieve\n(e.g., \"generate a PDF from markdown\", \"write tests using TDD\",\n\"deploy to Vercel\", \"create a React component with proper types\")",
+          "type": "string"
+        }
+      },
+      "required": [
+        "limit",
+        "query"
+      ],
+      "title": "SkillSearch",
+      "type": "object"
+    },
+    "strict": true,
+    "description": "Searches for relevant skills from your available skill library based on what you want to achieve. Use this tool when you need to find a specialized skill for a task type but don't know the specific skill name. This tool sends your query along with all available skills (built-in, global, and project-local) to the forge backend, which returns the most relevant skills ranked by relevance.\n\n**When to use:**\n- Starting a new task type where you don't have a known skill\n- Exploring what specialized workflows are available for your goal\n- Looking for domain-specific best practices (PDF generation, testing, deployment, etc.)\n\n**How it works:**\n1. Call `skill_search` with a description like \"generate a PDF report\" or \"write tests using TDD\"\n2. The tool queries the forge backend with all your available skills and the search query\n3. Review the returned skills (name, description, relevance score)\n4. Use the `skill` tool with the most relevant skill name to load its full instructions\n5. Follow the skill instructions to complete your task\n\n**Examples:**\n- Task: \"I want to create a PDF document\" → `skill_search` with query \"generate PDF from content\"\n- Task: \"Help me write tests for this code\" → `skill_search` with query \"write tests using test-driven development\"\n- Task: \"Deploy my app to production\" → `skill_search` with query \"deploy application\"\n\nAfter calling `skill_search`, always use the `skill` tool with the specific skill name to load and execute the skill's instructions."
+  },
+  {
+    "type": "function",
     "name": "todo_write",
     "parameters": {
       "additionalProperties": false,
