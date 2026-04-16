@@ -172,10 +172,22 @@ mod tests {
     }
 
     #[test]
-    fn test_to_environment_uses_config_reader_base_path() {
-        let actual = to_environment(PathBuf::from("/any/cwd"));
-        let expected = ConfigReader::base_path();
-        assert_eq!(actual.base_path, expected);
+    fn test_to_environment_base_path_is_stable_after_env_var_change() {
+        let fixture_cwd = PathBuf::from("/any/cwd");
+        let expected = to_environment(fixture_cwd.clone()).base_path;
+
+        let previous = std::env::var("FORGE_CONFIG").ok();
+        unsafe { std::env::set_var("FORGE_CONFIG", "/custom/config/dir") };
+
+        let actual = to_environment(fixture_cwd).base_path;
+
+        if let Some(value) = previous {
+            unsafe { std::env::set_var("FORGE_CONFIG", value) };
+        } else {
+            unsafe { std::env::remove_var("FORGE_CONFIG") };
+        }
+
+        assert_eq!(actual, expected);
     }
 
     #[test]
