@@ -250,11 +250,10 @@ mod tests {
 
     #[test]
     fn test_wrap_pasted_text_large_single_line_prompt_preserves_plain_text_paths() {
-        let fixture = format!(
-            "{} /usr/bin/env {}",
-            "context".repeat(60),
-            "details".repeat(30)
-        );
+        let mut fixture = String::from("context /usr/bin/env");
+        while fixture.len() <= MAX_INLINE_PATH_WRAP_BYTES {
+            fixture.push('x');
+        }
         let actual = wrap_pasted_text(&fixture);
         let expected = fixture;
         assert_eq!(actual, expected);
