@@ -144,7 +144,7 @@ pub struct FsUndoOutput {
 
 /// Output of a prompt-level undo operation that restores all files changed in
 /// the last user prompt.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct PromptUndoOutput {
     /// List of file paths that were restored from their snapshots.
     pub restored_files: Vec<String>,
