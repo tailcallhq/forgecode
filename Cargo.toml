@@ -59,11 +59,11 @@ machineid-rs = "1.2.4"
 mockito = "1.7.2"
 nom = "8.0.0"
 nu-ansi-term = "0.50.1"
-posthog-rs = { git = "https://github.com/PostHog/posthog-rs.git", rev = "fe1bfe0ea613c85c460f1768e75ca83cb70a8afd" }
+posthog-rs = { git = "https://github.com/PostHog/posthog-rs.git", rev = "5a4052c6fa140561d4d725f7c9eca30d8eba9b45" }
 pretty_assertions = "1.4.1"
 proc-macro2 = "1.0"
 quote = "1.0"
-reedline = "0.46.0"
+reedline = "0.47.0"
 rustyline = "18.0.0"
 regex = "1.12.3"
 reqwest = { version = "0.12.23", features = [
