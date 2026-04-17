@@ -716,7 +716,10 @@ pub mod tests {
         let chat_request = ForgeChatRequest::new(infra.clone());
 
         // Execute
-        let actual = chat_request.attachments("@[/test/nonexistent.txt]").await.unwrap_err();
+        let actual = chat_request
+            .attachments("@[/test/nonexistent.txt]")
+            .await
+            .unwrap_err();
         let expected = "Attachment path does not exist: /test/nonexistent.txt. If you pasted a shortened display path, paste the full path instead.";
 
         // Assert
