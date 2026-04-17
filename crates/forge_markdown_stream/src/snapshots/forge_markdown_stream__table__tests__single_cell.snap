@@ -1,9 +1,0 @@
----
-source: crates/forge_markdown_stream/src/table.rs
-expression: "render(vec![vec![\"Header\"], vec![\"Value\"],])"
----
-  ┌────────┐
-  │ Header │
-  ├────────┤
-  │ Value  │
-  └────────┘
