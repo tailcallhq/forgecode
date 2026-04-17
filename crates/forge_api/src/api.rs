@@ -23,12 +23,11 @@ pub trait API: Sync + Send {
     /// Provides a list of models available in the current environment
     async fn get_models(&self) -> Result<Vec<Model>>;
 
-    /// Provides models from all configured providers. Providers that
-    /// successfully return models are included in the result. If every
-    /// configured provider fails (e.g. due to an invalid API key), the
-    /// first error is returned so the caller sees the real underlying cause
-    /// rather than an empty list.
-    async fn get_all_provider_models(&self) -> Result<Vec<ProviderModels>>;
+    /// Provides models from all configured providers. Each element is
+    /// either a successful `ProviderModels` or an error for a provider
+    /// that failed (e.g. due to stale credentials), so callers can show
+    /// partial results alongside per-provider errors.
+    async fn get_all_provider_models(&self) -> Result<Vec<Result<ProviderModels>>>;
 
     /// Provides a list of agents available in the current environment
     async fn get_agents(&self) -> Result<Vec<Agent>>;
