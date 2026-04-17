@@ -574,10 +574,7 @@ pub struct FSMultiPatch {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
 #[tool_description_file = "crates/forge_domain/src/tools/descriptions/fs_undo.md"]
-pub struct FSUndo {
-    /// The absolute path of the file to revert to its previous state.
-    pub path: String,
-}
+pub struct FSUndo;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
 #[tool_description_file = "crates/forge_domain/src/tools/descriptions/shell.md"]
@@ -1068,9 +1065,9 @@ impl ToolCatalog {
         ToolCallFull::from(ToolCatalog::SemSearch(SemanticSearch { queries }))
     }
 
-    /// Creates an Undo tool call with the specified path
-    pub fn tool_call_undo(path: &str) -> ToolCallFull {
-        ToolCallFull::from(ToolCatalog::Undo(FSUndo { path: path.to_string() }))
+    /// Creates an Undo tool call that reverts all file changes from the last prompt
+    pub fn tool_call_undo() -> ToolCallFull {
+        ToolCallFull::from(ToolCatalog::Undo(FSUndo))
     }
 
     /// Creates a Fetch tool call with the specified url

@@ -104,9 +104,8 @@ impl FormatContent for ToolCatalog {
                         .into(),
                 )
             }
-            ToolCatalog::Undo(input) => {
-                let display_path = display_path_for(&input.path);
-                Some(TitleFormat::debug("Undo").sub_title(display_path).into())
+            ToolCatalog::Undo(_) => {
+                Some(TitleFormat::debug("Undo").sub_title("last prompt").into())
             }
             ToolCatalog::Shell(input) => Some(
                 TitleFormat::debug(format!("Execute [{}]", env.shell))

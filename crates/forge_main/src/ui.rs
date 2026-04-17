@@ -2158,6 +2158,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let working_dir = self.state.cwd.clone();
                 self.on_index(working_dir, false).await?;
             }
+            AppCommand::Undo => {
+                self.spinner.start(Some("Undoing"))?;
+                self.on_undo().await?;
+            }
             AppCommand::AgentSwitch(agent_id) => {
                 // Validate that the agent exists by checking against loaded agents
                 let agents = self.api.get_agent_infos().await?;
@@ -4502,6 +4506,29 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             } else {
                 self.writeln(self.markdown.render(message))?;
             }
+        }
+
+        Ok(())
+    }
+
+    async fn on_undo(&mut self) -> anyhow::Result<()> {
+        let conversation_id = self
+            .state
+            .conversation_id
+            .ok_or_else(|| anyhow::anyhow!("No active conversation to undo"))?;
+
+        let output = self.api.undo_last_prompt(conversation_id).await?;
+
+        if output.restored_files.is_empty() {
+            self.writeln_title(TitleFormat::info(
+                "No file changes found for the last prompt.",
+            ))?;
+        } else {
+            let files_count = output.restored_files.len();
+            let files_list = output.restored_files.join(", ");
+            self.writeln_title(TitleFormat::info(format!(
+                "Restored {files_count} file(s) to their state before the last prompt: {files_list}"
+            )))?;
         }
 
         Ok(())

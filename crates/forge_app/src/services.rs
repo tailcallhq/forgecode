@@ -142,6 +142,14 @@ pub struct FsUndoOutput {
     pub after_undo: Option<String>,
 }
 
+/// Output of a prompt-level undo operation that restores all files changed in
+/// the last user prompt.
+#[derive(Debug, Default)]
+pub struct PromptUndoOutput {
+    /// List of file paths that were restored from their snapshots.
+    pub restored_files: Vec<String>,
+}
+
 /// Output from todo_write tool execution
 #[derive(Debug)]
 pub struct TodoWriteOutput {
@@ -434,6 +442,22 @@ pub trait FsUndoService: Send + Sync {
 }
 
 #[async_trait::async_trait]
+pub trait PromptUndoService: Send + Sync {
+    /// Restores all files that were changed during the most recent user prompt
+    /// in the given conversation, using snapshot metadata from SQLite.
+    ///
+    /// # Arguments
+    /// * `conversation_id` - The conversation to look up snapshots for.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails or file restoration fails.
+    async fn undo_last_prompt(
+        &self,
+        conversation_id: forge_domain::ConversationId,
+    ) -> anyhow::Result<PromptUndoOutput>;
+}
+
+#[async_trait::async_trait]
 pub trait NetFetchService: Send + Sync {
     /// Fetches content from a URL and returns it as a string.
     async fn fetch(&self, url: String, raw: Option<bool>) -> anyhow::Result<HttpResponse>;
@@ -560,6 +584,7 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     type FsSearchService: FsSearchService;
     type FollowUpService: FollowUpService;
     type FsUndoService: FsUndoService;
+    type PromptUndoService: PromptUndoService;
     type NetFetchService: NetFetchService;
     type ShellService: ShellService;
     type McpService: McpService;
@@ -587,6 +612,7 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     fn fs_search_service(&self) -> &Self::FsSearchService;
     fn follow_up_service(&self) -> &Self::FollowUpService;
     fn fs_undo_service(&self) -> &Self::FsUndoService;
+    fn prompt_undo_service(&self) -> &Self::PromptUndoService;
     fn net_fetch_service(&self) -> &Self::NetFetchService;
     fn shell_service(&self) -> &Self::ShellService;
     fn mcp_service(&self) -> &Self::McpService;
@@ -861,6 +887,16 @@ impl<I: Services> FollowUpService for I {
 impl<I: Services> FsUndoService for I {
     async fn undo(&self, path: String) -> anyhow::Result<FsUndoOutput> {
         self.fs_undo_service().undo(path).await
+    }
+}
+
+#[async_trait::async_trait]
+impl<I: Services> PromptUndoService for I {
+    async fn undo_last_prompt(
+        &self,
+        conversation_id: forge_domain::ConversationId,
+    ) -> anyhow::Result<PromptUndoOutput> {
+        self.prompt_undo_service().undo_last_prompt(conversation_id).await
     }
 }
 

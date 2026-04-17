@@ -9,8 +9,8 @@ use crate::operation::{TempContentFiles, ToolOperation};
 use crate::services::{Services, ShellService};
 use crate::{
     AgentRegistry, ConversationService, EnvironmentInfra, FollowUpService, FsPatchService,
-    FsReadService, FsRemoveService, FsSearchService, FsUndoService, FsWriteService,
-    ImageReadService, NetFetchService, PlanCreateService, ProviderService, SkillFetchService,
+    FsReadService, FsRemoveService, FsSearchService, FsWriteService, ImageReadService,
+    NetFetchService, PlanCreateService, PromptUndoService, ProviderService, SkillFetchService,
     WorkspaceService,
 };
 
@@ -27,7 +27,7 @@ impl<
         + NetFetchService
         + FsRemoveService
         + FsPatchService
-        + FsUndoService
+        + PromptUndoService
         + ShellService
         + FollowUpService
         + ConversationService
@@ -270,10 +270,13 @@ impl<
                     .await?;
                 (input, output).into()
             }
-            ToolCatalog::Undo(input) => {
-                let normalized_path = self.normalize_path(input.path.clone());
-                let output = self.services.undo(normalized_path).await?;
-                (input, output).into()
+            ToolCatalog::Undo(_) => {
+                let output = self
+                    .services
+                    .prompt_undo_service()
+                    .undo_last_prompt(context.conversation_id)
+                    .await?;
+                (output).into()
             }
             ToolCatalog::Shell(input) => {
                 let cwd = input

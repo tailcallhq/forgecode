@@ -39,6 +39,7 @@ jobs/**
 *-dump.json
 *-dump.html
 .mcp.json
+*.snap*
 *.d.ts
 *.js
 *.map

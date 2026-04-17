@@ -128,10 +128,10 @@ impl SummaryToolCall {
 
     /// Creates an Undo tool call with default values (id: None, is_success:
     /// true)
-    pub fn undo(path: impl Into<String>) -> Self {
+    pub fn undo() -> Self {
         Self {
             id: None,
-            tool: SummaryTool::Undo { path: path.into() },
+            tool: SummaryTool::Undo,
             is_success: true,
         }
     }
@@ -186,7 +186,7 @@ pub enum SummaryTool {
     Shell { command: String },
     Search { pattern: String },
     SemSearch { queries: Vec<SearchQuery> },
-    Undo { path: String },
+    Undo,
     Fetch { url: String },
     Followup { question: String },
     Plan { plan_name: String },
@@ -355,7 +355,7 @@ fn extract_tool_info(call: &ToolCallFull, current_todos: &[Todo]) -> Option<Summ
             ToolCatalog::SemSearch(input) => {
                 Some(SummaryTool::SemSearch { queries: input.queries })
             }
-            ToolCatalog::Undo(input) => Some(SummaryTool::Undo { path: input.path }),
+            ToolCatalog::Undo(_) => Some(SummaryTool::Undo),
             ToolCatalog::Fetch(input) => Some(SummaryTool::Fetch { url: input.url }),
             ToolCatalog::Followup(input) => {
                 Some(SummaryTool::Followup { question: input.question })
@@ -1144,11 +1144,11 @@ mod tests {
 
     #[test]
     fn test_summary_message_block_undo_helper() {
-        let actual: SummaryMessage = SummaryToolCall::undo("/test/file.rs").into();
+        let actual: SummaryMessage = SummaryToolCall::undo().into();
 
         let expected = Block::ToolCall(SummaryToolCall {
             id: None,
-            tool: SummaryTool::Undo { path: "/test/file.rs".to_string() },
+            tool: SummaryTool::Undo,
             is_success: true,
         });
 
@@ -1198,7 +1198,7 @@ mod tests {
     fn test_context_summary_extracts_undo_tool_calls() {
         let fixture = context(vec![assistant_with_tools(
             "Undoing changes",
-            vec![ToolCatalog::tool_call_undo("/test/file.rs").call_id("call_1")],
+            vec![ToolCatalog::tool_call_undo().call_id("call_1")],
         )]);
 
         let actual = ContextSummary::from(&fixture);
@@ -1207,7 +1207,7 @@ mod tests {
             Role::Assistant,
             vec![
                 Block::content("Undoing changes"),
-                SummaryToolCall::undo("/test/file.rs")
+                SummaryToolCall::undo()
                     .id("call_1")
                     .is_success(false)
                     .into(),
@@ -1291,7 +1291,7 @@ mod tests {
         let fixture = context(vec![
             assistant_with_tools(
                 "Undoing",
-                vec![ToolCatalog::tool_call_undo("/test/file.rs").call_id("call_1")],
+                vec![ToolCatalog::tool_call_undo().call_id("call_1")],
             ),
             tool_result("undo", "call_1", false),
         ]);
@@ -1302,7 +1302,7 @@ mod tests {
             Role::Assistant,
             vec![
                 Block::content("Undoing"),
-                SummaryToolCall::undo("/test/file.rs").id("call_1").into(),
+                SummaryToolCall::undo().id("call_1").into(),
             ],
         )]);
 
@@ -1390,7 +1390,7 @@ mod tests {
                 ToolCatalog::tool_call_remove("/test/old.txt").call_id("call_3"),
                 ToolCatalog::tool_call_shell("cargo build", "/test").call_id("call_4"),
                 ToolCatalog::tool_call_search("/test", "/test/src").call_id("call_5"),
-                ToolCatalog::tool_call_undo("/test/undo.txt").call_id("call_6"),
+                ToolCatalog::tool_call_undo().call_id("call_6"),
                 ToolCatalog::tool_call_fetch("https://example.com").call_id("call_7"),
                 ToolCatalog::tool_call_followup("Proceed?").call_id("call_8"),
                 ToolCatalog::tool_call_plan("implementation", "v1", "test").call_id("call_9"),
@@ -1423,7 +1423,7 @@ mod tests {
                     .id("call_5")
                     .is_success(false)
                     .into(),
-                SummaryToolCall::undo("/test/undo.txt")
+                SummaryToolCall::undo()
                     .id("call_6")
                     .is_success(false)
                     .into(),

@@ -20,6 +20,14 @@ impl UserInputId {
         Self(Uuid::new_v4())
     }
 
+    /// Parse a `UserInputId` from a UUID string.
+    ///
+    /// # Errors
+    /// Returns an error if the string is not a valid UUID.
+    pub fn parse(value: impl AsRef<str>) -> anyhow::Result<Self> {
+        Ok(Self(Uuid::parse_str(value.as_ref())?))
+    }
+
     /// Return the underlying UUID.
     pub fn into_uuid(self) -> Uuid {
         self.0

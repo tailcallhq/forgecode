@@ -153,6 +153,7 @@ impl ForgeCommandManager {
                 | "sync-info"
                 | "workspace-init"
                 | "sync-init"
+                | "undo"
         )
     }
 
@@ -689,6 +690,10 @@ pub enum AppCommand {
     /// Index the current workspace for semantic code search
     #[strum(props(usage = "Index the current workspace for semantic search"))]
     Index,
+
+    /// Undo all file changes from the last prompt
+    #[strum(props(usage = "Undo all file changes from the last prompt"))]
+    Undo,
 }
 
 impl AppCommand {
@@ -739,6 +744,7 @@ impl AppCommand {
             AppCommand::WorkspaceStatus => "workspace-status",
             AppCommand::WorkspaceInfo => "workspace-info",
             AppCommand::WorkspaceInit => "workspace-init",
+            AppCommand::Undo => "undo",
         }
     }
 
@@ -1466,6 +1472,14 @@ mod tests {
             }
             _ => panic!("Expected Commit command with all flags, got {actual:?}"),
         }
+    }
+
+    #[test]
+    fn test_parse_undo_command() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/undo").unwrap();
+        let expected = AppCommand::Undo;
+        assert_eq!(actual, expected);
     }
 
     #[test]

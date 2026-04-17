@@ -50,7 +50,7 @@ fn to_op(tool: &SummaryTool) -> Operation<'_> {
         SummaryTool::FileRead { path } => Operation::File(path),
         SummaryTool::FileUpdate { path } => Operation::File(path),
         SummaryTool::FileRemove { path } => Operation::File(path),
-        SummaryTool::Undo { path } => Operation::File(path),
+        SummaryTool::Undo => Operation::File("undo"),
         SummaryTool::Shell { command } => Operation::Shell(command),
         SummaryTool::Search { pattern } => Operation::Search(pattern),
         SummaryTool::SemSearch { queries } => Operation::CodebaseSearch { queries },

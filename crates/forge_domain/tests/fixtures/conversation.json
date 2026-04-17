@@ -352,20 +352,12 @@
       },
       {
         "name": "undo",
-        "description": "Reverts the most recent file operation (create/modify/delete) on a specific\n file. Use this tool when you need to recover from incorrect file changes or\n if a revert is requested by the user.",
+        "description": "Reverts all file changes made during the most recent user prompt. Use this tool when you need to undo the last set of file operations (creates, modifications, or deletions) or when a revert is requested by the user. This restores every file that was changed back to its state before the last prompt.",
         "input_schema": {
           "title": "FSUndo",
-          "description": "Reverts the most recent file operation (create/modify/delete) on a specific file. Use this tool when you need to recover from incorrect file changes or if a revert is requested by the user.",
+          "description": "Reverts all file changes made during the most recent user prompt. Use this tool when you need to undo the last set of file operations (creates, modifications, or deletions) or when a revert is requested by the user. This restores every file that was changed back to its state before the last prompt.",
           "type": "object",
-          "required": [
-            "path"
-          ],
-          "properties": {
-            "path": {
-              "description": "The absolute path of the file to revert to its previous state.",
-              "type": "string"
-            }
-          }
+          "properties": {}
         }
       },
       {

@@ -7,7 +7,8 @@ use forge_app::{
 };
 use forge_domain::{
     ChatRepository, ConversationRepository, FuzzySearchRepository, ProviderRepository,
-    SkillRepository, SnapshotRepository, ValidationRepository, WorkspaceIndexRepository,
+    SkillRepository, SnapshotMetadataRepository, SnapshotRepository, ValidationRepository,
+    WorkspaceIndexRepository,
 };
 
 use crate::ForgeProviderAuthService;
@@ -26,7 +27,8 @@ use crate::provider_service::ForgeProviderService;
 use crate::template::ForgeTemplateService;
 use crate::tool_services::{
     ForgeFetch, ForgeFollowup, ForgeFsPatch, ForgeFsRead, ForgeFsRemove, ForgeFsSearch,
-    ForgeFsUndo, ForgeFsWrite, ForgeImageRead, ForgePlanCreate, ForgeShell, ForgeSkillFetch,
+    ForgeFsUndo, ForgeFsWrite, ForgeImageRead, ForgePlanCreate, ForgePromptUndo, ForgeShell,
+    ForgeSkillFetch,
 };
 
 type McpService<F> = ForgeMcpService<ForgeMcpManager<F>, F, <F as McpServerInfra>::Client>;
@@ -46,6 +48,7 @@ pub struct ForgeServices<
         + McpServerInfra
         + WalkerInfra
         + SnapshotRepository
+        + SnapshotMetadataRepository
         + ConversationRepository
         + KVStore
         + ChatRepository
@@ -70,6 +73,7 @@ pub struct ForgeServices<
     file_remove_service: Arc<ForgeFsRemove<F>>,
     file_patch_service: Arc<ForgeFsPatch<F>>,
     file_undo_service: Arc<ForgeFsUndo<F>>,
+    prompt_undo_service: Arc<ForgePromptUndo<F>>,
     shell_service: Arc<ForgeShell<F>>,
     fetch_service: Arc<ForgeFetch>,
     followup_service: Arc<ForgeFollowup<F>>,
@@ -97,6 +101,7 @@ impl<
         + CommandInfra
         + UserInfra
         + SnapshotRepository
+        + SnapshotMetadataRepository
         + ConversationRepository
         + ChatRepository
         + ProviderRepository
@@ -125,6 +130,7 @@ impl<
         let file_remove_service = Arc::new(ForgeFsRemove::new(infra.clone()));
         let file_patch_service = Arc::new(ForgeFsPatch::new(infra.clone()));
         let file_undo_service = Arc::new(ForgeFsUndo::new(infra.clone()));
+        let prompt_undo_service = Arc::new(ForgePromptUndo::new(infra.clone()));
         let shell_service = Arc::new(ForgeShell::new(infra.clone()));
         let fetch_service = Arc::new(ForgeFetch::new());
         let followup_service = Arc::new(ForgeFollowup::new(infra.clone()));
@@ -155,6 +161,7 @@ impl<
             file_remove_service,
             file_patch_service,
             file_undo_service,
+            prompt_undo_service,
             shell_service,
             fetch_service,
             followup_service,
@@ -189,6 +196,7 @@ impl<
         + WalkerInfra
         + Clone
         + SnapshotRepository
+        + SnapshotMetadataRepository
         + ConversationRepository
         + KVStore
         + ChatRepository
@@ -224,6 +232,7 @@ impl<
     type FsSearchService = ForgeFsSearch<F>;
     type FollowUpService = ForgeFollowup<F>;
     type FsUndoService = ForgeFsUndo<F>;
+    type PromptUndoService = ForgePromptUndo<F>;
     type NetFetchService = ForgeFetch;
     type ShellService = ForgeShell<F>;
     type McpService = McpService<F>;
@@ -295,6 +304,10 @@ impl<
         &self.file_undo_service
     }
 
+    fn prompt_undo_service(&self) -> &Self::PromptUndoService {
+        &self.prompt_undo_service
+    }
+
     fn net_fetch_service(&self) -> &Self::NetFetchService {
         &self.fetch_service
     }
@@ -345,6 +358,7 @@ impl<
         + McpServerInfra
         + WalkerInfra
         + SnapshotRepository
+        + SnapshotMetadataRepository
         + ConversationRepository
         + KVStore
         + ChatRepository

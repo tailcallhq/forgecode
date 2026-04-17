@@ -396,6 +396,14 @@ impl<
         Ok(self.services.migrate_env_credentials().await?)
     }
 
+    async fn undo_last_prompt(
+        &self,
+        conversation_id: ConversationId,
+    ) -> Result<forge_app::PromptUndoOutput> {
+        use forge_app::PromptUndoService;
+        self.services.undo_last_prompt(conversation_id).await
+    }
+
     async fn generate_data(
         &self,
         data_parameters: DataGenerationParameters,

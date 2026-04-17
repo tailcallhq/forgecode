@@ -1,1 +1,1 @@
-Reverts the most recent file operation (create/modify/delete) on a specific file. Use this tool when you need to recover from incorrect file changes or if a revert is requested by the user.
+Reverts all file changes made during the most recent user prompt. Use this tool when you need to undo the last set of file operations (creates, modifications, or deletions) or when a revert is requested by the user. This restores every file that was changed back to its state before the last prompt.

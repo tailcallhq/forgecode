@@ -247,6 +247,13 @@ pub trait API: Sync + Send {
     /// credentials file doesn't exist.
     async fn migrate_env_credentials(&self) -> Result<Option<forge_domain::MigrationResult>>;
 
+    /// Restores all files that were changed during the most recent user prompt
+    /// in the given conversation.
+    async fn undo_last_prompt(
+        &self,
+        conversation_id: ConversationId,
+    ) -> Result<forge_app::PromptUndoOutput>;
+
     async fn generate_data(
         &self,
         data_parameters: DataGenerationParameters,

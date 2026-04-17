@@ -48,7 +48,7 @@ impl FormatContent for ToolOperation {
             | ToolOperation::FsRemove { input: _, output: _ }
             | ToolOperation::FsSearch { input: _, output: _ }
             | ToolOperation::CodebaseSearch { output: _ }
-            | ToolOperation::FsUndo { input: _, output: _ }
+            | ToolOperation::FsUndo { output: _ }
             | ToolOperation::NetFetch { input: _, output: _ }
             | ToolOperation::Shell { output: _ }
             | ToolOperation::FollowUp { output: _ }
@@ -71,8 +71,8 @@ mod tests {
     // ContentFormat is now ChatResponseContent
     use crate::operation::ToolOperation;
     use crate::{
-        Content, FsRemoveOutput, FsUndoOutput, FsWriteOutput, HttpResponse, Match, MatchResult,
-        PatchOutput, ReadOutput, ResponseContext, SearchResult, ShellOutput,
+        Content, FsRemoveOutput, FsWriteOutput, HttpResponse, Match, MatchResult,
+        PatchOutput, PromptUndoOutput, ReadOutput, ResponseContext, SearchResult, ShellOutput,
     };
 
     // ContentFormat methods are now implemented in ChatResponseContent
@@ -354,12 +354,10 @@ mod tests {
     }
 
     #[test]
-    fn test_fs_undo() {
+    fn test_prompt_undo() {
         let fixture = ToolOperation::FsUndo {
-            input: forge_domain::FSUndo { path: "/home/user/project/test.txt".to_string() },
-            output: FsUndoOutput {
-                before_undo: Some("ABC".to_string()),
-                after_undo: Some("PQR".to_string()),
+            output: PromptUndoOutput {
+                restored_files: vec!["/home/user/project/test.txt".to_string()],
             },
         };
         let env = fixture_environment();
