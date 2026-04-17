@@ -240,6 +240,12 @@
     "aliases": ["ci:test-jit"]
   },
   {
+    "name": "os: windows",
+    "color": "0078d4",
+    "description": "Windows-specific issue or feature.",
+    "aliases": ["windows", "win32", "platform: windows"]
+  },
+  {
     "name": "onlydust-wave",
     "color": "FF6D00",
     "description": "Related to OnlyDust Wave Hackathon"
