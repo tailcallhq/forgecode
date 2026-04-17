@@ -228,10 +228,10 @@
     "aliases": ["ci:benchmark"]
   },
   {
-    "name": "update: provider",
+    "name": "type: provider",
     "color": "0075ca",
     "description": "Updates provider.json configuration.",
-    "aliases": ["provider"]
+    "aliases": ["provider", "update: provider"]
   },
   {
     "name": "ci: test-jit",
