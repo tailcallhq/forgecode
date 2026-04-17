@@ -14,7 +14,7 @@ use crate::provider::bedrock::BedrockResponseRepository;
 use crate::provider::google::GoogleResponseRepository;
 use crate::provider::openai::OpenAIResponseRepository;
 use crate::provider::openai_responses::OpenAIResponsesResponseRepository;
-use crate::provider::opencode_zen::OpenCodeZenResponseRepository;
+use crate::provider::opencode::OpenCodeZenResponseRepository;
 
 /// Repository responsible for routing chat requests to the appropriate provider
 /// implementation based on the provider's response type.
@@ -24,34 +24,24 @@ pub struct ForgeChatRepository<F> {
     bg_refresh: BgRefresh,
 }
 
-impl<F: EnvironmentInfra + HttpInfra> ForgeChatRepository<F> {
+impl<F: EnvironmentInfra<Config = forge_config::ForgeConfig> + HttpInfra> ForgeChatRepository<F> {
     /// Creates a new ForgeChatRepository with the given infrastructure.
     ///
     /// # Arguments
     ///
     /// * `infra` - Infrastructure providing environment and HTTP capabilities
-    /// * `retry_config` - Retry configuration extracted from startup config
-    /// * `model_cache_ttl_secs` - Model cache TTL in seconds from startup
-    ///   config
-    pub fn new(
-        infra: Arc<F>,
-        retry_config: forge_config::RetryConfig,
-        model_cache_ttl_secs: u64,
-    ) -> Self {
+    pub fn new(infra: Arc<F>) -> Self {
         let env = infra.get_environment();
-        let retry_config = Arc::new(retry_config);
+        let config = infra.get_config().unwrap_or_default();
+        let model_cache_ttl_secs = config.model_cache_ttl_secs;
 
-        let openai_repo =
-            OpenAIResponseRepository::new(infra.clone()).retry_config(retry_config.clone());
-        let codex_repo = OpenAIResponsesResponseRepository::new(infra.clone())
-            .retry_config(retry_config.clone());
-        let anthropic_repo =
-            AnthropicResponseRepository::new(infra.clone()).retry_config(retry_config.clone());
-        let bedrock_repo = BedrockResponseRepository::new(retry_config.clone());
-        let google_repo =
-            GoogleResponseRepository::new(infra.clone()).retry_config(retry_config.clone());
-        let opencode_zen_repo =
-            OpenCodeZenResponseRepository::new(infra.clone()).retry_config(retry_config.clone());
+        let openai_repo = OpenAIResponseRepository::new(infra.clone());
+        let codex_repo = OpenAIResponsesResponseRepository::new(infra.clone());
+        let anthropic_repo = AnthropicResponseRepository::new(infra.clone());
+        let bedrock_repo =
+            BedrockResponseRepository::new(Arc::new(config.retry.unwrap_or_default()));
+        let google_repo = GoogleResponseRepository::new(infra.clone());
+        let opencode_zen_repo = OpenCodeZenResponseRepository::new(infra.clone());
 
         let model_cache = Arc::new(CacacheStorage::new(
             env.cache_dir().join("model_cache"),
@@ -74,7 +64,9 @@ impl<F: EnvironmentInfra + HttpInfra> ForgeChatRepository<F> {
 }
 
 #[async_trait::async_trait]
-impl<F: EnvironmentInfra + HttpInfra + Sync> ChatRepository for ForgeChatRepository<F> {
+impl<F: EnvironmentInfra<Config = forge_config::ForgeConfig> + HttpInfra + Sync> ChatRepository
+    for ForgeChatRepository<F>
+{
     async fn chat(
         &self,
         model_id: &ModelId,
@@ -138,7 +130,7 @@ struct ProviderRouter<F> {
     opencode_zen_repo: OpenCodeZenResponseRepository<F>,
 }
 
-impl<F: HttpInfra + Sync> ProviderRouter<F> {
+impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync> ProviderRouter<F> {
     async fn chat(
         &self,
         model_id: &ModelId,

@@ -70,7 +70,10 @@ impl OAuthHttpProvider for AnthropicHttpProvider {
         // Anthropic-specific token exchange
         let (code, state) = if code.contains('#') {
             let parts: Vec<&str> = code.split('#').collect();
-            (parts[0].to_string(), parts.get(1).map(|s| s.to_string()))
+            (
+                parts.first().map(|s| s.to_string()).unwrap_or_default(),
+                parts.get(1).map(|s| s.to_string()),
+            )
         } else {
             (code.to_string(), None)
         };

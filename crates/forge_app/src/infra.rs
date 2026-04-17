@@ -28,6 +28,13 @@ pub trait EnvironmentInfra: Send + Sync {
     /// Retrieves the current application configuration as an [`Environment`].
     fn get_environment(&self) -> Environment;
 
+    /// Returns the latest fully-resolved configuration, re-reading from disk
+    /// if a prior `update_environment` call has invalidated the cache.
+    ///
+    /// # Errors
+    /// Returns an error if the disk read fails.
+    fn get_config(&self) -> anyhow::Result<Self::Config>;
+
     /// Applies a list of configuration operations to the persisted config.
     ///
     /// Implementations should load the current config, apply each operation in
@@ -101,6 +108,10 @@ pub trait FileReaderInfra: Send + Sync {
 pub trait FileWriterInfra: Send + Sync {
     /// Writes the content of a file at the specified path.
     async fn write(&self, path: &Path, contents: Bytes) -> anyhow::Result<()>;
+
+    /// Appends content to a file at the specified path, creating it if it does
+    /// not exist.
+    async fn append(&self, path: &Path, contents: Bytes) -> anyhow::Result<()>;
 
     /// Writes content to a temporary file with the given prefix and extension,
     /// and returns its path. The file will be kept (not deleted) after
@@ -205,6 +216,7 @@ pub trait McpServerInfra: Send + Sync + 'static {
         &self,
         config: McpServerConfig,
         env_vars: &BTreeMap<String, String>,
+        environment: &Environment,
     ) -> anyhow::Result<Self::Client>;
 }
 /// Service for walking filesystem directories
@@ -385,11 +397,11 @@ pub trait AgentRepository: Send + Sync {
     /// * `provider_id` - Default provider applied to agents that do not specify
     ///   one
     /// * `model_id` - Default model applied to agents that do not specify one
-    async fn get_agents(
-        &self,
-        provider_id: forge_domain::ProviderId,
-        model_id: forge_domain::ModelId,
-    ) -> anyhow::Result<Vec<forge_domain::Agent>>;
+    async fn get_agents(&self) -> anyhow::Result<Vec<forge_domain::Agent>>;
+
+    /// Load lightweight metadata for all agents without requiring a configured
+    /// provider or model.
+    async fn get_agent_infos(&self) -> anyhow::Result<Vec<forge_domain::AgentInfo>>;
 }
 
 /// Infrastructure trait for providing shared gRPC channel
@@ -399,7 +411,7 @@ pub trait AgentRepository: Send + Sync {
 /// cheaply across multiple clients.
 pub trait GrpcInfra: Send + Sync {
     /// Returns a cloned gRPC channel for the workspace server
-    fn channel(&self) -> tonic::transport::Channel;
+    fn channel(&self) -> anyhow::Result<tonic::transport::Channel>;
 
     /// Hydrates the gRPC channel by establishing and then dropping the
     /// connection

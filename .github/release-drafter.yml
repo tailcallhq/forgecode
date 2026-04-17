@@ -4,6 +4,7 @@ categories:
   - title: "🚀 Features"
     labels:
       - "type: feature"
+      - "type: provider"
 
   - title: "📝 Documentation"
     labels:
@@ -43,6 +44,7 @@ version-resolver:
   minor:
     labels:
       - "type: feature"
+      - "type: provider"
     # Add direct commit message pattern matching for features
     commits:
       - "feat:"
@@ -110,3 +112,21 @@ autolabeler:
       - /perf/i
     files:
       - "/benches/"
+
+  - label: "type: provider"
+    files:
+      - "provider.json"
+
+  - label: "os: windows"
+    title:
+      - /windows/i
+      - /win32/i
+      - /winapi/i
+      - /powershell/i
+      - /scoop/i
+      - /chocolatey/i
+      - /winget/i
+    body:
+      - /windows[ -](only|specific|terminal|path|installer|build)/i
+      - /multiline paste.*windows/i
+      - /windows.*multiline paste/i

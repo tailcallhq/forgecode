@@ -21,6 +21,7 @@ impl Transformer for CapitalizeToolNames {
             tool.name = match tool.name.as_str() {
                 "read" => "Read".to_string(),
                 "write" => "Write".to_string(),
+                "task" => "Task".to_string(),
                 _ => tool.name.clone(),
             };
         }

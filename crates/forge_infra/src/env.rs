@@ -9,14 +9,12 @@ use tracing::debug;
 
 /// Builds a [`forge_domain::Environment`] from runtime context only.
 ///
-/// Only the six fields that cannot be sourced from [`ForgeConfig`] are set
-/// here: `os`, `pid`, `cwd`, `home`, `shell`, and `base_path`. All
-/// configuration values are now accessed through
-/// `EnvironmentInfra::get_config()`.
+/// Only the five fields that cannot be sourced from [`ForgeConfig`] are set
+/// here: `os`, `cwd`, `home`, `shell`, and `base_path`. All configuration
+/// values are now accessed through `EnvironmentInfra::get_config()`.
 pub fn to_environment(cwd: PathBuf) -> Environment {
     Environment {
         os: std::env::consts::OS.to_string(),
-        pid: std::process::id(),
         cwd,
         home: dirs::home_dir(),
         shell: if cfg!(target_os = "windows") {
@@ -24,9 +22,7 @@ pub fn to_environment(cwd: PathBuf) -> Environment {
         } else {
             std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
         },
-        base_path: dirs::home_dir()
-            .map(|h| h.join("forge"))
-            .unwrap_or_else(|| PathBuf::from(".").join("forge")),
+        base_path: ConfigReader::base_path(),
     }
 }
 
@@ -36,35 +32,21 @@ pub fn to_environment(cwd: PathBuf) -> Environment {
 /// persisted config without an intermediate `Environment` round-trip.
 fn apply_config_op(fc: &mut ForgeConfig, op: ConfigOperation) {
     match op {
-        ConfigOperation::SetProvider(pid) => {
-            let session = fc.session.get_or_insert_with(ModelConfig::default);
-            session.provider_id = Some(pid.as_ref().to_string());
+        ConfigOperation::SetSessionConfig(mc) => {
+            let pid_str = mc.provider.as_ref().to_string();
+            let mid_str = mc.model.to_string();
+            fc.session = Some(ModelConfig { provider_id: pid_str, model_id: mid_str });
         }
-        ConfigOperation::SetModel(pid, mid) => {
-            let pid_str = pid.as_ref().to_string();
-            let mid_str = mid.to_string();
-            let session = fc.session.get_or_insert_with(ModelConfig::default);
-            if session.provider_id.as_deref() == Some(&pid_str) {
-                session.model_id = Some(mid_str);
-            } else {
-                fc.session =
-                    Some(ModelConfig { provider_id: Some(pid_str), model_id: Some(mid_str) });
-            }
+        ConfigOperation::SetCommitConfig(mc) => {
+            fc.commit = mc.map(|m| ModelConfig {
+                provider_id: m.provider.as_ref().to_string(),
+                model_id: m.model.to_string(),
+            });
         }
-        ConfigOperation::SetCommitConfig(commit) => {
-            fc.commit = commit
-                .provider
-                .as_ref()
-                .zip(commit.model.as_ref())
-                .map(|(pid, mid)| ModelConfig {
-                    provider_id: Some(pid.as_ref().to_string()),
-                    model_id: Some(mid.to_string()),
-                });
-        }
-        ConfigOperation::SetSuggestConfig(suggest) => {
+        ConfigOperation::SetSuggestConfig(mc) => {
             fc.suggest = Some(ModelConfig {
-                provider_id: Some(suggest.provider.as_ref().to_string()),
-                model_id: Some(suggest.model.to_string()),
+                provider_id: mc.provider.as_ref().to_string(),
+                model_id: mc.model.to_string(),
             });
         }
         ConfigOperation::SetReasoningEffort(effort) => {
@@ -146,6 +128,10 @@ impl EnvironmentInfra for ForgeEnvironmentInfra {
         to_environment(self.cwd.clone())
     }
 
+    fn get_config(&self) -> anyhow::Result<ForgeConfig> {
+        self.cached_config()
+    }
+
     async fn update_environment(&self, ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
         // Load the global config (with defaults applied) for the update round-trip
         let mut fc = ConfigReader::default()
@@ -186,75 +172,101 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_config_op_set_provider() {
-        use forge_domain::ProviderId;
+    fn test_to_environment_base_path_is_stable_after_env_var_change() {
+        let fixture_cwd = PathBuf::from("/any/cwd");
+        let expected = to_environment(fixture_cwd.clone()).base_path;
+
+        let previous = std::env::var("FORGE_CONFIG").ok();
+        unsafe { std::env::set_var("FORGE_CONFIG", "/custom/config/dir") };
+
+        let actual = to_environment(fixture_cwd).base_path;
+
+        if let Some(value) = previous {
+            unsafe { std::env::set_var("FORGE_CONFIG", value) };
+        } else {
+            unsafe { std::env::remove_var("FORGE_CONFIG") };
+        }
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_to_environment_falls_back_to_home_dir_when_env_var_absent() {
+        let actual = to_environment(PathBuf::from("/any/cwd"));
+        // Without FORGE_CONFIG the base_path must be either ".forge" (new default)
+        // or "forge" (legacy fallback when ~/forge exists on this machine).
+        let name = actual.base_path.file_name().unwrap();
+        assert!(
+            name == ".forge" || name == "forge",
+            "Expected base_path to end with '.forge' or 'forge', got: {:?}",
+            name
+        );
+    }
+
+    #[test]
+    fn test_apply_config_op_set_model() {
+        use forge_domain::{ModelConfig as DomainModelConfig, ModelId, ProviderId};
 
         let mut fixture = ForgeConfig::default();
         apply_config_op(
             &mut fixture,
-            ConfigOperation::SetProvider(ProviderId::ANTHROPIC),
+            ConfigOperation::SetSessionConfig(DomainModelConfig::new(
+                ProviderId::ANTHROPIC,
+                ModelId::new("claude-3-5-sonnet"),
+            )),
         );
 
-        let actual = fixture
-            .session
-            .as_ref()
-            .and_then(|s| s.provider_id.as_deref());
-        let expected = Some("anthropic");
+        let actual_provider = fixture.session.as_ref().map(|s| s.provider_id.as_str());
+        let actual_model = fixture.session.as_ref().map(|s| s.model_id.as_str());
 
-        assert_eq!(actual, expected);
+        assert_eq!(actual_provider, Some("anthropic"));
+        assert_eq!(actual_model, Some("claude-3-5-sonnet"));
     }
 
     #[test]
-    fn test_apply_config_op_set_model_matching_provider() {
-        use forge_domain::{ModelId, ProviderId};
+    fn test_apply_config_op_set_session_config_replaces_existing() {
+        use forge_config::ModelConfig as ForgeCfgModelConfig;
+        use forge_domain::{ModelConfig as DomainModelConfig, ModelId, ProviderId};
 
         let mut fixture = ForgeConfig {
-            session: Some(ModelConfig {
-                provider_id: Some("anthropic".to_string()),
-                model_id: None,
+            session: Some(ForgeCfgModelConfig {
+                provider_id: "openai".to_string(),
+                model_id: "gpt-4".to_string(),
             }),
             ..Default::default()
         };
 
         apply_config_op(
             &mut fixture,
-            ConfigOperation::SetModel(
+            ConfigOperation::SetSessionConfig(DomainModelConfig::new(
                 ProviderId::ANTHROPIC,
                 ModelId::new("claude-3-5-sonnet-20241022"),
-            ),
+            )),
         );
 
-        let actual = fixture.session.as_ref().and_then(|s| s.model_id.as_deref());
-        let expected = Some("claude-3-5-sonnet-20241022");
+        let actual_provider = fixture.session.as_ref().map(|s| s.provider_id.as_str());
+        let actual_model = fixture.session.as_ref().map(|s| s.model_id.as_str());
 
-        assert_eq!(actual, expected);
+        assert_eq!(actual_provider, Some("anthropic"));
+        assert_eq!(actual_model, Some("claude-3-5-sonnet-20241022"));
     }
 
     #[test]
-    fn test_apply_config_op_set_model_different_provider_replaces_session() {
-        use forge_domain::{ModelId, ProviderId};
+    fn test_apply_config_op_set_session_config_creates_new_session() {
+        use forge_domain::{ModelConfig as DomainModelConfig, ModelId, ProviderId};
 
-        let mut fixture = ForgeConfig {
-            session: Some(ModelConfig {
-                provider_id: Some("openai".to_string()),
-                model_id: Some("gpt-4".to_string()),
-            }),
-            ..Default::default()
-        };
+        let mut fixture = ForgeConfig::default();
 
         apply_config_op(
             &mut fixture,
-            ConfigOperation::SetModel(
+            ConfigOperation::SetSessionConfig(DomainModelConfig::new(
                 ProviderId::ANTHROPIC,
                 ModelId::new("claude-3-5-sonnet-20241022"),
-            ),
+            )),
         );
 
-        let actual_provider = fixture
-            .session
-            .as_ref()
-            .and_then(|s| s.provider_id.as_deref());
-        let actual_model = fixture.session.as_ref().and_then(|s| s.model_id.as_deref());
+        let actual_provider = fixture.session.as_ref().map(|s| s.provider_id.as_str());
+        let actual_model = fixture.session.as_ref().map(|s| s.model_id.as_str());
 
         assert_eq!(actual_provider, Some("anthropic"));
         assert_eq!(actual_model, Some("claude-3-5-sonnet-20241022"));

@@ -13,6 +13,9 @@ source "${0:A:h}/lib/highlight.zsh"
 # Core utilities (includes logging)
 source "${0:A:h}/lib/helpers.zsh"
 
+# Terminal context capture (preexec/precmd hooks, OSC 133)
+source "${0:A:h}/lib/context.zsh"
+
 # Completion widget
 source "${0:A:h}/lib/completion.zsh"
 
@@ -24,8 +27,6 @@ source "${0:A:h}/lib/actions/git.zsh"
 source "${0:A:h}/lib/actions/auth.zsh"
 source "${0:A:h}/lib/actions/editor.zsh"
 source "${0:A:h}/lib/actions/provider.zsh"
-source "${0:A:h}/lib/actions/doctor.zsh"
-source "${0:A:h}/lib/actions/keyboard.zsh"
 
 # Main dispatcher and widget registration
 source "${0:A:h}/lib/dispatcher.zsh"

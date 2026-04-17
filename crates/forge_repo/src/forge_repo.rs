@@ -8,6 +8,7 @@ use forge_app::{
     FileInfoInfra, FileReaderInfra, FileRemoverInfra, FileWriterInfra, GrpcInfra, HttpInfra,
     KVStore, McpServerInfra, StrategyFactory, UserInfra, WalkedFile, Walker, WalkerInfra,
 };
+use forge_config::ForgeConfig;
 use forge_domain::{
     AnyProvider, AuthCredential, ChatCompletionMessage, ChatRepository, CommandOutput, Context,
     Conversation, ConversationId, ConversationRepository, Environment, FileInfo,
@@ -51,8 +52,15 @@ pub struct ForgeRepo<F> {
     fuzzy_search_repository: Arc<ForgeFuzzySearchRepository<F>>,
 }
 
-impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + GrpcInfra + HttpInfra> ForgeRepo<F> {
-    pub fn new(infra: Arc<F>, config: forge_config::ForgeConfig) -> Self {
+impl<
+    F: EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + FileReaderInfra
+        + FileWriterInfra
+        + GrpcInfra
+        + HttpInfra,
+> ForgeRepo<F>
+{
+    pub fn new(infra: Arc<F>) -> Self {
         let env = infra.get_environment();
         let file_snapshot_service = Arc::new(ForgeFileSnapshotService::new(env.clone()));
         let db_pool =
@@ -67,15 +75,8 @@ impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + GrpcInfra + HttpI
             Some(3600),
         )); // 1 hour TTL
 
-        let provider_repository = Arc::new(ForgeProviderRepository::new(
-            infra.clone(),
-            config.providers,
-        ));
-        let chat_repository = Arc::new(ForgeChatRepository::new(
-            infra.clone(),
-            config.retry.unwrap_or_default(),
-            config.model_cache_ttl_secs,
-        ));
+        let provider_repository = Arc::new(ForgeProviderRepository::new(infra.clone()));
+        let chat_repository = Arc::new(ForgeChatRepository::new(infra.clone()));
 
         let codebase_repo = Arc::new(ForgeContextEngineRepository::new(infra.clone()));
         let agent_repository = Arc::new(ForgeAgentRepository::new(infra.clone()));
@@ -147,8 +148,14 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
 }
 
 #[async_trait::async_trait]
-impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + HttpInfra + Send + Sync>
-    ChatRepository for ForgeRepo<F>
+impl<
+    F: EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + FileReaderInfra
+        + FileWriterInfra
+        + HttpInfra
+        + Send
+        + Sync,
+> ChatRepository for ForgeRepo<F>
 {
     async fn chat(
         &self,
@@ -165,8 +172,14 @@ impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + HttpInfra + Send 
 }
 
 #[async_trait::async_trait]
-impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + HttpInfra + Send + Sync>
-    ProviderRepository for ForgeRepo<F>
+impl<
+    F: EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + FileReaderInfra
+        + FileWriterInfra
+        + HttpInfra
+        + Send
+        + Sync,
+> ProviderRepository for ForgeRepo<F>
 {
     async fn get_all_providers(&self) -> anyhow::Result<Vec<AnyProvider>> {
         self.provider_repository.get_all_providers().await
@@ -196,11 +209,17 @@ impl<F: EnvironmentInfra + FileReaderInfra + FileWriterInfra + HttpInfra + Send 
 }
 
 #[async_trait::async_trait]
-impl<F: EnvironmentInfra + Send + Sync> EnvironmentInfra for ForgeRepo<F> {
+impl<F: EnvironmentInfra<Config = forge_config::ForgeConfig> + Send + Sync> EnvironmentInfra
+    for ForgeRepo<F>
+{
     type Config = forge_config::ForgeConfig;
 
     fn get_environment(&self) -> Environment {
         self.infra.get_environment()
+    }
+
+    fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+        self.infra.get_config()
     }
 
     fn update_environment(
@@ -320,6 +339,9 @@ where
     async fn write(&self, path: &Path, contents: Bytes) -> anyhow::Result<()> {
         self.infra.write(path, contents).await
     }
+    async fn append(&self, path: &Path, contents: Bytes) -> anyhow::Result<()> {
+        self.infra.append(path, contents).await
+    }
     async fn write_temp(&self, prefix: &str, ext: &str, content: &str) -> anyhow::Result<PathBuf> {
         self.infra.write_temp(prefix, ext, content).await
     }
@@ -430,8 +452,9 @@ where
         &self,
         config: McpServerConfig,
         env_vars: &BTreeMap<String, String>,
+        environment: &Environment,
     ) -> anyhow::Result<F::Client> {
-        self.infra.connect(config, env_vars).await
+        self.infra.connect(config, env_vars, environment).await
     }
 }
 
@@ -465,19 +488,15 @@ where
 }
 
 #[async_trait::async_trait]
-impl<F: FileInfoInfra + EnvironmentInfra + DirectoryReaderInfra + Send + Sync> AgentRepository
-    for ForgeRepo<F>
+impl<F: FileInfoInfra + EnvironmentInfra<Config = ForgeConfig> + DirectoryReaderInfra + Send + Sync>
+    AgentRepository for ForgeRepo<F>
 {
-    async fn get_agents(
-        &self,
-        provider_id: forge_domain::ProviderId,
-        model_id: forge_domain::ModelId,
-    ) -> anyhow::Result<Vec<forge_domain::Agent>> {
-        let agent_defs = self.agent_repository.load_agents().await?;
-        Ok(agent_defs
-            .into_iter()
-            .map(|def| def.into_agent(provider_id.clone(), model_id.clone()))
-            .collect())
+    async fn get_agents(&self) -> anyhow::Result<Vec<forge_domain::Agent>> {
+        self.agent_repository.get_agents().await
+    }
+
+    async fn get_agent_infos(&self) -> anyhow::Result<Vec<forge_domain::AgentInfo>> {
+        self.agent_repository.get_agent_infos().await
     }
 }
 
@@ -610,7 +629,7 @@ impl<F: GrpcInfra + Send + Sync> FuzzySearchRepository for ForgeRepo<F> {
 }
 
 impl<F: GrpcInfra> GrpcInfra for ForgeRepo<F> {
-    fn channel(&self) -> tonic::transport::Channel {
+    fn channel(&self) -> anyhow::Result<tonic::transport::Channel> {
         self.infra.channel()
     }
 

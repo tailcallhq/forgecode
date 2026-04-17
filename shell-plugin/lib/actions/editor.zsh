@@ -80,10 +80,11 @@ function _forge_action_suggest() {
     fi
     
     echo
+
     # Generate the command
     local generated_command
     generated_command=$(FORCE_COLOR=true CLICOLOR_FORCE=1 _forge_exec suggest "$description")
-    
+
     if [[ -n "$generated_command" ]]; then
         # Replace the buffer with the generated command
         BUFFER="$generated_command"

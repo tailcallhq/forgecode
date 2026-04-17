@@ -86,7 +86,8 @@ where
         config: McpServerConfig,
     ) -> anyhow::Result<()> {
         let env_vars = self.infra.get_env_vars();
-        let client = self.infra.connect(config, &env_vars).await?;
+        let environment = self.infra.get_environment();
+        let client = self.infra.connect(config, &env_vars, &environment).await?;
         let client = Arc::new(C::from(client));
         self.insert_clients(server_name, client).await?;
 
@@ -179,11 +180,16 @@ where
         tool.executable.call_tool(call.arguments.parse()?).await
     }
 
-    /// Refresh the MCP cache by fetching fresh data
+    /// Refresh the MCP cache by clearing cached data.
+    /// Does NOT eagerly connect to servers - connections happen lazily
+    /// when list() or call() is invoked, avoiding interactive OAuth during
+    /// reload.
     async fn refresh_cache(&self) -> anyhow::Result<()> {
-        // Fetch fresh tools by calling list() which connects to MCPs
+        // Clear the infra cache and reset config hash to force re-init on next access
         self.infra.cache_clear().await?;
-        let _ = self.get_mcp_servers().await?;
+        *self.previous_config_hash.lock().await = Default::default();
+        self.clear_tools().await;
+        self.failed_servers.write().await.clear();
         Ok(())
     }
 }

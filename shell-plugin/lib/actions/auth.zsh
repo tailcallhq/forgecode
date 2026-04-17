@@ -11,7 +11,8 @@ function _forge_action_login() {
     selected=$(_forge_select_provider "" "" "" "$input_text")
     if [[ -n "$selected" ]]; then
         # Extract the second field (provider ID)
-        local provider=$(echo "$selected" | awk '{print $2}')
+        # Use multi-space delimiter to handle display names containing spaces
+        local provider=$(echo "$selected" | awk -F '  +' '{print $2}')
         _forge_exec_interactive provider login "$provider"
     fi
 }
@@ -25,7 +26,8 @@ function _forge_action_logout() {
     selected=$(_forge_select_provider "\[yes\]" "" "" "$input_text")
     if [[ -n "$selected" ]]; then
         # Extract the second field (provider ID)
-        local provider=$(echo "$selected" | awk '{print $2}')
+        # Use multi-space delimiter to handle display names containing spaces
+        local provider=$(echo "$selected" | awk -F '  +' '{print $2}')
         _forge_exec provider logout "$provider"
     fi
 }

@@ -144,7 +144,10 @@ function _forge_action_model() {
             # Field 1 = model_id (raw), field 3 = provider display name,
             # field 4 = provider_id (raw, for config set)
             local model_id provider_display provider_id
-            read -r model_id provider_display provider_id <<<$(echo "$selected" | awk -F '  +' '{print $1, $3, $4}')
+            # Extract fields separately to handle display names with spaces
+            model_id=$(echo "$selected" | awk -F '  +' '{print $1}')
+            provider_display=$(echo "$selected" | awk -F '  +' '{print $3}')
+            provider_id=$(echo "$selected" | awk -F '  +' '{print $4}')
             model_id=${model_id//[[:space:]]/}
             provider_id=${provider_id//[[:space:]]/}
             provider_display=${provider_display//[[:space:]]/}
@@ -152,10 +155,10 @@ function _forge_action_model() {
             # Switch provider first if it differs from the current one
             # current_provider (fetched above) is the display name, compare against that
             if [[ -n "$provider_display" && "$provider_display" != "$current_provider" ]]; then
-                _forge_exec_interactive config set provider "$provider_id" --model "$model_id"
+                _forge_exec_interactive config set model "$provider_id" "$model_id"
                 return
             fi
-             _forge_exec config set model "$model_id"
+            _forge_exec config set model "$provider_id" "$model_id"
         fi
     )
 }
@@ -179,7 +182,9 @@ function _forge_action_commit_model() {
         if [[ -n "$selected" ]]; then
             # Field 1 = model_id (raw), field 4 = provider_id (raw)
             local model_id provider_id
-            read -r model_id provider_id <<<$(echo "$selected" | awk -F '  +' '{print $1, $4}')
+            # Extract fields separately to handle display names with spaces
+            model_id=$(echo "$selected" | awk -F '  +' '{print $1}')
+            provider_id=$(echo "$selected" | awk -F '  +' '{print $4}')
 
             model_id=${model_id//[[:space:]]/}
             provider_id=${provider_id//[[:space:]]/}
@@ -208,7 +213,9 @@ function _forge_action_suggest_model() {
         if [[ -n "$selected" ]]; then
             # Field 1 = model_id (raw), field 4 = provider_id (raw)
             local model_id provider_id
-            read -r model_id provider_id <<<$(echo "$selected" | awk -F '  +' '{print $1, $4}')
+            # Extract fields separately to handle display names with spaces
+            model_id=$(echo "$selected" | awk -F '  +' '{print $1}')
+            provider_id=$(echo "$selected" | awk -F '  +' '{print $4}')
 
             model_id=${model_id//[[:space:]]/}
             provider_id=${provider_id//[[:space:]]/}
@@ -328,7 +335,10 @@ function _forge_action_session_model() {
 
     if [[ -n "$selected" ]]; then
         local model_id provider_display provider_id
-        read -r model_id provider_display provider_id <<<$(echo "$selected" | awk -F '  +' '{print $1, $3, $4}')
+        # Extract fields separately to handle display names with spaces
+        model_id=$(echo "$selected" | awk -F '  +' '{print $1}')
+        provider_display=$(echo "$selected" | awk -F '  +' '{print $3}')
+        provider_id=$(echo "$selected" | awk -F '  +' '{print $4}')
         model_id=${model_id//[[:space:]]/}
         provider_id=${provider_id//[[:space:]]/}
 
@@ -453,12 +463,22 @@ function _forge_action_config_edit() {
         return 1
     fi
 
-    local config_file="${HOME}/forge/.forge.toml"
+    # Resolve config file path via the forge binary (honours FORGE_CONFIG,
+    # new ~/.forge path, and legacy ~/forge fallback automatically)
+    local config_file
+    config_file=$($FORGE_BIN config path 2>/dev/null)
+    if [[ -z "$config_file" ]]; then
+        _forge_log error "Failed to resolve config path from '$FORGE_BIN config path'"
+        return 1
+    fi
+
+    local config_dir
+    config_dir=$(dirname "$config_file")
 
     # Ensure the config directory exists
-    if [[ ! -d "${HOME}/forge" ]]; then
-        mkdir -p "${HOME}/forge" || {
-            _forge_log error "Failed to create ~/forge directory"
+    if [[ ! -d "$config_dir" ]]; then
+        mkdir -p "$config_dir" || {
+            _forge_log error "Failed to create $config_dir directory"
             return 1
         }
     fi

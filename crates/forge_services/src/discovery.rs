@@ -97,6 +97,10 @@ mod tests {
             env
         }
 
+        fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+            Ok(forge_config::ForgeConfig::default())
+        }
+
         async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
             unimplemented!()
         }

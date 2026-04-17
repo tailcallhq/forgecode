@@ -6,6 +6,7 @@ use super::github_copilot_reasoning::GitHubCopilotReasoning;
 use super::kimi_k2_reasoning::KimiK2Reasoning;
 use super::make_cerebras_compat::MakeCerebrasCompat;
 use super::make_openai_compat::MakeOpenAiCompat;
+use super::make_xai_compat::MakeXaiCompat;
 use super::minimax::SetMinimaxParams;
 use super::normalize_tool_schema::{
     EnforceStrictResponseFormatSchema, EnforceStrictToolSchema, NormalizeToolSchema,
@@ -67,12 +68,17 @@ impl Transformer for ProviderPipeline<'_> {
 
         let cerebras_compat = MakeCerebrasCompat.when(move |_| provider.id == ProviderId::CEREBRAS);
 
+        let xai_compat = MakeXaiCompat.when(move |_| provider.id == ProviderId::XAI);
+
         let trim_tool_call_ids = TrimToolCallIds.when(move |_| provider.id == ProviderId::OPENAI);
 
         let strict_schema = EnforceStrictToolSchema
             .pipe(EnforceStrictResponseFormatSchema)
             .when(move |_| {
-                provider.id == ProviderId::FIREWORKS_AI || provider.id == ProviderId::OPENCODE_ZEN
+                provider.id == ProviderId::FIREWORKS_AI
+                    || provider.id == ProviderId::OPENCODE_ZEN
+                    || provider.id == ProviderId::OPENCODE_GO
+                    || provider.id == ProviderId::XAI
             });
 
         let mut combined = zai_thinking
@@ -83,6 +89,7 @@ impl Transformer for ProviderPipeline<'_> {
             .pipe(github_copilot_reasoning)
             .pipe(kimi_k2_reasoning)
             .pipe(cerebras_compat)
+            .pipe(xai_compat)
             .pipe(trim_tool_call_ids)
             .pipe(strict_schema)
             .pipe(NormalizeToolSchema);

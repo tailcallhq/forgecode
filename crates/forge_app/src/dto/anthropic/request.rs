@@ -308,9 +308,9 @@ impl Message {
                         | Content::ToolResult { .. } => Some(idx),
                         _ => None,
                     })
+            && let Some(content) = self.content.get_mut(last_cacheable_idx)
         {
-            self.content[last_cacheable_idx] =
-                std::mem::take(&mut self.content[last_cacheable_idx]).cached(true);
+            *content = std::mem::take(content).cached(true);
         }
 
         self

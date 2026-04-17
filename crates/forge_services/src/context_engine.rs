@@ -23,7 +23,6 @@ use crate::sync::{WorkspaceSyncEngine, canonicalize_path};
 pub struct ForgeWorkspaceService<F, D> {
     infra: Arc<F>,
     discovery: Arc<D>,
-    max_file_read_batch_size: usize,
 }
 
 impl<F, D> Clone for ForgeWorkspaceService<F, D> {
@@ -31,7 +30,6 @@ impl<F, D> Clone for ForgeWorkspaceService<F, D> {
         Self {
             infra: Arc::clone(&self.infra),
             discovery: Arc::clone(&self.discovery),
-            max_file_read_batch_size: self.max_file_read_batch_size,
         }
     }
 }
@@ -39,8 +37,8 @@ impl<F, D> Clone for ForgeWorkspaceService<F, D> {
 impl<F, D> ForgeWorkspaceService<F, D> {
     /// Creates a new workspace service with the provided infrastructure and
     /// file-discovery strategy.
-    pub fn new(infra: Arc<F>, discovery: Arc<D>, max_file_read_batch_size: usize) -> Self {
-        Self { infra, discovery, max_file_read_batch_size }
+    pub fn new(infra: Arc<F>, discovery: Arc<D>) -> Self {
+        Self { infra, discovery }
     }
 }
 
@@ -49,7 +47,7 @@ impl<
         + ProviderRepository
         + WorkspaceIndexRepository
         + FileReaderInfra
-        + EnvironmentInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + CommandInfra
         + WalkerInfra,
     D: FileDiscovery + 'static,
@@ -66,7 +64,7 @@ impl<
         emit(SyncProgress::Starting).await;
 
         let (token, user_id) = self.get_workspace_credentials().await?;
-        let batch_size = self.max_file_read_batch_size;
+        let batch_size = self.infra.get_config()?.max_file_read_batch_size;
         let path = canonicalize_path(path)?;
 
         // Find existing workspace - do NOT auto-create
@@ -221,7 +219,7 @@ impl<
     F: ProviderRepository
         + WorkspaceIndexRepository
         + FileReaderInfra
-        + EnvironmentInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + CommandInfra
         + WalkerInfra
         + 'static,
@@ -361,7 +359,7 @@ impl<
         // sync), avoiding a redundant canonicalize() IO call.
         let canonical_path = PathBuf::from(&workspace.working_dir);
 
-        let batch_size = self.max_file_read_batch_size;
+        let batch_size = self.infra.get_config()?.max_file_read_batch_size;
 
         WorkspaceSyncEngine::new(
             Arc::clone(&self.infra),
