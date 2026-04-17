@@ -14,7 +14,7 @@ use crate::range::resolve_range;
 
 #[derive(Debug, thiserror::Error)]
 #[error(
-    "Attachment path does not exist: {path}. If you pasted a shortened display path, paste the full path instead."
+    "Attachment path does not exist: `{path}`. If you pasted a shortened display path, paste the full path instead."
 )]
 struct MissingAttachmentPathError {
     path: PathBuf,
@@ -720,7 +720,7 @@ pub mod tests {
             .attachments("@[/test/nonexistent.txt]")
             .await
             .unwrap_err();
-        let expected = "Attachment path does not exist: /test/nonexistent.txt. If you pasted a shortened display path, paste the full path instead.";
+        let expected = "Attachment path does not exist: `/test/nonexistent.txt`. If you pasted a shortened display path, paste the full path instead.";
 
         // Assert
         assert_eq!(actual.to_string(), expected);
@@ -737,7 +737,7 @@ pub mod tests {
             .attachments("@[/Volumes/990Pro2TB/OtherProjects/forgecode-fork/...]")
             .await
             .unwrap_err();
-        let expected = "Attachment path does not exist: /Volumes/990Pro2TB/OtherProjects/forgecode-fork/.... If you pasted a shortened display path, paste the full path instead.";
+        let expected = "Attachment path does not exist: `/Volumes/990Pro2TB/OtherProjects/forgecode-fork/...`. If you pasted a shortened display path, paste the full path instead.";
 
         // Assert
         assert_eq!(actual.to_string(), expected);
