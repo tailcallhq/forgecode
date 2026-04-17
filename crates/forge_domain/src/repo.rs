@@ -43,12 +43,26 @@ pub trait SnapshotMetadataRepository: Send + Sync {
     /// snapshot belonging to the given `ConversationId`, ordered by creation time
     /// descending so that the latest `UserInputId` appears first.
     ///
+    /// Only returns snapshots that have not been undone.
+    ///
     /// # Errors
     /// Returns an error if the database query fails.
     async fn find_snapshots_by_conversation_id(
         &self,
         conversation_id: ConversationId,
     ) -> Result<Vec<(String, String, String)>>;
+
+    /// Marks all snapshot rows for the given `UserInputId` as undone by setting
+    /// their `undone_at` timestamp to the current time. This prevents those
+    /// snapshots from being returned by subsequent find queries or used again
+    /// during a future undo operation.
+    ///
+    /// # Arguments
+    /// * `user_input_id` - The ID of the user prompt whose snapshots to mark.
+    ///
+    /// # Errors
+    /// Returns an error if the database update fails.
+    async fn mark_snapshots_undone(&self, user_input_id: UserInputId) -> Result<()>;
 }
 
 /// Repository for managing file snapshots

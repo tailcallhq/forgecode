@@ -20,5 +20,6 @@ diesel::table! {
         file_path -> Text,
         snap_file_path -> Text,
         created_at -> Timestamp,
+        undone_at -> Nullable<Timestamp>,
     }
 }

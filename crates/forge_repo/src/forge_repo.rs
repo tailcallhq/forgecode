@@ -163,6 +163,12 @@ impl<F: Send + Sync> SnapshotMetadataRepository for ForgeRepo<F> {
             .find_snapshots_by_conversation_id(conversation_id)
             .await
     }
+
+    async fn mark_snapshots_undone(&self, user_input_id: UserInputId) -> anyhow::Result<()> {
+        self.snapshot_metadata_repository
+            .mark_snapshots_undone(user_input_id)
+            .await
+    }
 }
 
 #[async_trait::async_trait]
