@@ -582,6 +582,26 @@ pub enum ConfigSetField {
         /// Effort level: none, minimal, low, medium, high, xhigh, max.
         effort: Effort,
     },
+    /// Set or clear a speed-dial slot binding.
+    ///
+    /// Usage:
+    ///   `forge config set speed-dial <N> <provider> <model>`
+    ///   `forge config set speed-dial <N> --clear`
+    SpeedDial(SpeedDialSetArgs),
+}
+
+/// Arguments for `forge config set speed-dial`.
+#[derive(Parser, Debug, Clone)]
+pub struct SpeedDialSetArgs {
+    /// Slot number (1..=9).
+    pub slot: u8,
+    /// Provider ID to bind to this slot. Required unless `--clear` is used.
+    pub provider: Option<ProviderId>,
+    /// Model ID to bind to this slot. Required unless `--clear` is used.
+    pub model: Option<ModelId>,
+    /// Remove the binding for `slot` instead of setting it.
+    #[arg(long, conflicts_with_all = &["provider", "model"])]
+    pub clear: bool,
 }
 
 /// Type-safe subcommands for `forge config get`.
@@ -597,6 +617,23 @@ pub enum ConfigGetField {
     Suggest,
     /// Get the reasoning effort level.
     ReasoningEffort,
+    /// Get the speed-dial bindings.
+    ///
+    /// Without an argument prints all populated slots in porcelain form
+    /// `slot<TAB>provider<TAB>model`. With `<N>` prints two lines: provider
+    /// then model, mirroring `config get commit`.
+    SpeedDial {
+        /// Slot number (1..=9). When omitted, all bindings are listed.
+        slot: Option<u8>,
+    },
+    /// Get a single speed-dial slot in porcelain form `provider<TAB>model`.
+    ///
+    /// This helper is used by the zsh plugin to resolve a slot into session
+    /// env-var values without needing to parse TOML in shell code.
+    SpeedDialSlot {
+        /// Slot number (1..=9).
+        slot: u8,
+    },
 }
 
 /// Command group for conversation management.

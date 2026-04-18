@@ -4290,6 +4290,57 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         .sub_title("is now the reasoning effort"),
                 )?;
             }
+            ConfigSetField::SpeedDial(args) => {
+                if !forge_config::is_valid_speed_dial_slot(args.slot) {
+                    anyhow::bail!(
+                        "Speed-dial slot {} is out of range (allowed: 1..=9)",
+                        args.slot
+                    );
+                }
+
+                if args.clear {
+                    self.api
+                        .update_config(vec![ConfigOperation::SetSpeedDialSlot {
+                            slot: args.slot,
+                            config: None,
+                        }])
+                        .await?;
+                    self.writeln_title(
+                        TitleFormat::action(format!("slot {}", args.slot))
+                            .sub_title("speed-dial binding cleared"),
+                    )?;
+                } else {
+                    let provider = args
+                        .provider
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Provider is required unless --clear is used"
+                            )
+                        })?;
+                    let model = args.model.ok_or_else(|| {
+                        anyhow::anyhow!("Model is required unless --clear is used")
+                    })?;
+                    let validated_model = self
+                        .validate_model(model.as_str(), Some(&provider))
+                        .await?;
+                    let config = forge_domain::ModelConfig::new(
+                        provider.clone(),
+                        validated_model.clone(),
+                    );
+                    self.api
+                        .update_config(vec![ConfigOperation::SetSpeedDialSlot {
+                            slot: args.slot,
+                            config: Some(config),
+                        }])
+                        .await?;
+                    self.writeln_title(TitleFormat::action(format!("slot {}", args.slot))
+                        .sub_title(format!(
+                            "bound to {}/{}",
+                            provider,
+                            validated_model.as_str()
+                        )))?;
+                }
+            }
         }
 
         Ok(())
@@ -4347,6 +4398,54 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 match effort {
                     Some(e) => self.writeln(e.to_string())?,
                     None => self.writeln("ReasoningEffort: Not set")?,
+                }
+            }
+            ConfigGetField::SpeedDial { slot } => {
+                let speed_dial = self.api.get_speed_dial().await?;
+                match slot {
+                    Some(n) => {
+                        if !forge_config::is_valid_speed_dial_slot(n) {
+                            anyhow::bail!(
+                                "Speed-dial slot {} is out of range (allowed: 1..=9)",
+                                n
+                            );
+                        }
+                        match speed_dial.get(n) {
+                            Some(entry) => {
+                                self.writeln(entry.provider_id.clone())?;
+                                self.writeln(entry.model_id.clone())?;
+                            }
+                            None => self.writeln(format!("SpeedDial {n}: Not set"))?,
+                        }
+                    }
+                    None => {
+                        if speed_dial.is_empty() {
+                            self.writeln("SpeedDial: Not set")?;
+                        } else {
+                            for (n, entry) in speed_dial.iter() {
+                                self.writeln(format!(
+                                    "{}\t{}\t{}",
+                                    n, entry.provider_id, entry.model_id
+                                ))?;
+                            }
+                        }
+                    }
+                }
+            }
+            ConfigGetField::SpeedDialSlot { slot } => {
+                if !forge_config::is_valid_speed_dial_slot(slot) {
+                    anyhow::bail!(
+                        "Speed-dial slot {} is out of range (allowed: 1..=9)",
+                        slot
+                    );
+                }
+                let speed_dial = self.api.get_speed_dial().await?;
+                match speed_dial.get(slot) {
+                    Some(entry) => self.writeln(format!(
+                        "{}\t{}",
+                        entry.provider_id, entry.model_id
+                    ))?,
+                    None => anyhow::bail!("Speed-dial slot {} is not set", slot),
                 }
             }
         }
