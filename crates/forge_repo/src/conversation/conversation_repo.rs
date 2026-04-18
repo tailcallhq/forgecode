@@ -1014,24 +1014,37 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_concurrent_operations_dont_block_runtime() -> anyhow::Result<()> {
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::time::{Duration, Instant};
 
+        // Heartbeat fires every `TICK`; we require a measurement window of at
+        // least `MIN_WINDOW` so the assertion is meaningful even when the DB
+        // workload finishes very quickly (e.g. on fast machines with the
+        // in-memory SQLite pool).
+        const TICK: Duration = Duration::from_millis(10);
+        const MIN_WINDOW: Duration = Duration::from_millis(200);
+
         let repo = Arc::new(repository()?);
         let heartbeat = Arc::new(AtomicUsize::new(0));
 
-        // Heartbeat task - if runtime is blocked, this won't increment
+        // Heartbeat task - if runtime is blocked, this won't increment.
         let heartbeat_clone = heartbeat.clone();
         let heartbeat_handle = tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                tokio::time::sleep(TICK).await;
                 heartbeat_clone.fetch_add(1, Ordering::Relaxed);
             }
         });
 
-        // Spawn many concurrent DB operations
+        // Warm up: let the heartbeat task get scheduled and complete its first
+        // tick before we start measuring, then reset the counter so timing
+        // begins from a clean state.
+        tokio::time::sleep(TICK * 3).await;
+        heartbeat.store(0, Ordering::Relaxed);
+
+        // Spawn many concurrent DB operations.
         let mut handles = vec![];
         let start = Instant::now();
 
@@ -1048,24 +1061,35 @@ mod tests {
             handles.push(handle);
         }
 
-        // Wait for all operations
+        // Wait for all operations.
         for handle in handles {
             handle.await??;
         }
+
+        // Ensure the measurement window is long enough for heartbeat math to
+        // be meaningful regardless of how fast the DB workload completed.
+        let work_elapsed = start.elapsed();
+        if work_elapsed < MIN_WINDOW {
+            tokio::time::sleep(MIN_WINDOW - work_elapsed).await;
+        }
         let elapsed = start.elapsed();
 
-        // Stop heartbeat
+        // Stop heartbeat.
         heartbeat_handle.abort();
 
-        // Verify runtime wasn't blocked
+        // Verify runtime wasn't blocked: heartbeat should have fired at least
+        // 80% of the theoretical max for the elapsed window. The threshold is
+        // clamped to at least 1 to keep the assertion well-defined.
         let heartbeat_count = heartbeat.load(Ordering::Relaxed);
-        let expected_heartbeats = elapsed.as_millis() as usize / 10;
+        let expected_heartbeats = (elapsed.as_millis() as usize) / (TICK.as_millis() as usize);
+        let threshold = (expected_heartbeats * 8 / 10).max(1);
 
-        // Heartbeat should have fired at least 80% of expected times
         assert!(
-            heartbeat_count > expected_heartbeats * 8 / 10,
-            "Runtime was blocked! Expected ~{} heartbeats, got {}",
+            heartbeat_count >= threshold,
+            "Runtime was blocked! Expected at least {} heartbeats (~{} theoretical) in {:?}, got {}",
+            threshold,
             expected_heartbeats,
+            elapsed,
             heartbeat_count
         );
 

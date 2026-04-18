@@ -5,6 +5,9 @@ use forge_app::domain::{
     ChatCompletionMessage, Content, FinishReason, MessagePhase, TokenCount, ToolCall,
     ToolCallArguments, ToolCallFull, ToolCallId, ToolCallPart, ToolName, Usage,
 };
+use forge_app::dto::openai::{
+    Error as OpenAIError, ErrorCode as OpenAIErrorCode, ErrorResponse as OpenAIErrorResponse,
+};
 use forge_domain::{
     BoxStream, ResponseOutputItem, ResultStream, ToolSearchExecution, ToolSearchOutput,
     ToolSearchStatus,
@@ -341,6 +344,23 @@ fn retain_encrypted_reasoning_details(
     } else {
         Some(encrypted)
     }
+}
+
+fn into_response_failed_error(failed: oai::ResponseFailedEvent) -> anyhow::Error {
+    let Some(error) = failed.response.error else {
+        return anyhow::anyhow!("Upstream response failed: no error object returned");
+    };
+
+    let mut response_error = OpenAIErrorResponse::default();
+    if !error.code.is_empty() {
+        response_error = response_error.code(OpenAIErrorCode::String(error.code));
+    }
+
+    if !error.message.is_empty() {
+        response_error = response_error.message(error.message);
+    }
+
+    anyhow::Error::from(OpenAIError::Response(response_error)).context("Upstream response failed")
 }
 
 impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
@@ -845,7 +865,7 @@ mod tests {
         .unwrap()
     }
 
-    fn fixture_response_failed() -> oai::Response {
+    fn fixture_response_failed_with_code(code: &str, message: &str) -> oai::Response {
         serde_json::from_value(serde_json::json!({
             "id": "resp_1",
             "created_at": 0,
@@ -854,12 +874,16 @@ mod tests {
             "status": "failed",
             "output": [],
             "error": {
-                "code": "rate_limit",
-                "message": "Rate limit exceeded",
+                "code": code,
+                "message": message,
                 "type": "invalid_request_error"
             }
         }))
         .unwrap()
+    }
+
+    fn fixture_response_failed() -> oai::Response {
+        fixture_response_failed_with_code("rate_limit", "Rate limit exceeded")
     }
 
     fn fixture_response_incomplete(text: &str) -> oai::Response {
@@ -1500,6 +1524,36 @@ mod tests {
                 .to_string()
                 .contains("Upstream response failed")
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_stream_with_response_failed_preserves_error_code() -> anyhow::Result<()> {
+        let response = fixture_response_failed_with_code(
+            "server_is_overloaded",
+            "Our servers are currently overloaded. Please try again later.",
+        );
+        let failed = oai::ResponseFailedEvent { sequence_number: 2, response };
+
+        let stream: ResponseStream = Box::pin(tokio_stream::iter([event(
+            oai::ResponseStreamEvent::ResponseFailed(failed),
+        )]));
+
+        let mut stream_domain = stream.into_domain()?;
+        let actual = stream_domain.next().await.unwrap().unwrap_err();
+
+        let expected = Some("server_is_overloaded");
+        let actual = actual
+            .downcast_ref::<OpenAIError>()
+            .and_then(|error| match error {
+                OpenAIError::Response(error) => {
+                    error.get_code_deep().and_then(|code| code.as_str())
+                }
+                OpenAIError::InvalidStatusCode(_) => None,
+            });
+
+        assert_eq!(actual, expected);
 
         Ok(())
     }
