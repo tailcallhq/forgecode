@@ -237,8 +237,7 @@ mod tests {
             exclude: None,
         });
 
-        let actual =
-            ModelSpecificReasoning::new("us.anthropic.claude-opus-4-7").transform(fixture);
+        let actual = ModelSpecificReasoning::new("us.anthropic.claude-opus-4-7").transform(fixture);
 
         let expected = Context::default().reasoning(ReasoningConfig {
             enabled: Some(true),
@@ -304,8 +303,7 @@ mod tests {
                 exclude: None,
             });
 
-            let actual =
-                ModelSpecificReasoning::new("claude-opus-4-5-20251101").transform(fixture);
+            let actual = ModelSpecificReasoning::new("claude-opus-4-5-20251101").transform(fixture);
 
             let expected = Context::default().reasoning(ReasoningConfig {
                 enabled: Some(true),
