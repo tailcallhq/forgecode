@@ -918,8 +918,14 @@ mod tests {
 
         assert_eq!(actual.messages.len(), 1);
         assert_eq!(actual.messages[0].content.len(), 2);
-        assert!(matches!(actual.messages[0].content[0], Content::Thinking { .. }));
-        assert!(matches!(actual.messages[0].content[1], Content::Text { .. }));
+        assert!(matches!(
+            actual.messages[0].content[0],
+            Content::Thinking { .. }
+        ));
+        assert!(matches!(
+            actual.messages[0].content[1],
+            Content::Text { .. }
+        ));
     }
 
     #[test]
@@ -938,8 +944,14 @@ mod tests {
 
         assert_eq!(actual.messages.len(), 1);
         assert_eq!(actual.messages[0].content.len(), 2);
-        assert!(matches!(actual.messages[0].content[0], Content::Thinking { .. }));
-        assert!(matches!(actual.messages[0].content[1], Content::ToolUse { .. }));
+        assert!(matches!(
+            actual.messages[0].content[0],
+            Content::Thinking { .. }
+        ));
+        assert!(matches!(
+            actual.messages[0].content[1],
+            Content::ToolUse { .. }
+        ));
     }
 
     #[test]
