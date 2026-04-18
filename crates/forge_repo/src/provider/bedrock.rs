@@ -505,6 +505,9 @@ impl FromDomain<forge_domain::Context>
                 result.push(Message::from_domain(pending_tool_results)?);
             }
 
+            // Drop messages whose only block was reasoning and got removed above.
+            result.retain(|m| !m.content().is_empty());
+
             Ok::<Vec<Message>, anyhow::Error>(result)
         }?;
 
@@ -747,10 +750,17 @@ impl FromDomain<forge_domain::ContextMessage> for aws_sdk_bedrockruntime::types:
             forge_domain::ContextMessage::Text(text_msg) => {
                 let mut content_blocks = Vec::new();
 
+                let has_text = !text_msg.content.is_empty();
+                let has_tool_calls = text_msg
+                    .tool_calls
+                    .as_ref()
+                    .is_some_and(|tc| !tc.is_empty());
+
                 // Add thought signature FIRST if present (for Assistant messages)
                 // AWS requires that when thinking is enabled, assistant messages MUST start
-                // with reasoning blocks
+                // with reasoning blocks AND MUST NOT end with one — skip if nothing follows.
                 if text_msg.role == forge_domain::Role::Assistant
+                    && (has_text || has_tool_calls)
                     && let Some(reasoning_details) = &text_msg.reasoning_details
                 {
                     for reasoning in reasoning_details {
@@ -786,7 +796,7 @@ impl FromDomain<forge_domain::ContextMessage> for aws_sdk_bedrockruntime::types:
                 }
 
                 // Add text content if not empty
-                if !text_msg.content.is_empty() {
+                if has_text {
                     content_blocks.push(ContentBlock::Text(text_msg.content.clone()));
                 }
 
@@ -1599,9 +1609,10 @@ mod tests {
         use forge_domain::{ContextMessage, ReasoningFull, TextMessage};
         use pretty_assertions::assert_eq;
 
+        // Trailing text keeps reasoning from landing as the final block.
         let fixture = ContextMessage::Text(
             TextMessage::assistant(
-                "",
+                "follow-up",
                 Some(vec![
                     ReasoningFull::default().text(Some("Thinking...".to_string())),
                 ]),
@@ -1616,7 +1627,7 @@ mod tests {
 
         assert_eq!(actual.role(), &ConversationRole::Assistant);
         let content = actual.content();
-        assert_eq!(content.len(), 1);
+        assert_eq!(content.len(), 2);
         match &content[0] {
             ContentBlock::ReasoningContent(ReasoningContentBlock::ReasoningText(reasoning)) => {
                 let actual_signature = reasoning.signature();
@@ -1637,7 +1648,7 @@ mod tests {
         use pretty_assertions::assert_eq;
 
         let fixture = ContextMessage::Text(TextMessage::assistant(
-            "",
+            "trailing text",
             Some(vec![
                 ReasoningFull::default()
                     .text(Some("Signed reasoning".to_string()))
@@ -1651,7 +1662,8 @@ mod tests {
 
         assert_eq!(actual.role(), &ConversationRole::Assistant);
         let content = actual.content();
-        assert_eq!(content.len(), 1);
+        // [ReasoningText(signed), Text] — unsigned reasoning dropped.
+        assert_eq!(content.len(), 2);
         match &content[0] {
             ContentBlock::ReasoningContent(ReasoningContentBlock::ReasoningText(reasoning)) => {
                 assert_eq!(reasoning.signature(), Some("sig_123"));
@@ -1659,6 +1671,32 @@ mod tests {
             }
             _ => panic!("Expected reasoning content block"),
         }
+    }
+
+    #[test]
+    fn test_from_domain_context_message_text_assistant_drops_trailing_reasoning() {
+        // Reasoning-only turns must yield an empty content vec (AWS 400 otherwise).
+        use aws_sdk_bedrockruntime::types::Message;
+        use forge_domain::{ContextMessage, ReasoningFull, TextMessage};
+        use pretty_assertions::assert_eq;
+
+        let fixture = ContextMessage::Text(TextMessage::assistant(
+            "",
+            Some(vec![
+                ReasoningFull::default()
+                    .text(Some("Dangling thought".to_string()))
+                    .signature(Some("sig_xyz".to_string())),
+            ]),
+            None,
+        ));
+
+        let actual = Message::from_domain(fixture).unwrap();
+
+        assert_eq!(
+            actual.content().len(),
+            0,
+            "reasoning-only assistant messages must not carry a trailing reasoning block"
+        );
     }
 
     #[test]

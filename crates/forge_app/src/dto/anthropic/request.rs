@@ -169,7 +169,11 @@ impl TryFrom<forge_domain::Context> for Request {
                 .into_iter()
                 .filter(|message| !message.has_role(forge_domain::Role::System))
                 .map(|msg| Message::try_from(msg.message))
-                .collect::<std::result::Result<Vec<_>, _>>()?,
+                .collect::<std::result::Result<Vec<_>, _>>()?
+                .into_iter()
+                // Drop messages whose only block was reasoning and got removed above.
+                .filter(|message| !message.content.is_empty())
+                .collect(),
             tools: request
                 .tools
                 .into_iter()
@@ -226,6 +230,12 @@ impl TryFrom<ContextMessage> for Message {
     fn try_from(value: ContextMessage) -> std::result::Result<Self, Self::Error> {
         Ok(match value {
             ContextMessage::Text(chat_message) => {
+                let has_text = !chat_message.content.is_empty();
+                let has_tool_calls = chat_message
+                    .tool_calls
+                    .as_ref()
+                    .is_some_and(|tc| !tc.is_empty());
+
                 let mut content = Vec::with_capacity(
                     chat_message
                         .tool_calls
@@ -235,7 +245,10 @@ impl TryFrom<ContextMessage> for Message {
                         + 1,
                 );
 
-                if let Some(reasoning) = chat_message.reasoning_details
+                // NOTE: Anthropic rejects assistant messages whose final block
+                // is `thinking` — only emit it if text or tool_use will follow.
+                if (has_text || has_tool_calls)
+                    && let Some(reasoning) = chat_message.reasoning_details
                     && let Some((sig, text)) = reasoning.into_iter().find_map(|reasoning| {
                         match (reasoning.signature, reasoning.text) {
                             (Some(sig), Some(text)) => Some((sig, text)),
@@ -246,7 +259,7 @@ impl TryFrom<ContextMessage> for Message {
                     content.push(Content::Thinking { signature: Some(sig), thinking: Some(text) });
                 }
 
-                if !chat_message.content.is_empty() {
+                if has_text {
                     // NOTE: Anthropic does not allow empty text content.
                     content.push(Content::Text { text: chat_message.content, cache_control: None });
                 }
@@ -868,5 +881,81 @@ mod tests {
         let actual = Request::try_from(fixture).unwrap();
 
         assert_eq!(actual.stream, Some(false));
+    }
+
+    fn signed_reasoning() -> Vec<forge_domain::ReasoningFull> {
+        vec![forge_domain::ReasoningFull {
+            text: Some("let me think".to_string()),
+            signature: Some("sig_abc".to_string()),
+            ..Default::default()
+        }]
+    }
+
+    #[test]
+    fn test_assistant_reasoning_only_message_is_dropped() {
+        // Reasoning-only turns must not serialize as `[Thinking]` (Anthropic 400).
+        let fixture = Context::default().add_message(forge_domain::ContextMessage::Text(
+            forge_domain::TextMessage::new(forge_domain::Role::Assistant, "")
+                .reasoning_details(signed_reasoning()),
+        ));
+
+        let actual = Request::try_from(fixture).unwrap();
+
+        assert!(
+            actual.messages.is_empty(),
+            "reasoning-only assistant messages must be filtered out"
+        );
+    }
+
+    #[test]
+    fn test_assistant_reasoning_with_text_keeps_thinking_first() {
+        let fixture = Context::default().add_message(forge_domain::ContextMessage::Text(
+            forge_domain::TextMessage::new(forge_domain::Role::Assistant, "hello")
+                .reasoning_details(signed_reasoning()),
+        ));
+
+        let actual = Request::try_from(fixture).unwrap();
+
+        assert_eq!(actual.messages.len(), 1);
+        assert_eq!(actual.messages[0].content.len(), 2);
+        assert!(matches!(actual.messages[0].content[0], Content::Thinking { .. }));
+        assert!(matches!(actual.messages[0].content[1], Content::Text { .. }));
+    }
+
+    #[test]
+    fn test_assistant_reasoning_with_tool_call_keeps_thinking_first() {
+        let tool_call = forge_domain::ToolCallFull::new("demo")
+            .call_id(forge_domain::ToolCallId::new("call_1"))
+            .arguments(forge_domain::ToolCallArguments::from_json("{}"));
+
+        let fixture = Context::default().add_message(forge_domain::ContextMessage::Text(
+            forge_domain::TextMessage::new(forge_domain::Role::Assistant, "")
+                .tool_calls(vec![tool_call])
+                .reasoning_details(signed_reasoning()),
+        ));
+
+        let actual = Request::try_from(fixture).unwrap();
+
+        assert_eq!(actual.messages.len(), 1);
+        assert_eq!(actual.messages[0].content.len(), 2);
+        assert!(matches!(actual.messages[0].content[0], Content::Thinking { .. }));
+        assert!(matches!(actual.messages[0].content[1], Content::ToolUse { .. }));
+    }
+
+    #[test]
+    fn test_assistant_empty_tool_calls_and_reasoning_is_dropped() {
+        // `Some(vec![])` must behave like `None` — no block to trail the thinking.
+        let fixture = Context::default().add_message(forge_domain::ContextMessage::Text(
+            forge_domain::TextMessage::new(forge_domain::Role::Assistant, "")
+                .tool_calls(Vec::<forge_domain::ToolCallFull>::new())
+                .reasoning_details(signed_reasoning()),
+        ));
+
+        let actual = Request::try_from(fixture).unwrap();
+
+        assert!(
+            actual.messages.is_empty(),
+            "empty tool_calls with only reasoning must not survive conversion"
+        );
     }
 }
