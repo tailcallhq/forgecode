@@ -39,11 +39,31 @@ pub fn render_table<S: TableStyler + InlineStyler>(
     }
 
     // Shrink columns if table exceeds max width
+    const MIN_COL_WIDTH: usize = 5;
     let overhead = margin.width() + 1 + 3 * n;
     let total: usize = w.iter().sum();
     if overhead + total > max_width && max_width > overhead {
         let avail = max_width - overhead;
-        w.iter_mut().for_each(|x| *x = (*x * avail / total).max(5));
+        w.iter_mut()
+            .for_each(|x| *x = (*x * avail / total).max(MIN_COL_WIDTH));
+
+        // Clamping to MIN_COL_WIDTH can push the new total over `avail` when
+        // tiny columns get bumped up. Trim 1 char at a time from the widest
+        // column (above the minimum) until it fits.
+        let mut excess = w.iter().sum::<usize>().saturating_sub(avail);
+        while excess > 0 {
+            let Some(idx) = w
+                .iter()
+                .enumerate()
+                .filter(|&(_, &v)| v > MIN_COL_WIDTH)
+                .max_by_key(|&(_, &v)| v)
+                .map(|(i, _)| i)
+            else {
+                break;
+            };
+            w[idx] -= 1;
+            excess -= 1;
+        }
     }
 
     // Helper to create horizontal lines
