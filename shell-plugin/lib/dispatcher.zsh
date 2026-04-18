@@ -96,7 +96,16 @@ function forge-accept-line() {
     local input_text=""
     
     # Check if the line starts with any of the supported patterns
-    if [[ "$BUFFER" =~ "^:([a-zA-Z][a-zA-Z0-9_-]*)( (.*))?$" ]]; then
+    #
+    # The regex accepts either:
+    #   - a name-like token `[a-zA-Z][a-zA-Z0-9_-]*` (standard commands), or
+    #   - a single decimal digit `1-9` (speed-dial slot commands, see
+    #     `_forge_action_speed_dial` in actions/config.zsh).
+    #
+    # Only a single digit is allowed (no leading zero, no multi-digit, no
+    # alphabetic suffix) so that `:10`, `:12abc`, and `:0` still fall through
+    # to `zle accept-line` and behave like ordinary shell commands.
+    if [[ "$BUFFER" =~ "^:([a-zA-Z][a-zA-Z0-9_-]*|[1-9])( (.*))?$" ]]; then
         # Action with or without parameters: :foo or :foo bar baz
         user_action="${match[1]}"
         # Only use match[3] if the second group (space + params) was actually matched
@@ -246,6 +255,12 @@ function forge-accept-line() {
         ;;
         logout)
             _forge_action_logout "$input_text"
+        ;;
+        speed-dial|sd)
+            _forge_action_speed_dial_manage "$input_text"
+        ;;
+        [1-9])
+            _forge_action_speed_dial "$user_action" "$input_text"
         ;;
         *)
             _forge_action_default "$user_action" "$input_text"

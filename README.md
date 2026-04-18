@@ -331,6 +331,56 @@ Some commands change settings for the current session only. Others persist to yo
 :skill                         # List available skills
 ```
 
+### Model Speed Dial
+
+Bind frequently used models to single-digit slots and switch with one keystroke. Slot
+bindings live in `~/forge/.forge.toml` under a `[speed_dial]` table; switching a slot sets
+the **session model** only, so `:config-reload` (`:cr`) still snaps you back to the
+globally configured model.
+
+```toml
+# ~/forge/.forge.toml
+[speed_dial.1]
+provider_id = "Anthropic"
+model_id    = "claude-opus-4-20250514"
+
+[speed_dial.2]
+provider_id = "Anthropic"
+model_id    = "claude-sonnet-4-20250514"
+
+[speed_dial.3]
+provider_id = "OpenAI"
+model_id    = "gpt-5.4"
+```
+
+Use the interactive picker or the CLI to populate slots:
+
+```zsh
+:sd                       # fzf chooser: pick slot 1..9, then pick a model
+:sd 3                     # skip the slot chooser — go straight to the model picker for slot 3
+:sd 3 --clear             # remove the binding for slot 3
+
+# Non-interactive equivalent
+forge config set speed-dial 1 Anthropic claude-opus-4-20250514
+forge config set speed-dial 2 Anthropic claude-sonnet-4-20250514
+forge config set speed-dial 3 OpenAI    gpt-5.4
+forge config get speed-dial              # list all populated slots
+```
+
+Once bound, switch the session model instantly:
+
+```zsh
+:1                        # switch this session to slot 1 (claude-opus)
+:2                        # switch to slot 2 (claude-sonnet)
+:3                        # switch to slot 3 (gpt-5.4)
+:1 explain this diff      # switch to slot 1 AND send the prompt in one go
+:cr                       # reset session back to the globally configured model
+```
+
+Slots `1`–`9` are available (nine is plenty); `0` is reserved. Inside the interactive
+`forge` TUI, `/1`…`/9` and `/speed-dial` work the same way. Populated slots are
+listed under "Speed Dial" in `:info`.
+
 ### Skills
 
 Skills are reusable workflows the AI can invoke as tools. Forge ships three built-in skills:
@@ -397,6 +447,8 @@ After running `:sync`, the AI can search your codebase by meaning rather than ex
 | `:config-model <id>` | `:cm` | Set default model (persistent) |
 | `:reasoning-effort <lvl>` | `:re` | Set reasoning effort for session |
 | `:config-reload` | `:cr` | Reset session overrides to global config |
+| `:1` … `:9` | | Switch session model to speed-dial slot 1..9 (`:1 <prompt>` switches and sends) |
+| `:speed-dial` | `:sd` | Manage speed-dial slot bindings (fzf chooser) |
 | `:info` | `:i` | Show session info |
 | `:sync` | `:workspace-sync` | Index codebase for semantic search |
 | `:tools` | `:t` | List available tools |

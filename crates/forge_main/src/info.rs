@@ -410,6 +410,21 @@ impl From<&ForgeConfig> for Info {
             )
             .add_key_value("Max Conversations", config.max_conversations.to_string());
 
+        // SPEED DIAL — populated slots only. The block is skipped entirely
+        // when no slot is configured to keep `:info` compact for users that
+        // don't use the feature.
+        if let Some(speed_dial) = config.speed_dial.as_ref()
+            && !speed_dial.is_empty()
+        {
+            info = info.add_title("SPEED DIAL");
+            for (slot, entry) in speed_dial.iter() {
+                info = info.add_key_value(
+                    format!("Slot {slot}"),
+                    format!("{}/{}", entry.provider_id, entry.model_id),
+                );
+            }
+        }
+
         info
     }
 }
@@ -1272,5 +1287,48 @@ mod tests {
         assert!(expected_display.contains("[No Changes Produced]"));
         assert!(!expected_display.contains("file1.rs"));
         assert!(!expected_display.contains("file2.rs"));
+    }
+
+    #[test]
+    fn test_forge_config_info_shows_speed_dial_when_set() {
+        use forge_config::{ForgeConfig, SpeedDial, SpeedDialEntry};
+
+        let mut speed_dial = SpeedDial::new();
+        speed_dial
+            .set(1, SpeedDialEntry::new("anthropic", "claude-opus-4"))
+            .unwrap();
+        speed_dial
+            .set(3, SpeedDialEntry::new("openai", "gpt-5.4"))
+            .unwrap();
+
+        let mut config = ForgeConfig::default();
+        config.speed_dial = Some(speed_dial);
+
+        let info = super::Info::from(&config);
+        let rendered = info.to_string();
+
+        // `Info::add_key_value` lowercases keys before rendering, so the
+        // visible labels are `slot 1` / `slot 3`.
+        assert!(rendered.contains("SPEED DIAL"));
+        assert!(rendered.contains("slot 1"));
+        assert!(rendered.contains("anthropic/claude-opus-4"));
+        assert!(rendered.contains("slot 3"));
+        assert!(rendered.contains("openai/gpt-5.4"));
+        // Unpopulated slots must not appear.
+        assert!(!rendered.contains("slot 2"));
+    }
+
+    #[test]
+    fn test_forge_config_info_hides_speed_dial_when_empty() {
+        use forge_config::ForgeConfig;
+
+        let config = ForgeConfig::default();
+        let info = super::Info::from(&config);
+        let rendered = info.to_string();
+
+        assert!(
+            !rendered.contains("SPEED DIAL"),
+            "SPEED DIAL block must be suppressed when no slot is configured"
+        );
     }
 }
