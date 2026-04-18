@@ -137,6 +137,9 @@ impl AgentExt for Agent {
                 eviction_window: workflow_compact.eviction_window.value(),
                 max_tokens: workflow_compact.max_tokens,
                 token_threshold: workflow_compact.token_threshold,
+                token_threshold_percentage: workflow_compact
+                    .token_threshold_percentage
+                    .map(|percentage| percentage.value()),
                 turn_threshold: workflow_compact.turn_threshold,
                 message_threshold: workflow_compact.message_threshold,
                 model: workflow_compact.model.as_deref().map(ModelId::new),
@@ -287,7 +290,8 @@ mod tests {
             .retention_window(10_usize)
             .eviction_window(Percentage::new(0.3).unwrap())
             .max_tokens(5000_usize)
-            .token_threshold(80000_usize);
+            .token_threshold(80000_usize)
+            .token_threshold_percentage(0.65_f64);
 
         let config = ForgeConfig::default().compact(workflow_compact);
 
@@ -315,6 +319,11 @@ mod tests {
             Some(80000),
             "Workflow token_threshold applies because agent default has None"
         );
+        assert_eq!(
+            actual.token_threshold_percentage,
+            Some(0.65),
+            "Workflow context-window percentage applies because agent default has None"
+        );
     }
 
     /// Tests the current behavior when agent has partial compact config:
@@ -334,12 +343,17 @@ mod tests {
             .eviction_window(Percentage::new(0.25).unwrap())
             .max_tokens(6000_usize)
             .token_threshold(90000_usize)
+            .token_threshold_percentage(0.4_f64)
             .turn_threshold(20_usize);
 
         let config = ForgeConfig::default().compact(workflow_compact);
 
         // Agent with PARTIAL compact config (only retention_window set to 5)
-        let agent = fixture_agent().compact(DomainCompact::new().retention_window(5_usize));
+        let agent = fixture_agent().compact(
+            DomainCompact::new()
+                .retention_window(5_usize)
+                .token_threshold_percentage(0.25_f64),
+        );
 
         let actual = agent.apply_config(&config).compact;
 
@@ -356,6 +370,11 @@ mod tests {
             actual.token_threshold,
             Some(90000),
             "Workflow token_threshold applies (agent had None)"
+        );
+        assert_eq!(
+            actual.token_threshold_percentage,
+            Some(0.25),
+            "Agent's context-window percentage takes priority over workflow's 0.4"
         );
         assert_eq!(
             actual.turn_threshold,

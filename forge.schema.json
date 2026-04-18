@@ -416,13 +416,24 @@
           "minimum": 0
         },
         "token_threshold": {
-          "description": "Maximum number of tokens before triggering compaction",
+          "description": "Maximum number of tokens before triggering compaction. This acts as an\nabsolute cap and is combined with\n`token_threshold_percentage` by taking the lower value.",
           "type": [
             "integer",
             "null"
           ],
           "format": "uint",
           "minimum": 0
+        },
+        "token_threshold_percentage": {
+          "description": "Maximum percentage of the model context window used to derive the token\nthreshold before triggering compaction. This is combined with\n`token_threshold` by taking the lower value.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/double"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "turn_threshold": {
           "description": "Maximum number of conversation turns before triggering compaction",
