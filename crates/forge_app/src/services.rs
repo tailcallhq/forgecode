@@ -108,6 +108,60 @@ pub struct HttpResponse {
     pub content_type: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WebSearchResponse {
+    pub query: String,
+    pub engine: String,
+    pub search_id: Option<String>,
+    pub answer_box: Option<WebSearchAnswerBox>,
+    pub knowledge_graph: Option<WebSearchKnowledgeGraph>,
+    pub organic_results: Vec<WebSearchOrganicResult>,
+    pub related_questions: Vec<WebSearchRelatedQuestion>,
+    pub related_searches: Vec<String>,
+    pub top_stories: Vec<WebSearchTopStory>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WebSearchAnswerBox {
+    pub title: Option<String>,
+    pub answer: Option<String>,
+    pub snippet: Option<String>,
+    pub link: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WebSearchKnowledgeGraph {
+    pub title: Option<String>,
+    pub entity_type: Option<String>,
+    pub description: Option<String>,
+    pub website: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WebSearchOrganicResult {
+    pub position: Option<u32>,
+    pub title: String,
+    pub link: String,
+    pub displayed_link: Option<String>,
+    pub source: Option<String>,
+    pub snippet: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WebSearchRelatedQuestion {
+    pub question: String,
+    pub snippet: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WebSearchTopStory {
+    pub title: String,
+    pub link: Option<String>,
+    pub source: Option<String>,
+    pub date: Option<String>,
+    pub snippet: Option<String>,
+}
+
 #[derive(Debug)]
 pub enum ResponseContext {
     Parsed,
@@ -204,6 +258,7 @@ pub trait AppConfigService: Send + Sync {
     /// all configuration changes; use [`forge_domain::ConfigOperation`]
     /// variants to describe each mutation.
     async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()>;
+
 }
 
 #[async_trait::async_trait]
@@ -429,6 +484,15 @@ pub trait NetFetchService: Send + Sync {
 }
 
 #[async_trait::async_trait]
+pub trait WebSearchService: Send + Sync {
+    /// Searches the public web and returns a normalized structured result set.
+    async fn web_search(
+        &self,
+        params: forge_domain::WebSearch,
+    ) -> anyhow::Result<WebSearchResponse>;
+}
+
+#[async_trait::async_trait]
 pub trait ShellService: Send + Sync {
     /// Executes a shell command and returns the output.
     async fn execute(
@@ -550,6 +614,7 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     type FollowUpService: FollowUpService;
     type FsUndoService: FsUndoService;
     type NetFetchService: NetFetchService;
+    type WebSearchService: WebSearchService;
     type ShellService: ShellService;
     type McpService: McpService;
     type AuthService: AuthService;
@@ -577,6 +642,7 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     fn follow_up_service(&self) -> &Self::FollowUpService;
     fn fs_undo_service(&self) -> &Self::FsUndoService;
     fn net_fetch_service(&self) -> &Self::NetFetchService;
+    fn web_search_service(&self) -> &Self::WebSearchService;
     fn shell_service(&self) -> &Self::ShellService;
     fn mcp_service(&self) -> &Self::McpService;
     fn custom_instructions_service(&self) -> &Self::CustomInstructionsService;
@@ -846,6 +912,16 @@ impl<I: Services> NetFetchService for I {
 }
 
 #[async_trait::async_trait]
+impl<I: Services> WebSearchService for I {
+    async fn web_search(
+        &self,
+        params: forge_domain::WebSearch,
+    ) -> anyhow::Result<WebSearchResponse> {
+        self.web_search_service().web_search(params).await
+    }
+}
+
+#[async_trait::async_trait]
 impl<I: Services> ShellService for I {
     async fn execute(
         &self,
@@ -965,6 +1041,7 @@ impl<I: Services> AppConfigService for I {
     async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()> {
         self.config_service().update_config(ops).await
     }
+
 }
 
 #[async_trait::async_trait]

@@ -11,7 +11,7 @@ use crate::{
     AgentRegistry, ConversationService, EnvironmentInfra, FollowUpService, FsPatchService,
     FsReadService, FsRemoveService, FsSearchService, FsUndoService, FsWriteService,
     ImageReadService, NetFetchService, PlanCreateService, ProviderService, SkillFetchService,
-    WorkspaceService,
+    WebSearchService, WorkspaceService,
 };
 
 pub struct ToolExecutor<S> {
@@ -25,6 +25,7 @@ impl<
         + FsSearchService
         + WorkspaceService
         + NetFetchService
+        + WebSearchService
         + FsRemoveService
         + FsPatchService
         + FsUndoService
@@ -279,6 +280,10 @@ impl<
             ToolCatalog::Fetch(input) => {
                 let output = self.services.fetch(input.url.clone(), input.raw).await?;
                 (input, output).into()
+            }
+            ToolCatalog::Websearch(input) => {
+                let output = self.services.web_search(input.clone()).await?;
+                ToolOperation::WebSearch { input, output }
             }
             ToolCatalog::Followup(input) => {
                 let output = self

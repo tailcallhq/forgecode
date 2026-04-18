@@ -1,0 +1,50 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<web_search_results
+  query="saturn facts"
+  engine="google"
+  result_count="1"
+  search_id="search-123"
+>
+<answer_box
+  title="Saturn"
+  link="https://example.com/saturn"
+  answer="A gas giant planet"
+>
+</answer_box>
+<knowledge_graph
+  title="Saturn"
+  type="Planet"
+  website="https://science.nasa.gov/saturn/"
+  description="The sixth planet from the Sun."
+>
+</knowledge_graph>
+<organic_result
+  title="Saturn Facts"
+  link="https://science.nasa.gov/saturn/facts/"
+  position="1"
+  displayed_link="science.nasa.gov › saturn › facts"
+  source="NASA"
+  snippet="Saturn facts and figures."
+>
+</organic_result>
+<related_question
+  question="What is Saturn made of?"
+  snippet="Mostly hydrogen and helium."
+>
+</related_question>
+<related_search
+  query="saturn rings"
+>
+</related_search>
+<top_story
+  title="New Saturn mission announced"
+  link="https://example.com/story"
+  source="Space News"
+  date="1 day ago"
+  snippet="A new mission could launch soon."
+>
+</top_story>
+</web_search_results>

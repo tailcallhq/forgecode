@@ -27,6 +27,7 @@ use crate::template::ForgeTemplateService;
 use crate::tool_services::{
     ForgeFetch, ForgeFollowup, ForgeFsPatch, ForgeFsRead, ForgeFsRemove, ForgeFsSearch,
     ForgeFsUndo, ForgeFsWrite, ForgeImageRead, ForgePlanCreate, ForgeShell, ForgeSkillFetch,
+    ForgeWebSearch,
 };
 
 type McpService<F> = ForgeMcpService<ForgeMcpManager<F>, F, <F as McpServerInfra>::Client>;
@@ -72,6 +73,7 @@ pub struct ForgeServices<
     file_undo_service: Arc<ForgeFsUndo<F>>,
     shell_service: Arc<ForgeShell<F>>,
     fetch_service: Arc<ForgeFetch>,
+    websearch_service: Arc<ForgeWebSearch<F>>,
     followup_service: Arc<ForgeFollowup<F>>,
     mcp_service: Arc<McpService<F>>,
     custom_instructions_service: Arc<ForgeCustomInstructionsService<F>>,
@@ -127,6 +129,7 @@ impl<
         let file_undo_service = Arc::new(ForgeFsUndo::new(infra.clone()));
         let shell_service = Arc::new(ForgeShell::new(infra.clone()));
         let fetch_service = Arc::new(ForgeFetch::new());
+        let websearch_service = Arc::new(ForgeWebSearch::new(infra.clone()));
         let followup_service = Arc::new(ForgeFollowup::new(infra.clone()));
         let custom_instructions_service =
             Arc::new(ForgeCustomInstructionsService::new(infra.clone()));
@@ -157,6 +160,7 @@ impl<
             file_undo_service,
             shell_service,
             fetch_service,
+            websearch_service,
             followup_service,
             mcp_service,
             custom_instructions_service,
@@ -225,6 +229,7 @@ impl<
     type FollowUpService = ForgeFollowup<F>;
     type FsUndoService = ForgeFsUndo<F>;
     type NetFetchService = ForgeFetch;
+    type WebSearchService = ForgeWebSearch<F>;
     type ShellService = ForgeShell<F>;
     type McpService = McpService<F>;
     type AuthService = AuthService<F>;
@@ -297,6 +302,10 @@ impl<
 
     fn net_fetch_service(&self) -> &Self::NetFetchService {
         &self.fetch_service
+    }
+
+    fn web_search_service(&self) -> &Self::WebSearchService {
+        &self.websearch_service
     }
 
     fn shell_service(&self) -> &Self::ShellService {

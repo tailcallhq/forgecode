@@ -16,6 +16,7 @@ tools:
   - multi_patch
   - shell
   - fetch
+  - websearch
   - skill
   - todo_write
   - todo_read

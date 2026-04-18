@@ -10,6 +10,7 @@ tools:
   - search
   - read
   - fetch
+  - websearch
   - plan
   - mcp_*
 user_prompt: |-
