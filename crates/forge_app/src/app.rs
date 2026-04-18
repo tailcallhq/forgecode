@@ -11,11 +11,13 @@ use crate::changed_files::ChangedFiles;
 use crate::dto::ToolsOverview;
 use crate::hooks::{
     CompactionHandler, DoomLoopDetector, PendingTodosHandler, TitleGenerationHandler,
-    TracingHandler,
+    TracingHandler, UserHookHandler,
 };
 use crate::init_conversation_metrics::InitConversationMetrics;
 use crate::orch::Orchestrator;
-use crate::services::{AgentRegistry, CustomInstructionsService, ProviderAuthService};
+use crate::services::{
+    AgentRegistry, CustomInstructionsService, ProviderAuthService, UserHookConfigService,
+};
 use crate::set_conversation_id::SetConversationId;
 use crate::system_prompt::SystemPrompt;
 use crate::tool_registry::ToolRegistry;
@@ -159,7 +161,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             tracing_handler.clone().and(title_handler.clone())
         };
 
-        let hook = Hook::default()
+        let internal_hook = Hook::default()
             .on_start(tracing_handler.clone().and(title_handler))
             .on_request(tracing_handler.clone().and(DoomLoopDetector::default()))
             .on_response(
@@ -170,6 +172,29 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             .on_toolcall_start(tracing_handler.clone())
             .on_toolcall_end(tracing_handler)
             .on_end(on_end_hook);
+
+        // Load user-configurable hooks from settings files
+        let user_hook_config = services.get_user_hook_config().await?;
+
+        let hook = if !user_hook_config.is_empty() {
+            let user_handler = UserHookHandler::new(
+                services.hook_command_service().clone(),
+                services.get_env_vars(),
+                user_hook_config,
+                environment.cwd.clone(),
+                conversation.id.to_string(),
+            );
+            let user_hook = Hook::default()
+                .on_start(user_handler.clone())
+                .on_request(user_handler.clone())
+                .on_response(user_handler.clone())
+                .on_toolcall_start(user_handler.clone())
+                .on_toolcall_end(user_handler.clone())
+                .on_end(user_handler);
+            internal_hook.zip(user_hook)
+        } else {
+            internal_hook
+        };
 
         let orch = Orchestrator::new(
             services.clone(),

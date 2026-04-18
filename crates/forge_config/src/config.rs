@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::reader::ConfigReader;
 use crate::writer::ConfigWriter;
 use crate::{
-    AutoDumpFormat, Compact, Decimal, HttpConfig, ModelConfig, ReasoningConfig, RetryConfig, Update,
+    AutoDumpFormat, Compact, Decimal, HttpConfig, ModelConfig, ReasoningConfig, RetryConfig,
+    Update, UserHookConfig,
 };
 
 /// Wire protocol a provider uses for chat completions.
@@ -281,6 +282,13 @@ pub struct ForgeConfig {
     /// when a task ends and reminds the LLM about them.
     #[serde(default)]
     pub verify_todos: bool,
+
+    /// User hook configuration loaded from the `[hooks]` section.
+    ///
+    /// Maps lifecycle event names (e.g. `PreToolUse`, `Stop`) to lists of
+    /// matcher groups that execute shell commands at each event point.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hooks: Option<UserHookConfig>,
 }
 
 impl ForgeConfig {
@@ -352,5 +360,81 @@ mod tests {
         let actual = ConfigReader::default().read_toml(&toml).build().unwrap();
 
         assert_eq!(actual.temperature, fixture.temperature);
+    }
+
+    #[test]
+    fn test_hooks_toml_round_trip() {
+        use crate::{
+            UserHookConfig, UserHookEntry, UserHookEventName, UserHookMatcherGroup, UserHookType,
+        };
+
+        let mut events = std::collections::HashMap::new();
+        events.insert(
+            UserHookEventName::PreToolUse,
+            vec![UserHookMatcherGroup {
+                matcher: Some("Bash".to_string()),
+                hooks: vec![UserHookEntry {
+                    hook_type: UserHookType::Command,
+                    command: Some("check.sh".to_string()),
+                    timeout: Some(5000),
+                }],
+            }],
+        );
+        let fixture = ForgeConfig { hooks: Some(UserHookConfig { events }), ..Default::default() };
+
+        let toml = toml_edit::ser::to_string_pretty(&fixture).unwrap();
+        let actual: ForgeConfig = toml_edit::de::from_str(&toml).unwrap();
+
+        assert_eq!(actual.hooks, fixture.hooks);
+    }
+
+    #[test]
+    fn test_config_without_hooks_parses() {
+        let toml = "restricted = false\ntool_supported = true\n";
+        let actual: ForgeConfig = toml_edit::de::from_str(toml).unwrap();
+        assert_eq!(actual.hooks, None);
+    }
+
+    /// Verifies hooks survive the `config` crate pipeline (which lowercases
+    /// TOML keys internally). This is the path used by `read_global()`.
+    #[test]
+    fn test_hooks_through_config_crate_pipeline() {
+        use crate::UserHookEventName;
+
+        let toml = include_str!("fixtures/hook_config_pipeline.toml");
+        let result = ConfigReader::default().read_toml(toml).build();
+        let actual = result.expect("hooks should parse through config crate pipeline");
+
+        let hooks = actual.hooks.expect("hooks should be Some");
+        let groups = hooks.get_groups(&UserHookEventName::PreToolUse);
+        assert_eq!(groups.len(), 1, "expected 1 PreToolUse matcher group");
+        assert_eq!(groups[0].matcher, Some("Bash".to_string()));
+        assert_eq!(groups[0].hooks.len(), 1);
+        assert_eq!(
+            groups[0].hooks[0].command,
+            Some("echo 'blocked'".to_string())
+        );
+    }
+
+    /// Verifies hooks survive when layered with defaults via `ConfigReader`.
+    #[test]
+    fn test_hooks_layered_with_defaults() {
+        use crate::UserHookEventName;
+
+        let hooks_toml = include_str!("fixtures/hook_layered_with_defaults.toml");
+        let actual = ConfigReader::default()
+            .read_defaults()
+            .read_toml(hooks_toml)
+            .build()
+            .expect("hooks should parse when layered with defaults");
+
+        let hooks = actual.hooks.expect("hooks should be Some");
+        assert_eq!(hooks.get_groups(&UserHookEventName::PreToolUse).len(), 1);
+        assert_eq!(hooks.get_groups(&UserHookEventName::Stop).len(), 1);
+        assert!(
+            hooks
+                .get_groups(&UserHookEventName::SessionStart)
+                .is_empty()
+        );
     }
 }

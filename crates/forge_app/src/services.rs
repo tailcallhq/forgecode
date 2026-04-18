@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -477,6 +478,12 @@ pub trait CommandLoaderService: Send + Sync {
 }
 
 #[async_trait::async_trait]
+pub trait UserHookConfigService: Send + Sync {
+    /// Loads user hook configuration from `.forge.toml`.
+    async fn get_user_hook_config(&self) -> anyhow::Result<forge_config::UserHookConfig>;
+}
+
+#[async_trait::async_trait]
 pub trait PolicyService: Send + Sync {
     /// Check if an operation is allowed and handle user confirmation if needed
     /// Returns PolicyDecision with allowed flag and optional policy file path
@@ -531,6 +538,34 @@ pub trait ProviderAuthService: Send + Sync {
     ) -> anyhow::Result<Provider<Url>>;
 }
 
+/// Service for executing hook commands with stdin input and timeout.
+///
+/// Abstracts over the underlying process execution so that `UserHookExecutor`
+/// depends on a service rather than infrastructure directly.
+#[async_trait::async_trait]
+pub trait HookCommandService: Send + Sync {
+    /// Executes a shell command with stdin input.
+    ///
+    /// Pipes `stdin_input` to the process stdin and captures stdout/stderr.
+    /// Timeout enforcement is handled by the caller.
+    ///
+    /// # Arguments
+    /// * `command` - Shell command string to execute.
+    /// * `working_dir` - Working directory for the command.
+    /// * `stdin_input` - Data to pipe to the process stdin.
+    /// * `env_vars` - Additional environment variables as key-value pairs.
+    ///
+    /// # Errors
+    /// Returns an error if the process cannot be spawned.
+    async fn execute_command_with_input(
+        &self,
+        command: String,
+        working_dir: PathBuf,
+        stdin_input: String,
+        env_vars: HashMap<String, String>,
+    ) -> anyhow::Result<forge_domain::CommandOutput>;
+}
+
 pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     type ProviderService: ProviderService;
     type AppConfigService: AppConfigService;
@@ -555,10 +590,12 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     type AuthService: AuthService;
     type AgentRegistry: AgentRegistry;
     type CommandLoaderService: CommandLoaderService;
+    type UserHookConfigService: UserHookConfigService;
     type PolicyService: PolicyService;
     type ProviderAuthService: ProviderAuthService;
     type WorkspaceService: WorkspaceService;
     type SkillFetchService: SkillFetchService;
+    type HookCommandService: HookCommandService + Clone;
 
     fn provider_service(&self) -> &Self::ProviderService;
     fn config_service(&self) -> &Self::AppConfigService;
@@ -583,10 +620,12 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     fn auth_service(&self) -> &Self::AuthService;
     fn agent_registry(&self) -> &Self::AgentRegistry;
     fn command_loader_service(&self) -> &Self::CommandLoaderService;
+    fn user_hook_config_service(&self) -> &Self::UserHookConfigService;
     fn policy_service(&self) -> &Self::PolicyService;
     fn provider_auth_service(&self) -> &Self::ProviderAuthService;
     fn workspace_service(&self) -> &Self::WorkspaceService;
     fn skill_fetch_service(&self) -> &Self::SkillFetchService;
+    fn hook_command_service(&self) -> &Self::HookCommandService;
 }
 
 #[async_trait::async_trait]
@@ -929,6 +968,13 @@ impl<I: Services> AgentRegistry for I {
 impl<I: Services> CommandLoaderService for I {
     async fn get_commands(&self) -> anyhow::Result<Vec<forge_domain::Command>> {
         self.command_loader_service().get_commands().await
+    }
+}
+
+#[async_trait::async_trait]
+impl<I: Services> UserHookConfigService for I {
+    async fn get_user_hook_config(&self) -> anyhow::Result<forge_config::UserHookConfig> {
+        self.user_hook_config_service().get_user_hook_config().await
     }
 }
 

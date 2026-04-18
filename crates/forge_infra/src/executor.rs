@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use forge_app::CommandInfra;
 use forge_domain::{CommandOutput, ConsoleWriter as OutputPrinterTrait, Environment};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 
@@ -233,6 +234,43 @@ impl CommandInfra for ForgeCommandExecutorService {
             .stderr(std::process::Stdio::inherit());
 
         Ok(prepared_command.spawn()?.wait().await?)
+    }
+
+    async fn execute_command_with_input(
+        &self,
+        command: String,
+        working_dir: PathBuf,
+        stdin_input: String,
+        env_vars: HashMap<String, String>,
+    ) -> anyhow::Result<CommandOutput> {
+        let mut prepared_command = self.prepare_command(&command, &working_dir, None);
+
+        // Set directly-provided key-value env vars
+        for (key, value) in &env_vars {
+            prepared_command.env(key, value);
+        }
+
+        // Override stdin to piped so we can write to it
+        prepared_command.stdin(std::process::Stdio::piped());
+
+        let mut child = prepared_command.spawn()?;
+
+        // Pipe the JSON input to stdin
+        if let Some(mut stdin) = child.stdin.take() {
+            let input = stdin_input.clone();
+            tokio::spawn(async move {
+                let _ = stdin.write_all(input.as_bytes()).await;
+                let _ = stdin.shutdown().await;
+            });
+        }
+
+        let output = child.wait_with_output().await?;
+        Ok(CommandOutput {
+            command,
+            exit_code: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
     }
 }
 

@@ -31,7 +31,7 @@ impl CompactionHandler {
 impl EventHandle<EventData<ResponsePayload>> for CompactionHandler {
     async fn handle(
         &self,
-        _event: &EventData<ResponsePayload>,
+        _event: &mut EventData<ResponsePayload>,
         conversation: &mut Conversation,
     ) -> anyhow::Result<()> {
         if let Some(context) = &conversation.context {

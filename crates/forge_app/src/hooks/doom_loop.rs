@@ -222,7 +222,7 @@ impl DoomLoopDetector {
 impl EventHandle<EventData<RequestPayload>> for DoomLoopDetector {
     async fn handle(
         &self,
-        event: &EventData<RequestPayload>,
+        event: &mut EventData<RequestPayload>,
         conversation: &mut Conversation,
     ) -> anyhow::Result<()> {
         if let Some(consecutive_calls) = self.detect_from_conversation(conversation) {

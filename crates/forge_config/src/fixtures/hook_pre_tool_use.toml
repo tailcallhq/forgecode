@@ -1,0 +1,6 @@
+[[PreToolUse]]
+matcher = "Bash"
+
+  [[PreToolUse.hooks]]
+  type = "command"
+  command = "echo 'blocked'"

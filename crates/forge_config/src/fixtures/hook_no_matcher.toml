@@ -1,0 +1,5 @@
+[[PostToolUse]]
+
+  [[PostToolUse.hooks]]
+  type = "command"
+  command = "always.sh"

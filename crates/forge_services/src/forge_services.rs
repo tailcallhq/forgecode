@@ -26,8 +26,10 @@ use crate::provider_service::ForgeProviderService;
 use crate::template::ForgeTemplateService;
 use crate::tool_services::{
     ForgeFetch, ForgeFollowup, ForgeFsPatch, ForgeFsRead, ForgeFsRemove, ForgeFsSearch,
-    ForgeFsUndo, ForgeFsWrite, ForgeImageRead, ForgePlanCreate, ForgeShell, ForgeSkillFetch,
+    ForgeFsUndo, ForgeFsWrite, ForgeHookCommandService, ForgeImageRead, ForgePlanCreate,
+    ForgeShell, ForgeSkillFetch,
 };
+use crate::user_hook_config::ForgeUserHookConfigService;
 
 type McpService<F> = ForgeMcpService<ForgeMcpManager<F>, F, <F as McpServerInfra>::Client>;
 type AuthService<F> = ForgeAuthService<F>;
@@ -78,10 +80,12 @@ pub struct ForgeServices<
     auth_service: Arc<AuthService<F>>,
     agent_registry_service: Arc<ForgeAgentRegistryService<F>>,
     command_loader_service: Arc<ForgeCommandLoaderService<F>>,
+    user_hook_config_service: Arc<ForgeUserHookConfigService<F>>,
     policy_service: ForgePolicyService<F>,
     provider_auth_service: ForgeProviderAuthService<F>,
     workspace_service: Arc<crate::context_engine::ForgeWorkspaceService<F, FdDefault<F>>>,
     skill_service: Arc<ForgeSkillFetch<F>>,
+    hook_command_service: Arc<ForgeHookCommandService<F>>,
     infra: Arc<F>,
 }
 
@@ -132,6 +136,7 @@ impl<
             Arc::new(ForgeCustomInstructionsService::new(infra.clone()));
         let agent_registry_service = Arc::new(ForgeAgentRegistryService::new(infra.clone()));
         let command_loader_service = Arc::new(ForgeCommandLoaderService::new(infra.clone()));
+        let user_hook_config_service = Arc::new(ForgeUserHookConfigService::new(infra.clone()));
         let policy_service = ForgePolicyService::new(infra.clone());
         let provider_auth_service = ForgeProviderAuthService::new(infra.clone());
         let discovery = Arc::new(FdDefault::new(infra.clone()));
@@ -140,6 +145,7 @@ impl<
             discovery,
         ));
         let skill_service = Arc::new(ForgeSkillFetch::new(infra.clone()));
+        let hook_command_service = Arc::new(ForgeHookCommandService::new(infra.clone()));
 
         Self {
             conversation_service,
@@ -164,10 +170,12 @@ impl<
             config_service,
             agent_registry_service,
             command_loader_service,
+            user_hook_config_service,
             policy_service,
             provider_auth_service,
             workspace_service,
             skill_service,
+            hook_command_service,
             chat_service,
             infra,
         }
@@ -230,10 +238,12 @@ impl<
     type AuthService = AuthService<F>;
     type AgentRegistry = ForgeAgentRegistryService<F>;
     type CommandLoaderService = ForgeCommandLoaderService<F>;
+    type UserHookConfigService = ForgeUserHookConfigService<F>;
     type PolicyService = ForgePolicyService<F>;
     type ProviderService = ForgeProviderService<F>;
     type WorkspaceService = crate::context_engine::ForgeWorkspaceService<F, FdDefault<F>>;
     type SkillFetchService = ForgeSkillFetch<F>;
+    type HookCommandService = ForgeHookCommandService<F>;
 
     fn config_service(&self) -> &Self::AppConfigService {
         &self.config_service
@@ -319,6 +329,10 @@ impl<
         &self.command_loader_service
     }
 
+    fn user_hook_config_service(&self) -> &Self::UserHookConfigService {
+        &self.user_hook_config_service
+    }
+
     fn policy_service(&self) -> &Self::PolicyService {
         &self.policy_service
     }
@@ -332,6 +346,10 @@ impl<
     }
     fn skill_fetch_service(&self) -> &Self::SkillFetchService {
         &self.skill_service
+    }
+
+    fn hook_command_service(&self) -> &Self::HookCommandService {
+        &self.hook_command_service
     }
 
     fn provider_service(&self) -> &Self::ProviderService {

@@ -1,0 +1,18 @@
+[[PreToolUse]]
+matcher = "Bash"
+
+  [[PreToolUse.hooks]]
+  type = "command"
+  command = "pre.sh"
+
+[[PostToolUse]]
+
+  [[PostToolUse.hooks]]
+  type = "command"
+  command = "post.sh"
+
+[[Stop]]
+
+  [[Stop.hooks]]
+  type = "command"
+  command = "stop.sh"

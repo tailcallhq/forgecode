@@ -108,6 +108,21 @@ mod tests {
         ) -> anyhow::Result<std::process::ExitStatus> {
             unimplemented!()
         }
+
+        async fn execute_command_with_input(
+            &self,
+            command: String,
+            _working_dir: PathBuf,
+            _stdin_input: String,
+            _env_vars: std::collections::HashMap<String, String>,
+        ) -> anyhow::Result<forge_domain::CommandOutput> {
+            Ok(forge_domain::CommandOutput {
+                command,
+                exit_code: Some(0),
+                stdout: String::new(),
+                stderr: String::new(),
+            })
+        }
     }
 
     impl EnvironmentInfra for MockCommandInfra {

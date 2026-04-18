@@ -1,0 +1,12 @@
+[[hooks.PreToolUse]]
+matcher = "Bash"
+
+  [[hooks.PreToolUse.hooks]]
+  type = "command"
+  command = "echo 'pre'"
+
+[[hooks.Stop]]
+
+  [[hooks.Stop.hooks]]
+  type = "command"
+  command = "stop.sh"

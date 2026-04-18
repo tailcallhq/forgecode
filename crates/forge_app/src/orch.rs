@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use async_recursion::async_recursion;
 use derive_setters::Setters;
-use forge_domain::{Agent, *};
+use forge_domain::{Agent, PromptSuppressed, *};
 use forge_template::Element;
 use futures::future::join_all;
 use tokio::sync::Notify;
@@ -53,13 +53,15 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         &self.conversation
     }
 
-    // Helper function to get all tool results from a vector of tool calls
+    // Returns tool results and any PostToolUse hook feedback messages.
+    // Feedback messages must be injected into context AFTER append_message
+    // so the LLM sees them in the correct order (after tool results).
     #[async_recursion]
     async fn execute_tool_calls(
         &mut self,
         tool_calls: &[ToolCallFull],
         tool_context: &ToolCallContext,
-    ) -> anyhow::Result<Vec<(ToolCallFull, ToolResult)>> {
+    ) -> anyhow::Result<(Vec<(ToolCallFull, ToolResult)>, Vec<String>)> {
         let task_tool_name = ToolKind::Task.name();
 
         // Use a case-insensitive comparison since the model may send "Task" or "task".
@@ -99,6 +101,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         // and hooks).
         let mut other_results: Vec<(ToolCallFull, ToolResult)> =
             Vec::with_capacity(other_calls.len());
+        let mut hook_feedbacks: Vec<String> = Vec::new();
         for tool_call in &other_calls {
             // Send the start notification for system tools and not agent as a tool
             let is_system_tool = system_tools.contains(&tool_call.name);
@@ -115,38 +118,70 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 notifier.notified().await;
             }
 
-            // Fire the ToolcallStart lifecycle event
-            let toolcall_start_event = LifecycleEvent::ToolcallStart(EventData::new(
+            // Fire the ToolcallStart lifecycle event.
+            // If a hook returns an error (e.g., PreToolUse hook blocked the
+            // call), skip execution and record an error result instead.
+            // A PreToolUse hook may also modify the tool call arguments in-flight
+            // via the AllowWithUpdate path.
+            let mut toolcall_start_event = LifecycleEvent::ToolcallStart(EventData::new(
                 self.agent.clone(),
                 self.agent.model.clone(),
                 ToolcallStartPayload::new((*tool_call).clone()),
             ));
-            self.hook
-                .handle(&toolcall_start_event, &mut self.conversation)
-                .await?;
-
-            // Execute the tool
-            let tool_result = self
-                .services
-                .call(&self.agent, tool_context, (*tool_call).clone())
+            let hook_result = self
+                .hook
+                .handle(&mut toolcall_start_event, &mut self.conversation)
                 .await;
+            self.drain_hook_warnings(&mut toolcall_start_event).await?;
+
+            let (effective_tool_call, tool_result) = if let Err(hook_err) = hook_result {
+                // Hook blocked this tool call — notify the UI and produce an
+                // error ToolResult so the model sees feedback without aborting.
+                self.send(ChatResponse::HookError {
+                    tool_name: tool_call.name.clone(),
+                    reason: hook_err.to_string(),
+                })
+                .await?;
+                let result = ToolResult::from((*tool_call).clone()).failure(hook_err);
+                ((*tool_call).clone(), result)
+            } else {
+                // Extract the (possibly modified) tool call from the event.
+                // A PreToolUse hook may have updated the tool call arguments.
+                let effective = match toolcall_start_event {
+                    LifecycleEvent::ToolcallStart(data) => data.payload.tool_call,
+                    _ => unreachable!("ToolcallStart event cannot change variant"),
+                };
+                let result = self
+                    .services
+                    .call(&self.agent, tool_context, effective.clone())
+                    .await;
+                (effective, result)
+            };
 
             // Fire the ToolcallEnd lifecycle event (fires on both success and failure)
-            let toolcall_end_event = LifecycleEvent::ToolcallEnd(EventData::new(
+            let mut toolcall_end_event = LifecycleEvent::ToolcallEnd(EventData::new(
                 self.agent.clone(),
                 self.agent.model.clone(),
-                ToolcallEndPayload::new((*tool_call).clone(), tool_result.clone()),
+                ToolcallEndPayload::new(effective_tool_call.clone(), tool_result.clone()),
             ));
             self.hook
-                .handle(&toolcall_end_event, &mut self.conversation)
+                .handle(&mut toolcall_end_event, &mut self.conversation)
                 .await?;
+            self.drain_hook_warnings(&mut toolcall_end_event).await?;
+
+            // Collect PostToolUse hook feedback to inject after append_message.
+            if let LifecycleEvent::ToolcallEnd(ref data) = toolcall_end_event
+                && let Some(feedback) = &data.payload.hook_feedback
+            {
+                hook_feedbacks.push(feedback.clone());
+            }
 
             // Send the end notification for system tools and not agent as a tool
             if is_system_tool {
                 self.send(ChatResponse::ToolCallEnd(tool_result.clone()))
                     .await?;
             }
-            other_results.push(((*tool_call).clone(), tool_result));
+            other_results.push((effective_tool_call, tool_result));
         }
 
         // Reconstruct results in the original order of tool_calls.
@@ -163,7 +198,17 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             })
             .collect();
 
-        Ok(tool_call_records)
+        Ok((tool_call_records, hook_feedbacks))
+    }
+
+    /// Drains any hook warnings from a lifecycle event and emits them to the
+    /// UI as `ChatResponse::HookWarning` messages.
+    async fn drain_hook_warnings(&self, event: &mut LifecycleEvent) -> anyhow::Result<()> {
+        let warnings = event.drain_warnings();
+        for message in warnings {
+            self.send(ChatResponse::HookWarning { message }).await?;
+        }
+        Ok(())
     }
 
     async fn send(&self, message: ChatResponse) -> anyhow::Result<()> {
@@ -237,14 +282,15 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         let mut context = self.conversation.context.clone().unwrap_or_default();
 
         // Fire the Start lifecycle event
-        let start_event = LifecycleEvent::Start(EventData::new(
+        let mut start_event = LifecycleEvent::Start(EventData::new(
             self.agent.clone(),
             model_id.clone(),
             StartPayload,
         ));
         self.hook
-            .handle(&start_event, &mut self.conversation)
+            .handle(&mut start_event, &mut self.conversation)
             .await?;
+        self.drain_hook_warnings(&mut start_event).await?;
 
         // Signals that the loop should suspend (task may or may not be completed)
         let mut should_yield = false;
@@ -253,6 +299,11 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         let mut is_complete = false;
 
         let mut request_count = 0;
+
+        // Tracks whether a Stop hook forced continuation. Passed to the
+        // next EndPayload so hook scripts can detect re-entrancy and
+        // avoid infinite loops (matches Claude Code's `stop_hook_active`).
+        let mut stop_hook_active = false;
 
         // Retrieve the number of requests allowed per tick.
         let max_requests_per_turn = self.agent.max_requests_per_turn;
@@ -264,14 +315,26 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             self.conversation.context = Some(context.clone());
             self.services.update(self.conversation.clone()).await?;
 
-            let request_event = LifecycleEvent::Request(EventData::new(
+            let mut request_event = LifecycleEvent::Request(EventData::new(
                 self.agent.clone(),
                 model_id.clone(),
                 RequestPayload::new(request_count),
             ));
-            self.hook
-                .handle(&request_event, &mut self.conversation)
-                .await?;
+            if let Err(e) = self
+                .hook
+                .handle(&mut request_event, &mut self.conversation)
+                .await
+            {
+                self.drain_hook_warnings(&mut request_event).await?;
+                if e.downcast_ref::<PromptSuppressed>().is_some() {
+                    // Prompt was blocked by a UserPromptSubmit hook.
+                    // Persist the conversation and exit cleanly.
+                    self.services.update(self.conversation.clone()).await?;
+                    break;
+                }
+                return Err(e);
+            }
+            self.drain_hook_warnings(&mut request_event).await?;
 
             let message = crate::retry::retry_with_config(
                 &self.config.clone().retry.unwrap_or_default(),
@@ -304,14 +367,15 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             .await?;
 
             // Fire the Response lifecycle event
-            let response_event = LifecycleEvent::Response(EventData::new(
+            let mut response_event = LifecycleEvent::Response(EventData::new(
                 self.agent.clone(),
                 model_id.clone(),
                 ResponsePayload::new(message.clone()),
             ));
             self.hook
-                .handle(&response_event, &mut self.conversation)
+                .handle(&mut response_event, &mut self.conversation)
                 .await?;
+            self.drain_hook_warnings(&mut response_event).await?;
 
             // Turn is completed, if finish_reason is 'stop'. Gemini models return stop as
             // finish reason with tool calls.
@@ -326,7 +390,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                     .any(|call| ToolCatalog::should_yield(&call.name));
 
             // Process tool calls and update context
-            let mut tool_call_records = self
+            let (mut tool_call_records, hook_feedbacks) = self
                 .execute_tool_calls(&message.tool_calls, &tool_context)
                 .await?;
 
@@ -362,6 +426,14 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 tool_call_records,
                 message.phase,
             );
+
+            // Inject PostToolUse hook feedback AFTER the tool results are appended.
+            // This ensures the LLM sees: [tool_result] [hook_feedback], not the reverse.
+            for feedback in hook_feedbacks {
+                context
+                    .messages
+                    .push(ContextMessage::user(feedback, None).into());
+            }
 
             if self.error_tracker.limit_reached() {
                 self.send(ChatResponse::Interrupt {
@@ -413,24 +485,31 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             // it adds messages
             if should_yield {
                 let end_count_before = self.conversation.len();
+                let mut end_event = LifecycleEvent::End(EventData::new(
+                    self.agent.clone(),
+                    model_id.clone(),
+                    EndPayload { stop_hook_active },
+                ));
                 self.hook
-                    .handle(
-                        &LifecycleEvent::End(EventData::new(
-                            self.agent.clone(),
-                            model_id.clone(),
-                            EndPayload,
-                        )),
-                        &mut self.conversation,
-                    )
+                    .handle(&mut end_event, &mut self.conversation)
                     .await?;
+                self.drain_hook_warnings(&mut end_event).await?;
                 self.services.update(self.conversation.clone()).await?;
                 // Check if End hook added messages - if so, continue the loop
                 if self.conversation.len() > end_count_before {
-                    // End hook added messages, sync context and continue
+                    // End hook added messages, sync context and continue.
+                    // Propagate stop_hook_active from the event payload so the
+                    // next iteration knows a Stop hook caused this continuation.
+                    if let LifecycleEvent::End(ref data) = end_event {
+                        stop_hook_active = data.payload.stop_hook_active;
+                    }
                     if let Some(updated_context) = &self.conversation.context {
                         context = updated_context.clone();
                     }
                     should_yield = false;
+                } else {
+                    // No continuation -- reset for next user turn.
+                    stop_hook_active = false;
                 }
             }
         }

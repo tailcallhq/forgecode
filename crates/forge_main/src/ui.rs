@@ -3963,6 +3963,20 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     self.writeln_title(TitleFormat::error(cause.as_str()))?;
                 }
             }
+            ChatResponse::HookError { tool_name, reason } => {
+                writer.finish()?;
+                self.spinner.stop(None)?;
+                self.writeln_title(TitleFormat::error(format!(
+                    "PreToolUse:{tool_name} hook error: {reason}"
+                )))?;
+                self.spinner.start(None)?;
+            }
+            ChatResponse::HookWarning { message } => {
+                writer.finish()?;
+                self.spinner.stop(None)?;
+                self.writeln_title(TitleFormat::warning(message))?;
+                self.spinner.start(None)?;
+            }
             ChatResponse::Interrupt { reason } => {
                 writer.finish()?;
                 self.spinner.stop(None)?;

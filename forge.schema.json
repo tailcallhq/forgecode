@@ -66,6 +66,17 @@
         "null"
       ]
     },
+    "hooks": {
+      "description": "User hook configuration loaded from the `[hooks]` section.\n\nMaps lifecycle event names (e.g. `PreToolUse`, `Stop`) to lists of\nmatcher groups that execute shell commands at each event point.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UserHookConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "http": {
       "description": "HTTP client settings including proxy, TLS, and timeout configuration.",
       "anyOf": [
@@ -896,6 +907,76 @@
         "daily",
         "weekly",
         "always"
+      ]
+    },
+    "UserHookConfig": {
+      "description": "Top-level user hook configuration.\n\nMaps hook event names to a list of matcher groups. This is deserialized\nfrom the `hooks` section in `.forge.toml`.\n\nExample TOML:\n```toml\n[[hooks.PreToolUse]]\nmatcher = \"Bash\"\n\n  [[hooks.PreToolUse.hooks]]\n  type = \"command\"\n  command = \"echo hi\"\n```",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/UserHookMatcherGroup"
+        }
+      }
+    },
+    "UserHookEntry": {
+      "description": "A single hook handler entry that defines what action to take.",
+      "type": "object",
+      "properties": {
+        "command": {
+          "description": "The shell command to execute (for `Command` type hooks).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeout": {
+          "description": "Timeout in milliseconds for this hook. Defaults to 600000ms (10\nminutes).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "type": {
+          "description": "The type of hook handler.",
+          "$ref": "#/$defs/UserHookType"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "UserHookMatcherGroup": {
+      "description": "A matcher group pairs an optional regex matcher with a list of hook\nhandlers.\n\nWhen a lifecycle event fires, only matcher groups whose `matcher` regex\nmatches the relevant event context (e.g., tool name) will have their hooks\nexecuted. If `matcher` is `None` (or an empty string, which is normalized\nto `None`), all hooks in this group fire unconditionally.",
+      "type": "object",
+      "properties": {
+        "hooks": {
+          "description": "List of hook handlers to execute when this matcher matches.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UserHookEntry"
+          }
+        },
+        "matcher": {
+          "description": "Optional regex pattern to match against (e.g., tool name for\nPreToolUse/PostToolUse).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "UserHookType": {
+      "description": "The type of hook handler to execute.",
+      "oneOf": [
+        {
+          "description": "Executes a shell command, piping JSON to stdin and reading JSON from\nstdout.",
+          "type": "string",
+          "const": "command"
+        }
       ]
     },
     "double": {
