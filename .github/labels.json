@@ -228,16 +228,22 @@
     "aliases": ["ci:benchmark"]
   },
   {
-    "name": "update: provider",
+    "name": "type: provider",
     "color": "0075ca",
     "description": "Updates provider.json configuration.",
-    "aliases": ["provider"]
+    "aliases": ["provider", "update: provider"]
   },
   {
     "name": "ci: test-jit",
     "color": "F9D0C4",
     "description": "Run all integration tests for the JIT optimized engine",
     "aliases": ["ci:test-jit"]
+  },
+  {
+    "name": "os: windows",
+    "color": "0078d4",
+    "description": "Windows-specific issue or feature.",
+    "aliases": ["windows", "win32", "platform: windows"]
   },
   {
     "name": "onlydust-wave",
