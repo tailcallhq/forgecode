@@ -153,18 +153,48 @@ impl ForgeCommandManager {
                 | "sync-info"
                 | "workspace-init"
                 | "sync-init"
+                // Speed-dial commands: the bare long/alias names and each
+                // digit slot 1..=9. Agents must not shadow these because
+                // they are parsed specially (digit-slot hook in parse()).
+                | "speed-dial"
+                | "sd"
+                | "1"
+                | "2"
+                | "3"
+                | "4"
+                | "5"
+                | "6"
+                | "7"
+                | "8"
+                | "9"
         )
     }
 
     fn default_commands() -> Vec<ForgeCommand> {
-        AppCommand::iter()
+        let mut commands: Vec<ForgeCommand> = AppCommand::iter()
             .filter(|command| !command.is_internal())
             .map(|command| ForgeCommand {
                 name: command.name().to_string(),
                 description: command.usage().to_string(),
                 value: None,
             })
-            .collect::<Vec<_>>()
+            .collect();
+
+        // Speed-dial digit slots are parsed specially via a pre-Clap hook
+        // (they are `AppCommand::SpeedDial { slot, .. }` with
+        // `#[command(skip)]` because Clap cannot derive digit-only
+        // subcommands), so they need to be registered manually here for
+        // completion and the command list. `speed-dial` itself is already
+        // registered via the `SpeedDialMenu` variant above.
+        for slot in 1u8..=9 {
+            commands.push(ForgeCommand {
+                name: slot.to_string(),
+                description: format!("Switch to speed-dial slot {slot}"),
+                value: None,
+            });
+        }
+
+        commands
     }
 
     /// Registers workflow commands from the API.
@@ -319,6 +349,31 @@ impl ForgeCommandManager {
         // Build argv: [bare_command, arg1, arg2, …]
         let argv: Vec<&str> = std::iter::once(bare).chain(rest.iter().copied()).collect();
         let parameters: Vec<String> = rest.iter().map(|s| s.to_string()).collect();
+
+        // Speed-dial slot shortcut: `/1`..`/9` (or `:1`..`:9`).
+        //
+        // Must match strictly — the bare command has to be exactly a single
+        // digit `1`..`9`. Any other digit-led token (`10`, `0`, `12abc`,
+        // `1x`, …) falls through to `AppCommand::Message` so existing chat
+        // inputs that happen to start with `/` or `:` and a digit keep
+        // working. Clap can't express a digit-only subcommand, so the hook
+        // lives here and runs before `ClapCmd::try_parse_from`.
+        let bare_bytes = bare.as_bytes();
+        if bare_bytes.len() == 1 && matches!(bare_bytes[0], b'1'..=b'9') {
+            let slot = bare_bytes[0] - b'0';
+            let message = if parameters.is_empty() {
+                None
+            } else {
+                Some(parameters.join(" "))
+            };
+            return Ok(AppCommand::SpeedDial { slot, message });
+        }
+        if bare_bytes.first().is_some_and(|b| b.is_ascii_digit()) {
+            // Any digit-led token that isn't a valid single-digit slot (e.g.
+            // `/10`, `/0`, `/1abc`) falls through as plain chat input,
+            // preserving pre-feature behaviour for digit-starting messages.
+            return Ok(AppCommand::Message(input.to_string()));
+        }
 
         match ClapCmd::try_parse_from(&argv) {
             Ok(mut cmd) => {
@@ -689,6 +744,22 @@ pub enum AppCommand {
     /// Index the current workspace for semantic code search
     #[strum(props(usage = "Index the current workspace for semantic search"))]
     Index,
+
+    /// Activate a speed-dial slot (1..=9). Applies the bound provider/model
+    /// to the active session, optionally followed by a prompt that is
+    /// forwarded to the active agent after the switch.
+    ///
+    /// The command token itself is `/1`..`/9`, not a named subcommand, so
+    /// Clap cannot derive it. Dispatch happens in a pre-Clap hook inside
+    /// `ForgeCommandManager::parse()`.
+    #[strum(props(usage = "Activate a speed-dial slot. Format: /<N> [prompt] where N is 1..=9"))]
+    #[command(skip)]
+    SpeedDial { slot: u8, message: Option<String> },
+
+    /// Show or manage the speed-dial bindings.
+    #[strum(props(usage = "List configured speed-dial slots"))]
+    #[command(name = "speed-dial", alias = "sd")]
+    SpeedDialMenu,
 }
 
 impl AppCommand {
@@ -739,6 +810,8 @@ impl AppCommand {
             AppCommand::WorkspaceStatus => "workspace-status",
             AppCommand::WorkspaceInfo => "workspace-info",
             AppCommand::WorkspaceInit => "workspace-init",
+            AppCommand::SpeedDial { .. } => "speed-dial-slot",
+            AppCommand::SpeedDialMenu => "speed-dial",
         }
     }
 
@@ -757,6 +830,11 @@ impl AppCommand {
                 | AppCommand::Shell(_)
                 | AppCommand::AgentSwitch(_)
                 | AppCommand::Rename { .. }
+                // `SpeedDial { slot, .. }` represents the activation of a
+                // specific slot, dispatched via the digit-slot hook rather
+                // than Clap. The canonical digit-slot commands `/1`..`/9`
+                // are registered manually in `default_commands()` instead.
+                | AppCommand::SpeedDial { .. }
         )
     }
 
@@ -1622,5 +1700,87 @@ mod tests {
     fn test_rename_command_name() {
         let cmd = AppCommand::Rename { name: vec!["test".to_string()] };
         assert_eq!(cmd.name(), "rename");
+    }
+
+    #[test]
+    fn test_parse_speed_dial_slot_single_digit() {
+        let fixture = ForgeCommandManager::default();
+        for slot in 1u8..=9 {
+            let actual = fixture.parse(&format!("/{slot}")).unwrap();
+            assert_eq!(
+                actual,
+                AppCommand::SpeedDial { slot, message: None }
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_speed_dial_slot_with_trailing_space() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/1 ").unwrap();
+        assert_eq!(actual, AppCommand::SpeedDial { slot: 1, message: None });
+    }
+
+    #[test]
+    fn test_parse_speed_dial_slot_with_trailing_message() {
+        // `/1 explain this diff` — slot activates and remainder is forwarded
+        // as a prompt, mirroring `:<agent> <prompt>` semantics.
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/2 explain this diff").unwrap();
+        assert_eq!(
+            actual,
+            AppCommand::SpeedDial {
+                slot: 2,
+                message: Some("explain this diff".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_speed_dial_rejects_zero_as_message() {
+        // `/0` is reserved as "reset" in the shell and must not activate a
+        // slot. It stays a plain chat message.
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/0").unwrap();
+        assert_eq!(actual, AppCommand::Message("/0".to_string()));
+    }
+
+    #[test]
+    fn test_parse_speed_dial_rejects_double_digit_as_message() {
+        // `/10` must not be interpreted as slot 1 with a stray `0`.
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/10").unwrap();
+        assert_eq!(actual, AppCommand::Message("/10".to_string()));
+    }
+
+    #[test]
+    fn test_parse_speed_dial_rejects_digit_glued_to_text_as_message() {
+        // `/12abc`, `/1x` — digit-led but not a clean single-digit token,
+        // must stay out of the speed-dial branch and fall through to
+        // `Message` rather than erroring.
+        let fixture = ForgeCommandManager::default();
+        let a = fixture.parse("/12abc").unwrap();
+        let b = fixture.parse("/1x").unwrap();
+        assert_eq!(a, AppCommand::Message("/12abc".to_string()));
+        assert_eq!(b, AppCommand::Message("/1x".to_string()));
+    }
+
+    #[test]
+    fn test_parse_speed_dial_menu_long_and_alias() {
+        let fixture = ForgeCommandManager::default();
+        assert_eq!(
+            fixture.parse("/speed-dial").unwrap(),
+            AppCommand::SpeedDialMenu
+        );
+        assert_eq!(fixture.parse("/sd").unwrap(), AppCommand::SpeedDialMenu);
+    }
+
+    #[test]
+    fn test_speed_dial_command_names() {
+        assert_eq!(
+            AppCommand::SpeedDial { slot: 3, message: None }.name(),
+            "speed-dial-slot"
+        );
+        assert_eq!(AppCommand::SpeedDialMenu.name(), "speed-dial");
     }
 }

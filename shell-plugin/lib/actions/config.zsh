@@ -349,6 +349,187 @@ function _forge_action_session_model() {
     fi
 }
 
+# Action handler: Switch the session model to a speed-dial slot.
+#
+# Resolves slot number `$1` via `forge config get speed-dial-slot <N>`, which
+# prints `provider_id<TAB>model_id` on a single line.
+#
+# Two modes, mirroring the forge-REPL behaviour of `/N` vs `/N <prompt>`:
+#
+#   :N                — sticky switch. Sets `_FORGE_SESSION_MODEL` and
+#                       `_FORGE_SESSION_PROVIDER` so every subsequent forge
+#                       invocation in this shell uses the bound model +
+#                       provider. `:cr` clears the overrides.
+#   :N <prompt>       — temporary override. Snapshot the current session
+#                       overrides, swap to slot N for *this one turn*, dispatch
+#                       the prompt, then restore the snapshot. If the previous
+#                       state had no overrides (empty strings), restoration
+#                       clears them, returning to global-config fallback.
+#                       Restoration runs via zsh's `always` block so it
+#                       executes even if forge exits non-zero or the turn is
+#                       interrupted.
+function _forge_action_speed_dial() {
+    local slot="$1"
+    local input_text="$2"
+
+    echo
+
+    local slot_output
+    slot_output=$($_FORGE_BIN config get speed-dial-slot "$slot" 2>/dev/null)
+
+    if [[ -z "$slot_output" ]]; then
+        _forge_log error "Speed-dial slot \033[1m${slot}\033[0m is empty. Set one with \033[1m:sd ${slot}\033[0m"
+        return 0
+    fi
+
+    local provider_id model_id
+    provider_id=$(printf '%s' "$slot_output" | awk -F '\t' '{print $1}')
+    model_id=$(printf '%s' "$slot_output" | awk -F '\t' '{print $2}')
+
+    if [[ -z "$provider_id" || -z "$model_id" ]]; then
+        _forge_log error "Speed-dial slot \033[1m${slot}\033[0m is malformed: '${slot_output}'"
+        return 0
+    fi
+
+    # Sticky path: no trailing prompt, slot becomes the new session default.
+    if [[ -z "$input_text" ]]; then
+        _FORGE_SESSION_MODEL="$model_id"
+        _FORGE_SESSION_PROVIDER="$provider_id"
+        _forge_log success "Speed-dial \033[1m${slot}\033[0m → \033[1m${model_id}\033[0m (provider: \033[1m${provider_id}\033[0m)"
+        return 0
+    fi
+
+    # Temporary override path: snapshot → apply → run → restore.
+    local prev_model="$_FORGE_SESSION_MODEL"
+    local prev_provider="$_FORGE_SESSION_PROVIDER"
+
+    _FORGE_SESSION_MODEL="$model_id"
+    _FORGE_SESSION_PROVIDER="$provider_id"
+
+    _forge_log info "Speed-dial \033[1m${slot}\033[0m → \033[1m${model_id}\033[0m (temporary)"
+
+    if [[ -z "$_FORGE_CONVERSATION_ID" ]]; then
+        local new_id=$($_FORGE_BIN conversation new)
+        _FORGE_CONVERSATION_ID="$new_id"
+    fi
+    echo
+
+    {
+        _forge_exec_interactive -p "$input_text" --cid "$_FORGE_CONVERSATION_ID"
+    } always {
+        _FORGE_SESSION_MODEL="$prev_model"
+        _FORGE_SESSION_PROVIDER="$prev_provider"
+    }
+
+    _forge_log info "Speed-dial restored"
+
+    _forge_start_background_sync
+    _forge_start_background_update
+}
+
+# Action handler: Manage speed-dial bindings.
+#
+# Forms:
+#   :sd                    — open fzf over slots 1..9 (showing current
+#                            binding or `<empty>`), then `_forge_pick_model`
+#                            for the chosen slot and persist via
+#                            `forge config set speed-dial <N> <provider> <model>`.
+#   :sd <N>                — skip slot picker, go straight to model picker
+#                            for slot N.
+#   :sd <N> --clear        — clear the binding for slot N.
+function _forge_action_speed_dial_manage() {
+    local input_text="$1"
+
+    (
+        echo
+
+        local target_slot=""
+        local clear_flag=""
+
+        if [[ -n "$input_text" ]]; then
+            local -a words=(${=input_text})
+            target_slot="${words[1]}"
+            if [[ "${words[2]}" == "--clear" ]]; then
+                clear_flag="--clear"
+            fi
+        fi
+
+        # Validate slot number if provided.
+        if [[ -n "$target_slot" && ! "$target_slot" =~ ^[1-9]$ ]]; then
+            _forge_log error "Slot must be a digit \033[1m1\033[0m-\033[1m9\033[0m (got: \033[1m${target_slot}\033[0m)"
+            return 0
+        fi
+
+        if [[ -n "$clear_flag" ]]; then
+            if [[ -z "$target_slot" ]]; then
+                _forge_log error "Usage: \033[1m:sd <N> --clear\033[0m"
+                return 0
+            fi
+            _forge_exec config set speed-dial "$target_slot" --clear
+            return 0
+        fi
+
+        # If no slot was supplied, show an fzf chooser over slots 1..9.
+        if [[ -z "$target_slot" ]]; then
+            local slot_table header row n
+            header="SLOT${_FORGE_DELIMITER}PROVIDER${_FORGE_DELIMITER}MODEL"
+            slot_table="$header"
+            for n in 1 2 3 4 5 6 7 8 9; do
+                local binding provider_id model_id
+                binding=$($_FORGE_BIN config get speed-dial-slot "$n" 2>/dev/null)
+                if [[ -n "$binding" ]]; then
+                    provider_id=$(printf '%s' "$binding" | awk -F '\t' '{print $1}')
+                    model_id=$(printf '%s' "$binding" | awk -F '\t' '{print $2}')
+                else
+                    provider_id="<empty>"
+                    model_id="<empty>"
+                fi
+                row="${n}${_FORGE_DELIMITER}${provider_id}${_FORGE_DELIMITER}${model_id}"
+                slot_table="${slot_table}"$'\n'"${row}"
+            done
+
+            local selected
+            selected=$(echo "$slot_table" | _forge_fzf --header-lines=1 \
+                --delimiter="$_FORGE_DELIMITER" \
+                --prompt="Speed Dial ❯ " \
+                --with-nth="1,2,3")
+
+            if [[ -z "$selected" ]]; then
+                return 0
+            fi
+
+            target_slot=$(echo "$selected" | awk -F "$_FORGE_DELIMITER" '{print $1}')
+            target_slot=${target_slot//[[:space:]]/}
+
+            if [[ ! "$target_slot" =~ ^[1-9]$ ]]; then
+                _forge_log error "Invalid slot selection: '${target_slot}'"
+                return 0
+            fi
+        fi
+
+        # Open the model picker for the chosen slot and persist the binding.
+        local selected_model
+        selected_model=$(_forge_pick_model "Speed Dial ${target_slot} ❯ " "" "" "" 4)
+
+        if [[ -z "$selected_model" ]]; then
+            return 0
+        fi
+
+        local model_id provider_id
+        model_id=$(echo "$selected_model" | awk -F '  +' '{print $1}')
+        provider_id=$(echo "$selected_model" | awk -F '  +' '{print $4}')
+        model_id=${model_id//[[:space:]]/}
+        provider_id=${provider_id//[[:space:]]/}
+
+        if [[ -z "$provider_id" || -z "$model_id" ]]; then
+            _forge_log error "Failed to parse selection: '${selected_model}'"
+            return 0
+        fi
+
+        _forge_exec config set speed-dial "$target_slot" "$provider_id" "$model_id"
+    )
+}
+
 # Action handler: Reload config by resetting all session-scoped overrides.
 # Clears _FORGE_SESSION_MODEL, _FORGE_SESSION_PROVIDER, and
 # _FORGE_SESSION_REASONING_EFFORT so that every subsequent forge invocation

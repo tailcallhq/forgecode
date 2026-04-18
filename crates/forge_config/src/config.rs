@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::reader::ConfigReader;
 use crate::writer::ConfigWriter;
 use crate::{
-    AutoDumpFormat, Compact, Decimal, HttpConfig, ModelConfig, ReasoningConfig, RetryConfig, Update,
+    AutoDumpFormat, Compact, Decimal, HttpConfig, ModelConfig, ReasoningConfig, RetryConfig,
+    SpeedDial, Update,
 };
 
 /// Wire protocol a provider uses for chat completions.
@@ -204,6 +205,11 @@ pub struct ForgeConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggest: Option<ModelConfig>,
 
+    /// Speed-dial bindings that map single-digit slots (1..=9) to
+    /// provider/model pairs for one-keystroke model switching.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed_dial: Option<SpeedDial>,
+
     // --- Workflow fields ---
     /// Configuration for automatic Forge updates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -352,5 +358,62 @@ mod tests {
         let actual = ConfigReader::default().read_toml(&toml).build().unwrap();
 
         assert_eq!(actual.temperature, fixture.temperature);
+    }
+
+    #[test]
+    fn test_speed_dial_absent_toml_loads_cleanly() {
+        // Backwards-compat: old configs without `[speed_dial]` must still
+        // deserialise, yielding `None` for the field.
+        let toml = r#"
+provider = "anthropic"
+model = "claude-opus-4"
+"#;
+        let actual = ConfigReader::default().read_toml(toml).build().unwrap();
+        assert!(actual.speed_dial.is_none());
+    }
+
+    #[test]
+    fn test_speed_dial_round_trip_preserves_slots() {
+        use crate::{SpeedDial, SpeedDialEntry};
+
+        let mut speed_dial = SpeedDial::new();
+        speed_dial
+            .set(1, SpeedDialEntry::new("anthropic", "claude-opus-4"))
+            .unwrap();
+        speed_dial
+            .set(3, SpeedDialEntry::new("openai", "gpt-5.4"))
+            .unwrap();
+
+        let fixture =
+            ForgeConfig { speed_dial: Some(speed_dial.clone()), ..Default::default() };
+
+        let toml = toml_edit::ser::to_string_pretty(&fixture).unwrap();
+        let actual = ConfigReader::default().read_toml(&toml).build().unwrap();
+
+        assert_eq!(actual.speed_dial, Some(speed_dial));
+    }
+
+    #[test]
+    fn test_speed_dial_table_toml_layout() {
+        use crate::{SpeedDial, SpeedDialEntry};
+
+        let mut speed_dial = SpeedDial::new();
+        speed_dial
+            .set(2, SpeedDialEntry::new("openai", "gpt-5"))
+            .unwrap();
+
+        let fixture = ForgeConfig { speed_dial: Some(speed_dial), ..Default::default() };
+        let toml = toml_edit::ser::to_string_pretty(&fixture).unwrap();
+
+        // Slot tables must use friendly integer-ish headings keyed by the
+        // decimal slot number (`[speed_dial.2]`), not numeric TOML keys that
+        // would be rendered as `[speed_dial."2"]` with quotes in pretty mode
+        // nor binary integer keys.
+        assert!(
+            toml.contains("[speed_dial.2]") || toml.contains("[speed_dial.\"2\"]"),
+            "expected a `[speed_dial.2]` section, got:\n{toml}"
+        );
+        assert!(toml.contains("provider_id = \"openai\""));
+        assert!(toml.contains("model_id = \"gpt-5\""));
     }
 }

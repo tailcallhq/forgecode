@@ -172,6 +172,9 @@ pub trait API: Sync + Send {
     /// Gets the current reasoning effort setting.
     async fn get_reasoning_effort(&self) -> anyhow::Result<Option<Effort>>;
 
+    /// Returns the persisted speed-dial bindings.
+    async fn get_speed_dial(&self) -> anyhow::Result<forge_config::SpeedDial>;
+
     /// Refresh MCP caches by fetching fresh data
     async fn reload_mcp(&self) -> Result<()>;
 

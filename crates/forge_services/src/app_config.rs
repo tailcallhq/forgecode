@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use forge_app::{AppConfigService, EnvironmentInfra};
+use forge_config::SpeedDial;
 use forge_domain::{ConfigOperation, Effort, ModelConfig, ModelId, ProviderId, ProviderRepository};
 use tracing::debug;
 
@@ -68,6 +69,11 @@ impl<F: ProviderRepository + EnvironmentInfra<Config = forge_config::ForgeConfig
     async fn update_config(&self, ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
         debug!(ops = ?ops, "Updating app config");
         self.infra.update_environment(ops).await
+    }
+
+    async fn get_speed_dial(&self) -> anyhow::Result<SpeedDial> {
+        let config = self.infra.get_config()?;
+        Ok(config.speed_dial.unwrap_or_default())
     }
 }
 
@@ -184,6 +190,9 @@ mod tests {
                             let mid_str = mc.model.to_string();
                             config.session = Some(ModelConfig::new(pid_str, mid_str));
                         }
+                        ConfigOperation::ClearSessionConfig => {
+                            config.session = None;
+                        }
                         ConfigOperation::SetCommitConfig(mc) => {
                             config.commit = mc.map(|m| {
                                 ModelConfig::new(
@@ -200,6 +209,31 @@ mod tests {
                         }
                         ConfigOperation::SetReasoningEffort(_) => {
                             // No-op in tests
+                        }
+                        ConfigOperation::SetSpeedDialSlot { slot, config: mc } => {
+                            if !forge_config::is_valid_speed_dial_slot(slot) {
+                                continue;
+                            }
+                            match mc {
+                                Some(mc) => {
+                                    let entry = forge_config::SpeedDialEntry::new(
+                                        mc.provider.as_ref().to_string(),
+                                        mc.model.to_string(),
+                                    );
+                                    let sd = config
+                                        .speed_dial
+                                        .get_or_insert_with(forge_config::SpeedDial::default);
+                                    let _ = sd.set(slot, entry);
+                                }
+                                None => {
+                                    if let Some(sd) = config.speed_dial.as_mut() {
+                                        sd.clear(slot);
+                                        if sd.is_empty() {
+                                            config.speed_dial = None;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

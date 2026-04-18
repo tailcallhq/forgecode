@@ -37,6 +37,9 @@ fn apply_config_op(fc: &mut ForgeConfig, op: ConfigOperation) {
             let mid_str = mc.model.to_string();
             fc.session = Some(ModelConfig { provider_id: pid_str, model_id: mid_str });
         }
+        ConfigOperation::ClearSessionConfig => {
+            fc.session = None;
+        }
         ConfigOperation::SetCommitConfig(mc) => {
             fc.commit = mc.map(|m| ModelConfig {
                 provider_id: m.provider.as_ref().to_string(),
@@ -63,6 +66,33 @@ fn apply_config_op(fc: &mut ForgeConfig, op: ConfigOperation) {
                 .reasoning
                 .get_or_insert_with(forge_config::ReasoningConfig::default);
             reasoning.effort = Some(config_effort);
+        }
+        ConfigOperation::SetSpeedDialSlot { slot, config } => {
+            // Skip invalid slots silently — construction sites validate, but
+            // guard here in case an unchecked op flows through.
+            if !forge_config::is_valid_speed_dial_slot(slot) {
+                return;
+            }
+            match config {
+                Some(mc) => {
+                    let entry = forge_config::SpeedDialEntry::new(
+                        mc.provider.as_ref().to_string(),
+                        mc.model.to_string(),
+                    );
+                    let speed_dial = fc
+                        .speed_dial
+                        .get_or_insert_with(forge_config::SpeedDial::default);
+                    let _ = speed_dial.set(slot, entry);
+                }
+                None => {
+                    if let Some(speed_dial) = fc.speed_dial.as_mut() {
+                        speed_dial.clear(slot);
+                        if speed_dial.is_empty() {
+                            fc.speed_dial = None;
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -270,5 +300,112 @@ mod tests {
 
         assert_eq!(actual_provider, Some("anthropic"));
         assert_eq!(actual_model, Some("claude-3-5-sonnet-20241022"));
+    }
+
+    #[test]
+    fn test_apply_config_op_clear_session_config_removes_existing() {
+        use forge_config::ModelConfig as ForgeCfgModelConfig;
+
+        let mut fixture = ForgeConfig {
+            session: Some(ForgeCfgModelConfig {
+                provider_id: "openai".to_string(),
+                model_id: "gpt-4".to_string(),
+            }),
+            ..Default::default()
+        };
+
+        apply_config_op(&mut fixture, ConfigOperation::ClearSessionConfig);
+
+        assert!(fixture.session.is_none());
+    }
+
+    #[test]
+    fn test_apply_config_op_clear_session_config_on_empty_is_noop() {
+        let mut fixture = ForgeConfig::default();
+
+        apply_config_op(&mut fixture, ConfigOperation::ClearSessionConfig);
+
+        assert!(fixture.session.is_none());
+    }
+
+    #[test]
+    fn test_apply_config_op_set_speed_dial_slot_creates_binding() {
+        use forge_domain::{ModelConfig as DomainModelConfig, ModelId, ProviderId};
+
+        let mut fixture = ForgeConfig::default();
+        apply_config_op(
+            &mut fixture,
+            ConfigOperation::SetSpeedDialSlot {
+                slot: 1,
+                config: Some(DomainModelConfig::new(
+                    ProviderId::ANTHROPIC,
+                    ModelId::new("claude-opus-4"),
+                )),
+            },
+        );
+
+        let speed_dial = fixture.speed_dial.expect("slot should be set");
+        let entry = speed_dial.get(1).expect("slot 1 present");
+        assert_eq!(entry.provider_id, "anthropic");
+        assert_eq!(entry.model_id, "claude-opus-4");
+    }
+
+    #[test]
+    fn test_apply_config_op_set_speed_dial_slot_clears_and_drops_when_empty() {
+        use forge_domain::{ModelConfig as DomainModelConfig, ModelId, ProviderId};
+
+        let mut fixture = ForgeConfig::default();
+        apply_config_op(
+            &mut fixture,
+            ConfigOperation::SetSpeedDialSlot {
+                slot: 2,
+                config: Some(DomainModelConfig::new(
+                    ProviderId::OPENAI,
+                    ModelId::new("gpt-5"),
+                )),
+            },
+        );
+        assert!(fixture.speed_dial.is_some());
+
+        apply_config_op(
+            &mut fixture,
+            ConfigOperation::SetSpeedDialSlot { slot: 2, config: None },
+        );
+        assert!(
+            fixture.speed_dial.is_none(),
+            "speed_dial must be dropped to None when the last slot is cleared"
+        );
+    }
+
+    #[test]
+    fn test_apply_config_op_set_speed_dial_invalid_slot_is_noop() {
+        use forge_domain::{ModelConfig as DomainModelConfig, ModelId, ProviderId};
+
+        let mut fixture = ForgeConfig::default();
+        // Slot 0 is outside 1..=9 and must not mutate the config.
+        apply_config_op(
+            &mut fixture,
+            ConfigOperation::SetSpeedDialSlot {
+                slot: 0,
+                config: Some(DomainModelConfig::new(
+                    ProviderId::ANTHROPIC,
+                    ModelId::new("claude-opus-4"),
+                )),
+            },
+        );
+        assert!(fixture.speed_dial.is_none());
+
+        // Slot 10 is also invalid.
+        apply_config_op(
+            &mut fixture,
+            ConfigOperation::SetSpeedDialSlot {
+                slot: 10,
+                config: Some(DomainModelConfig::new(
+                    ProviderId::ANTHROPIC,
+                    ModelId::new("claude-opus-4"),
+                )),
+            },
+        );
+        assert!(fixture.speed_dial.is_none());
     }
 }

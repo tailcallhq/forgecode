@@ -204,6 +204,10 @@ pub trait AppConfigService: Send + Sync {
     /// all configuration changes; use [`forge_domain::ConfigOperation`]
     /// variants to describe each mutation.
     async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()>;
+
+    /// Returns the persisted speed-dial bindings. An empty `SpeedDial` is
+    /// returned when none are configured.
+    async fn get_speed_dial(&self) -> anyhow::Result<forge_config::SpeedDial>;
 }
 
 #[async_trait::async_trait]
@@ -964,6 +968,10 @@ impl<I: Services> AppConfigService for I {
 
     async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()> {
         self.config_service().update_config(ops).await
+    }
+
+    async fn get_speed_dial(&self) -> anyhow::Result<forge_config::SpeedDial> {
+        self.config_service().get_speed_dial().await
     }
 }
 

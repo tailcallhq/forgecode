@@ -20,6 +20,10 @@ pub enum ConfigOperation {
     /// session (provider + model) is replaced atomically. When they match only
     /// the model field is updated.
     SetSessionConfig(ModelConfig),
+    /// Clear the active session provider/model, reverting the session to its
+    /// global-config default. Used by temporary overrides (e.g. the one-shot
+    /// form of speed dial) to restore a prior "no override" snapshot.
+    ClearSessionConfig,
     /// Set the commit-message generation configuration.
     ///
     /// `None` clears the commit configuration so the active session
@@ -29,6 +33,15 @@ pub enum ConfigOperation {
     SetSuggestConfig(ModelConfig),
     /// Set the reasoning effort level for all agents.
     SetReasoningEffort(Effort),
+    /// Set or clear the speed-dial binding for `slot`.
+    ///
+    /// When `config` is `Some`, stores the binding; when `None`, clears it.
+    /// `slot` must be in the range 1..=9 — callers are expected to validate
+    /// before constructing the operation.
+    SetSpeedDialSlot {
+        slot: u8,
+        config: Option<ModelConfig>,
+    },
 }
 
 const VERSION: &str = match option_env!("APP_VERSION") {

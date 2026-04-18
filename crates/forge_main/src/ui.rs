@@ -1020,7 +1020,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         };
 
         // Set as default and handle model selection
-        self.finalize_provider_activation(provider, None).await
+        self.finalize_provider_activation(provider, None, false).await
     }
 
     async fn handle_provider_logout(
@@ -2146,6 +2146,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             AppCommand::Index => {
                 let working_dir = self.state.cwd.clone();
                 self.on_index(working_dir, false).await?;
+            }
+            AppCommand::SpeedDial { slot, message } => {
+                self.handle_speed_dial_activate(slot, message).await?;
+            }
+            AppCommand::SpeedDialMenu => {
+                self.handle_speed_dial_menu().await?;
             }
             AppCommand::AgentSwitch(agent_id) => {
                 // Validate that the agent exists by checking against loaded agents
@@ -3459,16 +3465,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     /// Activates a provider by configuring it if needed, setting it as default,
     /// and ensuring a compatible model is selected.
     async fn activate_provider(&mut self, any_provider: AnyProvider) -> Result<()> {
-        self.activate_provider_with_model(any_provider, None).await
+        self.activate_provider_with_model(any_provider, None, false).await
     }
 
     /// Activates a provider with an optional pre-selected model.
     /// When `model` is provided, the interactive model selection prompt is
     /// skipped and the specified model is set directly.
+    ///
+    /// When `quiet` is true, the "X is now the default provider/model" banners
+    /// are suppressed. Used by speed-dial temporary overrides to avoid noisy
+    /// single-turn output.
     async fn activate_provider_with_model(
         &mut self,
         any_provider: AnyProvider,
         model: Option<ModelId>,
+        quiet: bool,
     ) -> Result<()> {
         // Trigger authentication for the selected provider only if not configured
         let provider = if !any_provider.is_configured() {
@@ -3488,17 +3499,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         };
 
         // Set as default and handle model selection
-        self.finalize_provider_activation(provider, model).await
+        self.finalize_provider_activation(provider, model, quiet).await
     }
 
     /// Finalizes provider activation by setting it as default and ensuring
     /// a compatible model is selected.
     /// When `model` is `Some`, the interactive model selection is skipped and
     /// the provided model is validated and set directly.
+    ///
+    /// When `quiet` is true, the "is now the default provider/model" banners
+    /// are suppressed.
     async fn finalize_provider_activation(
         &mut self,
         provider: Provider<Url>,
         model: Option<ModelId>,
+        quiet: bool,
     ) -> Result<()> {
         // If a model was pre-selected (e.g. from :model), validate and set it
         // directly without prompting
@@ -3511,13 +3526,15 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     forge_domain::ModelConfig::new(provider.id.clone(), model_id.clone()),
                 )])
                 .await?;
-            self.writeln_title(
-                TitleFormat::action(format!("{}", provider.id))
-                    .sub_title("is now the default provider"),
-            )?;
-            self.writeln_title(
-                TitleFormat::action(model_id.as_str()).sub_title("is now the default model"),
-            )?;
+            if !quiet {
+                self.writeln_title(
+                    TitleFormat::action(format!("{}", provider.id))
+                        .sub_title("is now the default provider"),
+                )?;
+                self.writeln_title(
+                    TitleFormat::action(model_id.as_str()).sub_title("is now the default model"),
+                )?;
+            }
             return Ok(());
         }
 
@@ -3557,10 +3574,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 )])
                 .await?;
 
-            self.writeln_title(
-                TitleFormat::action(format!("{}", provider.id))
-                    .sub_title("is now the default provider"),
-            )?;
+            if !quiet {
+                self.writeln_title(
+                    TitleFormat::action(format!("{}", provider.id))
+                        .sub_title("is now the default provider"),
+                )?;
+            }
         }
 
         Ok(())
@@ -4253,7 +4272,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         match args.field {
             ConfigSetField::Model { provider, model } => {
                 let provider = self.api.get_provider(&provider).await?;
-                self.activate_provider_with_model(provider, Some(model))
+                self.activate_provider_with_model(provider, Some(model), false)
                     .await?;
             }
             ConfigSetField::Commit { provider, model } => {
@@ -4289,6 +4308,57 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     TitleFormat::action(effort.to_string())
                         .sub_title("is now the reasoning effort"),
                 )?;
+            }
+            ConfigSetField::SpeedDial(args) => {
+                if !forge_config::is_valid_speed_dial_slot(args.slot) {
+                    anyhow::bail!(
+                        "Speed-dial slot {} is out of range (allowed: 1..=9)",
+                        args.slot
+                    );
+                }
+
+                if args.clear {
+                    self.api
+                        .update_config(vec![ConfigOperation::SetSpeedDialSlot {
+                            slot: args.slot,
+                            config: None,
+                        }])
+                        .await?;
+                    self.writeln_title(
+                        TitleFormat::action(format!("slot {}", args.slot))
+                            .sub_title("speed-dial binding cleared"),
+                    )?;
+                } else {
+                    let provider = args
+                        .provider
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Provider is required unless --clear is used"
+                            )
+                        })?;
+                    let model = args.model.ok_or_else(|| {
+                        anyhow::anyhow!("Model is required unless --clear is used")
+                    })?;
+                    let validated_model = self
+                        .validate_model(model.as_str(), Some(&provider))
+                        .await?;
+                    let config = forge_domain::ModelConfig::new(
+                        provider.clone(),
+                        validated_model.clone(),
+                    );
+                    self.api
+                        .update_config(vec![ConfigOperation::SetSpeedDialSlot {
+                            slot: args.slot,
+                            config: Some(config),
+                        }])
+                        .await?;
+                    self.writeln_title(TitleFormat::action(format!("slot {}", args.slot))
+                        .sub_title(format!(
+                            "bound to {}/{}",
+                            provider,
+                            validated_model.as_str()
+                        )))?;
+                }
             }
         }
 
@@ -4349,8 +4419,148 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     None => self.writeln("ReasoningEffort: Not set")?,
                 }
             }
+            ConfigGetField::SpeedDial { slot } => {
+                let speed_dial = self.api.get_speed_dial().await?;
+                match slot {
+                    Some(n) => {
+                        if !forge_config::is_valid_speed_dial_slot(n) {
+                            anyhow::bail!(
+                                "Speed-dial slot {} is out of range (allowed: 1..=9)",
+                                n
+                            );
+                        }
+                        match speed_dial.get(n) {
+                            Some(entry) => {
+                                self.writeln(entry.provider_id.clone())?;
+                                self.writeln(entry.model_id.clone())?;
+                            }
+                            None => self.writeln(format!("SpeedDial {n}: Not set"))?,
+                        }
+                    }
+                    None => {
+                        if speed_dial.is_empty() {
+                            self.writeln("SpeedDial: Not set")?;
+                        } else {
+                            for (n, entry) in speed_dial.iter() {
+                                self.writeln(format!(
+                                    "{}\t{}\t{}",
+                                    n, entry.provider_id, entry.model_id
+                                ))?;
+                            }
+                        }
+                    }
+                }
+            }
+            ConfigGetField::SpeedDialSlot { slot } => {
+                if !forge_config::is_valid_speed_dial_slot(slot) {
+                    anyhow::bail!(
+                        "Speed-dial slot {} is out of range (allowed: 1..=9)",
+                        slot
+                    );
+                }
+                let speed_dial = self.api.get_speed_dial().await?;
+                match speed_dial.get(slot) {
+                    Some(entry) => self.writeln(format!(
+                        "{}\t{}",
+                        entry.provider_id, entry.model_id
+                    ))?,
+                    None => anyhow::bail!("Speed-dial slot {} is not set", slot),
+                }
+            }
         }
 
+        Ok(())
+    }
+
+    /// Activate a speed-dial slot by applying its bound provider/model,
+    /// optionally forwarding a trailing prompt to the active agent.
+    async fn handle_speed_dial_activate(
+        &mut self,
+        slot: u8,
+        message: Option<String>,
+    ) -> Result<()> {
+        if !forge_config::is_valid_speed_dial_slot(slot) {
+            anyhow::bail!(
+                "Speed-dial slot {} is out of range (allowed: 1..=9)",
+                slot
+            );
+        }
+        let speed_dial = self.api.get_speed_dial().await?;
+        let entry = match speed_dial.get(slot) {
+            Some(e) => e.clone(),
+            None => {
+                self.writeln_title(
+                    TitleFormat::info(format!("Speed-dial slot {slot} is not set"))
+                        .sub_title("bind it with `forge config set speed-dial <N> <provider> <model>`"),
+                )?;
+                return Ok(());
+            }
+        };
+
+        let provider_id: forge_domain::ProviderId = entry.provider_id.clone().into();
+        let model_id = forge_domain::ModelId::new(entry.model_id.as_str());
+        let any_provider = self.api.get_provider(&provider_id).await?;
+
+        let prompt = message.and_then(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        });
+
+        match prompt {
+            // Bare :N — permanent switch, loud banners. Same as before.
+            None => {
+                self.activate_provider_with_model(any_provider, Some(model_id), false)
+                    .await?;
+            }
+            // :N <prompt> — temporary override. Snapshot current session
+            // config, quietly switch to slot N, run the one-shot, then always
+            // restore (even on agent error). If prior state had no override,
+            // restore via ClearSessionConfig rather than a concrete model.
+            Some(prompt) => {
+                let prev = self.api.get_session_config().await;
+
+                self.activate_provider_with_model(any_provider, Some(model_id), true)
+                    .await?;
+                self.writeln_title(TitleFormat::info(format!("↻ slot {slot} (temporary)")))?;
+
+                self.spinner.start(None)?;
+                let turn_result = self.on_message(Some(prompt)).await;
+
+                let restore_op = match prev {
+                    Some(mc) => ConfigOperation::SetSessionConfig(mc),
+                    None => ConfigOperation::ClearSessionConfig,
+                };
+                let restore_result = self.api.update_config(vec![restore_op]).await;
+
+                if restore_result.is_ok() {
+                    self.writeln_title(TitleFormat::info("↻ restored"))?;
+                }
+
+                turn_result?;
+                restore_result?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Show the configured speed-dial bindings.
+    async fn handle_speed_dial_menu(&mut self) -> Result<()> {
+        let speed_dial = self.api.get_speed_dial().await?;
+        if speed_dial.is_empty() {
+            self.writeln_title(
+                TitleFormat::info("Speed Dial")
+                    .sub_title("no slots configured — use `forge config set speed-dial <N> <provider> <model>`"),
+            )?;
+            return Ok(());
+        }
+
+        self.writeln_title(TitleFormat::info("Speed Dial"))?;
+        for (n, entry) in speed_dial.iter() {
+            self.writeln(format!(
+                "  /{}  {}/{}",
+                n, entry.provider_id, entry.model_id
+            ))?;
+        }
         Ok(())
     }
 

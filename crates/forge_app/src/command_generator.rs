@@ -321,6 +321,10 @@ mod tests {
         async fn update_config(&self, _ops: Vec<forge_domain::ConfigOperation>) -> Result<()> {
             Ok(())
         }
+
+        async fn get_speed_dial(&self) -> Result<forge_config::SpeedDial> {
+            Ok(forge_config::SpeedDial::default())
+        }
     }
 
     #[tokio::test]

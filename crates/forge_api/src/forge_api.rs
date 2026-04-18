@@ -237,9 +237,13 @@ impl<
     async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()> {
         // Determine whether any op affects provider/model resolution before writing,
         // so we can invalidate the agent cache afterwards.
-        let needs_agent_reload = ops
-            .iter()
-            .any(|op| matches!(op, forge_domain::ConfigOperation::SetSessionConfig(_)));
+        let needs_agent_reload = ops.iter().any(|op| {
+            matches!(
+                op,
+                forge_domain::ConfigOperation::SetSessionConfig(_)
+                    | forge_domain::ConfigOperation::ClearSessionConfig
+            )
+        });
         let result = self.services.update_config(ops).await;
         if needs_agent_reload {
             let _ = self.services.reload_agents().await;
@@ -257,6 +261,10 @@ impl<
 
     async fn get_reasoning_effort(&self) -> anyhow::Result<Option<Effort>> {
         self.services.get_reasoning_effort().await
+    }
+
+    async fn get_speed_dial(&self) -> anyhow::Result<forge_config::SpeedDial> {
+        self.services.get_speed_dial().await
     }
 
     async fn user_info(&self) -> Result<Option<User>> {
