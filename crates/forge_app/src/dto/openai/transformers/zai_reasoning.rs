@@ -38,6 +38,7 @@ impl Transformer for SetZaiThinking {
                     ThinkingType::Disabled
                 },
             });
+            request.reasoning_or = None;
         }
 
         request

@@ -161,6 +161,22 @@ for effort in none minimal low medium high xhigh; do
     ) > "$CURRENT_RF" &
 done
 
+# ─── OpenRouter · openai/o4-mini — effort: max → normalised to xhigh ─────────
+# OpenRouter does not support the "max" effort string; it only supports up to
+# "xhigh".  The NormalizeOpenRouterReasoning transformer must convert "max" to
+# "xhigh" before the request is serialised.  This test verifies that conversion.
+
+next_result_file
+(
+    log_header "OpenRouter · openai/o4-mini · effort: max (normalised → xhigh)"
+    OUT="$WORK_DIR/openrouter-openai-effort-max-normalised.json"
+    if run_test "$OUT" open_router "openai/o4-mini" "FORGE_REASONING__EFFORT=max"; then
+        assert_field "$OUT" "reasoning.effort" '"xhigh"' "openrouter/openai (max→xhigh)"
+    else
+        log_skip "open_router not configured — skipping"
+    fi
+) > "$CURRENT_RF" &
+
 # ─── OpenRouter · openai/o4-mini — max_tokens ────────────────────────────────
 # When max_tokens is set, reasoning.max_tokens should appear.
 # Note: the default forge config also injects effort="medium" and enabled=true;

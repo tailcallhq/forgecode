@@ -36,6 +36,7 @@ Then inspect `.forge/forge.request.json` for the expected fields.
 | Provider         | Model                        | Config fields                                     | Expected JSON field               |
 | ---------------- | ---------------------------- | ------------------------------------------------- | --------------------------------- |
 | `open_router`    | `openai/o4-mini`             | `effort: none\|minimal\|low\|medium\|high\|xhigh` | `reasoning.effort`                |
+| `open_router`    | `openai/o4-mini`             | `effort: max` (normalised → `"xhigh"`)            | `reasoning.effort = "xhigh"`      |
 | `open_router`    | `openai/o4-mini`             | `max_tokens: 4000`                                | `reasoning.max_tokens`            |
 | `open_router`    | `openai/o4-mini`             | `effort: high` + `exclude: true`                  | `reasoning.effort` + `.exclude`   |
 | `open_router`    | `openai/o4-mini`             | `enabled: true`                                   | `reasoning.enabled`               |

@@ -43,6 +43,7 @@ impl Transformer for SetReasoningEffort {
 
             request.reasoning_effort = effort;
             request.reasoning = None;
+            request.reasoning_or = None;
         }
 
         request

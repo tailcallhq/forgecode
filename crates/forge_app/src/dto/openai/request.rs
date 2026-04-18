@@ -272,12 +272,34 @@ pub struct Request {
     pub initiator: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<StreamOptions>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Internal staging field holding the raw domain reasoning config.
+    ///
+    /// Not serialized to the wire. Consumed by provider-specific transformers
+    /// (e.g. [`SetZaiThinking`], [`SetReasoningEffort`], [`MakeOpenAiCompat`]).
+    /// OpenRouter-compatible providers use the pre-converted [`Self::reasoning_or`]
+    /// field instead.
+    #[serde(skip)]
+    // FIXME: Drop references to `domain::ReasoningConfig` and use `openai::request::ReasoningConfig`
+    // Keep the field and update docs
     pub reasoning: Option<forge_domain::ReasoningConfig>,
+    /// OpenRouter wire representation of the reasoning config.
+    ///
+    /// Serialized as `"reasoning"` in the JSON body. Populated in
+    /// [`From<Context>`] by converting the domain [`ReasoningConfig`] to
+    /// [`OpenRouterReasoningConfig`], which normalises `effort: max` → `"xhigh"`.
+    /// No transformer step is required.
+    
+    // FIXME: Drop this field
+    #[serde(rename = "reasoning", skip_serializing_if = "Option::is_none")]
+    pub reasoning_or: Option<crate::dto::openai::transformers::open_router_reasoning::OpenRouterReasoningConfig>,
+    
+    // FIXME: This is unused - drop it
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_completion_tokens: Option<u32>,
+
+    // FIXME: This is unused - drop it
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<ThinkingConfig>,
 }
@@ -405,6 +427,10 @@ impl From<Context> for Request {
             stream_options: Some(StreamOptions { include_usage: Some(true) }),
             session_id: context.conversation_id.map(|id| id.to_string()),
             initiator: context.initiator,
+            reasoning_or: context
+                .reasoning
+                .as_ref()
+                .map(|r| crate::dto::openai::transformers::open_router_reasoning::OpenRouterReasoningConfig::from(r.clone())),
             reasoning: context.reasoning,
             reasoning_effort: Default::default(),
             max_completion_tokens: Default::default(),

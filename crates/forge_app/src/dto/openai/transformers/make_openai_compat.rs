@@ -22,6 +22,7 @@ impl Transformer for MakeOpenAiCompat {
         request.top_a = None;
         request.session_id = None;
         request.reasoning = None;
+        request.reasoning_or = None;
 
         let tools_present = request
             .tools
