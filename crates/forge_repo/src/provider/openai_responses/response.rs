@@ -618,10 +618,7 @@ impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
                                     Some(Ok(message))
                                 }
                                 oai::ResponseStreamEvent::ResponseFailed(failed) => {
-                                    Some(Err(anyhow::anyhow!(
-                                        "Upstream response failed: {:?}",
-                                        failed.response.error
-                                    )))
+                                    Some(Err(into_response_failed_error(failed)))
                                 }
                                 oai::ResponseStreamEvent::ResponseError(err) => {
                                     Some(Err(anyhow::anyhow!("Upstream error: {}", err.message)))

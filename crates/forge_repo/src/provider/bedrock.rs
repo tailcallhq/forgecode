@@ -1896,6 +1896,7 @@ mod tests {
             }),
             stream: None,
             response_format: None,
+            tool_search: None,
         };
 
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();
@@ -1952,6 +1953,7 @@ mod tests {
             }),
             stream: None,
             response_format: None,
+            tool_search: None,
         };
 
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();
@@ -1995,6 +1997,7 @@ mod tests {
             }),
             stream: None,
             response_format: None,
+            tool_search: None,
         };
 
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();
@@ -2030,6 +2033,7 @@ mod tests {
             }),
             stream: None,
             response_format: None,
+            tool_search: None,
         };
 
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();
