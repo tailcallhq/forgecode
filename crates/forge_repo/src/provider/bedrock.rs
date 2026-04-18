@@ -576,11 +576,11 @@ impl FromDomain<forge_domain::Context>
         // `reasoning.max_tokens`, which `ModelSpecificReasoning` has already
         // normalized per family:
         //
-        //   - `max_tokens: Some(N)` → `{type: "enabled", budget_tokens: N}`
-        //     (Opus 4.5 and older; budget is backfilled to 10k when absent.)
-        //   - `max_tokens: None`    → `{type: "adaptive", display: ...}`
-        //     (Opus 4.7 rejects the legacy shape with 400; Opus 4.6 /
-        //     Sonnet 4.6 accept adaptive natively.)
+        //   - `max_tokens: Some(N)` → `{type: "enabled", budget_tokens: N}` (Opus 4.5
+        //     and older; budget is backfilled to 10k when absent.)
+        //   - `max_tokens: None`    → `{type: "adaptive", display: ...}` (Opus 4.7
+        //     rejects the legacy shape with 400; Opus 4.6 / Sonnet 4.6 accept adaptive
+        //     natively.)
         //
         // When present, `reasoning.effort` is emitted as `output_config.effort`
         // for families that support it (`ModelSpecificReasoning` drops effort
@@ -1908,7 +1908,8 @@ mod tests {
         );
     }
 
-    /// `exclude: true` preference maps to `display: omitted` on the adaptive shape.
+    /// `exclude: true` preference maps to `display: omitted` on the adaptive
+    /// shape.
     #[test]
     fn test_from_domain_context_adaptive_thinking_respects_exclude() {
         use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamInput;
