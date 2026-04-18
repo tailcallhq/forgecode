@@ -259,6 +259,10 @@ impl<
         self.services.get_reasoning_effort().await
     }
 
+    async fn get_speed_dial(&self) -> anyhow::Result<forge_config::SpeedDial> {
+        self.services.get_speed_dial().await
+    }
+
     async fn user_info(&self) -> Result<Option<User>> {
         let provider = self.get_default_provider().await?;
         if let Some(api_key) = provider.api_key() {

@@ -29,6 +29,15 @@ pub enum ConfigOperation {
     SetSuggestConfig(ModelConfig),
     /// Set the reasoning effort level for all agents.
     SetReasoningEffort(Effort),
+    /// Set or clear the speed-dial binding for `slot`.
+    ///
+    /// When `config` is `Some`, stores the binding; when `None`, clears it.
+    /// `slot` must be in the range 1..=9 — callers are expected to validate
+    /// before constructing the operation.
+    SetSpeedDialSlot {
+        slot: u8,
+        config: Option<ModelConfig>,
+    },
 }
 
 const VERSION: &str = match option_env!("APP_VERSION") {

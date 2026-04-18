@@ -280,6 +280,17 @@
         }
       ]
     },
+    "speed_dial": {
+      "description": "Speed-dial bindings that map single-digit slots (1..=9) to\nprovider/model pairs for one-keystroke model switching.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SpeedDial"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "suggest": {
       "description": "Model and provider configuration used for shell command suggestion\ngeneration.",
       "anyOf": [
@@ -845,6 +856,29 @@
         "max_attempts",
         "status_codes",
         "suppress_errors"
+      ]
+    },
+    "SpeedDial": {
+      "description": "Persistent speed-dial bindings keyed by slot (1..=9).\n\nSlots use a `BTreeMap` so that iteration order is stable when listing slots\nin `:info` or when serialising to TOML. Entries are keyed by `String` at the\nTOML level so that the table uses friendly headings like\n`[speed_dial.1]` rather than binary integer keys.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/SpeedDialEntry"
+      }
+    },
+    "SpeedDialEntry": {
+      "description": "A single speed-dial binding pairing a provider and model to a slot.",
+      "type": "object",
+      "properties": {
+        "model_id": {
+          "type": "string"
+        },
+        "provider_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "model_id"
       ]
     },
     "TlsBackend": {
