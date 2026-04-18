@@ -138,7 +138,8 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::{ForgeConfig, reader::ConfigReader};
+    use crate::ForgeConfig;
+    use crate::reader::ConfigReader;
 
     #[test]
     fn test_f64_eviction_window_round_trip() {

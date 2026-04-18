@@ -234,12 +234,13 @@ impl Agent {
     /// Applies a safe `token_threshold` by taking the minimum of an absolute
     /// token cap and a percentage-based context-window cap.
     ///
-    /// The absolute cap comes from `compact.token_threshold`, or falls back to a
-    /// default of 100,000 tokens. The context-window cap comes from
+    /// The absolute cap comes from `compact.token_threshold`, or falls back to
+    /// a default of 100,000 tokens. The context-window cap comes from
     /// `compact.token_threshold_percentage`, or falls back to 70%
-    /// of the selected model's context window. If model metadata is unavailable,
-    /// a default 128K context window is used. The lower of these two values is
-    /// used to preserve headroom for tool outputs and follow-up messages.
+    /// of the selected model's context window. If model metadata is
+    /// unavailable, a default 128K context window is used. The lower of
+    /// these two values is used to preserve headroom for tool outputs and
+    /// follow-up messages.
     ///
     /// # Arguments
     /// * `selected_model` - The model that will be used for this agent
