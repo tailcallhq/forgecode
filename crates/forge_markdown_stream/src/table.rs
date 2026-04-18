@@ -44,8 +44,10 @@ pub fn render_table<S: TableStyler + InlineStyler>(
     let total: usize = w.iter().sum();
     if overhead + total > max_width && max_width > overhead {
         let avail = max_width - overhead;
+        // Cap at natural width so narrow columns (e.g. "#") aren't inflated
+        // up to MIN_COL_WIDTH when the proportional share rounds below it.
         w.iter_mut()
-            .for_each(|x| *x = (*x * avail / total).max(MIN_COL_WIDTH));
+            .for_each(|x| *x = (*x * avail / total).max(MIN_COL_WIDTH).min(*x));
 
         // Clamping to MIN_COL_WIDTH can push the new total over `avail` when
         // tiny columns get bumped up. Trim 1 char at a time from the widest
@@ -223,22 +225,23 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
 
         // Check if this is a word boundary (space)
         if c.is_whitespace() {
-            // Try to add current word + space to line
-            if line_width + word_width + cw > width && line_width > 0 {
-                // Doesn't fit, start new line
-                if !line.is_empty() {
-                    line.push_str("\x1b[0m");
-                    lines.push(line);
-                }
+            // Gate on `line_width` (visible), not `line.is_empty()`: when an
+            // active style is set `line` carries an ANSI prefix with zero
+            // visible chars, and pushing it would render as a blank row.
+            if line_width > 0 && line_width + word_width + cw > width {
+                line.push_str("\x1b[0m");
+                lines.push(line);
                 line = active_style.clone().unwrap_or_default();
-                line.push_str(&word);
+                line_width = 0;
+            }
+            line.push_str(&word);
+            line_width += word_width;
+            // Skip the separator if it would push past `width` — otherwise a
+            // word that fills the column exactly leaves a trailing space that
+            // overflows the cell by one char.
+            if line_width + cw <= width {
                 line.push(c);
-                line_width = word_width + cw;
-            } else {
-                // Fits on current line
-                line.push_str(&word);
-                line.push(c);
-                line_width += word_width + cw;
+                line_width += cw;
             }
             word.clear();
             word_width = 0;
@@ -249,7 +252,7 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
 
             // If word itself exceeds width, break it by character
             if word_width > width {
-                if !line.is_empty() {
+                if line_width > 0 {
                     line.push_str("\x1b[0m");
                     lines.push(line);
                     line = active_style.clone().unwrap_or_default();
@@ -276,18 +279,18 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
     // Add remaining word to line
     if !word.is_empty() {
         if line_width + word_width > width && line_width > 0 {
-            if !line.is_empty() {
-                line.push_str("\x1b[0m");
-                lines.push(line);
-            }
+            line.push_str("\x1b[0m");
+            lines.push(line);
             line = active_style.clone().unwrap_or_default();
             line.push_str(&word);
+            line_width = word_width;
         } else {
             line.push_str(&word);
+            line_width += word_width;
         }
     }
 
-    if !line.is_empty() {
+    if line_width > 0 {
         lines.push(line);
     }
 
@@ -494,6 +497,43 @@ mod tests {
     }
 
     #[test]
+    fn test_narrow_first_col_not_padded() {
+        insta::assert_snapshot!(render_with_width(
+            vec![
+                vec!["#", "File", "Description"],
+                vec!["1", "plans/foo.md", "A longer description that forces the table to shrink its columns to fit the target width"],
+                vec!["2", "docs/bar.md", "Another reasonably long description so the Description column stays the widest"],
+            ],
+            80
+        ));
+    }
+
+    #[test]
+    fn test_wrap_word_exactly_fills_width_drops_trailing_space() {
+        // A word whose width equals `width` followed by a space must not keep
+        // the space — it would push visible width to `width + 1` and overflow
+        // the cell border by one char.
+        let result = wrap("abcdefgh more text", 8);
+        let strip = |s: &str| String::from_utf8(strip_ansi_escapes::strip(s)).unwrap();
+        assert_eq!(strip(&result[0]), "abcdefgh");
+        for line in &result {
+            assert!(visible_length(line) <= 8);
+        }
+    }
+
+    #[test]
+    fn test_styled_content_no_blank_middle_line() {
+        // An inherited ANSI style prefix on a fresh line has zero visible
+        // chars, so it must not be pushed as its own wrapped row.
+        let wrapped = wrap("\x1b[33mdocs/pdb-reference.md\x1b[0m", 8);
+        let stripped: Vec<String> = wrapped
+            .iter()
+            .map(|s| String::from_utf8(strip_ansi_escapes::strip(s)).unwrap())
+            .collect();
+        assert_eq!(stripped, vec!["docs/pdb", "-referen", "ce.md"]);
+    }
+
+    #[test]
     fn test_unicode_content() {
         insta::assert_snapshot!(render(vec![vec!["名前", "年齢"], vec!["田中", "25"],]));
     }
@@ -531,10 +571,9 @@ mod tests {
     #[test]
     fn test_wrap_splits_text() {
         let result = wrap("hello world", 5);
-        // Word-based wrapping: "hello " and "world" = 2 lines
         assert_eq!(result.len(), 2);
         let strip = |s: &str| String::from_utf8(strip_ansi_escapes::strip(s)).unwrap();
-        assert_eq!(strip(&result[0]), "hello ");
+        assert_eq!(strip(&result[0]), "hello");
         assert_eq!(strip(&result[1]), "world");
     }
 
