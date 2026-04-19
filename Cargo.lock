@@ -2325,6 +2325,7 @@ version = "0.1.0"
 dependencies = [
  "colored",
  "insta",
+ "pretty_assertions",
  "streamdown-ansi",
  "streamdown-core",
  "streamdown-parser",
@@ -2332,6 +2333,7 @@ dependencies = [
  "strip-ansi-escapes",
  "syntect",
  "terminal-colorsaurus",
+ "unicode-segmentation",
  "unicode-width 0.2.2",
 ]
 
