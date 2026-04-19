@@ -2014,11 +2014,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 self.on_agent_change(AgentId::MUSE).await?;
             }
             AppCommand::Sage => {
-                if !self.config.research_subagent {
-                    self.writeln("Sage agent is disabled. Set `research_subagent = true` in .forge.toml to enable it.")?;
-                } else {
-                    self.on_agent_change(AgentId::SAGE).await?;
-                }
+                self.on_agent_change(AgentId::SAGE).await?;
             }
             AppCommand::Help => {
                 let info = Info::from(self.command.as_ref());
