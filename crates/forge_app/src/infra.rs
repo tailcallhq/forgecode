@@ -10,11 +10,10 @@ use forge_domain::{
 };
 use reqwest::Response;
 use reqwest::header::HeaderMap;
-use reqwest_eventsource::EventSource;
 use serde::de::DeserializeOwned;
 use url::Url;
 
-use crate::{WalkedFile, Walker};
+use crate::{EventSource, WalkedFile, Walker};
 
 /// Infrastructure trait for accessing environment configuration, system
 /// variables, and persisted application configuration.

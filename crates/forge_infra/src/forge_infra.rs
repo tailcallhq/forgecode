@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::process::ExitStatus;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use eventsource_client::SSE;
 use forge_app::{
     CommandInfra, DirectoryReaderInfra, EnvironmentInfra, FileDirectoryInfra, FileInfoInfra,
     FileReaderInfra, FileRemoverInfra, FileWriterInfra, GrpcInfra, HttpInfra, McpServerInfra,
@@ -12,9 +14,9 @@ use forge_app::{
 use forge_domain::{
     AuthMethod, CommandOutput, FileInfo as FileInfoData, McpServerConfig, ProviderId, URLParamSpec,
 };
+use futures::Stream;
 use reqwest::header::HeaderMap;
 use reqwest::{Response, Url};
-use reqwest_eventsource::EventSource;
 
 use crate::auth::{AnyAuthStrategy, ForgeAuthStrategyFactory};
 use crate::console::StdConsoleWriter;
@@ -320,7 +322,7 @@ impl HttpInfra for ForgeInfra {
         url: &Url,
         headers: Option<HeaderMap>,
         body: Bytes,
-    ) -> anyhow::Result<EventSource> {
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = anyhow::Result<SSE>> + Send + Sync>>> {
         self.http_service.http_eventsource(url, headers, body).await
     }
 }

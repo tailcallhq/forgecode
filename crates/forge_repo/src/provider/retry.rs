@@ -8,7 +8,7 @@ const OPENAI_OVERLOADED_ERROR_CODE: &str = "server_is_overloaded";
 
 pub fn into_retry(error: anyhow::Error, retry_config: &RetryConfig) -> anyhow::Error {
     if let Some(code) = get_req_status_code(&error)
-        .or(get_event_req_status_code(&error))
+        .or(get_sse_status_code(&error))
         .or(get_api_status_code(&error))
         && retry_config.status_codes.contains(&code)
     {
@@ -17,7 +17,7 @@ pub fn into_retry(error: anyhow::Error, retry_config: &RetryConfig) -> anyhow::E
 
     if is_api_transport_error(&error)
         || is_req_transport_error(&error)
-        || is_event_transport_error(&error)
+        || is_sse_transport_error(&error)
         || is_empty_error(&error)
         || is_anthropic_overloaded_error(&error)
         || is_openai_overloaded_error(&error)
@@ -53,18 +53,47 @@ fn get_req_status_code(error: &anyhow::Error) -> Option<u16> {
         .map(|status| status.as_u16())
 }
 
-fn get_event_req_status_code(error: &anyhow::Error) -> Option<u16> {
-    error
-        .downcast_ref::<reqwest_eventsource::Error>()
-        .and_then(|error| match error {
-            reqwest_eventsource::Error::InvalidStatusCode(_, response) => {
-                Some(response.status().as_u16())
+/// Extract status code from eventsource-client errors
+/// Handles UnexpectedResponse and other error types from eventsource-client
+fn get_sse_status_code(error: &anyhow::Error) -> Option<u16> {
+    // Check if this is an eventsource-client error
+    if let Some(error_str) = error.downcast_ref::<String>() {
+        // Try to extract status code from error message
+        // Format is often: "UnexpectedResponse(status: XXX, ...)"
+        if error_str.contains("UnexpectedResponse") {
+            return extract_status_from_message(error_str);
+        }
+    }
+
+    // Check in the error chain for HTTP-related errors
+    let error_msg = error.to_string();
+    if error_msg.contains("UnexpectedResponse") || error_msg.contains("status") {
+        return extract_status_from_message(&error_msg);
+    }
+
+    None
+}
+
+/// Extract status code from error message text
+fn extract_status_from_message(msg: &str) -> Option<u16> {
+    // Look for patterns like "status: 401" or "401" in error messages
+    let patterns = ["status: ", "status code ", "HTTP ", "("];
+    for pattern in patterns {
+        if let Some(pos) = msg.find(pattern) {
+            let after_pattern = msg.get(pos + pattern.len()..).unwrap_or("");
+            // Try to parse a number after the pattern
+            let num_str: String = after_pattern
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if let Ok(status) = num_str.parse::<u16>()
+                && (100..=599).contains(&status)
+            {
+                return Some(status);
             }
-            reqwest_eventsource::Error::InvalidContentType(_, response) => {
-                Some(response.status().as_u16())
-            }
-            _ => None,
-        })
+        }
+    }
+    None
 }
 
 #[derive(Clone, Copy)]
@@ -139,10 +168,28 @@ fn is_req_transport_error(error: &anyhow::Error) -> bool {
         .is_some_and(|e| e.is_timeout() || e.is_connect() || e.is_request())
 }
 
-fn is_event_transport_error(error: &anyhow::Error) -> bool {
-    error
-        .downcast_ref::<reqwest_eventsource::Error>()
-        .is_some_and(|e| matches!(e, reqwest_eventsource::Error::Transport(_)))
+/// Check if error is an SSE transport error from eventsource-client
+/// Checks for network/connection related errors in the error message
+fn is_sse_transport_error(error: &anyhow::Error) -> bool {
+    let error_msg = error.to_string();
+
+    // Check for transport-related keywords in error message
+    let transport_keywords = [
+        "transport",
+        "network",
+        "connection",
+        "EOF",
+        "stream ended",
+        "UnexpectedResponse",
+        "io error",
+        "broken pipe",
+        "connection reset",
+        "timeout",
+    ];
+
+    transport_keywords
+        .iter()
+        .any(|kw| error_msg.to_lowercase().contains(kw))
 }
 
 #[cfg(test)]
@@ -329,10 +376,8 @@ mod tests {
         let error = anyhow!("Generic error");
         assert!(!is_api_transport_error(&error));
         assert!(!is_req_transport_error(&error));
-        assert!(!is_event_transport_error(&error));
         assert!(get_api_status_code(&error).is_none());
         assert!(get_req_status_code(&error).is_none());
-        assert!(get_event_req_status_code(&error).is_none());
     }
 
     #[test]

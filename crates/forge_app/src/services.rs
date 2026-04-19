@@ -12,11 +12,10 @@ use forge_domain::{
 };
 use reqwest::Response;
 use reqwest::header::HeaderMap;
-use reqwest_eventsource::EventSource;
 use url::Url;
 
 use crate::user::{User, UserUsage};
-use crate::{EnvironmentInfra, Walker};
+use crate::{EnvironmentInfra, EventSource, Walker};
 
 #[derive(Debug, Clone)]
 pub struct ShellOutput {

@@ -31,7 +31,8 @@ forge_app.workspace = true
 forge_walker.workspace = true
 
 
-reqwest-eventsource.workspace = true
+eventsource-client.workspace = true
+launchdarkly-sdk-transport = "0.1.1"
 glob.workspace = true
 futures.workspace = true
 diesel = { version= "2.3.7", features = ["sqlite", "r2d2", "chrono"] }

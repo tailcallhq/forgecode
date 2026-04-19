@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use eventsource_stream::Eventsource;
 use forge_app::domain::{
     ChatCompletionMessage, Context, Model, ModelId, ResultStream, Transformer,
 };
@@ -19,6 +18,7 @@ use tracing::debug;
 
 use crate::provider::event::into_chat_completion_message;
 use crate::provider::retry::into_retry;
+use crate::provider::sse_parser::parse_sse_stream;
 use crate::provider::utils::{create_headers, format_http_context};
 
 #[derive(Clone)]
@@ -199,37 +199,43 @@ impl<T: HttpInfra> Anthropic<T> {
         }
 
         let request_url = parsed_url.clone();
-        let stream = response
-            .bytes_stream()
-            .eventsource()
-            .filter_map(move |event_result| {
+        let stream = parse_sse_stream(response.bytes_stream()).filter_map(
+            move |event_result: anyhow::Result<crate::provider::sse_parser::SSEEvent>| {
                 let request_url = request_url.clone();
                 async move {
                     match event_result {
-                        Ok(event) if ["[DONE]", ""].contains(&event.data.as_str()) => None,
-                        Ok(event) => Some(
-                            serde_json::from_str::<EventData>(&event.data)
-                                .with_context(|| {
-                                    format!("Failed to parse provider response: {}", event.data)
-                                })
-                                .and_then(|response| {
-                                    ChatCompletionMessage::try_from(response).with_context(|| {
-                                        format!(
-                                            "Failed to create completion message: {}",
-                                            event.data
+                        Ok(event) => {
+                            let data = event.data();
+                            if ["[DONE]", ""].contains(&data) {
+                                return None;
+                            }
+                            Some(
+                                serde_json::from_str::<EventData>(data)
+                                    .with_context(|| {
+                                        format!("Failed to parse provider response: {}", data)
+                                    })
+                                    .and_then(|response| {
+                                        ChatCompletionMessage::try_from(response).with_context(
+                                            || {
+                                                format!(
+                                                    "Failed to create completion message: {}",
+                                                    data
+                                                )
+                                            },
                                         )
                                     })
-                                })
-                                .with_context(|| {
-                                    format_http_context(None, "POST", request_url.clone())
-                                }),
-                        ),
-                        Err(error) => Some(Err(into_sse_parse_error(error)).with_context(|| {
+                                    .with_context(|| {
+                                        format_http_context(None, "POST", request_url.clone())
+                                    }),
+                            )
+                        }
+                        Err(error) => Some(Err(error).with_context(|| {
                             format_http_context(None, "POST", request_url.clone())
                         })),
                     }
                 }
-            });
+            },
+        );
 
         Ok(Box::pin(stream))
     }
@@ -277,20 +283,6 @@ impl<T: HttpInfra> Anthropic<T> {
                 Ok(models.clone())
             }
         }
-    }
-}
-
-fn into_sse_parse_error<E>(error: eventsource_stream::EventStreamError<E>) -> anyhow::Error
-where
-    E: std::fmt::Debug + std::fmt::Display + Send + Sync + 'static,
-{
-    let is_retryable = matches!(&error, eventsource_stream::EventStreamError::Transport(_));
-    let error = anyhow::anyhow!("SSE parse error: {}", error);
-
-    if is_retryable {
-        forge_domain::Error::Retryable(error).into()
-    } else {
-        error
     }
 }
 
@@ -382,7 +374,6 @@ mod tests {
         ToolResult,
     };
     use reqwest::header::HeaderMap;
-    use reqwest_eventsource::EventSource;
 
     use super::*;
     use crate::provider::mock_server::{MockServer, normalize_ports};
@@ -431,7 +422,15 @@ mod tests {
             _url: &Url,
             _headers: Option<HeaderMap>,
             _body: Bytes,
-        ) -> anyhow::Result<EventSource> {
+        ) -> anyhow::Result<
+            std::pin::Pin<
+                Box<
+                    dyn futures::Stream<Item = anyhow::Result<eventsource_client::SSE>>
+                        + Send
+                        + Sync,
+                >,
+            >,
+        > {
             // For now, return an error since eventsource is not used in the failing tests
             Err(anyhow::anyhow!("EventSource not implemented in mock"))
         }

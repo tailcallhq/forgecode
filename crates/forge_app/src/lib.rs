@@ -1,3 +1,11 @@
+use std::pin::Pin;
+
+use eventsource_client::SSE;
+use futures::Stream;
+
+/// Type alias for a server-sent events stream
+pub type EventSource = Pin<Box<dyn Stream<Item = anyhow::Result<SSE>> + Send + Sync>>;
+
 mod agent;
 mod agent_executor;
 mod agent_provider_resolver;

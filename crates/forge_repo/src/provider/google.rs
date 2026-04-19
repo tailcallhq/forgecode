@@ -230,11 +230,20 @@ mod tests {
         Context, ContextMessage, ToolCallFull, ToolCallId, ToolChoice, ToolName, ToolOutput,
         ToolResult,
     };
+    use futures::StreamExt;
     use reqwest::header::HeaderMap;
-    use reqwest_eventsource::EventSource;
 
     use super::*;
     use crate::provider::mock_server::{MockServer, normalize_ports};
+
+    #[derive(Debug, thiserror::Error)]
+    enum MockGoogleEventSourceError {
+        #[error("Mock Google EventSource stream error")]
+        Stream {
+            #[source]
+            source: reqwest::Error,
+        },
+    }
 
     // Mock implementation of HttpInfra for testing
     #[derive(Clone)]
@@ -280,14 +289,58 @@ mod tests {
             url: &Url,
             headers: Option<HeaderMap>,
             body: Bytes,
-        ) -> anyhow::Result<EventSource> {
-            let mut request = self.client.post(url.clone());
+        ) -> anyhow::Result<
+            std::pin::Pin<
+                Box<
+                    dyn futures::Stream<Item = anyhow::Result<eventsource_client::SSE>>
+                        + Send
+                        + Sync,
+                >,
+            >,
+        > {
+            // For tests, make an actual HTTP request and parse SSE from the response
+            let mut request = self.client.post(url.clone()).body(body);
             if let Some(headers) = headers {
                 request = request.headers(headers);
             }
-            request = request.body(body);
-            let request_builder = request;
-            Ok(EventSource::new(request_builder).map_err(|e| anyhow::anyhow!(e))?)
+            let response = request.send().await?;
+
+            // Create a stream that yields SSE events from the response
+            let stream = response.bytes_stream().flat_map(|result| {
+                match result {
+                    Ok(bytes) => {
+                        // Simple parsing: treat each chunk as SSE event data
+                        if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                            let events: Vec<_> = text
+                                .lines()
+                                .filter_map(|line| {
+                                    line.strip_prefix("data: ").map(|data| {
+                                        Ok(eventsource_client::SSE::Event(
+                                            eventsource_client::Event {
+                                                data: data.to_string(),
+                                                event_type: String::new(),
+                                                id: None,
+                                                retry: None,
+                                            },
+                                        ))
+                                    })
+                                })
+                                .collect();
+                            futures::stream::iter(events)
+                        } else {
+                            futures::stream::iter(vec![])
+                        }
+                    }
+                    Err(e) => {
+                        futures::stream::iter(vec![Err(MockGoogleEventSourceError::Stream {
+                            source: e,
+                        }
+                        .into())])
+                    }
+                }
+            });
+
+            Ok(Box::pin(stream))
         }
     }
 
