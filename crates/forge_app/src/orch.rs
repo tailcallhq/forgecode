@@ -11,7 +11,7 @@ use tokio::sync::Notify;
 use tracing::warn;
 
 use crate::agent::AgentService;
-use crate::transformers::ModelSpecificReasoning;
+use crate::transformers::{DropReasoningOnlyMessages, ModelSpecificReasoning};
 use crate::{EnvironmentInfra, TemplateEngine};
 
 #[derive(Clone, Setters)]
@@ -213,6 +213,12 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             // Normalize Anthropic reasoning knobs per model family before provider conversion.
             .pipe(
                 ModelSpecificReasoning::new(model_id.as_str())
+                    .when(|_| model_id.as_str().to_lowercase().contains("claude")),
+            )
+            // Drop orphaned reasoning-only assistant turns — Anthropic rejects a message
+            // whose final block is `thinking`, and the same shape hits Bedrock.
+            .pipe(
+                DropReasoningOnlyMessages
                     .when(|_| model_id.as_str().to_lowercase().contains("claude")),
             );
         let response = self
