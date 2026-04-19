@@ -196,7 +196,7 @@ impl ContextMessage {
         tool_calls: Option<Vec<ToolCallFull>>,
     ) -> Self {
         let tool_calls =
-            tool_calls.and_then(|calls| if calls.is_empty() { None } else { Some(calls) });
+            tool_calls.filter(|calls| !calls.is_empty());
         TextMessage {
             role: Role::Assistant,
             content: content.to_string(),
