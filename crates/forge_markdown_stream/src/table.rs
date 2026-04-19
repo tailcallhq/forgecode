@@ -54,16 +54,14 @@ pub fn render_table<S: TableStyler + InlineStyler>(
         // column (above the minimum) until it fits.
         let mut excess = w.iter().sum::<usize>().saturating_sub(avail);
         while excess > 0 {
-            let Some(idx) = w
-                .iter()
-                .enumerate()
-                .filter(|&(_, &v)| v > MIN_COL_WIDTH)
-                .max_by_key(|&(_, &v)| v)
-                .map(|(i, _)| i)
+            let Some(v) = w
+                .iter_mut()
+                .filter(|v| **v > MIN_COL_WIDTH)
+                .max_by_key(|v| **v)
             else {
                 break;
             };
-            w[idx] -= 1;
+            *v -= 1;
             excess -= 1;
         }
     }
