@@ -1,0 +1,7 @@
+---
+source: crates/forge_repo/src/agent.rs
+expression: "apply_subagent_tool_config(actual, &ForgeConfig\n{ enable_subagents: true, ..Default::default() }).unwrap().tools"
+---
+- read
+- task
+- mcp_*
