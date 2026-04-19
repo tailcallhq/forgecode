@@ -195,8 +195,7 @@ impl ContextMessage {
         reasoning_details: Option<Vec<ReasoningFull>>,
         tool_calls: Option<Vec<ToolCallFull>>,
     ) -> Self {
-        let tool_calls =
-            tool_calls.filter(|calls| !calls.is_empty());
+        let tool_calls = tool_calls.filter(|calls| !calls.is_empty());
         TextMessage {
             role: Role::Assistant,
             content: content.to_string(),
