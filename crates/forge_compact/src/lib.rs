@@ -75,9 +75,9 @@ impl<Item: ContextMessage + Clone> Compaction<Item> {
                 let window: Vec<Message<Item>> = remaining[..size]
                     .iter()
                     .map(|m| match m {
-                        Message::Original { message } => Message::Original {
-                            message: message.clone(),
-                        },
+                        Message::Original { message } => {
+                            Message::Original { message: message.clone() }
+                        }
                         Message::Summary(Summary { message, source }) => {
                             Message::Summary(Summary {
                                 message: message.clone(),
@@ -89,8 +89,7 @@ impl<Item: ContextMessage + Clone> Compaction<Item> {
 
                 if self.threshold(window.as_slice()) {
                     // Threshold exceeded — attempt to compact the window.
-                    let summary_count_before =
-                        window.iter().filter(|m| m.is_summary()).count();
+                    let summary_count_before = window.iter().filter(|m| m.is_summary()).count();
                     let compacted_window = self.compact_complete(window);
                     let summary_count_after =
                         compacted_window.iter().filter(|m| m.is_summary()).count();
@@ -391,9 +390,15 @@ mod tests {
         // assistant messages remain; the exact number of summary tokens can vary.
         let result = compact("suaaau", 0);
         // All original assistant turns have been summarised — no 'a' remains.
-        assert!(!result.contains('a'), "expected no remaining assistant turns, got: {result}");
+        assert!(
+            !result.contains('a'),
+            "expected no remaining assistant turns, got: {result}"
+        );
         // System and preceding user message are always kept.
-        assert!(result.starts_with("su"), "expected result to start with 'su', got: {result}");
+        assert!(
+            result.starts_with("su"),
+            "expected result to start with 'su', got: {result}"
+        );
     }
 
     #[test]
@@ -411,9 +416,15 @@ mod tests {
         // to get a predictable single-summary result.
         let result = compact_with_min("suaaaauaa", 3, 3);
         // The preserved tail is the last 3 messages: "uaa".
-        assert!(result.ends_with("uaa"), "expected tail 'uaa', got: {result}");
+        assert!(
+            result.ends_with("uaa"),
+            "expected tail 'uaa', got: {result}"
+        );
         // At least one summary is present.
-        assert!(result.contains('S'), "expected a summary 'S', got: {result}");
+        assert!(
+            result.contains('S'),
+            "expected a summary 'S', got: {result}"
+        );
     }
 
     #[test]
@@ -438,8 +449,109 @@ mod tests {
         // The preserved tail (retain=2) must be "ua".
         assert!(result.ends_with("ua"), "expected tail 'ua', got: {result}");
         // Tool calls and their results should have been summarised.
-        assert!(result.contains('S'), "expected a summary 'S', got: {result}");
+        assert!(
+            result.contains('S'),
+            "expected a summary 'S', got: {result}"
+        );
         // No bare tool call or result should sit at the boundary.
-        assert!(!result.contains('t') || !result.ends_with('t'), "tool call must not be at boundary, got: {result}");
+        assert!(
+            !result.contains('t') || !result.ends_with('t'),
+            "tool call must not be at boundary, got: {result}"
+        );
+    }
+
+    /// Verifies the incremental-addition invariant for cache-key stability:
+    ///
+    /// Assume `n` messages compact range `i..=i+j` into a summary `S`.  When a new
+    /// message is appended (making `n+1` total), the algorithm must:
+    ///   1. Produce one more output message than the base case:
+    ///      `output(n+1).len() == output(n).len() + 1`.
+    ///   2. Produce exactly one summary in each case (no re-summarisation of an existing
+    ///      summary into another summary).
+    ///   3. Call the summarizer with a source slice that is a prefix-extension of the
+    ///      base source: the same original messages plus one more.
+    ///
+    /// Concretely: `"suaua"` with threshold `> 4` fires once and compacts `[aua]` → `"suS"`.
+    /// `"suauau"` with the same threshold fires once and compacts `[auau]` → `"suSu"`. ✓
+    #[test]
+    fn test_compact_conversation_cache_key_stability() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        // Track every source slice passed to `summarize`.
+        let calls: Rc<RefCell<Vec<Vec<char>>>> = Rc::new(RefCell::new(Vec::new()));
+        let calls_clone = Rc::clone(&calls);
+
+        // threshold > 4: fires for windows of 5+.  With "suaua" (5) the full slice
+        // exceeds the threshold exactly once.  With "suauau" (6) the first window that
+        // exceeds the threshold is also the full slice, so again exactly one compaction.
+        let c = Compaction {
+            summarize: Box::new(move |msgs: &[&TestMsg]| {
+                calls_clone
+                    .borrow_mut()
+                    .push(msgs.iter().map(|m| m.role).collect());
+                TestMsg::new('S')
+            }),
+            threshold: Box::new(|msgs| msgs.len() > 4),
+            retain: 0,
+        };
+
+        // --- Base: n = 5 messages "suaua" ---
+        // Window grows to size 5; threshold fires; compact range [a,u,a] → S.
+        // Remaining becomes [s,u,S]; threshold needs > 4 but only 3 items → no more compaction.
+        // Result: "suS"
+        let base: Vec<TestMsg> = items_from("suaua");
+        let result_base = c.compact_conversation(base.clone());
+        let base_pattern: String = result_base.iter().map(|m| m.role).collect();
+        assert_eq!(
+            base_pattern, "suS",
+            "base compaction 'suaua' must yield 'suS', got: {base_pattern}"
+        );
+        let first_call_sources: Vec<char> = {
+            let b = calls.borrow();
+            assert_eq!(b.len(), 1, "expected exactly 1 summarize call for base, got {}", b.len());
+            b[0].clone()
+        };
+
+        // --- Extended: n+1 = 6 messages "suauau" ---
+        // Window grows to size 5: [s,u,a,u,a] → threshold fires; compact [a,u,a] at 2..=4 → S.
+        // Remaining: [s,u,S,u]. Threshold needs > 4; only 4 items → no more compaction.
+        // Result: "suSu"
+        let mut extended = base;
+        extended.push(TestMsg::new('u'));
+        calls.borrow_mut().clear();
+        let result_extended = c.compact_conversation(extended);
+        let extended_pattern: String = result_extended.iter().map(|m| m.role).collect();
+        assert_eq!(
+            extended_pattern, "suSu",
+            "extended compaction 'suauau' must yield 'suSu', got: {extended_pattern}"
+        );
+        let second_call_sources: Vec<char> = {
+            let b = calls.borrow();
+            assert_eq!(
+                b.len(),
+                1,
+                "expected exactly 1 summarize call for extended, got {}",
+                b.len()
+            );
+            b[0].clone()
+        };
+
+        // Output-length invariant: adding one message produces one more output item.
+        assert_eq!(
+            result_extended.len(),
+            result_base.len() + 1,
+            "output(n+1).len() must equal output(n).len() + 1; \
+             base={base_pattern}, extended={extended_pattern}"
+        );
+
+        // Source-prefix invariant: the extended source starts with the same messages
+        // as the base source — the algorithm compacts the same prefix plus one new item.
+        assert_eq!(
+            &second_call_sources[..first_call_sources.len()],
+            first_call_sources.as_slice(),
+            "the extended summarize source must start with the same messages as the base source; \
+             base={first_call_sources:?}, extended={second_call_sources:?}"
+        );
     }
 }
