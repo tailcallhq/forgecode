@@ -1,21 +1,14 @@
 use forge_domain::{Context, ContextMessage, Role, Transformer};
 
-/// Drops assistant messages that carry `reasoning_details` but have neither
-/// text content nor tool calls.
+/// Drops assistant messages whose only content is reasoning.
 ///
-/// Anthropic rejects assistant messages whose final content block is
-/// `thinking` with `HTTP 400: The final block in an assistant message cannot
-/// be \`thinking\``. The only way such a message can reach the wire is when
-/// the turn captured reasoning but no follow-up action — typically an
-/// aborted tool call, a compaction artifact, or a streaming disconnect that
-/// saved the thought but not the response. The orphaned thought cannot
-/// anchor a next turn (there is nothing to anchor to) and its signature
-/// wouldn't survive being grafted onto a neighbouring turn, so the least
-/// lossy valid shape is to drop the whole message.
-///
-/// Gated at the orchestrator on Claude model ids — OpenAI-compatible paths
-/// serialize reasoning as a sibling field instead of a content block and
-/// don't hit the same rejection.
+/// Anthropic rejects an assistant message whose final content block is
+/// `thinking`, and Bedrock applies the same constraint. A message with
+/// `reasoning_details` but no text or tool calls serializes to that invalid
+/// shape. It typically comes from a turn that was aborted mid-tool-call,
+/// compacted away, or cut short by a stream disconnect; the stranded
+/// reasoning has nothing to anchor, so dropping the whole message is the
+/// safe replay shape.
 pub(crate) struct DropReasoningOnlyMessages;
 
 impl Transformer for DropReasoningOnlyMessages {
@@ -100,7 +93,7 @@ mod tests {
 
     #[test]
     fn test_drops_when_tool_calls_is_empty_vec() {
-        // `Some(vec![])` is semantically "no tool calls" — treat like `None`.
+        // `Some(vec![])` is semantically "no tool calls"; treat like `None`.
         let fixture = Context::default().add_message(ContextMessage::Text(
             TextMessage::new(Role::Assistant, "")
                 .tool_calls(Vec::<ToolCallFull>::new())
@@ -124,8 +117,8 @@ mod tests {
 
     #[test]
     fn test_leaves_assistant_without_reasoning_untouched() {
-        // Assistant message with empty content/tool_calls but no reasoning is
-        // not this transform's concern (caller decides whether to prune).
+        // Empty assistant messages without reasoning are out of scope for this
+        // transform; preserving them is the caller's decision.
         let fixture = Context::default()
             .add_message(ContextMessage::Text(TextMessage::new(Role::Assistant, "")));
 

@@ -215,8 +215,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 ModelSpecificReasoning::new(model_id.as_str())
                     .when(|_| model_id.as_str().to_lowercase().contains("claude")),
             )
-            // Drop orphaned reasoning-only assistant turns — Anthropic rejects a message
-            // whose final block is `thinking`, and the same shape hits Bedrock.
+            // Drop reasoning-only assistant turns; Anthropic and Bedrock both reject
+            // messages whose final content block is `thinking`.
             .pipe(
                 DropReasoningOnlyMessages
                     .when(|_| model_id.as_str().to_lowercase().contains("claude")),
