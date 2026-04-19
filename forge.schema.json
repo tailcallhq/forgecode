@@ -285,6 +285,11 @@
         }
       ]
     },
+    "subagents": {
+      "description": "Enables subagent support via the task tool; when true the forge agent\ngains access to the `task` tool for delegating work to specialised\nsub-agents, and the `sage` research-only agent tool is removed.\nWhen false the `task` tool is disabled and `sage` is available instead.",
+      "type": "boolean",
+      "default": false
+    },
     "suggest": {
       "description": "Model and provider configuration used for shell command suggestion\ngeneration.",
       "anyOf": [
