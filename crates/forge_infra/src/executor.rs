@@ -229,9 +229,7 @@ fn write_lossy_utf8<W: Write>(writer: &mut W, buf: &[u8]) -> io::Result<Vec<u8>>
             }
             Err(e) => {
                 let valid_up_to = e.valid_up_to();
-                let valid = buf
-                    .get(cursor..cursor + valid_up_to)
-                    .unwrap_or(&[]);
+                let valid = buf.get(cursor..cursor + valid_up_to).unwrap_or(&[]);
                 writer.write_all(valid)?;
                 match e.error_len() {
                     Some(len) => {
@@ -239,10 +237,7 @@ fn write_lossy_utf8<W: Write>(writer: &mut W, buf: &[u8]) -> io::Result<Vec<u8>>
                         cursor += valid_up_to + len;
                     }
                     None => {
-                        return Ok(buf
-                            .get(cursor + valid_up_to..)
-                            .unwrap_or(&[])
-                            .to_vec());
+                        return Ok(buf.get(cursor + valid_up_to..).unwrap_or(&[]).to_vec());
                     }
                 }
             }
