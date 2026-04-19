@@ -351,6 +351,24 @@ impl ForgeCommandManager {
                         "Usage: :rename <name>. Please provide a name for the conversation."
                     ));
                 }
+                Ok(SlashCommand::Rename(name))
+            }
+            "/delete" => Ok(SlashCommand::Delete),
+            text => {
+                let parts = text.split_ascii_whitespace().collect::<Vec<&str>>();
+
+                if let Some(command) = parts.first() {
+                    // Check if it's an agent command pattern (/agent-*)
+                    if command.starts_with("/agent-") {
+                        let command_name = command.strip_prefix('/').unwrap();
+                        if let Some(found_command) = self.find(command_name) {
+                            // Extract the agent ID from the command value
+                            if let Some(agent_id) = &found_command.value {
+                                return Ok(SlashCommand::AgentSwitch(agent_id.clone()));
+                            }
+                        }
+                        return Err(anyhow::anyhow!("{command} is not a valid agent command"));
+                    }
 
                 // Check if it's an agent command pattern (agent-*)
                 if command_name.starts_with("agent-") {
