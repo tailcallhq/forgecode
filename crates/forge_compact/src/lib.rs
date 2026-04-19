@@ -10,6 +10,22 @@ pub struct Compaction<Item> {
     retain: usize,
 }
 
+impl<Item> Compaction<Item> {
+    /// Constructs a compaction runner from a summarize closure, a threshold
+    /// predicate, and the number of trailing messages to preserve verbatim.
+    pub fn new<S, T>(summarize: S, threshold: T, retain: usize) -> Self
+    where
+        S: Fn(&[&Item]) -> Item + 'static,
+        T: Fn(&[&Item]) -> bool + 'static,
+    {
+        Self {
+            summarize: Box::new(summarize),
+            threshold: Box::new(threshold),
+            retain,
+        }
+    }
+}
+
 pub trait ContextMessage {
     fn is_user(&self) -> bool;
     fn is_assistant(&self) -> bool;
@@ -18,12 +34,13 @@ pub trait ContextMessage {
     fn is_toolcall_result(&self) -> bool;
 }
 
-/// A compacted summary that replaces a range of original messages.
-struct Summary<I> {
+/// A compacted summary that replaces a range of original messages. The
+/// `source` vec preserves those originals for post-hoc reconstruction.
+pub struct Summary<I> {
     /// The synthesised summary item.
-    message: I,
+    pub message: I,
     /// The original messages that were compacted into this summary.
-    source: Vec<I>,
+    pub source: Vec<I>,
 }
 
 pub enum Message<I> {
@@ -32,12 +49,24 @@ pub enum Message<I> {
 }
 
 impl<I> Message<I> {
-    fn is_summary(&self) -> bool {
+    /// Returns true if this entry is a synthesised summary of earlier messages.
+    pub fn is_compact_summary(&self) -> bool {
         matches!(self, Message::Summary(_))
     }
 
-    fn is_original(&self) -> bool {
+    /// Returns true if this entry is an unmodified original message (i.e. not
+    /// a synthesised summary).
+    pub fn is_original(&self) -> bool {
         matches!(self, Message::Original { .. })
+    }
+
+    /// Returns the source messages that were folded into this summary, or
+    /// `None` if the entry is an original (non-summary) message.
+    pub fn source(&self) -> Option<&[I]> {
+        match self {
+            Message::Summary(Summary { source, .. }) => Some(source.as_slice()),
+            Message::Original { .. } => None,
+        }
     }
 }
 
@@ -53,7 +82,20 @@ impl<I> Deref for Message<I> {
 }
 
 impl<Item: ContextMessage + Clone> Compaction<Item> {
+    /// Compacts the conversation, folding ranges into summary items. Use
+    /// [`compact_tagged`](Self::compact_tagged) to tell summaries apart from
+    /// originals in the output.
     pub fn compact_conversation(&self, messages: Vec<Item>) -> Vec<Item> {
+        self.compact_tagged(messages)
+            .into_iter()
+            .map(|m| m.deref().clone())
+            .collect()
+    }
+
+    /// Like [`compact_conversation`](Self::compact_conversation) but preserves
+    /// the [`Message`] envelope so summaries (and their sources) are
+    /// distinguishable from originals.
+    pub fn compact_tagged(&self, messages: Vec<Item>) -> Vec<Message<Item>> {
         // Wrap each plain item into Message::Original using the util helper (the
         // inverse of deref_messages).
         let all: Vec<Message<Item>> = wrap_messages(messages);
@@ -89,10 +131,10 @@ impl<Item: ContextMessage + Clone> Compaction<Item> {
 
                 if self.threshold(window.as_slice()) {
                     // Threshold exceeded — attempt to compact the window.
-                    let summary_count_before = window.iter().filter(|m| m.is_summary()).count();
+                    let summary_count_before = window.iter().filter(|m| m.is_compact_summary()).count();
                     let compacted_window = self.compact_complete(window);
                     let summary_count_after =
-                        compacted_window.iter().filter(|m| m.is_summary()).count();
+                        compacted_window.iter().filter(|m| m.is_compact_summary()).count();
                     if summary_count_after > summary_count_before {
                         // A new Summary was introduced: replace the front window in
                         // `remaining` with the summarised version and restart the scan.
@@ -122,9 +164,7 @@ impl<Item: ContextMessage + Clone> Compaction<Item> {
         }
 
         result.extend(remaining);
-
-        // Unwrap the Message envelope back to plain items.
-        result.into_iter().map(|m| m.deref().clone()).collect()
+        result
     }
 
     fn threshold(&self, messages: &[Message<Item>]) -> bool {
@@ -553,5 +593,47 @@ mod tests {
             "the extended summarize source must start with the same messages as the base source; \
              base={first_call_sources:?}, extended={second_call_sources:?}"
         );
+    }
+
+    /// Exercises only the public API surface — proof that external callers
+    /// (e.g. `forge_app`) can wire the crate without touching internals.
+    #[test]
+    fn test_public_api_is_sufficient_for_external_callers() {
+        // Only public API — no struct-literal construction, no private fields.
+        let c: Compaction<TestMsg> = Compaction::new(
+            |_src: &[&TestMsg]| TestMsg::new('S'),
+            |msgs: &[&TestMsg]| msgs.len() > 4,
+            0,
+        );
+
+        let tagged = c.compact_tagged(items_from("suaua"));
+
+        // The algorithm folds [a,u,a] into one Summary, leaving [s, u, Summary].
+        assert_eq!(tagged.len(), 3, "expected 3 items after one fold");
+
+        // An external consumer can distinguish summaries from originals.
+        let summaries: Vec<&Summary<TestMsg>> = tagged
+            .iter()
+            .filter_map(|m| match m {
+                Message::Summary(s) => Some(s),
+                Message::Original { .. } => None,
+            })
+            .collect();
+        assert_eq!(summaries.len(), 1, "expected exactly one summary");
+
+        // Exercise the public `message` and `source` fields of `Summary`.
+        let s = summaries[0];
+        assert_eq!(s.message.role, 'S');
+        let source_roles: String = s.source.iter().map(|m| m.role).collect();
+        assert_eq!(source_roles, "aua", "summary must preserve the compacted source");
+
+        // And the `Message::is_compact_summary` / `source()` helpers work.
+        assert!(tagged[2].is_compact_summary());
+        assert_eq!(
+            tagged[2].source().map(|s| s.iter().map(|m| m.role).collect::<String>()),
+            Some("aua".into())
+        );
+        assert!(!tagged[0].is_compact_summary());
+        assert!(tagged[0].source().is_none());
     }
 }
