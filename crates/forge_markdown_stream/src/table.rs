@@ -499,8 +499,16 @@ mod tests {
         insta::assert_snapshot!(render_with_width(
             vec![
                 vec!["#", "File", "Description"],
-                vec!["1", "plans/foo.md", "A longer description that forces the table to shrink its columns to fit the target width"],
-                vec!["2", "docs/bar.md", "Another reasonably long description so the Description column stays the widest"],
+                vec![
+                    "1",
+                    "plans/foo.md",
+                    "A longer description that forces the table to shrink its columns to fit the target width"
+                ],
+                vec![
+                    "2",
+                    "docs/bar.md",
+                    "Another reasonably long description so the Description column stays the widest"
+                ],
             ],
             80
         ));
