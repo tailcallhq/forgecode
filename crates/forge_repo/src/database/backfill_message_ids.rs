@@ -32,67 +32,46 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
     let mut backup_taken = false;
 
     loop {
-        let rows: Vec<(String, String)> = conversations::table
+        let ids: Vec<String> = conversations::table
             .filter(conversations::context.is_not_null())
             .order(conversations::conversation_id.asc())
             .limit(BATCH_SIZE)
             .offset(offset)
-            .select((
-                conversations::conversation_id,
-                conversations::context.assume_not_null(),
-            ))
+            .select(conversations::conversation_id)
             .load(conn)
             .context("failed to read conversations batch")?;
 
-        if rows.is_empty() {
+        if ids.is_empty() {
             break;
         }
 
-        let mut pending: Vec<(&String, &String, String)> = Vec::new();
-        for (conv_id, original_blob) in &rows {
+        for conv_id in &ids {
             report.scanned += 1;
-            let backfilled = backfill_blob(original_blob).with_context(|| {
-                format!("corrupt context JSON in conversation {conv_id}")
-            })?;
-            match backfilled {
-                Some(new_blob) => pending.push((conv_id, original_blob, new_blob)),
-                None => report.skipped += 1,
+
+            // Outside-tx preview gates the backup: a row that is already
+            // migrated (or missing) must not force a backup file.
+            if !preview_needs_migration(conn, conv_id)? {
+                report.skipped += 1;
+                continue;
             }
-        }
 
-        if pending.is_empty() {
-            offset += BATCH_SIZE;
-            continue;
-        }
-
-        // Deferred so idempotent reruns over a migrated DB never backup.
-        if !backup_taken {
-            if let Some(path) = database_path {
-                let target = backup_path_for(path);
-                backup_db(conn, path, &target)?;
-            }
-            backup_taken = true;
-        }
-
-        conn.transaction::<_, anyhow::Error, _>(|conn| {
-            for (conv_id, original_blob, new_blob) in &pending {
-                // Compare-and-swap: a concurrent writer that landed between
-                // our read and this UPDATE invalidates the WHERE match;
-                // `affected == 0` and we skip, leaving the winner's blob.
-                let affected = diesel::update(conversations::table)
-                    .filter(conversations::conversation_id.eq(conv_id))
-                    .filter(conversations::context.eq(original_blob))
-                    .set(conversations::context.eq(new_blob))
-                    .execute(conn)?;
-
-                if affected == 1 {
-                    report.updated += 1;
-                } else {
-                    report.skipped += 1;
+            if !backup_taken {
+                if let Some(path) = database_path {
+                    let target = backup_path_for(path);
+                    backup_db(conn, path, &target)?;
                 }
+                backup_taken = true;
             }
-            Ok(())
-        })?;
+
+            // Per-row `BEGIN IMMEDIATE` re-reads the authoritative blob
+            // under a write lock, so a concurrent non-migrating writer
+            // cannot strand this row for the rest of the run.
+            if migrate_row_under_write_lock(conn, conv_id)? {
+                report.updated += 1;
+            } else {
+                report.skipped += 1;
+            }
+        }
 
         offset += BATCH_SIZE;
     }
@@ -107,9 +86,54 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
     Ok(report)
 }
 
+fn preview_needs_migration(conn: &mut SqliteConnection, conv_id: &str) -> Result<bool> {
+    let blob: Option<String> = conversations::table
+        .filter(conversations::conversation_id.eq(conv_id))
+        .select(conversations::context.assume_not_null())
+        .first(conn)
+        .optional()?;
+    let Some(blob) = blob else { return Ok(false) };
+    let backfilled = backfill_blob(&blob)
+        .with_context(|| format!("corrupt context JSON in conversation {conv_id}"))?;
+    Ok(backfilled.is_some())
+}
+
+fn migrate_row_under_write_lock(conn: &mut SqliteConnection, conv_id: &str) -> Result<bool> {
+    diesel::sql_query("BEGIN IMMEDIATE").execute(conn)?;
+    let outcome = (|| -> Result<bool> {
+        let blob: Option<String> = conversations::table
+            .filter(conversations::conversation_id.eq(conv_id))
+            .select(conversations::context.assume_not_null())
+            .first(conn)
+            .optional()?;
+        let Some(blob) = blob else { return Ok(false) };
+        let backfilled = backfill_blob(&blob)
+            .with_context(|| format!("corrupt context JSON in conversation {conv_id}"))?;
+        let Some(new_blob) = backfilled else { return Ok(false) };
+        diesel::update(conversations::table)
+            .filter(conversations::conversation_id.eq(conv_id))
+            .set(conversations::context.eq(new_blob))
+            .execute(conn)?;
+        Ok(true)
+    })();
+    match outcome {
+        Ok(updated) => {
+            diesel::sql_query("COMMIT").execute(conn)?;
+            Ok(updated)
+        }
+        Err(err) => {
+            let _ = diesel::sql_query("ROLLBACK").execute(conn);
+            Err(err)
+        }
+    }
+}
+
 fn backup_path_for(source: &Path) -> PathBuf {
+    // UUID suffix so two processes racing within the same second produce
+    // distinct backup files instead of VACUUM INTO rejecting the second.
     let ts = Utc::now().format("%Y%m%d-%H%M%S").to_string();
-    source.with_extension(format!("pre-msgid-{ts}"))
+    let unique = MessageId::new();
+    source.with_extension(format!("pre-msgid-{ts}-{unique}"))
 }
 
 fn backup_db(conn: &mut SqliteConnection, source: &Path, target: &Path) -> Result<()> {
@@ -419,6 +443,58 @@ mod tests {
             .first(&mut snapshot)
             .expect("row present in backup");
         assert_eq!(pre_migration, legacy);
+    }
+
+    /// A rival writer that rewrites the row to a different unmigrated
+    /// shape between preview and migrate must still get migrated, not
+    /// skipped on a stale-read mismatch.
+    #[test]
+    fn test_migrates_fresh_state_after_concurrent_unmigrated_write() {
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let db_path = tmp.path().join("backfill-race.sqlite");
+        let manager =
+            ConnectionManager::<SqliteConnection>::new(db_path.to_string_lossy().to_string());
+        let pool = Pool::builder()
+            .max_size(2)
+            .connection_customizer(Box::new(WalCustomizer))
+            .build(manager)
+            .expect("build pool");
+        let mut setup = pool.get().unwrap();
+        setup
+            .run_pending_migrations(MIGRATIONS)
+            .expect("run migrations");
+        let legacy_a =
+            r#"{"messages":[{"message":{"text":{"role":"User","content":"first"}}}]}"#;
+        insert_conversation(&mut setup, "conv-1", legacy_a);
+        drop(setup);
+
+        let mut migrator = pool.get().unwrap();
+        assert!(preview_needs_migration(&mut migrator, "conv-1").unwrap());
+
+        // Rival connection swaps the blob to a different unmigrated shape
+        // (e.g., an older binary writing without `id`).
+        let legacy_b =
+            r#"{"messages":[{"message":{"text":{"role":"User","content":"second"}}}]}"#;
+        let mut rival = pool.get().unwrap();
+        diesel::update(conversations::table)
+            .filter(conversations::conversation_id.eq("conv-1"))
+            .set(conversations::context.eq(legacy_b))
+            .execute(&mut rival)
+            .expect("rival write");
+        drop(rival);
+
+        let updated = migrate_row_under_write_lock(&mut migrator, "conv-1").unwrap();
+        assert!(updated, "row must migrate despite mid-run rival write");
+
+        let stored: Value =
+            serde_json::from_str(&fetch_context(&mut migrator, "conv-1")).unwrap();
+        let entry = &stored["messages"][0];
+        assert!(entry.get("id").and_then(|v| v.as_str()).is_some());
+        assert_eq!(
+            entry.pointer("/message/text/content").and_then(|v| v.as_str()),
+            Some("second"),
+            "migrated row must carry the rival's content, not the stale read",
+        );
     }
 
     /// A failing backup must halt the migration before any row is rewritten;
