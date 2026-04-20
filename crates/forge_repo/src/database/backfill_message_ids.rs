@@ -10,8 +10,6 @@ use tracing::info;
 
 use crate::database::schema::conversations;
 
-/// Rows 100 per transaction; small enough that a lost compare-and-swap
-/// re-reads negligible work, large enough to keep commit overhead down.
 const BATCH_SIZE: i64 = 100;
 
 /// Summary of a single backfill run. A fully-migrated DB reports
@@ -32,9 +30,7 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
     let mut backup_taken = false;
 
     loop {
-        // Cursor-based pagination (`conversation_id > cursor`) is stable
-        // under inserts and deletes of earlier IDs — `OFFSET` would shift
-        // rows across the offset boundary and strand them for the run.
+        // Cursor paging survives earlier-row churn during the scan.
         let ids = page_ids(conn, &cursor, BATCH_SIZE)?;
         if ids.is_empty() {
             break;
@@ -58,9 +54,8 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
                 backup_taken = true;
             }
 
-            // Per-row `BEGIN IMMEDIATE` re-reads the authoritative blob
-            // under a write lock, so a concurrent non-migrating writer
-            // cannot strand this row for the rest of the run.
+            // `BEGIN IMMEDIATE` + fresh re-read prevents a concurrent
+            // non-migrating writer from stranding the row for this run.
             if migrate_row_under_write_lock(conn, conv_id)? {
                 report.updated += 1;
             } else {
@@ -151,9 +146,8 @@ fn backup_db(conn: &mut SqliteConnection, source: &Path, target: &Path) -> Resul
         // Fresh DB with no file yet (first run); nothing to back up.
         return Ok(());
     }
-    // VACUUM INTO (not `fs::copy`) so WAL-resident committed pages land in
-    // the snapshot. Failure is fatal: the caller is about to rewrite blobs,
-    // and we refuse to do that without a working rollback snapshot.
+    // VACUUM INTO captures WAL-resident pages a file copy would miss;
+    // failure is fatal — callers refuse to rewrite blobs without a snapshot.
     let escaped = target.to_string_lossy().replace('\'', "''");
     let sql = format!("VACUUM INTO '{escaped}'");
     diesel::sql_query(sql).execute(conn).with_context(|| {
@@ -355,12 +349,11 @@ mod tests {
         );
     }
 
-    /// Two concurrent runs both terminate cleanly; the winning CaS writes
-    /// ids, the losing CaS skips.
+    /// Two concurrent runs converge: one writes ids, the other skips.
     #[test]
     fn test_backfill_concurrent_runs_converge() {
-        // WAL on a real file is required; shared `:memory:` serialises and
-        // no CaS conflict fires.
+        // File-backed WAL so the two writers actually contend for the
+        // IMMEDIATE lock; shared `:memory:` serialises pool-wide.
         let tmp = tempfile::TempDir::new().expect("tempdir");
         let db_path = tmp.path().join("backfill-concurrent.sqlite");
         let manager =
@@ -400,7 +393,7 @@ mod tests {
             h.join().unwrap();
         }
 
-        // Exactly one CaS wins; the other sees the winner's blob and skips.
+        // One thread migrates; the other sees the migrated blob and skips.
         assert_eq!(total_updated.load(Ordering::Relaxed), 1);
         assert_eq!(total_skipped.load(Ordering::Relaxed), 1);
 
@@ -454,8 +447,7 @@ mod tests {
         assert_eq!(second.updated, 0);
         assert_eq!(count_backups(), 1);
 
-        // Backup must be a valid SQLite DB with the pre-migration row —
-        // `fs::copy` would miss WAL-resident committed pages.
+        // Backup must be a valid SQLite DB with the pre-migration row.
         let backup = std::fs::read_dir(tmp.path())
             .unwrap()
             .filter_map(|e| e.ok())
@@ -497,9 +489,8 @@ mod tests {
         assert!(!updated);
     }
 
-    /// A rival writer that rewrites the row to a different unmigrated
-    /// shape between preview and migrate must still get migrated, not
-    /// skipped on a stale-read mismatch.
+    /// A rival writer swapping an unmigrated blob for another unmigrated
+    /// blob between preview and migrate must not strand the row.
     #[test]
     fn test_migrates_fresh_state_after_concurrent_unmigrated_write() {
         let tmp = tempfile::TempDir::new().expect("tempdir");
