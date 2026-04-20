@@ -322,7 +322,7 @@ fn sort_skills(mut skills: Vec<Skill>) -> Vec<Skill> {
 }
 
 fn sort_paths(paths: &mut [PathBuf]) {
-    paths.sort_by(|a, b| path_sort_key(Some(a.as_path())).cmp(&path_sort_key(Some(b.as_path()))));
+    paths.sort_by_key(|a| path_sort_key(Some(a.as_path())));
 }
 
 fn path_sort_key(path: Option<&Path>) -> String {

@@ -3,9 +3,10 @@ use forge_domain::Transformer;
 use crate::dto::anthropic::Request;
 
 /// Transformer that keeps Anthropic prompt-cache markers stable:
-/// - Always caches every system message so the static system prefix remains reusable
-/// - Falls back to caching the first conversation message when there is no system
-///   prompt so single-turn requests still establish a reusable prefix
+/// - Always caches every system message so the static system prefix remains
+///   reusable
+/// - Falls back to caching the first conversation message when there is no
+///   system prompt so single-turn requests still establish a reusable prefix
 /// - Uses exactly one rolling message-level marker on the newest message
 pub struct SetCache;
 
@@ -39,11 +40,10 @@ impl Transformer for SetCache {
             *message = std::mem::take(message).cached(false);
         }
 
-        if !has_system_prompt && len > 0 {
-            if let Some(first_message) = request.get_messages_mut().first_mut() {
+        if !has_system_prompt && len > 0
+            && let Some(first_message) = request.get_messages_mut().first_mut() {
                 *first_message = std::mem::take(first_message).cached(true);
             }
-        }
 
         if let Some(message) = request.get_messages_mut().last_mut() {
             *message = std::mem::take(message).cached(true);
@@ -262,6 +262,4 @@ mod tests {
         assert_eq!(actual, expected);
         assert!(request.get_messages()[0].is_cached());
     }
-
 }
-
