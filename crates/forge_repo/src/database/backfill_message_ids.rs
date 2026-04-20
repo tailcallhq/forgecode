@@ -48,9 +48,6 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
             break;
         }
 
-        // Plan the batch first, outside of any transaction: decide which
-        // rows actually need rewriting so a fully-migrated DB opens zero
-        // write transactions and produces zero backup files.
         let mut pending: Vec<(&String, &String, String)> = Vec::new();
         for (conv_id, original_blob) in &rows {
             report.scanned += 1;
@@ -68,9 +65,7 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
             continue;
         }
 
-        // Lazy backup: fires once, on the first batch that has real work.
-        // An idempotent second launch against an already-migrated DB skips
-        // this entirely and never writes a `.pre-msgid-*` copy.
+        // Deferred so idempotent reruns over a migrated DB never backup.
         if !backup_taken {
             if let Some(path) = database_path {
                 backup_db(path)?;
@@ -153,11 +148,9 @@ fn backfill_blob(blob: &str) -> Result<Option<String>> {
 
         let fresh = serde_json::to_value(MessageId::new())?;
         if obj.contains_key("message") {
-            // Wrapper form `{"message":..., "usage":...}` without `id`.
             obj.insert("id".to_string(), fresh);
         } else {
-            // Direct form (bare `ContextMessageValueRecord`, e.g.
-            // `{"text":{...}}`): rewrap as `{"id":..., "message":{...}}`.
+            // Direct-form blob predates the wrapper; must be rewrapped.
             let inner = Value::Object(std::mem::take(obj));
             let mut wrapper = serde_json::Map::new();
             wrapper.insert("id".to_string(), fresh);
@@ -194,9 +187,6 @@ mod tests {
             &self,
             conn: &mut SqliteConnection,
         ) -> std::result::Result<(), diesel::r2d2::Error> {
-            // Without a busy_timeout, concurrent writers on `:memory:` fail
-            // immediately with "database is locked"; with one, the loser of
-            // the compare-and-swap waits long enough to retry its read.
             diesel::sql_query("PRAGMA busy_timeout = 5000;")
                 .execute(conn)
                 .map_err(diesel::r2d2::Error::QueryError)?;
@@ -205,9 +195,7 @@ mod tests {
     }
 
     fn new_conn() -> diesel::r2d2::PooledConnection<ConnectionManager<SqliteConnection>> {
-        // `cache=shared` lets a single test optionally open extra connections
-        // against the same in-memory DB; plain `:memory:` gives each
-        // connection a private DB.
+        // `cache=shared` is what lets extra connections see the same DB.
         let url = format!(
             "file:backfill-msgid-{}?mode=memory&cache=shared&uri=true",
             MessageId::new()
@@ -311,13 +299,12 @@ mod tests {
     /// ids, the losing CaS skips.
     #[test]
     fn test_backfill_concurrent_runs_converge() {
-        // Use a file-backed DB with WAL so two writers can actually race;
-        // shared `:memory:` serialises everything and no CaS conflict can
-        // arise.
-        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
-        let path = tmp.path().to_owned();
-        let url = path.to_string_lossy().to_string();
-        let manager = ConnectionManager::<SqliteConnection>::new(url);
+        // WAL on a real file is required; shared `:memory:` serialises and
+        // no CaS conflict fires.
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let db_path = tmp.path().join("backfill-concurrent.sqlite");
+        let manager =
+            ConnectionManager::<SqliteConnection>::new(db_path.to_string_lossy().to_string());
         let pool = Pool::builder()
             .max_size(4)
             .connection_customizer(Box::new(WalCustomizer))
@@ -368,11 +355,8 @@ mod tests {
     /// a second launch over the now-migrated DB leaves the directory clean.
     #[test]
     fn test_backup_created_only_on_first_migrating_run() {
-        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
-        // NamedTempFile owns the file; we just want its path for SQLite.
-        let db_path = tmp.path().to_owned();
-        drop(tmp);
-
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let db_path = tmp.path().join("backfill-backup.sqlite");
         let manager =
             ConnectionManager::<SqliteConnection>::new(db_path.to_string_lossy().to_string());
         let pool = Pool::builder()
@@ -388,10 +372,9 @@ mod tests {
         insert_conversation(&mut setup, "conv-1", legacy);
         drop(setup);
 
-        let backups_dir = db_path.parent().unwrap();
         let db_stem = db_path.file_stem().unwrap().to_string_lossy().to_string();
         let count_backups = || {
-            std::fs::read_dir(backups_dir)
+            std::fs::read_dir(tmp.path())
                 .unwrap()
                 .filter_map(|e| e.ok())
                 .filter(|e| {
@@ -405,24 +388,11 @@ mod tests {
         let mut conn = pool.get().unwrap();
         let first = run(&mut conn, Some(&db_path)).unwrap();
         assert_eq!(first.updated, 1);
-        assert_eq!(count_backups(), 1, "first run must create exactly one backup");
+        assert_eq!(count_backups(), 1);
 
         let second = run(&mut conn, Some(&db_path)).unwrap();
         assert_eq!(second.updated, 0);
-        assert_eq!(
-            count_backups(),
-            1,
-            "idempotent second run must not create another backup",
-        );
-
-        // Cleanup: remove the backup and the DB file so repeat runs of this
-        // test against the same tempdir do not see leftover state.
-        for entry in std::fs::read_dir(backups_dir).unwrap().flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with(&format!("{db_stem}.pre-msgid-")) || name == db_stem {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
+        assert_eq!(count_backups(), 1);
     }
 
     #[derive(Debug)]
@@ -435,8 +405,6 @@ mod tests {
             &self,
             conn: &mut SqliteConnection,
         ) -> std::result::Result<(), diesel::r2d2::Error> {
-            // WAL + busy_timeout mirror production (see `SqliteCustomizer`)
-            // and let two writers contend without immediate-lock errors.
             for pragma in [
                 "PRAGMA journal_mode = WAL;",
                 "PRAGMA busy_timeout = 5000;",
