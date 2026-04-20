@@ -4363,7 +4363,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .and_then(|str| ConversationId::from_str(str.as_str()).ok());
 
         // Make IO calls in parallel
-        let (model_id, conversation) = tokio::join!(
+        let (model_id, conversation, reasoning_effort) = tokio::join!(
             async { self.api.get_session_config().await.map(|c| c.model) },
             async {
                 if let Some(cid) = cid {
@@ -4371,7 +4371,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 } else {
                     None
                 }
-            }
+            },
+            async { self.api.get_reasoning_effort().await.ok().flatten() }
         );
 
         // Calculate total cost including related conversations
@@ -4402,6 +4403,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .model(model_id)
             .token_count(conversation.and_then(|conversation| conversation.token_count()))
             .cost(cost)
+            .reasoning_effort(reasoning_effort)
             .use_nerd_font(use_nerd_font);
 
         Some(rprompt.to_string())

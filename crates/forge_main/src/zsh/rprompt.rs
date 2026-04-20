@@ -1,29 +1,32 @@
 //! ZSH right prompt implementation.
 //!
 //! Provides the right prompt (RPROMPT) display for the ZSH shell integration,
-//! showing agent name, model, and token count information.
+//! showing agent name, model, token count and reasoning effort information.
 
 use std::fmt::{self, Display};
 
 use convert_case::{Case, Casing};
 use derive_setters::Setters;
 use forge_config::ForgeConfig;
-use forge_domain::{AgentId, ModelId, TokenCount};
+use forge_domain::{AgentId, Effort, ModelId, TokenCount};
 
 use super::style::{ZshColor, ZshStyle};
 use crate::utils::humanize_number;
 
-/// ZSH right prompt displaying agent, model, and token count.
+/// ZSH right prompt displaying agent, model, token count and reasoning effort.
 ///
 /// Formats shell prompt information with appropriate colors:
 /// - Inactive state (no tokens): dimmed colors
-/// - Active state (has tokens): bright white/cyan colors
+/// - Active state (has tokens): bright white/cyan/yellow colors
 #[derive(Setters)]
 pub struct ZshRPrompt {
     agent: Option<AgentId>,
     model: Option<ModelId>,
     token_count: Option<TokenCount>,
     cost: Option<f64>,
+    /// Currently configured reasoning effort level for the active model.
+    /// Rendered to the right of the model when set.
+    reasoning_effort: Option<Effort>,
     /// Controls whether to render nerd font symbols. Defaults to `true`.
     #[setters(into)]
     use_nerd_font: bool,
@@ -52,6 +55,7 @@ impl Default for ZshRPrompt {
             model: None,
             token_count: None,
             cost: None,
+            reasoning_effort: None,
             use_nerd_font: true,
             currency_symbol: "\u{f155}".to_string(),
             conversion_ratio: 1.0,
@@ -61,6 +65,7 @@ impl Default for ZshRPrompt {
 
 const AGENT_SYMBOL: &str = "\u{f167a}";
 const MODEL_SYMBOL: &str = "\u{ec19}";
+const REASONING_SYMBOL: &str = "\u{eb41}";
 
 impl Display for ZshRPrompt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -121,12 +126,30 @@ impl Display for ZshRPrompt {
             write!(f, " {}", styled)?;
         }
 
+        // Add reasoning effort (rendered to the right of the model)
+        if let Some(ref effort) = self.reasoning_effort {
+            let effort_label = effort.to_string().to_uppercase();
+            let effort_label = if self.use_nerd_font {
+                format!("{REASONING_SYMBOL} {}", effort_label)
+            } else {
+                effort_label
+            };
+            let styled = if active {
+                effort_label.zsh().fg(ZshColor::YELLOW)
+            } else {
+                effort_label.zsh().fg(ZshColor::DIMMED)
+            };
+            write!(f, " {}", styled)?;
+        }
+
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
+
     use super::*;
 
     #[test]
@@ -211,6 +234,94 @@ mod tests {
             .to_string();
 
         let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %B%F{2}€0.01%f%b %F{134}\u{ec19} gpt-4%f";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_rprompt_with_reasoning_effort_active() {
+        // Active state (tokens > 0) renders reasoning effort in YELLOW to the
+        // right of the model.
+        let actual = ZshRPrompt::default()
+            .agent(Some(AgentId::new("forge")))
+            .model(Some(ModelId::new("gpt-4")))
+            .token_count(Some(TokenCount::Actual(1500)))
+            .reasoning_effort(Some(Effort::High))
+            .to_string();
+
+        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}\u{eb41} HIGH%f";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_rprompt_with_reasoning_effort_init_state() {
+        // Inactive state (no tokens) renders reasoning effort DIMMED.
+        let actual = ZshRPrompt::default()
+            .agent(Some(AgentId::new("forge")))
+            .model(Some(ModelId::new("gpt-4")))
+            .reasoning_effort(Some(Effort::Medium))
+            .to_string();
+
+        let expected =
+            " %B%F{240}\u{f167a} FORGE%f%b %F{240}\u{ec19} gpt-4%f %F{240}\u{eb41} MEDIUM%f";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_rprompt_with_reasoning_effort_without_nerdfonts() {
+        // With nerd fonts disabled the reasoning effort is rendered as plain
+        // uppercase text without any leading glyph.
+        let actual = ZshRPrompt::default()
+            .agent(Some(AgentId::new("forge")))
+            .model(Some(ModelId::new("gpt-4")))
+            .token_count(Some(TokenCount::Actual(1500)))
+            .reasoning_effort(Some(Effort::Low))
+            .use_nerd_font(false)
+            .to_string();
+
+        let expected = " %B%F{15}FORGE%f%b %B%F{15}1.5k%f%b %F{134}gpt-4%f %F{3}LOW%f";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_rprompt_with_reasoning_effort_none_variant() {
+        // `Effort::None` is a valid explicit value; render it so the user can
+        // see that reasoning was deliberately disabled.
+        let actual = ZshRPrompt::default()
+            .agent(Some(AgentId::new("forge")))
+            .model(Some(ModelId::new("gpt-4")))
+            .token_count(Some(TokenCount::Actual(1500)))
+            .reasoning_effort(Some(Effort::None))
+            .to_string();
+
+        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}\u{eb41} NONE%f";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_rprompt_without_reasoning_effort_is_hidden() {
+        // When no reasoning effort is set, nothing is appended after the model.
+        let actual = ZshRPrompt::default()
+            .agent(Some(AgentId::new("forge")))
+            .model(Some(ModelId::new("gpt-4")))
+            .token_count(Some(TokenCount::Actual(1500)))
+            .reasoning_effort(None)
+            .to_string();
+
+        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_rprompt_with_reasoning_effort_xhigh() {
+        // `Effort::XHigh` renders as the uppercase string "XHIGH".
+        let actual = ZshRPrompt::default()
+            .agent(Some(AgentId::new("forge")))
+            .model(Some(ModelId::new("gpt-4")))
+            .token_count(Some(TokenCount::Actual(1500)))
+            .reasoning_effort(Some(Effort::XHigh))
+            .to_string();
+
+        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}\u{eb41} XHIGH%f";
         assert_eq!(actual, expected);
     }
 }
