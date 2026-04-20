@@ -27,7 +27,7 @@ fn main() {
     let version = std::env::var("APP_VERSION")
         .map(|v| clean_version(&v))
         .or_else(|_| get_git_version().ok_or(()))
-        .unwrap_or_else(|_| "0.1.1-dev".to_string());
+        .unwrap_or_else(|_| "2.11.5".to_string());
 
     // Make version available to the application
     println!("cargo:rustc-env=CARGO_PKG_VERSION={version}");

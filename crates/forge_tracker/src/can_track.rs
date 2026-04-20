@@ -12,7 +12,7 @@ pub fn can_track() -> bool {
 fn can_track_inner<V: AsRef<str>>(version: Option<V>) -> bool {
     if let Some(v) = version {
         let v_str = v.as_ref();
-        !(v_str.contains("dev") || v_str.contains("0.1.1") || v_str.contains("0.1.0"))
+        !v_str.contains("dev")
     } else {
         true // If no version provided, assume prod
     }
@@ -24,14 +24,13 @@ mod tests {
 
     #[test]
     fn usage_enabled_none_is_prod_true() {
+        assert!(can_track_inner(Some("2.11.5")));
         assert!(can_track_inner(Some("1.0.0")));
     }
 
     #[test]
     fn usage_enabled_none_is_prod_false() {
+        assert!(!can_track_inner(Some("2.11.5-dev")));
         assert!(!can_track_inner(Some("0.1.0-dev")));
-        assert!(!can_track_inner(Some("1.0.0-dev")));
-        assert!(!can_track_inner(Some("0.1.1")));
-        assert!(!can_track_inner(Some("0.1.0")));
     }
 }

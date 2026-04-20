@@ -1,6 +1,6 @@
 [package]
 name = "forge_main"
-version = "0.1.1"
+version = "2.11.5"
 edition.workspace = true
 rust-version.workspace = true
 

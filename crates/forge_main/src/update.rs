@@ -77,8 +77,8 @@ pub async fn on_update(api: Arc<impl API>, update: Option<&Update>) {
 
     // Check if version is development version, in which case we skip the update
     // check
-    if VERSION.contains("dev") || VERSION == "0.1.1" || VERSION == "0.1.0" {
-        // Skip update for development version 0.1.1 and 0.1.0
+    if VERSION.contains("dev") || VERSION.starts_with("0.") || VERSION.starts_with("1.") {
+        // Skip update for development and old major versions
         return;
     }
 

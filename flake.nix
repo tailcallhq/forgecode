@@ -36,7 +36,7 @@
           };
           forge = pkgs.rustPlatform.buildRustPackage {
             pname = "forge";
-            version = "0.1.1-dev";
+            version = "2.11.5";
             inherit src;
 
             cargoLock = {
@@ -82,7 +82,7 @@
 
             PROTOC = "${pkgs.protobuf}/bin/protoc";
             PROTOC_INCLUDE = "${pkgs.protobuf}/include";
-            APP_VERSION = "0.1.1-dev";
+            APP_VERSION = "2.11.5";
 
             doCheck = false;
 
@@ -152,7 +152,7 @@
 
             PROTOC = "${pkgs.protobuf}/bin/protoc";
             PROTOC_INCLUDE = "${pkgs.protobuf}/include";
-            APP_VERSION = "0.1.1-dev";
+            APP_VERSION = "2.11.5";
           };
         });
     };
