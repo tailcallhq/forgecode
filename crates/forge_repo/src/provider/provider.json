@@ -62,6 +62,46 @@
     "auth_methods": ["api_key"]
   },
   {
+    "id": "vivgrid",
+    "api_key_vars": "VIVGRID_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAIResponses",
+    "url": "https://api.vivgrid.com/v1/responses",
+    "models": [
+      {
+        "id": "gpt-5.4",
+        "name": "GPT-5.4",
+        "description": "Vivgrid-hosted GPT-5.4 model for complex professional work",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.2-codex",
+        "name": "GPT-5.2 Codex",
+        "description": "Vivgrid-hosted GPT-5.2 Codex model optimized for coding and agent workflows",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.1-codex",
+        "name": "GPT-5.1 Codex",
+        "description": "Vivgrid-hosted GPT-5.1 Codex model for agentic coding tasks",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      }
+    ],
+    "auth_methods": ["api_key"]
+  },
+  {
     "id": "xai",
     "api_key_vars": "XAI_API_KEY",
     "url_param_vars": [],
