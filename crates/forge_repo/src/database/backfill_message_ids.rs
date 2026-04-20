@@ -68,7 +68,7 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
         // Deferred so idempotent reruns over a migrated DB never backup.
         if !backup_taken {
             if let Some(path) = database_path {
-                backup_db(path)?;
+                backup_db(conn, path)?;
             }
             backup_taken = true;
         }
@@ -106,7 +106,7 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
     Ok(report)
 }
 
-fn backup_db(path: &Path) -> Result<()> {
+fn backup_db(conn: &mut SqliteConnection, path: &Path) -> Result<()> {
     if matches!(path.to_str(), Some(":memory:")) {
         return Ok(());
     }
@@ -116,7 +116,11 @@ fn backup_db(path: &Path) -> Result<()> {
     }
     let ts = Utc::now().format("%Y%m%d-%H%M%S").to_string();
     let backup = path.with_extension(format!("pre-msgid-{ts}"));
-    if let Err(err) = std::fs::copy(path, &backup) {
+    // VACUUM INTO (not `fs::copy`) so WAL-resident committed pages land in
+    // the snapshot; a plain file copy would leave them behind.
+    let escaped = backup.to_string_lossy().replace('\'', "''");
+    let sql = format!("VACUUM INTO '{escaped}'");
+    if let Err(err) = diesel::sql_query(sql).execute(conn) {
         // A missing-backup is non-fatal — we still want the migration to run,
         // but the operator should know the safety net failed.
         warn!(
@@ -393,6 +397,26 @@ mod tests {
         let second = run(&mut conn, Some(&db_path)).unwrap();
         assert_eq!(second.updated, 0);
         assert_eq!(count_backups(), 1);
+
+        // Backup must be a valid SQLite DB with the pre-migration row —
+        // `fs::copy` would miss WAL-resident committed pages.
+        let backup = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .find(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!("{db_stem}.pre-msgid-"))
+            })
+            .expect("backup file present");
+        let mut snapshot =
+            SqliteConnection::establish(&backup.path().to_string_lossy()).expect("open backup");
+        let pre_migration: String = conversations::table
+            .filter(conversations::conversation_id.eq("conv-1"))
+            .select(conversations::context.assume_not_null())
+            .first(&mut snapshot)
+            .expect("row present in backup");
+        assert_eq!(pre_migration, legacy);
     }
 
     #[derive(Debug)]
