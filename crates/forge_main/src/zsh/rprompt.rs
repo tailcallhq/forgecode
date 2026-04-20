@@ -126,8 +126,12 @@ impl Display for ZshRPrompt {
             write!(f, " {}", styled)?;
         }
 
-        // Add reasoning effort (rendered to the right of the model)
-        if let Some(ref effort) = self.reasoning_effort {
+        // Add reasoning effort (rendered to the right of the model).
+        // `Effort::None` is suppressed because it carries no useful information
+        // for the user to see in the prompt.
+        if let Some(ref effort) = self.reasoning_effort
+            && !matches!(effort, Effort::None)
+        {
             let effort_label = effort.to_string().to_uppercase();
             let effort_label = if self.use_nerd_font {
                 format!("{REASONING_SYMBOL} {}", effort_label)
@@ -283,9 +287,9 @@ mod tests {
     }
 
     #[test]
-    fn test_rprompt_with_reasoning_effort_none_variant() {
-        // `Effort::None` is a valid explicit value; render it so the user can
-        // see that reasoning was deliberately disabled.
+    fn test_rprompt_with_reasoning_effort_none_variant_is_hidden() {
+        // `Effort::None` is semantically "no reasoning" and carries no display
+        // value, so the rprompt suppresses it entirely.
         let actual = ZshRPrompt::default()
             .agent(Some(AgentId::new("forge")))
             .model(Some(ModelId::new("gpt-4")))
@@ -293,7 +297,7 @@ mod tests {
             .reasoning_effort(Some(Effort::None))
             .to_string();
 
-        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}\u{eb41} NONE%f";
+        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f";
         assert_eq!(actual, expected);
     }
 
