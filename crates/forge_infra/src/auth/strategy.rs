@@ -2,8 +2,9 @@ use std::time::Duration;
 
 use forge_app::{AuthStrategy, OAuthHttpProvider, StrategyFactory};
 use forge_domain::{
-    ApiKey, ApiKeyRequest, AuthContextRequest, AuthContextResponse, AuthCredential, CodeRequest,
-    DeviceCodeRequest, OAuthConfig, OAuthTokenResponse, OAuthTokens, ProviderId, URLParamSpec,
+    ApiKey, ApiKeyRequest, AuthContextRequest, AuthContextResponse, AuthCredential, AuthDetails,
+    CodeRequest, DeviceCodeRequest, OAuthConfig, OAuthTokenResponse, OAuthTokens, ProviderId,
+    URLParamSpec,
 };
 use google_cloud_auth::credentials::Builder;
 use oauth2::basic::BasicClient;
@@ -42,17 +43,39 @@ impl AuthStrategy for ApiKeyStrategy {
         context_response: AuthContextResponse,
     ) -> anyhow::Result<AuthCredential> {
         match context_response {
-            AuthContextResponse::ApiKey(ctx) => Ok(AuthCredential::new_api_key(
-                self.provider_id.clone(),
-                ctx.response.api_key,
-            )
-            .url_params(ctx.response.url_params)),
+            AuthContextResponse::ApiKey(ctx) => {
+                let auth_details = if let Some(command) = ctx.response.helper_command {
+                    // Execute the helper to validate and obtain the initial key
+                    let initial = forge_domain::ApiKeyProvider::HelperCommand {
+                        command,
+                        last_key: forge_domain::ApiKey::default(),
+                        expires_at: None,
+                    };
+                    let provider = crate::auth::api_key_helper::execute(&initial).await?;
+                    AuthDetails::ApiKey(provider)
+                } else {
+                    AuthDetails::static_api_key(ctx.response.api_key)
+                };
+                Ok(AuthCredential {
+                    id: self.provider_id.clone(),
+                    auth_details,
+                    url_params: ctx.response.url_params,
+                })
+            }
             _ => Err(AuthError::InvalidContext("Expected ApiKey context".to_string()).into()),
         }
     }
 
     async fn refresh(&self, credential: &AuthCredential) -> anyhow::Result<AuthCredential> {
-        // API keys don't expire - return as-is
+        // Check if credential has a helper command provider that needs refreshing
+        if let AuthDetails::ApiKey(provider) = &credential.auth_details {
+            let refreshed_provider = crate::auth::api_key_helper::execute(provider).await?;
+            return Ok(AuthCredential {
+                id: credential.id.clone(),
+                auth_details: AuthDetails::ApiKey(refreshed_provider),
+                url_params: credential.url_params.clone(),
+            });
+        }
         Ok(credential.clone())
     }
 }
@@ -1116,7 +1139,7 @@ impl StrategyFactory for ForgeAuthStrategyFactory {
 mod tests {
     use std::collections::HashMap;
 
-    use forge_domain::URLParam;
+    use forge_domain::{ApiKeyProvider, URLParam};
     use pretty_assertions::assert_eq;
 
     use super::*;
@@ -1392,5 +1415,45 @@ mod tests {
 
         let expected = fixture_url_params;
         assert_eq!(actual.url_params, expected);
+    }
+
+    #[tokio::test]
+    async fn test_api_key_strategy_refresh_with_helper_command() {
+        let strategy = ApiKeyStrategy::new(ProviderId::OPENAI, vec![]);
+        let fixture = AuthCredential::new_api_key(
+            ProviderId::OPENAI,
+            ApiKey::from("old-key".to_string()),
+        );
+        // Replace auth_details with a HelperCommand
+        let fixture = AuthCredential {
+            auth_details: AuthDetails::api_key_from_helper(
+                "echo refreshed-key".to_string(),
+                ApiKey::from("old-key".to_string()),
+                None,
+            ),
+            ..fixture
+        };
+
+        let actual = strategy.refresh(&fixture).await.unwrap();
+
+        match &actual.auth_details {
+            AuthDetails::ApiKey(ApiKeyProvider::HelperCommand { last_key, .. }) => {
+                assert_eq!(last_key.as_ref(), "refreshed-key");
+            }
+            other => panic!("Expected HelperCommand, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_api_key_strategy_refresh_static_key_unchanged() {
+        let strategy = ApiKeyStrategy::new(ProviderId::OPENAI, vec![]);
+        let fixture = AuthCredential::new_api_key(
+            ProviderId::OPENAI,
+            ApiKey::from("static-key".to_string()),
+        );
+
+        let actual = strategy.refresh(&fixture).await.unwrap();
+
+        assert_eq!(actual, fixture);
     }
 }

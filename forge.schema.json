@@ -635,6 +635,13 @@
       "description": "A single provider entry defined inline in `forge.toml`.\n\nInline providers are merged with the built-in provider list; entries with\nthe same `id` override the corresponding built-in entry field-by-field,\nwhile entries with a new `id` are appended to the list.",
       "type": "object",
       "properties": {
+        "api_key_helper": {
+          "description": "Shell command that produces an API key on stdout.  When set, the\ncommand is executed instead of reading a static key from an environment\nvariable.  Falls back to `{api_key_var}_HELPER` env var when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "api_key_var": {
           "description": "Environment variable holding the API key for this provider.",
           "type": [

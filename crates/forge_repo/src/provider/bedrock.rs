@@ -42,7 +42,7 @@ impl BedrockProvider {
 
         // Validate API key (bearer token)
         match &credential.auth_details {
-            AuthDetails::ApiKey(key) if !key.is_empty() => {}
+            AuthDetails::ApiKey(provider) if !provider.api_key().is_empty() => {}
             _ => anyhow::bail!("Bearer token is required in API key field"),
         }
 
@@ -76,8 +76,8 @@ impl BedrockProvider {
                     .credential
                     .as_ref()
                     .and_then(|c| match &c.auth_details {
-                        AuthDetails::ApiKey(key) if !key.is_empty() => {
-                            Some(key.as_ref().to_string())
+                        AuthDetails::ApiKey(provider) if !provider.api_key().is_empty() => {
+                            Some(provider.api_key().as_ref().to_string())
                         }
                         _ => None,
                     })
@@ -1060,7 +1060,7 @@ mod tests {
             url_params: vec![],
             credential: Some(AuthCredential {
                 id: ProviderId::from("bedrock".to_string()),
-                auth_details: AuthDetails::ApiKey(ApiKey::from(token.to_string())),
+                auth_details: AuthDetails::static_api_key(ApiKey::from(token.to_string())),
                 url_params,
             }),
             custom_headers: None,

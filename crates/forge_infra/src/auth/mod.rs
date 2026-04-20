@@ -1,3 +1,4 @@
+pub mod api_key_helper;
 mod mcp_credentials;
 mod mcp_token_storage;
 

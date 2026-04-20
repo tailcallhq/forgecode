@@ -47,7 +47,7 @@ impl<H: HttpInfra> Anthropic<H> {
             .credential
             .as_ref()
             .map(|c| match &c.auth_details {
-                forge_domain::AuthDetails::ApiKey(key) => key.as_str(),
+                forge_domain::AuthDetails::ApiKey(provider) => provider.api_key().as_str(),
                 forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => api_key.as_str(),
                 forge_domain::AuthDetails::OAuth { tokens, .. } => tokens.access_token.as_str(),
                 forge_domain::AuthDetails::GoogleAdc(api_key) => api_key.as_str(),
@@ -448,7 +448,7 @@ mod tests {
             url: chat_url,
             credential: Some(forge_domain::AuthCredential {
                 id: forge_app::domain::ProviderId::ANTHROPIC,
-                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                auth_details: forge_domain::AuthDetails::static_api_key(forge_domain::ApiKey::from(
                     "sk-test-key".to_string(),
                 )),
                 url_params: std::collections::HashMap::new(),
@@ -516,7 +516,7 @@ mod tests {
             url: chat_url,
             credential: Some(forge_domain::AuthCredential {
                 id: forge_app::domain::ProviderId::ANTHROPIC,
-                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                auth_details: forge_domain::AuthDetails::static_api_key(forge_domain::ApiKey::from(
                     "sk-some-key".to_string(),
                 )),
                 url_params: std::collections::HashMap::new(),
@@ -656,7 +656,7 @@ mod tests {
             url: chat_url,
             credential: Some(forge_domain::AuthCredential {
                 id: forge_app::domain::ProviderId::ANTHROPIC,
-                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                auth_details: forge_domain::AuthDetails::static_api_key(forge_domain::ApiKey::from(
                     "sk-test-key".to_string(),
                 )),
                 url_params: std::collections::HashMap::new(),

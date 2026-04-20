@@ -4,8 +4,8 @@ use bytes::Bytes;
 use forge_app::domain::{ProviderId, ProviderResponse};
 use forge_app::{EnvironmentInfra, FileReaderInfra, FileWriterInfra, HttpInfra};
 use forge_domain::{
-    AnyProvider, ApiKey, AuthCredential, AuthDetails, Error, MigrationResult, Provider,
-    ProviderRepository, ProviderType, URLParam, URLParamSpec, URLParamValue,
+    AnyProvider, ApiKey, ApiKeyProvider, AuthCredential, AuthDetails, Error, MigrationResult,
+    Provider, ProviderRepository, ProviderType, URLParam, URLParamSpec, URLParamValue,
 };
 use merge::Merge;
 use serde::Deserialize;
@@ -61,6 +61,9 @@ struct ProviderConfig {
     #[serde(default)]
     #[merge(strategy = overwrite)]
     api_key_vars: Option<String>,
+    #[serde(default)]
+    #[merge(strategy = overwrite)]
+    api_key_helper: Option<String>,
     #[serde(default)]
     #[merge(strategy = merge::vec::append)]
     url_param_vars: Vec<UrlParamVarConfig>,
@@ -152,6 +155,7 @@ impl From<forge_config::ProviderEntry> for ProviderConfig {
             id: ProviderId::from(entry.id),
             provider_type,
             api_key_vars: entry.api_key_var,
+            api_key_helper: entry.api_key_helper,
             url_param_vars: entry.url_param_vars.into_iter().map(Into::into).collect(),
             response_type,
             url: entry.url,
@@ -316,7 +320,7 @@ impl<
             }
 
             // Try to create credential from environment variables
-            if let Ok(credential) = self.create_credential_from_env(&config) {
+            if let Ok(credential) = self.create_credential_from_env(&config).await {
                 migrated_providers.push(config.id);
                 credentials.push(credential);
             }
@@ -332,20 +336,10 @@ impl<
     }
 
     /// Creates a credential from environment variables for a given config
-    fn create_credential_from_env(
+    async fn create_credential_from_env(
         &self,
         config: &ProviderConfig,
     ) -> anyhow::Result<AuthCredential> {
-        // Check API key environment variable (if specified)
-        let api_key = if let Some(api_key_var) = &config.api_key_vars {
-            self.infra
-                .get_env_var(api_key_var)
-                .ok_or_else(|| Error::env_var_not_found(config.id.clone(), api_key_var))?
-        } else {
-            // For context engine, we don't use env vars for API key
-            String::new()
-        };
-
         // Check URL parameter environment variables
         let mut url_params = std::collections::HashMap::new();
 
@@ -358,10 +352,39 @@ impl<
             }
         }
 
-        // Create AuthCredential
+        // Check for helper command: direct config or {api_key_var}_HELPER env var
+        let helper_command = config.api_key_helper.clone().or_else(|| {
+            let helper_var = config.api_key_vars.as_ref().map(|v| format!("{v}_HELPER"))?;
+            self.infra.get_env_var(&helper_var)
+        });
+
+        if let Some(command) = helper_command {
+            let initial = ApiKeyProvider::HelperCommand {
+                command,
+                last_key: ApiKey::from(String::new()),
+                expires_at: None,
+            };
+            let provider = forge_infra::api_key_helper::execute(&initial).await?;
+            return Ok(AuthCredential {
+                id: config.id.clone(),
+                auth_details: AuthDetails::ApiKey(provider),
+                url_params,
+            });
+        }
+
+        // Fall back to static API key
+        let api_key = if let Some(api_key_var) = &config.api_key_vars {
+            self.infra
+                .get_env_var(api_key_var)
+                .ok_or_else(|| Error::env_var_not_found(config.id.clone(), api_key_var))?
+        } else {
+            // For context engine, we don't use env vars for API key
+            String::new()
+        };
+
         Ok(AuthCredential {
             id: config.id.clone(),
-            auth_details: AuthDetails::ApiKey(ApiKey::from(api_key)),
+            auth_details: AuthDetails::static_api_key(ApiKey::from(api_key)),
             url_params,
         })
     }
@@ -382,8 +405,8 @@ impl<
         // Google ADC tokens expire quickly, so we refresh them on every load
         if (credential.id == forge_domain::ProviderId::VERTEX_AI
             || credential.id == forge_domain::ProviderId::VERTEX_AI_ANTHROPIC)
-            && let forge_domain::AuthDetails::ApiKey(ref api_key) = credential.auth_details
-            && api_key.as_ref() == "google_adc_marker"
+            && let forge_domain::AuthDetails::ApiKey(ref provider) = credential.auth_details
+            && provider.api_key().as_ref() == "google_adc_marker"
         {
             // Refresh the Google ADC credential, preserving url_params
             match self.refresh_google_adc_credential(&credential).await {
@@ -394,6 +417,33 @@ impl<
                 Err(e) => {
                     tracing::error!("Failed to refresh Google ADC token: {e}");
                     return Err(e.context("Failed to refresh Google ADC token. Please run 'gcloud auth application-default login' to set up credentials."));
+                }
+            }
+        }
+
+        // Refresh helper-command credentials on load — the last_key is not
+        // persisted so it must be obtained by executing the command.
+        if let forge_domain::AuthDetails::ApiKey(ref provider) = credential.auth_details {
+            if provider.needs_refresh(chrono::Duration::zero()) {
+                match forge_infra::api_key_helper::execute(provider).await {
+                    Ok(refreshed) => {
+                        credential.auth_details = forge_domain::AuthDetails::ApiKey(refreshed);
+                        tracing::info!(
+                            provider = %config.id,
+                            "Successfully refreshed API key from helper command"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            provider = %config.id,
+                            error = %e,
+                            "Failed to refresh API key from helper command"
+                        );
+                        return Err(e.context(format!(
+                            "Failed to execute API key helper for provider {}",
+                            config.id
+                        )));
+                    }
                 }
             }
         }
@@ -1031,7 +1081,7 @@ mod env_tests {
             .find(|c| c.id == ProviderId::OPENAI_COMPATIBLE)
             .unwrap();
         match &openai_compat_cred.auth_details {
-            AuthDetails::ApiKey(key) => assert_eq!(key.as_str(), "test-openai-key"),
+            AuthDetails::ApiKey(provider) => assert_eq!(provider.api_key().as_str(), "test-openai-key"),
             _ => panic!("Expected API key"),
         }
 
@@ -1051,7 +1101,7 @@ mod env_tests {
             .find(|c| c.id == ProviderId::ANTHROPIC)
             .unwrap();
         match &anthropic_cred.auth_details {
-            AuthDetails::ApiKey(key) => assert_eq!(key.as_str(), "test-anthropic-key"),
+            AuthDetails::ApiKey(provider) => assert_eq!(provider.api_key().as_str(), "test-anthropic-key"),
             _ => panic!("Expected API key"),
         }
     }
@@ -1198,7 +1248,7 @@ mod env_tests {
                 .credential
                 .as_ref()
                 .and_then(|c| match &c.auth_details {
-                    forge_domain::AuthDetails::ApiKey(key) => Some(key.to_string()),
+                    forge_domain::AuthDetails::ApiKey(provider) => Some(provider.api_key().to_string()),
                     _ => None,
                 }),
             Some("test-key-123".to_string())

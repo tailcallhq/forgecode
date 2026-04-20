@@ -149,7 +149,8 @@ where
                 // Iterate through auth methods and try to refresh
                 for auth_method in &provider.auth_methods {
                     match auth_method {
-                        AuthMethod::OAuthDevice(_)
+                        AuthMethod::ApiKey
+                        | AuthMethod::OAuthDevice(_)
                         | AuthMethod::OAuthCode(_)
                         | AuthMethod::CodexDevice(_)
                         | AuthMethod::GoogleAdc => {
@@ -197,7 +198,6 @@ where
                                 }
                             }
                         }
-                        _ => {}
                     }
                 }
             }

@@ -214,7 +214,7 @@ mod tests {
             url_params: vec![],
             credential: Some(AuthCredential {
                 id: ProviderId::OPENAI,
-                auth_details: AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                auth_details: AuthDetails::static_api_key(forge_domain::ApiKey::from(
                     "test-key".to_string(),
                 )),
                 url_params: HashMap::new(),
@@ -238,7 +238,7 @@ mod tests {
             url_params: vec![],
             credential: Some(AuthCredential {
                 id: ProviderId::OPENAI,
-                auth_details: AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                auth_details: AuthDetails::static_api_key(forge_domain::ApiKey::from(
                     "test-key".to_string(),
                 )),
                 url_params: HashMap::new(),
