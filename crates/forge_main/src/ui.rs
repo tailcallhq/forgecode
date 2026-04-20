@@ -4393,6 +4393,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .map(|val| val == "1")
             .unwrap_or(true); // Default to true
 
+        // Read terminal width from COLUMNS (propagated by the zsh shell plugin)
+        // so the rprompt can pick a compact or full-length reasoning effort
+        // label. Missing or unparseable values fall back to the full-length
+        // form in the renderer.
+        let terminal_width = std::env::var("COLUMNS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok());
+
         let rprompt = ZshRPrompt::from_config(&self.config)
             .agent(
                 std::env::var("_FORGE_ACTIVE_AGENT")
@@ -4404,6 +4412,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .token_count(conversation.and_then(|conversation| conversation.token_count()))
             .cost(cost)
             .reasoning_effort(reasoning_effort)
+            .terminal_width(terminal_width)
             .use_nerd_font(use_nerd_font);
 
         Some(rprompt.to_string())
