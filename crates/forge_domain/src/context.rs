@@ -1,11 +1,13 @@
 use std::fmt::Display;
 use std::ops::Deref;
+use std::str::FromStr;
 
 use derive_more::derive::{Display, From};
 use derive_setters::Setters;
 use forge_template::Element;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
+use uuid::Uuid;
 
 use super::{ToolCallFull, ToolResult};
 
@@ -365,6 +367,44 @@ pub enum Role {
     User,
     Assistant,
 }
+
+/// Stable, globally-unique id for a `MessageEntry`. Random UUID v4 — no
+/// coordination, no ordering guarantees. Projection-side types reference
+/// canonical entries by `MessageId` instead of embedding copies.
+#[derive(Debug, Display, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[serde(transparent)]
+pub struct MessageId(Uuid);
+
+impl Copy for MessageId {}
+
+impl Default for MessageId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MessageId {
+    /// Generates a fresh random `MessageId`.
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    /// Parses a `MessageId` from its string representation.
+    pub fn parse(value: impl ToString) -> crate::Result<Self> {
+        Ok(Self(
+            Uuid::parse_str(&value.to_string()).map_err(crate::Error::MessageId)?,
+        ))
+    }
+}
+
+impl FromStr for MessageId {
+    type Err = crate::Error;
+
+    fn from_str(s: &str) -> crate::Result<Self> {
+        Self::parse(s)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Setters, PartialEq)]
 #[setters(into, strip_option)]
 pub struct MessageEntry {
@@ -1748,5 +1788,35 @@ mod tests {
         // No duplicate null-signature entry should have been appended.
         let expected = fixture_details;
         assert_eq!(stored, &expected);
+    }
+
+    #[test]
+    fn test_message_id_new_generates_unique_ids() {
+        let a = MessageId::new();
+        let b = MessageId::new();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_message_id_serde_roundtrip_is_transparent() {
+        let id = MessageId::new();
+        let json = serde_json::to_string(&id).unwrap();
+        // Transparent repr: the JSON is a bare quoted UUID string, not an object.
+        assert!(json.starts_with('"') && json.ends_with('"'));
+        let parsed: MessageId = serde_json::from_str(&json).unwrap();
+        assert_eq!(id, parsed);
+    }
+
+    #[test]
+    fn test_message_id_parse_rejects_garbage() {
+        let result = MessageId::parse("not-a-uuid");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_message_id_parse_accepts_valid_uuid() {
+        let id = MessageId::new();
+        let round_tripped = MessageId::parse(id.to_string()).unwrap();
+        assert_eq!(id, round_tripped);
     }
 }
