@@ -92,13 +92,19 @@ fn page_ids(conn: &mut SqliteConnection, cursor: &str, limit: i64) -> Result<Vec
         .context("failed to read conversations batch")
 }
 
-fn preview_needs_migration(conn: &mut SqliteConnection, conv_id: &str) -> Result<bool> {
-    let blob: Option<String> = conversations::table
+fn read_context(conn: &mut SqliteConnection, conv_id: &str) -> Result<Option<String>> {
+    // `context` is `Nullable<Text>`; a concurrent writer can null it between
+    // the batch scan and this read, so preserve the outer `Option`.
+    let row: Option<Option<String>> = conversations::table
         .filter(conversations::conversation_id.eq(conv_id))
-        .select(conversations::context.assume_not_null())
-        .first(conn)
+        .select(conversations::context)
+        .first::<Option<String>>(conn)
         .optional()?;
-    let Some(blob) = blob else { return Ok(false) };
+    Ok(row.flatten())
+}
+
+fn preview_needs_migration(conn: &mut SqliteConnection, conv_id: &str) -> Result<bool> {
+    let Some(blob) = read_context(conn, conv_id)? else { return Ok(false) };
     let backfilled = backfill_blob(&blob)
         .with_context(|| format!("corrupt context JSON in conversation {conv_id}"))?;
     Ok(backfilled.is_some())
@@ -107,12 +113,7 @@ fn preview_needs_migration(conn: &mut SqliteConnection, conv_id: &str) -> Result
 fn migrate_row_under_write_lock(conn: &mut SqliteConnection, conv_id: &str) -> Result<bool> {
     diesel::sql_query("BEGIN IMMEDIATE").execute(conn)?;
     let outcome = (|| -> Result<bool> {
-        let blob: Option<String> = conversations::table
-            .filter(conversations::conversation_id.eq(conv_id))
-            .select(conversations::context.assume_not_null())
-            .first(conn)
-            .optional()?;
-        let Some(blob) = blob else { return Ok(false) };
+        let Some(blob) = read_context(conn, conv_id)? else { return Ok(false) };
         let backfilled = backfill_blob(&blob)
             .with_context(|| format!("corrupt context JSON in conversation {conv_id}"))?;
         let Some(new_blob) = backfilled else { return Ok(false) };
@@ -472,6 +473,28 @@ mod tests {
             .first(&mut snapshot)
             .expect("row present in backup");
         assert_eq!(pre_migration, legacy);
+    }
+
+    /// A rival writer that nulls the context between preview and migrate
+    /// must be treated as a benign skip, not a deserialization error.
+    #[test]
+    fn test_migrate_row_handles_context_nulled_between_reads() {
+        let mut conn = new_conn();
+        let legacy =
+            r#"{"messages":[{"message":{"text":{"role":"User","content":"hi"}}}]}"#;
+        insert_conversation(&mut conn, "conv-1", legacy);
+
+        assert!(preview_needs_migration(&mut conn, "conv-1").unwrap());
+
+        diesel::update(
+            conversations::table.filter(conversations::conversation_id.eq("conv-1")),
+        )
+        .set(conversations::context.eq::<Option<String>>(None))
+        .execute(&mut conn)
+        .expect("null the context");
+
+        let updated = migrate_row_under_write_lock(&mut conn, "conv-1").unwrap();
+        assert!(!updated);
     }
 
     /// A rival writer that rewrites the row to a different unmigrated
