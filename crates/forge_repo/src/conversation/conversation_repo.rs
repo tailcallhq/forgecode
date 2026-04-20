@@ -1077,11 +1077,15 @@ mod tests {
         heartbeat_handle.abort();
 
         // Verify runtime wasn't blocked: heartbeat should have fired at least
-        // 80% of the theoretical max for the elapsed window. The threshold is
-        // clamped to at least 1 to keep the assertion well-defined.
+        // half the theoretical max for the elapsed window. A truly-blocked
+        // runtime would deliver 0 ticks; half is plenty of signal. The
+        // threshold is deliberately below the Linux ratio to accommodate
+        // Windows timer granularity (~15.6 ms default), which would otherwise
+        // cap `sleep(TICK)` at ~65% of the theoretical rate even with an
+        // idle runtime.
         let heartbeat_count = heartbeat.load(Ordering::Relaxed);
         let expected_heartbeats = (elapsed.as_millis() as usize) / (TICK.as_millis() as usize);
-        let threshold = (expected_heartbeats * 8 / 10).max(1);
+        let threshold = (expected_heartbeats / 2).max(1);
 
         assert!(
             heartbeat_count >= threshold,

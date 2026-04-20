@@ -519,7 +519,7 @@ mod tests {
                     .strip_prefix(&skill_dir)
                     .unwrap()
                     .to_string_lossy()
-                    .to_string())
+                    .replace('\\', "/"))
                 .collect::<Vec<_>>(),
             vec![
                 "test-skill/file_1.txt".to_string(),
