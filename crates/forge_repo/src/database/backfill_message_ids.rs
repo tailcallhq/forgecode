@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use chrono::Utc;
@@ -6,7 +6,7 @@ use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use forge_domain::MessageId;
 use serde_json::Value;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::database::schema::conversations;
 
@@ -68,7 +68,8 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
         // Deferred so idempotent reruns over a migrated DB never backup.
         if !backup_taken {
             if let Some(path) = database_path {
-                backup_db(conn, path)?;
+                let target = backup_path_for(path);
+                backup_db(conn, path, &target)?;
             }
             backup_taken = true;
         }
@@ -106,31 +107,32 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
     Ok(report)
 }
 
-fn backup_db(conn: &mut SqliteConnection, path: &Path) -> Result<()> {
-    if matches!(path.to_str(), Some(":memory:")) {
+fn backup_path_for(source: &Path) -> PathBuf {
+    let ts = Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    source.with_extension(format!("pre-msgid-{ts}"))
+}
+
+fn backup_db(conn: &mut SqliteConnection, source: &Path, target: &Path) -> Result<()> {
+    if matches!(source.to_str(), Some(":memory:")) {
         return Ok(());
     }
-    if !path.exists() {
+    if !source.exists() {
         // Fresh DB with no file yet (first run); nothing to back up.
         return Ok(());
     }
-    let ts = Utc::now().format("%Y%m%d-%H%M%S").to_string();
-    let backup = path.with_extension(format!("pre-msgid-{ts}"));
     // VACUUM INTO (not `fs::copy`) so WAL-resident committed pages land in
-    // the snapshot; a plain file copy would leave them behind.
-    let escaped = backup.to_string_lossy().replace('\'', "''");
+    // the snapshot. Failure is fatal: the caller is about to rewrite blobs,
+    // and we refuse to do that without a working rollback snapshot.
+    let escaped = target.to_string_lossy().replace('\'', "''");
     let sql = format!("VACUUM INTO '{escaped}'");
-    if let Err(err) = diesel::sql_query(sql).execute(conn) {
-        // A missing-backup is non-fatal — we still want the migration to run,
-        // but the operator should know the safety net failed.
-        warn!(
-            error = %err,
-            target = %backup.display(),
-            "failed to create pre-migration DB backup; proceeding without it",
-        );
-    } else {
-        info!(backup = %backup.display(), "created pre-migration DB backup");
-    }
+    diesel::sql_query(sql).execute(conn).with_context(|| {
+        format!(
+            "failed to create pre-migration DB backup at {}; \
+             refusing to migrate without a rollback snapshot",
+            target.display()
+        )
+    })?;
+    info!(backup = %target.display(), "created pre-migration DB backup");
     Ok(())
 }
 
@@ -417,6 +419,39 @@ mod tests {
             .first(&mut snapshot)
             .expect("row present in backup");
         assert_eq!(pre_migration, legacy);
+    }
+
+    /// A failing backup must halt the migration before any row is rewritten;
+    /// the safety promise is only real if VACUUM INTO failure fails closed.
+    #[test]
+    fn test_backup_failure_halts_migration() {
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let db_path = tmp.path().join("backfill-halt.sqlite");
+        let manager =
+            ConnectionManager::<SqliteConnection>::new(db_path.to_string_lossy().to_string());
+        let pool = Pool::builder()
+            .max_size(2)
+            .connection_customizer(Box::new(WalCustomizer))
+            .build(manager)
+            .expect("build pool");
+        let mut setup = pool.get().unwrap();
+        setup
+            .run_pending_migrations(MIGRATIONS)
+            .expect("run migrations");
+        let legacy = r#"{"messages":[{"message":{"text":{"role":"User","content":"hi"}}}]}"#;
+        insert_conversation(&mut setup, "conv-1", legacy);
+
+        // VACUUM INTO refuses a nonexistent parent directory.
+        let unwritable = tmp.path().join("no-such-dir").join("backup.sqlite");
+        let err = backup_db(&mut setup, &db_path, &unwritable).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("refusing to migrate"),
+            "error must name the fail-closed contract: {err:#}",
+        );
+
+        // The row is still the pre-migration blob: no silent rewrite.
+        let still_legacy = fetch_context(&mut setup, "conv-1");
+        assert_eq!(still_legacy, legacy);
     }
 
     #[derive(Debug)]
