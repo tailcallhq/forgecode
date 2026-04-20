@@ -405,18 +405,37 @@ impl FromStr for MessageId {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Setters, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Setters)]
 #[setters(into, strip_option)]
 pub struct MessageEntry {
+    /// Stable identity for this entry. Not serialised in the domain wire
+    /// format — persistence flows through `ContextMessageRecord`, which
+    /// carries its own `id` field with on-read defaulting for pre-migration
+    /// rows.
+    #[serde(skip)]
+    pub id: MessageId,
     #[serde(flatten)]
     pub message: ContextMessage,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
 }
 
+impl PartialEq for MessageEntry {
+    /// Compares content only — `id` is excluded because two entries with
+    /// the same content but different fresh identities should compare equal
+    /// in tests and content-equality paths.
+    fn eq(&self, other: &Self) -> bool {
+        self.message == other.message && self.usage == other.usage
+    }
+}
+
 impl From<ContextMessage> for MessageEntry {
     fn from(value: ContextMessage) -> Self {
-        MessageEntry { message: value, usage: Default::default() }
+        MessageEntry {
+            id: MessageId::new(),
+            message: value,
+            usage: Default::default(),
+        }
     }
 }
 

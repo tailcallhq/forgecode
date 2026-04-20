@@ -719,6 +719,7 @@ mod tests {
             })
             .into(),
             forge_domain::MessageEntry {
+                id: forge_domain::MessageId::new(),
                 message: ContextMessage::Text(forge_domain::TextMessage {
                     role: Role::Assistant,
                     content: "Assistant response".to_string(),
