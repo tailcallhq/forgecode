@@ -82,6 +82,14 @@ impl<H: HttpInfra> Anthropic<H> {
             headers.push(("anthropic-beta".to_string(), betas.join(",")));
         }
 
+        // Append provider-level custom headers (e.g., for proxies that require
+        // different header names like `api-key` instead of `x-api-key`)
+        if let Some(custom_headers) = &self.provider.custom_headers {
+            for (k, v) in custom_headers {
+                headers.push((k.clone(), v.clone()));
+            }
+        }
+
         headers
     }
 }
@@ -976,6 +984,65 @@ mod tests {
             request.anthropic_version,
             Some("vertex-2023-10-16".to_string()),
             "Vertex AI requests should include anthropic_version"
+        );
+    }
+
+    #[test]
+    fn test_get_headers_includes_custom_headers() {
+        let chat_url = Url::parse("https://proxy.example.com/v1/messages").unwrap();
+        let model_url = Url::parse("https://proxy.example.com/v1/models").unwrap();
+
+        let mut custom = std::collections::HashMap::new();
+        custom.insert("api-key".to_string(), "my-proxy-key".to_string());
+        custom.insert("x-custom-tag".to_string(), "forge".to_string());
+
+        let provider = Provider {
+            id: forge_app::domain::ProviderId::ANTHROPIC,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(forge_app::domain::ProviderResponse::Anthropic),
+            url: chat_url,
+            credential: Some(forge_domain::AuthCredential {
+                id: forge_app::domain::ProviderId::ANTHROPIC,
+                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                    "sk-test-key".to_string(),
+                )),
+                url_params: std::collections::HashMap::new(),
+            }),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: Some(forge_domain::ModelSource::Url(model_url)),
+            custom_headers: Some(custom),
+        };
+
+        let fixture = Anthropic::new(
+            Arc::new(MockHttpClient::new()),
+            provider,
+            "2023-06-01".to_string(),
+            false,
+        );
+
+        let actual = fixture.get_headers();
+
+        // Custom headers should be present
+        assert!(
+            actual
+                .iter()
+                .any(|(k, v)| k == "api-key" && v == "my-proxy-key"),
+            "custom_headers should be appended to request headers"
+        );
+        assert!(
+            actual
+                .iter()
+                .any(|(k, v)| k == "x-custom-tag" && v == "forge"),
+            "all custom_headers entries should be included"
+        );
+
+        // Standard headers should still be present
+        assert!(
+            actual
+                .iter()
+                .any(|(k, v)| k == "x-api-key" && v == "sk-test-key"),
+            "standard x-api-key should still be present"
         );
     }
 }
