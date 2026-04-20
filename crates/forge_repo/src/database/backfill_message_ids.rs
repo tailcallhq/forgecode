@@ -27,12 +27,9 @@ pub(crate) struct Report {
 /// to any `MessageEntry` lacking one. Idempotent. Halts on JSON parse
 /// failures so a corrupt row surfaces rather than being silently skipped.
 pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> Result<Report> {
-    if let Some(path) = database_path {
-        backup_db(path)?;
-    }
-
     let mut report = Report::default();
     let mut offset = 0i64;
+    let mut backup_taken = false;
 
     loop {
         let rows: Vec<(String, String)> = conversations::table
@@ -51,24 +48,45 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
             break;
         }
 
-        conn.transaction::<_, anyhow::Error, _>(|conn| {
-            for (conv_id, original_blob) in &rows {
-                report.scanned += 1;
-                let backfilled = backfill_blob(original_blob).with_context(|| {
-                    format!("corrupt context JSON in conversation {conv_id}")
-                })?;
-                let Some(new_blob) = backfilled else {
-                    report.skipped += 1;
-                    continue;
-                };
+        // Plan the batch first, outside of any transaction: decide which
+        // rows actually need rewriting so a fully-migrated DB opens zero
+        // write transactions and produces zero backup files.
+        let mut pending: Vec<(&String, &String, String)> = Vec::new();
+        for (conv_id, original_blob) in &rows {
+            report.scanned += 1;
+            let backfilled = backfill_blob(original_blob).with_context(|| {
+                format!("corrupt context JSON in conversation {conv_id}")
+            })?;
+            match backfilled {
+                Some(new_blob) => pending.push((conv_id, original_blob, new_blob)),
+                None => report.skipped += 1,
+            }
+        }
 
+        if pending.is_empty() {
+            offset += BATCH_SIZE;
+            continue;
+        }
+
+        // Lazy backup: fires once, on the first batch that has real work.
+        // An idempotent second launch against an already-migrated DB skips
+        // this entirely and never writes a `.pre-msgid-*` copy.
+        if !backup_taken {
+            if let Some(path) = database_path {
+                backup_db(path)?;
+            }
+            backup_taken = true;
+        }
+
+        conn.transaction::<_, anyhow::Error, _>(|conn| {
+            for (conv_id, original_blob, new_blob) in &pending {
                 // Compare-and-swap: a concurrent writer that landed between
                 // our read and this UPDATE invalidates the WHERE match;
                 // `affected == 0` and we skip, leaving the winner's blob.
                 let affected = diesel::update(conversations::table)
                     .filter(conversations::conversation_id.eq(conv_id))
                     .filter(conversations::context.eq(original_blob))
-                    .set(conversations::context.eq(&new_blob))
+                    .set(conversations::context.eq(new_blob))
                     .execute(conn)?;
 
                 if affected == 1 {
@@ -344,6 +362,67 @@ mod tests {
             serde_json::from_str(&fetch_context(&mut verify, "conv-1")).unwrap();
         let entry = &stored["messages"][0];
         assert!(entry.get("id").and_then(|v| v.as_str()).is_some());
+    }
+
+    /// First launch over an unmigrated DB writes a `.pre-msgid-*` backup;
+    /// a second launch over the now-migrated DB leaves the directory clean.
+    #[test]
+    fn test_backup_created_only_on_first_migrating_run() {
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        // NamedTempFile owns the file; we just want its path for SQLite.
+        let db_path = tmp.path().to_owned();
+        drop(tmp);
+
+        let manager =
+            ConnectionManager::<SqliteConnection>::new(db_path.to_string_lossy().to_string());
+        let pool = Pool::builder()
+            .max_size(2)
+            .connection_customizer(Box::new(WalCustomizer))
+            .build(manager)
+            .expect("build pool");
+        let mut setup = pool.get().unwrap();
+        setup
+            .run_pending_migrations(MIGRATIONS)
+            .expect("run migrations");
+        let legacy = r#"{"messages":[{"message":{"text":{"role":"User","content":"hi"}}}]}"#;
+        insert_conversation(&mut setup, "conv-1", legacy);
+        drop(setup);
+
+        let backups_dir = db_path.parent().unwrap();
+        let db_stem = db_path.file_stem().unwrap().to_string_lossy().to_string();
+        let count_backups = || {
+            std::fs::read_dir(backups_dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.file_name()
+                        .to_string_lossy()
+                        .starts_with(&format!("{db_stem}.pre-msgid-"))
+                })
+                .count()
+        };
+
+        let mut conn = pool.get().unwrap();
+        let first = run(&mut conn, Some(&db_path)).unwrap();
+        assert_eq!(first.updated, 1);
+        assert_eq!(count_backups(), 1, "first run must create exactly one backup");
+
+        let second = run(&mut conn, Some(&db_path)).unwrap();
+        assert_eq!(second.updated, 0);
+        assert_eq!(
+            count_backups(),
+            1,
+            "idempotent second run must not create another backup",
+        );
+
+        // Cleanup: remove the backup and the DB file so repeat runs of this
+        // test against the same tempdir do not see leftover state.
+        for entry in std::fs::read_dir(backups_dir).unwrap().flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with(&format!("{db_stem}.pre-msgid-")) || name == db_stem {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
     }
 
     #[derive(Debug)]
