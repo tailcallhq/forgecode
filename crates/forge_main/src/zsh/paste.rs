@@ -7,6 +7,8 @@
 
 use std::path::Path;
 
+const MAX_INLINE_PATH_WRAP_BYTES: usize = 512;
+
 /// Transforms pasted text by wrapping bare file paths in `@[...]` syntax.
 ///
 /// Called when a bracketed-paste event is received. The pasted content is
@@ -42,8 +44,22 @@ pub fn wrap_pasted_text(pasted: &str) -> String {
         return format!("{leading}@[{resolved}]{trailing}");
     }
 
-    // Scan token by token, wrapping any absolute paths that exist on disk
+    // Arbitrary pasted prompts often contain absolute paths inside prose,
+    // logs, stack traces, or code snippets. Auto-wrapping those paths turns
+    // plain text into attachments and can surface confusing binary-file errors
+    // when the referenced path happens to be an executable. Restrict token-level
+    // path wrapping to smaller single-line pastes that more closely resemble a
+    // drag-and-drop or an intentional short request.
+    if should_preserve_plain_paste(trimmed) {
+        return normalised;
+    }
+
+    // Scan token by token, wrapping any absolute paths that exist on disk.
     wrap_tokens(&normalised)
+}
+
+fn should_preserve_plain_paste(trimmed: &str) -> bool {
+    trimmed.contains('\n') || trimmed.len() > MAX_INLINE_PATH_WRAP_BYTES
 }
 
 /// Strips surrounding single or double quotes that some terminals add
@@ -221,6 +237,25 @@ mod tests {
         let fixture = "check @[/usr/bin/env]";
         let actual = wrap_pasted_text(fixture);
         let expected = "check @[/usr/bin/env]";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_wrap_pasted_text_multiline_prompt_preserves_plain_text_paths() {
+        let fixture = "Please review this snippet:\n/usr/bin/env\n/tmp\nAnd explain what it does.";
+        let actual = wrap_pasted_text(fixture);
+        let expected = fixture;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_wrap_pasted_text_large_single_line_prompt_preserves_plain_text_paths() {
+        let mut fixture = String::from("context /usr/bin/env");
+        while fixture.len() <= MAX_INLINE_PATH_WRAP_BYTES {
+            fixture.push('x');
+        }
+        let actual = wrap_pasted_text(&fixture);
+        let expected = fixture;
         assert_eq!(actual, expected);
     }
 
