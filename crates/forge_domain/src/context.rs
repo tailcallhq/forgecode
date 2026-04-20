@@ -1829,10 +1829,8 @@ mod tests {
         assert_eq!(id, round_tripped);
     }
 
-    /// Guards the dump/import pathway at `ui.rs:3861` / `ui.rs:3616`:
-    /// serializing a `Context` as JSON (as the `ConversationDump` wrapper
-    /// does) must preserve `MessageEntry.id` across the round-trip, not
-    /// mint fresh UUIDs on import.
+    /// JSON round-trip preserves `MessageEntry.id` rather than minting fresh
+    /// UUIDs on deserialize.
     #[test]
     fn test_context_json_roundtrip_preserves_message_ids() {
         let mut entry_a = MessageEntry::from(ContextMessage::user("hello", None));
@@ -1852,8 +1850,8 @@ mod tests {
         assert_eq!(restored.messages[1].id, known_b);
     }
 
-    /// Old blobs that predate `MessageEntry.id` deserialise with freshly
-    /// generated UUIDs (serde default) rather than failing.
+    /// A blob missing the `id` field deserialises with a fresh UUID rather
+    /// than failing or defaulting to nil.
     #[test]
     fn test_context_json_backfills_missing_message_ids() {
         let entry = MessageEntry::from(ContextMessage::user("hello", None));

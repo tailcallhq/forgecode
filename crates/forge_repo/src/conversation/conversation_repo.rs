@@ -760,8 +760,6 @@ mod tests {
             .reasoning(reasoning.clone())
             .stream(true);
 
-        // Capture the pre-persistence MessageIds so the round-trip check below
-        // catches any persistence path that silently regenerates them.
         let expected_message_ids: Vec<_> = fixture.messages.iter().map(|m| m.id).collect();
 
         // Convert to record and back
@@ -772,9 +770,7 @@ mod tests {
         assert_eq!(actual.conversation_id, fixture.conversation_id);
         assert_eq!(actual.messages.len(), 4);
 
-        // MessageIds must round-trip — they are part of canonical identity and
-        // a silent regeneration during persistence would churn projection-side
-        // references (SummaryPayload.source_ids et al.).
+        // MessageIds are canonical identity — silent regeneration is a bug.
         let actual_message_ids: Vec<_> = actual.messages.iter().map(|m| m.id).collect();
         assert_eq!(actual_message_ids, expected_message_ids);
         assert_eq!(actual.tools.len(), 1);
@@ -1086,13 +1082,9 @@ mod tests {
         // Stop heartbeat.
         heartbeat_handle.abort();
 
-        // Verify runtime wasn't blocked: heartbeat should have fired at least
-        // half the theoretical max for the elapsed window. A truly-blocked
-        // runtime would deliver 0 ticks; half is plenty of signal. The
-        // threshold is deliberately below the Linux ratio to accommodate
-        // Windows timer granularity (~15.6 ms default), which would otherwise
-        // cap `sleep(TICK)` at ~65% of the theoretical rate even with an
-        // idle runtime.
+        // Heartbeat should reach at least half the theoretical rate; a blocked
+        // runtime delivers 0. Half accommodates Windows's ~15.6 ms timer
+        // granularity, which caps `sleep(TICK)` at ~65 % even when idle.
         let heartbeat_count = heartbeat.load(Ordering::Relaxed);
         let expected_heartbeats = (elapsed.as_millis() as usize) / (TICK.as_millis() as usize);
         let threshold = (expected_heartbeats / 2).max(1);

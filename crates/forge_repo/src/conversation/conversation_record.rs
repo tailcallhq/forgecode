@@ -1047,9 +1047,7 @@ mod tests {
         })
     }
 
-    /// Pre-P0.5 wrapper format (wrapper with `message` + `usage` but no `id`
-    /// field) deserialises with a freshly-generated `MessageId` via the
-    /// `#[serde(default)]` on the parser's `id` field.
+    /// Wrapper blob without the `id` field deserialises with a fresh UUID.
     #[test]
     fn test_wrapper_format_without_id_backfills_message_id() {
         let original = sample_record(forge_domain::MessageId::new());
@@ -1062,10 +1060,8 @@ mod tests {
         assert_ne!(record.id, original.id);
     }
 
-    /// Pre-migration wire format (untagged `Direct` variant — just a bare
-    /// `ContextMessageValueRecord`, no `message` / `usage` wrapper) falls
-    /// through to the `Direct` branch and gets a freshly-generated
-    /// `MessageId`.
+    /// Bare `ContextMessageValueRecord` blob (untagged `Direct` branch)
+    /// deserialises with a fresh UUID.
     #[test]
     fn test_legacy_direct_format_backfills_message_id() {
         let value_record: ContextMessageValueRecord = (&forge_domain::ContextMessage::user(
@@ -1080,8 +1076,8 @@ mod tests {
         assert_ne!(record.id, nil_id);
     }
 
-    /// New-format wrapper with an explicit `id` preserves it byte-for-byte
-    /// through a serialize / deserialize round-trip.
+    /// An explicit `id` round-trips byte-for-byte through serialize /
+    /// deserialize.
     #[test]
     fn test_wrapper_format_with_id_roundtrips() {
         let fresh_id = forge_domain::MessageId::new();
