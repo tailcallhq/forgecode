@@ -1,0 +1,18 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<web_search_results
+  query="coffee"
+  engine="google_light"
+  result_count="1"
+>
+<organic_result
+  title="Coffee - Wikipedia"
+  link="https://en.wikipedia.org/wiki/Coffee"
+  position="1"
+  displayed_link="en.wikipedia.org › wiki › Coffee"
+  snippet="Coffee is a brewed drink."
+>
+</organic_result>
+</web_search_results>
