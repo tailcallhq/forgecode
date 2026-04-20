@@ -28,19 +28,14 @@ pub(crate) struct Report {
 /// failures so a corrupt row surfaces rather than being silently skipped.
 pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> Result<Report> {
     let mut report = Report::default();
-    let mut offset = 0i64;
+    let mut cursor = String::new();
     let mut backup_taken = false;
 
     loop {
-        let ids: Vec<String> = conversations::table
-            .filter(conversations::context.is_not_null())
-            .order(conversations::conversation_id.asc())
-            .limit(BATCH_SIZE)
-            .offset(offset)
-            .select(conversations::conversation_id)
-            .load(conn)
-            .context("failed to read conversations batch")?;
-
+        // Cursor-based pagination (`conversation_id > cursor`) is stable
+        // under inserts and deletes of earlier IDs — `OFFSET` would shift
+        // rows across the offset boundary and strand them for the run.
+        let ids = page_ids(conn, &cursor, BATCH_SIZE)?;
         if ids.is_empty() {
             break;
         }
@@ -73,7 +68,7 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
             }
         }
 
-        offset += BATCH_SIZE;
+        cursor = ids.last().cloned().unwrap_or_default();
     }
 
     info!(
@@ -84,6 +79,17 @@ pub(crate) fn run(conn: &mut SqliteConnection, database_path: Option<&Path>) -> 
     );
 
     Ok(report)
+}
+
+fn page_ids(conn: &mut SqliteConnection, cursor: &str, limit: i64) -> Result<Vec<String>> {
+    conversations::table
+        .filter(conversations::context.is_not_null())
+        .filter(conversations::conversation_id.gt(cursor))
+        .order(conversations::conversation_id.asc())
+        .limit(limit)
+        .select(conversations::conversation_id)
+        .load(conn)
+        .context("failed to read conversations batch")
 }
 
 fn preview_needs_migration(conn: &mut SqliteConnection, conv_id: &str) -> Result<bool> {
@@ -292,6 +298,29 @@ mod tests {
         let entry = &stored["messages"][0];
         assert!(entry.get("id").and_then(|v| v.as_str()).is_some());
         assert!(entry.get("message").and_then(|m| m.get("text")).is_some());
+    }
+
+    /// Deleting an already-processed row between batches does not shift
+    /// later rows across a pagination boundary.
+    #[test]
+    fn test_pagination_stable_across_earlier_deletion() {
+        let mut conn = new_conn();
+        let empty = r#"{"messages":[]}"#;
+        insert_conversation(&mut conn, "aaa", empty);
+        insert_conversation(&mut conn, "bbb", empty);
+        insert_conversation(&mut conn, "ccc", empty);
+
+        let first = page_ids(&mut conn, "", 2).unwrap();
+        assert_eq!(first, vec!["aaa".to_string(), "bbb".to_string()]);
+
+        diesel::delete(
+            conversations::table.filter(conversations::conversation_id.eq("aaa")),
+        )
+        .execute(&mut conn)
+        .unwrap();
+
+        let second = page_ids(&mut conn, "bbb", 2).unwrap();
+        assert_eq!(second, vec!["ccc".to_string()]);
     }
 
     /// A second run against an already-migrated DB rewrites nothing.
