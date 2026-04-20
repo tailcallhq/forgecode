@@ -131,12 +131,20 @@ pub struct SyncPaths {
 
 /// Joins `base_dir` with `path` if `path` is relative, returning an absolute
 /// path string. If `path` is already absolute it is returned unchanged.
+/// Always emits forward-slash separators so local and remote path strings
+/// compare equal across platforms — `Path::join` on Windows emits `\`, which
+/// would otherwise mismatch forward-slash paths coming from the server.
 fn absolutize(base_dir: &Path, path: &str) -> String {
     let p = Path::new(path);
-    if p.is_absolute() {
+    let joined = if p.is_absolute() {
         path.to_owned()
     } else {
         base_dir.join(p).to_string_lossy().into_owned()
+    };
+    if cfg!(windows) {
+        joined.replace('\\', "/")
+    } else {
+        joined
     }
 }
 

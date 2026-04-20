@@ -1,1 +1,14 @@
+# Normalize all auto-detected text files to LF on checkout and in the index,
+# regardless of the developer's core.autocrlf setting. Windows developers
+# otherwise see tests fail because `include_str!` embeds CRLF bytes from the
+# autocrlf'd working tree and snapshot tests then byte-compare against LF
+# snapshots.
+* text=auto eol=lf
+
+# Shell scripts and zsh rc fragments must always be LF.
 *.zsh eol=lf
+
+# Binary snapshot kinds emitted by insta (e.g. HTML snapshots) should never be
+# line-ending converted.
+*.snap.html -text
+*.snap.new.html -text

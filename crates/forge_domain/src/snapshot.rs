@@ -114,6 +114,7 @@ impl Snapshot {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn test_create_with_nonexistent_absolute_path() {
         // Test with a non-existent absolute path
