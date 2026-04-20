@@ -4,9 +4,12 @@ use std::ops::{Deref, RangeInclusive};
 
 use util::{deref_messages, replace_range, wrap_messages};
 
+type SummarizeFn<Item> = Box<dyn Fn(&[&Item]) -> Item>;
+type ThresholdFn<Item> = Box<dyn Fn(&[&Item]) -> bool>;
+
 pub struct Compaction<Item> {
-    summarize: Box<dyn Fn(&[&Item]) -> Item>,
-    threshold: Box<dyn Fn(&[&Item]) -> bool>,
+    summarize: SummarizeFn<Item>,
+    threshold: ThresholdFn<Item>,
     retain: usize,
 }
 
@@ -140,7 +143,7 @@ impl<Item: ContextMessage + Clone> Compaction<Item> {
                         // `remaining` with the summarised version and restart the scan.
                         remaining.drain(..size);
                         let mut new_remaining = compacted_window;
-                        new_remaining.extend(remaining.drain(..));
+                        new_remaining.append(&mut remaining);
                         remaining = new_remaining;
                         compacted = true;
                         break;
@@ -150,7 +153,7 @@ impl<Item: ContextMessage + Clone> Compaction<Item> {
                 } else if size == remaining.len() {
                     // Threshold never triggered for any window size; nothing left
                     // to compact — flush all remaining to result.
-                    result.extend(remaining.drain(..));
+                    result.append(&mut remaining);
                     break;
                 }
             }
