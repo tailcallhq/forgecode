@@ -2,9 +2,12 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
+use anyhow::Context;
 use async_trait::async_trait;
 use forge_app::{CommandInfra, WalkerInfra};
-use forge_domain::WorkspaceId;
+use forge_domain::{IgnorePatternsRepository, WorkspaceId};
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use tokio::sync::OnceCell;
 use tracing::{info, warn};
 
 use crate::error::Error as ServiceError;
@@ -30,31 +33,6 @@ pub(crate) fn has_allowed_extension(path: &Path) -> bool {
     }
 }
 
-/// Returns `true` if the file at `path` should be excluded based on its name,
-/// regardless of extension. This covers lock files and other generated
-/// dependency manifest files that are not useful to index.
-fn is_ignored_by_name(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-        return false;
-    };
-    let name_lower = name.to_lowercase();
-
-    // Lock files: *-lock.json, *.lock, *.lockb, *.lock.json, etc.
-    if name_lower.ends_with(".lock")
-        || name_lower.ends_with(".lockb")
-        || name_lower.ends_with("-lock.json")
-        || name_lower.ends_with("-lock.yaml")
-        || name_lower.ends_with("-lock.yml")
-        || name_lower.ends_with(".lock.json")
-        || name_lower.ends_with(".lockfile")
-        || name == "Package.resolved"
-    {
-        return true;
-    }
-
-    false
-}
-
 /// Returns `true` if `path` is a symlink (does not follow the link).
 fn is_symlink(path: &Path) -> bool {
     path.symlink_metadata()
@@ -78,7 +56,6 @@ pub(crate) fn filter_and_resolve(
         .into_iter()
         .map(|p| dir_path.join(&p))
         .filter(|p| !is_symlink(p))
-        .filter(|p| !is_ignored_by_name(p))
         .filter(|p| has_allowed_extension(p))
         .collect();
 
@@ -128,29 +105,87 @@ pub async fn discover_sync_file_paths(
 /// It first attempts git-based discovery. If git is unavailable, returns no
 /// files, or fails for any reason it transparently falls back to the filesystem
 /// walker so that workspaces without git history are still indexed correctly.
+///
+/// After the strategy returns, `FdDefault` applies the server's gitignore
+/// patterns (fetched on first use via [`IgnorePatternsRepository`] and cached
+/// for the process lifetime) to the result. When the server is unreachable or
+/// the response cannot be compiled the filter is skipped and a warning is
+/// logged, so discovery keeps working offline.
 pub struct FdDefault<F> {
+    infra: Arc<F>,
     git: FsGit<F>,
     walker: FdWalker<F>,
+    matcher: OnceCell<Option<Gitignore>>,
 }
 
 impl<F> FdDefault<F> {
-    /// Creates a new `RoutingFileDiscovery` using the provided infrastructure
-    /// for both the git and walker strategies.
+    /// Creates a new `FdDefault` using the provided infrastructure for both
+    /// the git and walker strategies.
     pub fn new(infra: Arc<F>) -> Self {
-        Self { git: FsGit::new(infra.clone()), walker: FdWalker::new(infra) }
+        Self {
+            git: FsGit::new(infra.clone()),
+            walker: FdWalker::new(infra.clone()),
+            infra,
+            matcher: OnceCell::new(),
+        }
     }
 }
 
+/// Compiles a [`Gitignore`] from the raw contents of the server's
+/// `ignore_patterns.txt` using the same semantics as the server: builder root
+/// `/` (non-anchored globs match absolute and relative paths alike), blank /
+/// `#`-prefixed lines skipped.
+fn build_matcher(contents: &str) -> anyhow::Result<Gitignore> {
+    let mut builder = GitignoreBuilder::new("/");
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        builder
+            .add_line(None, line)
+            .with_context(|| format!("invalid ignore pattern: {line}"))?;
+    }
+    builder.build().context("failed to build ignore matcher")
+}
+
 #[async_trait]
-impl<F: CommandInfra + WalkerInfra + 'static> FileDiscovery for FdDefault<F> {
+impl<F: CommandInfra + WalkerInfra + IgnorePatternsRepository + 'static> FileDiscovery
+    for FdDefault<F>
+{
     async fn discover(&self, dir_path: &Path) -> anyhow::Result<Vec<PathBuf>> {
-        match self.git.discover(dir_path).await {
-            Ok(files) => Ok(files),
+        let files = match self.git.discover(dir_path).await {
+            Ok(files) => files,
             Err(err) => {
                 warn!(error = ?err, "git-based file discovery failed, falling back to walker");
-                self.walker.discover(dir_path).await
+                self.walker.discover(dir_path).await?
             }
-        }
+        };
+
+        let Some(matcher) = self
+            .matcher
+            .get_or_init(|| async {
+                match self.infra.list_ignore_patterns().await.and_then(|contents| build_matcher(&contents)) {
+                    Ok(gi) => Some(gi),
+                    Err(err) => {
+                        warn!(error = ?err, "failed to load server ignore patterns; continuing without");
+                        None
+                    }
+                }
+            })
+            .await
+        else {
+            return Ok(files);
+        };
+
+        Ok(files
+            .into_iter()
+            .filter(|p| {
+                !matcher
+                    .matched_path_or_any_parents(p, p.is_dir())
+                    .is_ignore()
+            })
+            .collect())
     }
 }
 
@@ -159,10 +194,81 @@ mod tests {
     use std::fs::{self, File};
     use std::io::Write;
 
+    use forge_app::{WalkedFile, Walker};
+    use forge_domain::CommandOutput;
     use pretty_assertions::assert_eq;
     use tempfile::tempdir;
 
     use super::*;
+
+    /// Test double that answers the three infra traits `FdDefault` depends on.
+    ///
+    /// * `WalkerInfra::walk` returns `files` verbatim so tests can control the
+    ///   post-filter input.
+    /// * `CommandInfra::execute_command` always fails, forcing `FdDefault` to
+    ///   fall back to the walker path.
+    /// * `IgnorePatternsRepository::list_ignore_patterns` returns `patterns`.
+    struct MockInfra {
+        files: Vec<WalkedFile>,
+        patterns: String,
+    }
+
+    impl MockInfra {
+        fn new(files: Vec<WalkedFile>, patterns: &str) -> Self {
+            Self { files, patterns: patterns.to_string() }
+        }
+    }
+
+    fn walked(path: &str) -> WalkedFile {
+        WalkedFile {
+            path: path.to_string(),
+            file_name: Path::new(path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string()),
+            size: 0,
+        }
+    }
+
+    #[async_trait]
+    impl WalkerInfra for MockInfra {
+        async fn walk(&self, _config: Walker) -> anyhow::Result<Vec<WalkedFile>> {
+            Ok(self.files.clone())
+        }
+    }
+
+    #[async_trait]
+    impl CommandInfra for MockInfra {
+        async fn execute_command(
+            &self,
+            command: String,
+            _working_dir: PathBuf,
+            _silent: bool,
+            _env_vars: Option<Vec<String>>,
+        ) -> anyhow::Result<CommandOutput> {
+            Ok(CommandOutput {
+                command,
+                stdout: String::new(),
+                stderr: "not a git repo".to_string(),
+                exit_code: Some(128),
+            })
+        }
+
+        async fn execute_command_raw(
+            &self,
+            _command: &str,
+            _working_dir: PathBuf,
+            _env_vars: Option<Vec<String>>,
+        ) -> anyhow::Result<std::process::ExitStatus> {
+            unreachable!("not used by FdDefault discovery")
+        }
+    }
+
+    #[async_trait]
+    impl IgnorePatternsRepository for MockInfra {
+        async fn list_ignore_patterns(&self) -> anyhow::Result<String> {
+            Ok(self.patterns.clone())
+        }
+    }
 
     #[test]
     fn test_filter_and_resolve_excludes_symlinks() {
@@ -229,6 +335,43 @@ mod tests {
         // filter before symlink detection could be needed, but the real file
         // must always be present.
         let expected = vec![base.join("src/main.rs")];
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn test_discover_filters_files_matching_server_ignore_patterns() {
+        let dir = tempdir().unwrap();
+        let base = dir.path();
+
+        // Create every candidate on disk so `is_symlink` returns false and
+        // `has_allowed_extension` sees a real extension.
+        for rel in [
+            "main.rs",
+            "lib.rs",
+            "node_modules/pkg/index.rs",
+            "package-lock.json",
+        ] {
+            let path = base.join(rel);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            File::create(&path).unwrap();
+        }
+
+        let fixture = FdDefault::new(Arc::new(MockInfra::new(
+            vec![
+                walked("main.rs"),
+                walked("lib.rs"),
+                walked("node_modules/pkg/index.rs"),
+                walked("package-lock.json"),
+            ],
+            "node_modules\npackage-lock.json\n",
+        )));
+
+        let mut actual = fixture.discover(base).await.unwrap();
+        actual.sort();
+
+        let mut expected = vec![base.join("lib.rs"), base.join("main.rs")];
+        expected.sort();
+
         assert_eq!(actual, expected);
     }
 }

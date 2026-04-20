@@ -12,9 +12,9 @@ use forge_config::ForgeConfig;
 use forge_domain::{
     AnyProvider, AuthCredential, ChatCompletionMessage, ChatRepository, CommandOutput, Context,
     Conversation, ConversationId, ConversationRepository, Environment, FileInfo,
-    FuzzySearchRepository, McpServerConfig, MigrationResult, Model, ModelId, Provider, ProviderId,
-    ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository, Snapshot,
-    SnapshotRepository,
+    FuzzySearchRepository, IgnorePatternsRepository, McpServerConfig, MigrationResult, Model,
+    ModelId, Provider, ProviderId, ProviderRepository, ResultStream, SearchMatch, Skill,
+    SkillRepository, Snapshot, SnapshotRepository,
 };
 // Re-export CacacheStorage from forge_infra
 pub use forge_infra::CacacheStorage;
@@ -29,6 +29,7 @@ use crate::conversation::ConversationRepositoryImpl;
 use crate::database::{DatabasePool, PoolConfig};
 use crate::fs_snap::ForgeFileSnapshotService;
 use crate::fuzzy_search::ForgeFuzzySearchRepository;
+use crate::ignore_patterns::ForgeIgnorePatternsRepository;
 use crate::provider::{ForgeChatRepository, ForgeProviderRepository};
 use crate::skill::ForgeSkillRepository;
 use crate::validation::ForgeValidationRepository;
@@ -50,6 +51,7 @@ pub struct ForgeRepo<F> {
     skill_repository: Arc<ForgeSkillRepository<F>>,
     validation_repository: Arc<ForgeValidationRepository<F>>,
     fuzzy_search_repository: Arc<ForgeFuzzySearchRepository<F>>,
+    ignore_patterns_repository: Arc<ForgeIgnorePatternsRepository<F>>,
 }
 
 impl<
@@ -83,6 +85,8 @@ impl<
         let skill_repository = Arc::new(ForgeSkillRepository::new(infra.clone()));
         let validation_repository = Arc::new(ForgeValidationRepository::new(infra.clone()));
         let fuzzy_search_repository = Arc::new(ForgeFuzzySearchRepository::new(infra.clone()));
+        let ignore_patterns_repository =
+            Arc::new(ForgeIgnorePatternsRepository::new(infra.clone()));
         Self {
             infra,
             file_snapshot_service,
@@ -95,6 +99,7 @@ impl<
             skill_repository,
             validation_repository,
             fuzzy_search_repository,
+            ignore_patterns_repository,
         }
     }
 }
@@ -625,6 +630,13 @@ impl<F: GrpcInfra + Send + Sync> FuzzySearchRepository for ForgeRepo<F> {
         self.fuzzy_search_repository
             .fuzzy_search(needle, haystack, search_all)
             .await
+    }
+}
+
+#[async_trait::async_trait]
+impl<F: GrpcInfra + Send + Sync> IgnorePatternsRepository for ForgeRepo<F> {
+    async fn list_ignore_patterns(&self) -> anyhow::Result<String> {
+        self.ignore_patterns_repository.list_ignore_patterns().await
     }
 }
 
