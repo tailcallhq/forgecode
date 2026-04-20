@@ -584,6 +584,14 @@
         "accept_invalid_certs"
       ]
     },
+    "InputModality": {
+      "description": "Input modality supported by a model.",
+      "type": "string",
+      "enum": [
+        "text",
+        "image"
+      ]
+    },
     "ModelConfig": {
       "description": "Pairs a provider and model together for a specific operation.",
       "type": "object",
@@ -643,10 +651,14 @@
           "type": "string"
         },
         "models": {
-          "description": "URL template for fetching the model list; may contain `{{VAR}}`\nplaceholders.",
-          "type": [
-            "string",
-            "null"
+          "description": "Model source for this provider. Can be either a URL template for\nfetching the model list, or a static list of model entries.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProviderModels"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "provider_type": {
@@ -686,6 +698,22 @@
       "required": [
         "id",
         "url"
+      ]
+    },
+    "ProviderModels": {
+      "description": "Model source for a provider.\n\nThis can be either a URL template for fetching the model list, or a\nstatic list of model entries defined inline.",
+      "anyOf": [
+        {
+          "description": "URL template for fetching the model list.",
+          "type": "string"
+        },
+        {
+          "description": "Static list of model entries.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StaticModelEntry"
+          }
+        }
       ]
     },
     "ProviderResponseType": {
@@ -834,6 +862,73 @@
         "max_attempts",
         "status_codes",
         "suppress_errors"
+      ]
+    },
+    "StaticModelEntry": {
+      "description": "A static model entry for inline provider configuration.\n\nThis allows defining model capabilities directly in `forge.toml` without\nrequiring a URL-based model discovery.",
+      "type": "object",
+      "properties": {
+        "context_length": {
+          "description": "Maximum context window size in tokens.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "description": {
+          "description": "Description of the model.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Unique model identifier (e.g. `\"gpt-4\"`).",
+          "type": "string"
+        },
+        "input_modalities": {
+          "description": "Input modalities supported by the model (defaults to text-only).",
+          "type": "array",
+          "default": [
+            "text"
+          ],
+          "items": {
+            "$ref": "#/$defs/InputModality"
+          }
+        },
+        "name": {
+          "description": "Human-readable model name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "supports_parallel_tool_calls": {
+          "description": "Whether the model supports parallel tool calls.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supports_reasoning": {
+          "description": "Whether the model supports reasoning.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "tools_supported": {
+          "description": "Whether the model supports tool calls.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
       ]
     },
     "TlsBackend": {
