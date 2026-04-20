@@ -1006,6 +1006,16 @@
         "supports_parallel_tool_calls": false,
         "supports_reasoning": false,
         "input_modalities": ["text"]
+      },
+      {
+        "id": "glm-5v-turbo",
+        "name": "GLM-5V Turbo",
+        "description": "Vision-capable model with attachment support, reasoning, and tool calling capabilities",
+        "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key"]
