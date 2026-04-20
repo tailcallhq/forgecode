@@ -4,9 +4,74 @@ use anyhow::Context as _;
 use async_openai::types::responses as oai;
 use forge_app::domain::{Context as ChatContext, ContextMessage, MessagePhase, Role, ToolChoice};
 use forge_app::utils::enforce_strict_schema;
-use forge_domain::{Effort, ReasoningConfig, ReasoningFull};
+use forge_domain::{
+    Effort, ReasoningConfig, ReasoningFull, ResponseOutputItem, ToolSearchExecution,
+    ToolSearchOutput, ToolSearchStatus,
+};
 
 use crate::provider::FromDomain;
+
+/// Converts domain ToolSearchOutput to OpenAI ToolSearchOutputItemParam.
+fn tool_search_output_to_oai(
+    output: &ToolSearchOutput,
+) -> anyhow::Result<oai::ToolSearchOutputItemParam> {
+    let status = match output.status {
+        ToolSearchStatus::InProgress => oai::OutputStatus::InProgress,
+        ToolSearchStatus::Completed => oai::OutputStatus::Completed,
+        ToolSearchStatus::Incomplete => oai::OutputStatus::Incomplete,
+    };
+
+    let execution = match output.execution {
+        ToolSearchExecution::Server => oai::ToolSearchExecutionType::Server,
+        ToolSearchExecution::Client => oai::ToolSearchExecutionType::Client,
+    };
+
+    // Convert the JSON tools to oai::Tool
+    let tools: Vec<oai::Tool> = output
+        .tools
+        .iter()
+        .map(|tool_json| {
+            // Each tool should be a Function tool
+            serde_json::from_value(tool_json.clone())
+                .map_err(|e| anyhow::anyhow!("Failed to parse tool: {}", e))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    Ok(oai::ToolSearchOutputItemParam {
+        call_id: output.call_id.as_ref().map(|id| id.as_str().to_string()),
+        execution: Some(execution),
+        status: Some(status),
+        tools,
+        id: None,
+    })
+}
+
+/// Emits tool_search_call (if present) followed by tool_search_output into
+/// the `items` list. The API expects tool_search_call to precede
+/// tool_search_output when replaying conversation history.
+fn emit_tool_search_items(
+    items: &mut Vec<oai::InputItem>,
+    output: &ToolSearchOutput,
+) -> anyhow::Result<()> {
+    // Emit tool_search_call first (if captured from the API response)
+    if let Some(call_json) = &output.tool_search_call
+        && let Ok(mut call_param) =
+            serde_json::from_value::<oai::ToolSearchCallItemParam>(call_json.clone())
+    {
+        // The original API response has status "in_progress", but
+        // when replaying we need to send "completed".
+        call_param.status = Some(oai::OutputStatus::Completed);
+        items.push(oai::InputItem::Item(oai::Item::ToolSearchCall(call_param)));
+    }
+
+    // Then emit tool_search_output
+    let tool_search_item = tool_search_output_to_oai(output)?;
+    items.push(oai::InputItem::Item(oai::Item::ToolSearchOutput(
+        tool_search_item,
+    )));
+
+    Ok(())
+}
 
 /// Converts domain MessagePhase to OpenAI MessagePhase
 fn to_oai_phase(phase: MessagePhase) -> oai::MessagePhase {
@@ -185,18 +250,22 @@ impl FromDomain<ChatContext> for oai::CreateResponse {
 
         let mut instructions: Option<String> = None;
         let mut items: Vec<oai::InputItem> = Vec::new();
+        let messages: Vec<_> = context.messages.into_iter().collect();
+        // Track which ToolSearchOutput entries were already consumed inline
+        // with their preceding assistant message.
+        let consumed_tso_indices: std::collections::HashSet<usize> = Default::default();
 
-        for entry in context.messages {
-            match entry.message {
+        for (idx, entry) in messages.iter().enumerate() {
+            match &entry.message {
                 ContextMessage::Text(message) => match message.role {
                     Role::System => {
                         if instructions.is_none() {
-                            instructions = Some(message.content);
+                            instructions = Some(message.content.clone());
                         } else {
                             items.push(oai::InputItem::EasyMessage(oai::EasyInputMessage {
                                 r#type: oai::MessageType::Message,
                                 role: oai::Role::Developer,
-                                content: oai::EasyInputContent::Text(message.content),
+                                content: oai::EasyInputContent::Text(message.content.clone()),
                                 phase: None,
                             }));
                         }
@@ -205,45 +274,119 @@ impl FromDomain<ChatContext> for oai::CreateResponse {
                         items.push(oai::InputItem::EasyMessage(oai::EasyInputMessage {
                             r#type: oai::MessageType::Message,
                             role: oai::Role::User,
-                            content: oai::EasyInputContent::Text(message.content),
+                            content: oai::EasyInputContent::Text(message.content.clone()),
                             phase: None,
                         }));
                     }
                     Role::Assistant => {
-                        if !message.content.trim().is_empty() {
-                            items.push(oai::InputItem::EasyMessage(oai::EasyInputMessage {
-                                r#type: oai::MessageType::Message,
-                                role: oai::Role::Assistant,
-                                content: oai::EasyInputContent::Text(message.content),
-                                phase: message.phase.map(to_oai_phase),
-                            }));
-                        }
+                        // When response_items is available (Responses API), emit
+                        // items in their original stream order. This preserves the
+                        // exact interleaving of reasoning, tool_search, and
+                        // function_call items that the API requires.
+                        if let Some(response_items) = &message.response_items {
+                            let content = &message.content;
+                            if !content.trim().is_empty() {
+                                items.push(oai::InputItem::EasyMessage(oai::EasyInputMessage {
+                                    r#type: oai::MessageType::Message,
+                                    role: oai::Role::Assistant,
+                                    content: oai::EasyInputContent::Text(content.clone()),
+                                    phase: message.phase.map(to_oai_phase),
+                                }));
+                            }
 
-                        if let Some(reasoning_details) = message.reasoning_details {
-                            items.extend(map_reasoning_details_to_input_items(reasoning_details));
-                        }
+                            for item in response_items {
+                                match item {
+                                    ResponseOutputItem::Reasoning(detail) => {
+                                        items.extend(map_reasoning_details_to_input_items(vec![
+                                            detail.clone(),
+                                        ]));
+                                    }
+                                    ResponseOutputItem::ToolSearchCall(json) => {
+                                        if let Ok(mut call) =
+                                            serde_json::from_value::<oai::ToolSearchCallItemParam>(
+                                                json.clone(),
+                                            )
+                                        {
+                                            call.status = Some(oai::OutputStatus::Completed);
+                                            items.push(oai::InputItem::Item(
+                                                oai::Item::ToolSearchCall(call),
+                                            ));
+                                        }
+                                    }
+                                    ResponseOutputItem::ToolSearchOutput(tso) => {
+                                        items.push(oai::InputItem::Item(
+                                            oai::Item::ToolSearchOutput(tool_search_output_to_oai(
+                                                tso,
+                                            )?),
+                                        ));
+                                    }
+                                    ResponseOutputItem::FunctionCall {
+                                        id,
+                                        call_id,
+                                        name,
+                                        arguments,
+                                        namespace,
+                                    } => {
+                                        items.push(oai::InputItem::Item(oai::Item::FunctionCall(
+                                            oai::FunctionToolCall {
+                                                arguments: arguments.clone().into_string(),
+                                                call_id: call_id.as_str().to_string(),
+                                                name: name.to_string(),
+                                                namespace: namespace.clone(),
+                                                id: Some(id.clone()),
+                                                status: Some(oai::OutputStatus::Completed),
+                                            },
+                                        )));
+                                    }
+                                    ResponseOutputItem::Text(_) => {
+                                        // Text content already handled above
+                                        // via
+                                        // message.content
+                                    }
+                                }
+                            }
+                        } else {
+                            // Fallback for non-Responses API providers (Anthropic,
+                            // Bedrock, etc.): use the bundled fields.
+                            let content = &message.content;
+                            if !content.trim().is_empty() {
+                                items.push(oai::InputItem::EasyMessage(oai::EasyInputMessage {
+                                    r#type: oai::MessageType::Message,
+                                    role: oai::Role::Assistant,
+                                    content: oai::EasyInputContent::Text(content.clone()),
+                                    phase: message.phase.map(to_oai_phase),
+                                }));
+                            }
 
-                        if let Some(tool_calls) = message.tool_calls {
-                            for call in tool_calls {
-                                let call_id =
-                                    call.call_id.as_ref().map(|id| id.as_str().to_string()).ok_or_else(
-                                        || {
+                            if let Some(reasoning_details) = &message.reasoning_details {
+                                items.extend(map_reasoning_details_to_input_items(
+                                    reasoning_details.clone(),
+                                ));
+                            }
+
+                            if let Some(tool_calls) = &message.tool_calls {
+                                for call in tool_calls {
+                                    let call_id = call
+                                        .call_id
+                                        .as_ref()
+                                        .map(|id| id.as_str().to_string())
+                                        .ok_or_else(|| {
                                             anyhow::anyhow!(
                                                 "Tool call is missing call_id; cannot be sent to Responses API"
                                             )
-                                        },
-                                    )?;
+                                        })?;
 
-                                items.push(oai::InputItem::Item(oai::Item::FunctionCall(
-                                    oai::FunctionToolCall {
-                                        arguments: call.arguments.into_string(),
-                                        call_id,
-                                        name: call.name.to_string(),
-                                        namespace: None,
-                                        id: None,
-                                        status: None,
-                                    },
-                                )));
+                                    items.push(oai::InputItem::Item(oai::Item::FunctionCall(
+                                        oai::FunctionToolCall {
+                                            arguments: call.arguments.clone().into_string(),
+                                            call_id,
+                                            name: call.name.to_string(),
+                                            namespace: call.namespace.clone(),
+                                            id: None,
+                                            status: None,
+                                        },
+                                    )));
+                                }
                             }
                         }
                     }
@@ -286,6 +429,13 @@ impl FromDomain<ChatContext> for oai::CreateResponse {
                         ]),
                         phase: None,
                     }));
+                }
+                ContextMessage::ToolSearchOutput(output) => {
+                    // Skip if already consumed inline with the preceding assistant message
+                    if consumed_tso_indices.contains(&idx) {
+                        continue;
+                    }
+                    emit_tool_search_items(&mut items, output)?;
                 }
             }
         }

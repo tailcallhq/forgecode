@@ -47,6 +47,7 @@ mod tests {
             name: ToolName::new("test_tool"),
             arguments: serde_json::json!({"key": "value"}).into(),
             thought_signature: None,
+            namespace: None,
         };
 
         let tool_result = ToolResult::new(ToolName::new("test_tool"))
@@ -72,6 +73,7 @@ mod tests {
             stream: None,
             response_format: None,
             initiator: None,
+            tool_search: None,
         };
 
         let request = Request::from(context);

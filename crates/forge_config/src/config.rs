@@ -253,6 +253,14 @@ pub struct ForgeConfig {
     #[serde(default)]
     pub tool_supported: bool,
 
+    /// Whether server-side tool search is enabled for models that support
+    /// deferred tool loading (e.g. GPT-5.4). When enabled, MCP tools are
+    /// sent with `defer_loading: true` and a `tool_search` tool is injected
+    /// so the API can discover them on demand. Defaults to `false`; set to
+    /// `true` to enable.
+    #[serde(default)]
+    pub tool_search: bool,
+
     /// Reasoning configuration applied to all agents; controls effort level,
     /// token budget, and visibility of the model's thinking process.
     #[serde(default, skip_serializing_if = "Option::is_none")]

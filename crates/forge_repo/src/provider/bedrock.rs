@@ -312,6 +312,7 @@ impl IntoDomain for aws_sdk_bedrockruntime::types::ConverseStreamOutput {
                                     name: None,
                                     arguments_part: tool_use.input,
                                     thought_signature: None,
+                                    namespace: None,
                                 },
                             )
                         }
@@ -372,6 +373,7 @@ impl IntoDomain for aws_sdk_bedrockruntime::types::ConverseStreamOutput {
                                     name: Some(ToolName::new(tool_use.name)),
                                     arguments_part: String::new(),
                                     thought_signature: None,
+                                    namespace: None,
                                 },
                             )
                         }
@@ -721,6 +723,10 @@ impl FromDomain<Vec<forge_domain::ContextMessage>> for aws_sdk_bedrockruntime::t
 
                     content_blocks.push(ContentBlock::ToolResult(tool_result_block));
                 }
+                forge_domain::ContextMessage::ToolSearchOutput(_) => {
+                    // Tool search output is OpenAI Responses API specific - skip for Bedrock
+                    continue;
+                }
                 _ => anyhow::bail!("Expected Tool message, got different message type"),
             }
         }
@@ -875,6 +881,14 @@ impl FromDomain<forge_domain::ContextMessage> for aws_sdk_bedrockruntime::types:
                     .content(ContentBlock::Image(image_block))
                     .build()
                     .map_err(|e| anyhow::anyhow!("Failed to build image message: {}", e))
+            }
+            forge_domain::ContextMessage::ToolSearchOutput(_) => {
+                // Tool search output is OpenAI Responses API specific - skip for Bedrock
+                Message::builder()
+                    .role(ConversationRole::User)
+                    .set_content(Some(vec![]))
+                    .build()
+                    .map_err(|e| anyhow::anyhow!("Failed to build empty message: {}", e))
             }
         }
     }
@@ -1415,6 +1429,7 @@ mod tests {
                 name: Some(ToolName::new("get_weather")),
                 arguments_part: String::new(),
                 thought_signature: None,
+                namespace: None,
             });
 
         assert_eq!(actual, expected);
@@ -1748,6 +1763,7 @@ mod tests {
             reasoning: None,
             stream: None,
             response_format: None,
+            tool_search: None,
         };
 
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();
@@ -1778,6 +1794,7 @@ mod tests {
             reasoning: None,
             stream: None,
             response_format: None,
+            tool_search: None,
         };
 
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();
@@ -1809,6 +1826,7 @@ mod tests {
             }),
             stream: None,
             response_format: None,
+            tool_search: None,
         };
 
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();
@@ -1843,6 +1861,7 @@ mod tests {
             }),
             stream: None,
             response_format: None,
+            tool_search: None,
         };
 
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();
@@ -1877,6 +1896,7 @@ mod tests {
             }),
             stream: None,
             response_format: None,
+            tool_search: None,
         };
 
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();
@@ -1933,6 +1953,7 @@ mod tests {
             }),
             stream: None,
             response_format: None,
+            tool_search: None,
         };
 
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();
@@ -1976,6 +1997,7 @@ mod tests {
             }),
             stream: None,
             response_format: None,
+            tool_search: None,
         };
 
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();
@@ -2011,6 +2033,7 @@ mod tests {
             }),
             stream: None,
             response_format: None,
+            tool_search: None,
         };
 
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();

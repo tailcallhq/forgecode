@@ -1205,7 +1205,13 @@ impl From<ToolCatalog> for ToolCallFull {
             ToolCallArguments::default()
         };
 
-        ToolCallFull { name, call_id: None, arguments, thought_signature: None }
+        ToolCallFull {
+            name,
+            call_id: None,
+            arguments,
+            thought_signature: None,
+            namespace: None,
+        }
     }
 }
 
@@ -1264,6 +1270,7 @@ mod tests {
                 r#"{"path": "/test/path.rs", "start_line": "10", "end_line": "20"}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         // This should not panic - it should coerce strings to integers
@@ -1295,6 +1302,7 @@ mod tests {
                 r#"{"path": "/test/path.rs", "start_line": 10, "end_line": 20}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);
@@ -1325,6 +1333,7 @@ mod tests {
                 r#"{"path": "/test/path.rs", "start_line": 10, "end_line": 20}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);
@@ -1355,6 +1364,7 @@ mod tests {
                 r#"{"path": "/test/path.rs", "content": "test content"}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);
@@ -1382,6 +1392,7 @@ mod tests {
             call_id: None,
             arguments: ToolCallArguments::from_json(r#"{"path": "/test/path.rs"}"#),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);
@@ -1406,6 +1417,7 @@ mod tests {
                 r#"{"path": "/test/path.rs", "content": "test"}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);
@@ -1564,6 +1576,7 @@ mod tests {
                 r#"{"path": "/test/file.rs", "operation": "replace", "new_string": "new", "old_string": "old"}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);
@@ -1592,6 +1605,7 @@ mod tests {
                 r#"{"file_path": "/test/file.rs", "operation": "replace", "new_string": "new", "search": "old text"}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);
@@ -1620,6 +1634,7 @@ mod tests {
                 r#"{"file_path": "/test/file.rs", "operation": "replace", "content": "new content", "old_string": "old"}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);
@@ -1648,6 +1663,7 @@ mod tests {
                 r#"{"path": "/test/file.rs", "operation": "replace", "content": "new content", "search": "old text"}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);
@@ -1678,6 +1694,7 @@ mod tests {
                 r#"{"file_path": "/test/file.rs", "operation": "replace", "new_string": "new content", "old_string": "old text"}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);
@@ -1705,6 +1722,7 @@ mod tests {
                 r#"{"file_path": "/test/file.rs", "new_string": "new", "old_string": "old", "replace_all": true}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);
@@ -1880,6 +1898,7 @@ mod tests {
             call_id: None,
             arguments: ToolCallArguments::from_json(r#"{"command": "ls"}"#),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);
@@ -1899,6 +1918,7 @@ mod tests {
                 r#"{"file_path": "/test/file.rs", "new_string": "new", "old_string": "old"}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = ToolCatalog::try_from(tool_call);

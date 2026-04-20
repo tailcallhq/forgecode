@@ -312,6 +312,11 @@
         }
       ]
     },
+    "tool_search": {
+      "description": "Whether server-side tool search is enabled for models that support\ndeferred tool loading (e.g. GPT-5.4). When enabled, MCP tools are\nsent with `defer_loading: true` and a `tool_search` tool is injected\nso the API can discover them on demand. Defaults to `false`; set to\n`true` to enable.",
+      "type": "boolean",
+      "default": false
+    },
     "tool_supported": {
       "description": "Whether tool use is supported in the current environment; when false,\nall tool calls are disabled.",
       "type": "boolean",

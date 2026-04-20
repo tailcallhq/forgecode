@@ -641,6 +641,8 @@ mod tests {
                     usage: crate::Usage::default(),
                     finish_reason: None,
                     phase: None,
+                    tool_search_output: None,
+                    response_items: None,
                 }),
             )),
             LifecycleEvent::ToolcallStart(EventData::new(

@@ -3,9 +3,10 @@ use derive_setters::Setters;
 use serde::{Deserialize, Serialize};
 use strum_macros::{EnumString, IntoStaticStr};
 
-use super::{ToolCall, ToolCallFull};
+use super::{ToolCall, ToolCallFull, ToolSearchOutput};
 use crate::TokenCount;
 use crate::reasoning::{Reasoning, ReasoningFull};
+use crate::response_item::ResponseOutputItem;
 
 /// Labels an assistant message as intermediate commentary or the final answer.
 ///
@@ -94,6 +95,14 @@ pub struct ChatCompletionMessage {
     /// Phase label for assistant messages (e.g. `Commentary` or `FinalAnswer`).
     /// Preserved from the response and replayed back on subsequent requests.
     pub phase: Option<MessagePhase>,
+    /// Tool search output from deferred tool discovery.
+    /// When present, this should be converted to
+    /// ContextMessage::ToolSearchOutput instead of a regular assistant
+    /// message.
+    pub tool_search_output: Option<ToolSearchOutput>,
+    /// Ordered output items from the Responses API, preserving the exact
+    /// interleaving of reasoning, tool_search, and function_call items.
+    pub response_items: Option<Vec<ResponseOutputItem>>,
 }
 
 impl From<FinishReason> for ChatCompletionMessage {
@@ -214,7 +223,7 @@ impl ChatCompletionMessage {
 /// Represents a complete message from the LLM provider with all content
 /// collected This is typically used after processing a stream of
 /// ChatCompletionMessage
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChatCompletionMessageFull {
     pub content: String,
     pub thought_signature: Option<String>,
@@ -226,6 +235,11 @@ pub struct ChatCompletionMessageFull {
     /// Phase label for the assistant message (e.g. `Commentary` or
     /// `FinalAnswer`).
     pub phase: Option<MessagePhase>,
+    /// Tool search output from the OpenAI Responses API tool search feature
+    pub tool_search_output: Option<crate::ToolSearchOutput>,
+    /// Ordered output items from the Responses API, preserving the exact
+    /// interleaving of reasoning, tool_search, and function_call items.
+    pub response_items: Option<Vec<ResponseOutputItem>>,
 }
 
 #[cfg(test)]

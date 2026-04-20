@@ -394,6 +394,7 @@ impl TryFrom<ContentBlock> for ChatCompletionMessage {
                         serde_json::to_string(&input)?
                     },
                     thought_signature: None,
+                    namespace: None,
                 })
             }
             ContentBlock::InputJsonDelta { partial_json } => {
@@ -402,6 +403,7 @@ impl TryFrom<ContentBlock> for ChatCompletionMessage {
                     name: None,
                     arguments_part: partial_json,
                     thought_signature: None,
+                    namespace: None,
                 })
             }
         };

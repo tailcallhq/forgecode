@@ -471,6 +471,10 @@ impl From<ContextMessage> for Content {
         match message {
             ContextMessage::Text(text_message) => Content::from(text_message),
             ContextMessage::Tool(tool_result) => Content::from(tool_result),
+            ContextMessage::ToolSearchOutput(_) => {
+                // Tool search output is OpenAI Responses API specific - skip for Google
+                Content { role: None, parts: vec![] }
+            }
             ContextMessage::Image(image) => Content::from(image),
         }
     }
@@ -573,6 +577,7 @@ mod tests {
                 r#"{"file_path":"test.rs","old_string":"foo","new_string":"bar"}"#,
             ),
             thought_signature: None,
+            namespace: None,
         };
 
         // Convert to Google Part
@@ -612,12 +617,14 @@ mod tests {
                 call_id: None,
                 arguments: ToolCallArguments::from_json(r#"{"path":"file1.rs"}"#),
                 thought_signature: None,
+                namespace: None,
             },
             ToolCallFull {
                 name: ToolName::new("remove"),
                 call_id: None,
                 arguments: ToolCallArguments::from_json(r#"{"path":"file2.rs"}"#),
                 thought_signature: None,
+                namespace: None,
             },
         ];
 

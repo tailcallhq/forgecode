@@ -387,6 +387,7 @@ mod tests {
                     call_id: Some(ToolCallId::new("math-1")),
                     arguments: serde_json::json!({"expression": "2 + 2"}).into(),
                     thought_signature: None,
+                    namespace: None,
                 }]),
             ))
             .add_tool_results(vec![ToolResult {
