@@ -40,10 +40,12 @@ impl Transformer for SetCache {
             *message = std::mem::take(message).cached(false);
         }
 
-        if !has_system_prompt && len > 0
-            && let Some(first_message) = request.get_messages_mut().first_mut() {
-                *first_message = std::mem::take(first_message).cached(true);
-            }
+        if !has_system_prompt
+            && len > 0
+            && let Some(first_message) = request.get_messages_mut().first_mut()
+        {
+            *first_message = std::mem::take(first_message).cached(true);
+        }
 
         if let Some(message) = request.get_messages_mut().last_mut() {
             *message = std::mem::take(message).cached(true);
