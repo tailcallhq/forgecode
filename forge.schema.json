@@ -241,6 +241,11 @@
         }
       ]
     },
+    "research_subagent": {
+      "description": "Whether the deep research agent is available.\n\nWhen set to `true`, the Sage agent is added to the agent list and\nthe `:sage` app command is enabled. Defaults to `false`.",
+      "type": "boolean",
+      "default": false
+    },
     "restricted": {
       "description": "Whether restricted mode is active; when enabled, tool execution requires\nexplicit permission grants.",
       "type": "boolean",
@@ -279,6 +284,11 @@
           "type": "null"
         }
       ]
+    },
+    "subagents": {
+      "description": "Enables subagent support via the task tool; when true the forge agent\ngains access to the `task` tool for delegating work to specialised\nsub-agents, and the `sage` research-only agent tool is removed.\nWhen false the `task` tool is disabled and `sage` is available instead.",
+      "type": "boolean",
+      "default": false
     },
     "suggest": {
       "description": "Model and provider configuration used for shell command suggestion\ngeneration.",
@@ -416,13 +426,24 @@
           "minimum": 0
         },
         "token_threshold": {
-          "description": "Maximum number of tokens before triggering compaction",
+          "description": "Maximum number of tokens before triggering compaction. This acts as an\nabsolute cap and is combined with\n`token_threshold_percentage` by taking the lower value.",
           "type": [
             "integer",
             "null"
           ],
           "format": "uint",
           "minimum": 0
+        },
+        "token_threshold_percentage": {
+          "description": "Maximum percentage of the model context window used to derive the token\nthreshold before triggering compaction. This is combined with\n`token_threshold` by taking the lower value.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/double"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "turn_threshold": {
           "description": "Maximum number of conversation turns before triggering compaction",
