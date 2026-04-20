@@ -91,6 +91,25 @@ pub enum Effort {
     Max,
 }
 
+impl Effort {
+    /// Returns a short display name suitable for prompt/rprompt rendering.
+    ///
+    /// Unlike `Display` (which produces the full lowercase name like
+    /// `"minimal"`), this returns an abbreviated form (`"min"`) for compact
+    /// UI display.
+    pub fn short_name(&self) -> &'static str {
+        match self {
+            Effort::None => "none",
+            Effort::Minimal => "min",
+            Effort::Low => "L",
+            Effort::Medium => "M",
+            Effort::High => "H",
+            Effort::XHigh => "XH",
+            Effort::Max => "MAX",
+        }
+    }
+}
+
 /// Estimates the token count from a string representation
 /// This is a simple estimation that should be replaced with a more accurate
 /// tokenizer
@@ -310,6 +329,7 @@ mod tests {
             tools_supported: Some(true),
             supports_parallel_tool_calls: Some(true),
             supports_reasoning: Some(true),
+            supported_reasoning_efforts: None,
             input_modalities: vec![InputModality::Text],
         }
     }

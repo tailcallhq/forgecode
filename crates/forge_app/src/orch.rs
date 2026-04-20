@@ -116,37 +116,35 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             }
 
             // Fire the ToolcallStart lifecycle event
-            let mut toolcall_start_event = LifecycleEvent::ToolcallStart(EventData::new(
+            let toolcall_start_event = LifecycleEvent::ToolcallStart(EventData::new(
                 self.agent.clone(),
                 self.agent.model.clone(),
                 ToolcallStartPayload::new((*tool_call).clone()),
             ));
             self.hook
-                .handle(&mut toolcall_start_event, &mut self.conversation)
+                .handle(&toolcall_start_event, &mut self.conversation)
                 .await?;
 
-            // Get potentially updated tool call
-            let updated_tool_call =
-                if let LifecycleEvent::ToolcallStart(data) = toolcall_start_event {
-                    data.payload.tool_call
-                } else {
-                    (*tool_call).clone()
-                };
+            // Run the interceptor to potentially modify the tool call
+            let mut intercepted_tool_call = (*tool_call).clone();
+            self.hook
+                .intercept_tool_call(&mut intercepted_tool_call, &self.agent, &self.agent.model)
+                .await?;
 
             // Execute the tool
             let tool_result = self
                 .services
-                .call(&self.agent, tool_context, updated_tool_call)
+                .call(&self.agent, tool_context, intercepted_tool_call)
                 .await;
 
             // Fire the ToolcallEnd lifecycle event (fires on both success and failure)
-            let mut toolcall_end_event = LifecycleEvent::ToolcallEnd(EventData::new(
+            let toolcall_end_event = LifecycleEvent::ToolcallEnd(EventData::new(
                 self.agent.clone(),
                 self.agent.model.clone(),
                 ToolcallEndPayload::new((*tool_call).clone(), tool_result.clone()),
             ));
             self.hook
-                .handle(&mut toolcall_end_event, &mut self.conversation)
+                .handle(&toolcall_end_event, &mut self.conversation)
                 .await?;
 
             // Send the end notification for system tools and not agent as a tool
@@ -245,13 +243,13 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         let mut context = self.conversation.context.clone().unwrap_or_default();
 
         // Fire the Start lifecycle event
-        let mut start_event = LifecycleEvent::Start(EventData::new(
+        let start_event = LifecycleEvent::Start(EventData::new(
             self.agent.clone(),
             model_id.clone(),
             StartPayload,
         ));
         self.hook
-            .handle(&mut start_event, &mut self.conversation)
+            .handle(&start_event, &mut self.conversation)
             .await?;
 
         // Signals that the loop should suspend (task may or may not be completed)
@@ -272,13 +270,13 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             self.conversation.context = Some(context.clone());
             self.services.update(self.conversation.clone()).await?;
 
-            let mut request_event = LifecycleEvent::Request(EventData::new(
+            let request_event = LifecycleEvent::Request(EventData::new(
                 self.agent.clone(),
                 model_id.clone(),
                 RequestPayload::new(request_count),
             ));
             self.hook
-                .handle(&mut request_event, &mut self.conversation)
+                .handle(&request_event, &mut self.conversation)
                 .await?;
 
             let message = crate::retry::retry_with_config(
@@ -312,13 +310,13 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             .await?;
 
             // Fire the Response lifecycle event
-            let mut response_event = LifecycleEvent::Response(EventData::new(
+            let response_event = LifecycleEvent::Response(EventData::new(
                 self.agent.clone(),
                 model_id.clone(),
                 ResponsePayload::new(message.clone()),
             ));
             self.hook
-                .handle(&mut response_event, &mut self.conversation)
+                .handle(&response_event, &mut self.conversation)
                 .await?;
 
             // Turn is completed, if finish_reason is 'stop'. Gemini models return stop as
@@ -421,13 +419,13 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             // it adds messages
             if should_yield {
                 let end_count_before = self.conversation.len();
-                let mut end_event = LifecycleEvent::End(EventData::new(
+                let end_event = LifecycleEvent::End(EventData::new(
                     self.agent.clone(),
                     model_id.clone(),
                     EndPayload,
                 ));
                 self.hook
-                    .handle(&mut end_event, &mut self.conversation)
+                    .handle(&end_event, &mut self.conversation)
                     .await?;
                 self.services.update(self.conversation.clone()).await?;
                 // Check if End hook added messages - if so, continue the loop

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crossterm::event::Event;
-use forge_api::Environment;
+use forge_api::{Effort, Environment};
 use nu_ansi_term::{Color, Style};
 use reedline::{
     ColumnarMenu, DefaultHinter, EditCommand, EditMode, Emacs, FileBackedHistory, KeyCode,
@@ -19,6 +19,29 @@ use crate::prompt::ForgePrompt;
 // TODO: Store the last `HISTORY_CAPACITY` commands in the history file
 const HISTORY_CAPACITY: usize = 1024 * 1024;
 const COMPLETION_MENU: &str = "completion_menu";
+
+#[derive(Debug, Clone, Default)]
+pub struct EffortState {
+    pub current: Option<Effort>,
+    pub supported: Vec<Effort>,
+}
+
+impl EffortState {
+    pub fn cycle(&mut self) {
+        if self.supported.is_empty() {
+            return;
+        }
+
+        let efforts = &self.supported;
+        let current = self.current.as_ref().cloned().unwrap_or(Effort::Medium);
+        let next = if let Some(pos) = efforts.iter().position(|e| e == &current) {
+            efforts[(pos + 1) % efforts.len()].clone()
+        } else {
+            efforts.first().cloned().unwrap_or(Effort::Medium)
+        };
+        self.current = Some(next);
+    }
+}
 
 pub struct ForgeEditor {
     editor: Reedline,
@@ -73,6 +96,7 @@ impl ForgeEditor {
         env: Environment,
         custom_history_path: Option<PathBuf>,
         manager: Arc<ForgeCommandManager>,
+        effort_state: Arc<Mutex<EffortState>>,
     ) -> Self {
         // Store file history in system config directory
         let history_file = env.history_path(custom_history_path.as_ref());
@@ -88,7 +112,7 @@ impl ForgeEditor {
                 .with_selected_text_style(Style::new().on(Color::White).fg(Color::Black)),
         );
 
-        let edit_mode = Box::new(ForgeEditMode::new(Self::init()));
+        let edit_mode = Box::new(ForgeEditMode::new(Self::init(), effort_state.clone()));
 
         let editor = Reedline::create()
             .with_completer(Box::new(InputCompleter::new(env.cwd, manager)))
@@ -132,13 +156,17 @@ pub struct ReadLineError(std::io::Error);
 /// gives the user immediate visual feedback in the input field.
 struct ForgeEditMode {
     inner: Emacs,
+    effort_state: Arc<Mutex<EffortState>>,
 }
 
 impl ForgeEditMode {
     /// Creates a new `ForgeEditMode` wrapping an Emacs mode with the given
     /// keybindings.
-    fn new(keybindings: reedline::Keybindings) -> Self {
-        Self { inner: Emacs::new(keybindings) }
+    fn new(keybindings: reedline::Keybindings, effort_state: Arc<Mutex<EffortState>>) -> Self {
+        Self {
+            inner: Emacs::new(keybindings),
+            effort_state,
+        }
     }
 }
 
@@ -146,6 +174,14 @@ impl EditMode for ForgeEditMode {
     fn parse_event(&mut self, event: ReedlineRawEvent) -> ReedlineEvent {
         // Convert to the underlying crossterm event so we can inspect it
         let raw: Event = event.into();
+
+        if let Event::Key(key) = raw {
+            if key.code == KeyCode::Char('t') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                let mut state = self.effort_state.lock().unwrap();
+                state.cycle();
+                return ReedlineEvent::Repaint;
+            }
+        }
 
         if let Event::Paste(ref body) = raw {
             let wrapped = wrap_pasted_text(body);

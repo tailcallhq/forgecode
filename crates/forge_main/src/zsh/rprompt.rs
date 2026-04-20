@@ -8,7 +8,7 @@ use std::fmt::{self, Display};
 use convert_case::{Case, Casing};
 use derive_setters::Setters;
 use forge_config::ForgeConfig;
-use forge_domain::{AgentId, ModelId, TokenCount};
+use forge_domain::{AgentId, Effort, ModelId, TokenCount};
 
 use super::style::{ZshColor, ZshStyle};
 use crate::utils::humanize_number;
@@ -24,6 +24,8 @@ pub struct ZshRPrompt {
     model: Option<ModelId>,
     token_count: Option<TokenCount>,
     cost: Option<f64>,
+    context_length: Option<u64>,
+    effort: Option<Effort>,
     /// Controls whether to render nerd font symbols. Defaults to `true`.
     #[setters(into)]
     use_nerd_font: bool,
@@ -52,6 +54,8 @@ impl Default for ZshRPrompt {
             model: None,
             token_count: None,
             cost: None,
+            context_length: None,
+            effort: None,
             use_nerd_font: true,
             currency_symbol: "\u{f155}".to_string(),
             conversion_ratio: 1.0,
@@ -93,7 +97,14 @@ impl Display for ZshRPrompt {
             };
 
             if active {
-                write!(f, " {}{}", prefix, num.zsh().fg(ZshColor::WHITE).bold())?;
+                let mut token_str = format!("{}{}", prefix, num);
+                if let Some(limit) = self.context_length
+                    && limit > 0
+                {
+                    let pct = (*count * 100).checked_div(limit as usize).unwrap_or(0);
+                    token_str.push_str(&format!(" ({}%)", pct));
+                }
+                write!(f, " {}", token_str.zsh().fg(ZshColor::WHITE).bold())?;
             }
         }
 
@@ -104,6 +115,16 @@ impl Display for ZshRPrompt {
             let converted_cost = cost * self.conversion_ratio;
             let cost_str = format!("{}{:.2}", self.currency_symbol, converted_cost);
             write!(f, " {}", cost_str.zsh().fg(ZshColor::GREEN).bold())?;
+        }
+
+        // Add effort
+        if let Some(ref effort) = self.effort {
+            let styled = if active {
+                effort.short_name().zsh().fg(ZshColor::YELLOW).bold()
+            } else {
+                effort.short_name().zsh().fg(ZshColor::DIMMED)
+            };
+            write!(f, " [{}]", styled)?;
         }
 
         // Add model
@@ -212,5 +233,17 @@ mod tests {
 
         let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %B%F{2}€0.01%f%b %F{134}\u{ec19} gpt-4%f";
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_rprompt_with_context_percentage() {
+        let actual = ZshRPrompt::default()
+            .agent(Some(AgentId::new("forge")))
+            .token_count(Some(TokenCount::Actual(15000)))
+            .context_length(Some(100000))
+            .use_nerd_font(false)
+            .to_string();
+
+        assert!(actual.contains("15k (15%)"));
     }
 }

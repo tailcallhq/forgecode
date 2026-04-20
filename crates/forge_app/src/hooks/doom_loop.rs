@@ -222,7 +222,7 @@ impl DoomLoopDetector {
 impl EventHandle<EventData<RequestPayload>> for DoomLoopDetector {
     async fn handle(
         &self,
-        event: &mut EventData<RequestPayload>,
+        event: &EventData<RequestPayload>,
         conversation: &mut Conversation,
     ) -> anyhow::Result<()> {
         if let Some(consecutive_calls) = self.detect_from_conversation(conversation) {
@@ -252,7 +252,8 @@ impl EventHandle<EventData<RequestPayload>> for DoomLoopDetector {
 #[cfg(test)]
 mod tests {
     use forge_domain::{
-        Context, ContextMessage, ConversationId, MessageEntry, ToolCallArguments, ToolCallFull,
+        Agent, Context, ContextMessage, ConversationId, MessageEntry, ModelId, ToolCallArguments,
+        ToolCallFull,
     };
     use pretty_assertions::assert_eq;
 
@@ -397,10 +398,10 @@ mod tests {
     async fn test_doom_loop_detector_hook() {
         let detector = DoomLoopDetector::new();
         let mut conversation = create_conversation_with_messages(vec![]);
-        let mut event = EventData::new(test_agent(), test_model_id(), RequestPayload::new(1));
+        let event = EventData::new(test_agent(), test_model_id(), RequestPayload::new(1));
 
         // Should not panic or detect anything yet
-        detector.handle(&mut event, &mut conversation).await.unwrap();
+        detector.handle(&event, &mut conversation).await.unwrap();
         assert_eq!(conversation.len(), 0);
     }
 

@@ -7,7 +7,7 @@ mod tracing;
 
 pub use compaction::CompactionHandler;
 pub use doom_loop::DoomLoopDetector;
-pub use external::ExternalHookHandler;
+pub use external::ExternalHookInterceptor;
 pub use pending_todos::PendingTodosHandler;
 pub use title_generation::TitleGenerationHandler;
 pub use tracing::TracingHandler;

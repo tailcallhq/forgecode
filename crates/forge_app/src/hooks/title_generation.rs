@@ -35,7 +35,7 @@ impl<S> TitleGenerationHandler<S> {
 impl<S: AgentService> EventHandle<EventData<StartPayload>> for TitleGenerationHandler<S> {
     async fn handle(
         &self,
-        event: &mut EventData<StartPayload>,
+        event: &EventData<StartPayload>,
         conversation: &mut Conversation,
     ) -> anyhow::Result<()> {
         if conversation.title.is_some() {
@@ -85,7 +85,7 @@ impl<S: AgentService> EventHandle<EventData<StartPayload>> for TitleGenerationHa
 impl<S: AgentService> EventHandle<EventData<EndPayload>> for TitleGenerationHandler<S> {
     async fn handle(
         &self,
-        _event: &mut EventData<EndPayload>,
+        _event: &EventData<EndPayload>,
         conversation: &mut Conversation,
     ) -> anyhow::Result<()> {
         if let Some((_, entry)) = self.title_tasks.remove(&conversation.id) {
@@ -181,7 +181,7 @@ mod tests {
         conversation.title = Some("existing".into());
 
         handler
-            .handle(&mut event(StartPayload), &mut conversation)
+            .handle(&event(StartPayload), &mut conversation)
             .await
             .unwrap();
 
@@ -200,7 +200,7 @@ mod tests {
             .insert(conversation.id, TitleGenerationState { rx, handle });
 
         handler
-            .handle(&mut event(StartPayload), &mut conversation)
+            .handle(&event(StartPayload), &mut conversation)
             .await
             .unwrap();
 
@@ -220,7 +220,7 @@ mod tests {
             .insert(conversation.id, TitleGenerationState { rx, handle });
 
         handler
-            .handle(&mut event(EndPayload), &mut conversation)
+            .handle(&event(EndPayload), &mut conversation)
             .await
             .unwrap();
 
@@ -242,7 +242,7 @@ mod tests {
             .insert(conversation.id, TitleGenerationState { rx, handle });
 
         handler
-            .handle(&mut event(EndPayload), &mut conversation)
+            .handle(&event(EndPayload), &mut conversation)
             .await
             .unwrap();
 
@@ -267,7 +267,7 @@ mod tests {
             .insert(conversation.id, TitleGenerationState { rx, handle });
 
         handler
-            .handle(&mut event(EndPayload), &mut conversation)
+            .handle(&event(EndPayload), &mut conversation)
             .await
             .unwrap();
 
@@ -295,7 +295,7 @@ mod tests {
             joins.push(tokio::spawn(async move {
                 barrier.wait().await;
                 handler
-                    .handle(&mut event(StartPayload), &mut conv)
+                    .handle(&event(StartPayload), &mut conv)
                     .await
                     .unwrap();
             }));

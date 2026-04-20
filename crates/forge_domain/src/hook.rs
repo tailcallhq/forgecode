@@ -95,6 +95,25 @@ impl ToolcallEndPayload {
     }
 }
 
+/// Payload for the Reasoning event
+///
+/// Fired when the LLM response contains reasoning/thinking content.
+#[derive(Debug, PartialEq, Clone, Setters)]
+#[setters(into)]
+pub struct ReasoningPayload {
+    /// The reasoning text content produced by the model
+    pub reasoning: String,
+}
+
+impl ReasoningPayload {
+    /// Creates a new reasoning payload
+    pub fn new(reasoning: impl Into<String>) -> Self {
+        Self {
+            reasoning: reasoning.into(),
+        }
+    }
+}
+
 /// Lifecycle events that can occur during conversation processing
 #[derive(Debug, PartialEq, Clone, From)]
 pub enum LifecycleEvent {
@@ -115,23 +134,28 @@ pub enum LifecycleEvent {
 
     /// Event fired when a tool call ends
     ToolcallEnd(EventData<ToolcallEndPayload>),
+
+    /// Event fired when reasoning/thinking content is received from the LLM
+    Reasoning(EventData<ReasoningPayload>),
 }
 
 /// Trait for handling lifecycle events
 ///
 /// Implementations of this trait can be used to react to different
-/// stages of conversation processing.
+/// stages of conversation processing. Event data is immutable;
+/// use [`ToolCallInterceptor`] if you need to modify tool calls before
+/// execution.
 #[async_trait]
 pub trait EventHandle<T: Send + Sync>: Send + Sync {
     /// Handles a lifecycle event and potentially modifies the conversation
     ///
     /// # Arguments
-    /// * \`event\` - The lifecycle event that occurred (mutable)
-    /// * \`conversation\` - The current conversation state (mutable)
+    /// * `event` - The lifecycle event that occurred
+    /// * `conversation` - The current conversation state (mutable)
     ///
     /// # Errors
     /// Returns an error if the event handling fails
-    async fn handle(&self, event: &mut T, conversation: &mut Conversation) -> anyhow::Result<()>;
+    async fn handle(&self, event: &T, conversation: &mut Conversation) -> anyhow::Result<()>;
 }
 
 /// Extension trait for combining event handlers
@@ -166,7 +190,7 @@ impl<T: Send + Sync + 'static, A: EventHandle<T> + 'static> EventHandleExt<T> fo
 // Implement EventHandle for Box<dyn EventHandle> to allow using boxed handlers
 #[async_trait]
 impl<T: Send + Sync> EventHandle<T> for Box<dyn EventHandle<T>> {
-    async fn handle(&self, event: &mut T, conversation: &mut Conversation) -> anyhow::Result<()> {
+    async fn handle(&self, event: &T, conversation: &mut Conversation) -> anyhow::Result<()> {
         (**self).handle(event, conversation).await
     }
 }
@@ -182,6 +206,8 @@ pub struct Hook {
     on_response: Box<dyn EventHandle<EventData<ResponsePayload>>>,
     on_toolcall_start: Box<dyn EventHandle<EventData<ToolcallStartPayload>>>,
     on_toolcall_end: Box<dyn EventHandle<EventData<ToolcallEndPayload>>>,
+    on_reasoning: Box<dyn EventHandle<EventData<ReasoningPayload>>>,
+    interceptor: Box<dyn ToolCallInterceptor>,
 }
 
 impl Default for Hook {
@@ -193,6 +219,8 @@ impl Default for Hook {
             on_response: Box::new(NoOpHandler),
             on_toolcall_start: Box::new(NoOpHandler),
             on_toolcall_end: Box::new(NoOpHandler),
+            on_reasoning: Box::new(NoOpHandler),
+            interceptor: Box::new(NoOpInterceptor),
         }
     }
 }
@@ -214,6 +242,8 @@ impl Hook {
         on_response: impl Into<Box<dyn EventHandle<EventData<ResponsePayload>>>>,
         on_toolcall_start: impl Into<Box<dyn EventHandle<EventData<ToolcallStartPayload>>>>,
         on_toolcall_end: impl Into<Box<dyn EventHandle<EventData<ToolcallEndPayload>>>>,
+        on_reasoning: impl Into<Box<dyn EventHandle<EventData<ReasoningPayload>>>>,
+        interceptor: impl Into<Box<dyn ToolCallInterceptor>>,
     ) -> Self {
         Self {
             on_start: on_start.into(),
@@ -222,6 +252,8 @@ impl Hook {
             on_response: on_response.into(),
             on_toolcall_start: on_toolcall_start.into(),
             on_toolcall_end: on_toolcall_end.into(),
+            on_reasoning: on_reasoning.into(),
+            interceptor: interceptor.into(),
         }
     }
 }
@@ -295,6 +327,27 @@ impl Hook {
         self.on_toolcall_end = Box::new(handler);
         self
     }
+
+    /// Sets the reasoning event handler
+    ///
+    /// # Arguments
+    /// * `handler` - Handler for reasoning events (automatically boxed)
+    pub fn on_reasoning(
+        mut self,
+        handler: impl EventHandle<EventData<ReasoningPayload>> + 'static,
+    ) -> Self {
+        self.on_reasoning = Box::new(handler);
+        self
+    }
+
+    /// Sets the tool call interceptor
+    ///
+    /// # Arguments
+    /// * `interceptor` - Interceptor for tool call modification (automatically boxed)
+    pub fn interceptor(mut self, interceptor: impl ToolCallInterceptor + 'static) -> Self {
+        self.interceptor = Box::new(interceptor);
+        self
+    }
 }
 
 impl Hook {
@@ -317,6 +370,8 @@ impl Hook {
             on_response: self.on_response.and(other.on_response),
             on_toolcall_start: self.on_toolcall_start.and(other.on_toolcall_start),
             on_toolcall_end: self.on_toolcall_end.and(other.on_toolcall_end),
+            on_reasoning: self.on_reasoning.and(other.on_reasoning),
+            interceptor: self.interceptor,
         }
     }
 }
@@ -326,7 +381,7 @@ impl Hook {
 impl EventHandle<LifecycleEvent> for Hook {
     async fn handle(
         &self,
-        event: &mut LifecycleEvent,
+        event: &LifecycleEvent,
         conversation: &mut Conversation,
     ) -> anyhow::Result<()> {
         match event {
@@ -340,7 +395,67 @@ impl EventHandle<LifecycleEvent> for Hook {
             LifecycleEvent::ToolcallEnd(data) => {
                 self.on_toolcall_end.handle(data, conversation).await
             }
+            LifecycleEvent::Reasoning(data) => self.on_reasoning.handle(data, conversation).await,
         }
+    }
+}
+
+impl Hook {
+    /// Runs the tool call interceptor on the given tool call
+    ///
+    /// # Arguments
+    /// * `tool_call` - The tool call to intercept (mutable)
+    /// * `agent` - The agent that triggered the tool call
+    /// * `model_id` - The model ID being used
+    ///
+    /// # Errors
+    /// Returns an error if the interception fails
+    pub async fn intercept_tool_call(
+        &self,
+        tool_call: &mut ToolCallFull,
+        agent: &Agent,
+        model_id: &ModelId,
+    ) -> anyhow::Result<()> {
+        self.interceptor.intercept(tool_call, agent, model_id).await
+    }
+}
+
+/// Trait for intercepting and potentially modifying tool calls before execution.
+///
+/// Unlike [`EventHandle`], which only observes events, interceptors can
+/// modify the tool call (e.g. rewrite arguments via an external script).
+#[async_trait]
+pub trait ToolCallInterceptor: Send + Sync {
+    /// Intercepts a tool call before it is executed.
+    ///
+    /// # Arguments
+    /// * `tool_call` - The tool call to potentially modify
+    /// * `agent` - The agent that triggered the tool call
+    /// * `model_id` - The model ID being used
+    ///
+    /// # Errors
+    /// Returns an error if the interception fails
+    async fn intercept(
+        &self,
+        tool_call: &mut ToolCallFull,
+        agent: &Agent,
+        model_id: &ModelId,
+    ) -> anyhow::Result<()>;
+}
+
+/// A no-op interceptor that does nothing
+#[derive(Debug, Default)]
+pub struct NoOpInterceptor;
+
+#[async_trait]
+impl ToolCallInterceptor for NoOpInterceptor {
+    async fn intercept(
+        &self,
+        _tool_call: &mut ToolCallFull,
+        _agent: &Agent,
+        _model_id: &ModelId,
+    ) -> anyhow::Result<()> {
+        Ok(())
     }
 }
 
@@ -348,16 +463,16 @@ impl EventHandle<LifecycleEvent> for Hook {
 ///
 /// Runs the first handler, then runs the second handler.
 ///
-/// This is used internally by the \`Hook::zip\` and \`EventHandleExt::and\`
+/// This is used internally by the `Hook::zip` and `EventHandleExt::and`
 /// methods.
 struct CombinedHandler<T: Send + Sync>(Box<dyn EventHandle<T>>, Box<dyn EventHandle<T>>);
 
 #[async_trait]
 impl<T: Send + Sync> EventHandle<T> for CombinedHandler<T> {
-    async fn handle(&self, event: &mut T, conversation: &mut Conversation) -> anyhow::Result<()> {
+    async fn handle(&self, event: &T, conversation: &mut Conversation) -> anyhow::Result<()> {
         // Run the first handler
         self.0.handle(event, conversation).await?;
-        // Run the second handler with the cloned event
+        // Run the second handler
         self.1.handle(event, conversation).await
     }
 }
@@ -371,7 +486,7 @@ pub struct NoOpHandler;
 
 #[async_trait]
 impl<T: Send + Sync> EventHandle<T> for NoOpHandler {
-    async fn handle(&self, _: &mut T, _: &mut Conversation) -> anyhow::Result<()> {
+    async fn handle(&self, _: &T, _: &mut Conversation) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -379,21 +494,27 @@ impl<T: Send + Sync> EventHandle<T> for NoOpHandler {
 #[async_trait]
 impl<T: Send + Sync, F, Fut> EventHandle<T> for F
 where
-    F: Fn(&mut T, &mut Conversation) -> Fut + Send + Sync,
+    F: Fn(&T, &mut Conversation) -> Fut + Send + Sync,
     Fut: std::future::Future<Output = anyhow::Result<()>> + Send,
 {
-    async fn handle(&self, event: &mut T, conversation: &mut Conversation) -> anyhow::Result<()> {
+    async fn handle(&self, event: &T, conversation: &mut Conversation) -> anyhow::Result<()> {
         (self)(event, conversation).await
     }
 }
 
 impl<T: Send + Sync, F, Fut> From<F> for Box<dyn EventHandle<T>>
 where
-    F: Fn(&mut T, &mut Conversation) -> Fut + Send + Sync + 'static,
+    F: Fn(&T, &mut Conversation) -> Fut + Send + Sync + 'static,
     Fut: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
 {
     fn from(handler: F) -> Self {
         Box::new(handler)
+    }
+}
+
+impl<I: ToolCallInterceptor + 'static> From<I> for Box<dyn ToolCallInterceptor> {
+    fn from(interceptor: I) -> Self {
+        Box::new(interceptor)
     }
 }
 
@@ -432,7 +553,7 @@ mod tests {
         let events_clone = events.clone();
 
         let hook = Hook::default().on_start(
-            move |event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let events = events_clone.clone();
                 let event = event.clone();
                 async move {
@@ -463,7 +584,7 @@ mod tests {
         let hook = Hook::default()
             .on_start({
                 let events = events.clone();
-                move |event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+                move |event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                     let events = events.clone();
                     let event = LifecycleEvent::Start(event.clone());
                     async move {
@@ -474,7 +595,7 @@ mod tests {
             })
             .on_end({
                 let events = events.clone();
-                move |event: &mut EventData<EndPayload>, _conversation: &mut Conversation| {
+                move |event: &EventData<EndPayload>, _conversation: &mut Conversation| {
                     let events = events.clone();
                     let event = LifecycleEvent::End(event.clone());
                     async move {
@@ -485,7 +606,7 @@ mod tests {
             })
             .on_request({
                 let events = events.clone();
-                move |event: &mut EventData<RequestPayload>, _conversation: &mut Conversation| {
+                move |event: &EventData<RequestPayload>, _conversation: &mut Conversation| {
                     let events = events.clone();
                     let event = LifecycleEvent::Request(event.clone());
                     async move {
@@ -540,7 +661,7 @@ mod tests {
         let hook = Hook::new(
             {
                 let events = events.clone();
-                move |event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+                move |event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                     let events = events.clone();
                     let event = LifecycleEvent::Start(event.clone());
                     async move {
@@ -551,7 +672,7 @@ mod tests {
             },
             {
                 let events = events.clone();
-                move |event: &mut EventData<EndPayload>, _conversation: &mut Conversation| {
+                move |event: &EventData<EndPayload>, _conversation: &mut Conversation| {
                     let events = events.clone();
                     let event = LifecycleEvent::End(event.clone());
                     async move {
@@ -562,7 +683,7 @@ mod tests {
             },
             {
                 let events = events.clone();
-                move |event: &mut EventData<RequestPayload>, _conversation: &mut Conversation| {
+                move |event: &EventData<RequestPayload>, _conversation: &mut Conversation| {
                     let events = events.clone();
                     let event = LifecycleEvent::Request(event.clone());
                     async move {
@@ -573,7 +694,7 @@ mod tests {
             },
             {
                 let events = events.clone();
-                move |event: &mut EventData<ResponsePayload>, _conversation: &mut Conversation| {
+                move |event: &EventData<ResponsePayload>, _conversation: &mut Conversation| {
                     let events = events.clone();
                     let event = LifecycleEvent::Response(event.clone());
                     async move {
@@ -584,7 +705,7 @@ mod tests {
             },
             {
                 let events = events.clone();
-                move |event: &mut EventData<ToolcallStartPayload>, _conversation: &mut Conversation| {
+                move |event: &EventData<ToolcallStartPayload>, _conversation: &mut Conversation| {
                     let events = events.clone();
                     let event = LifecycleEvent::ToolcallStart(event.clone());
                     async move {
@@ -595,7 +716,7 @@ mod tests {
             },
             {
                 let events = events.clone();
-                move |event: &mut EventData<ToolcallEndPayload>, _conversation: &mut Conversation| {
+                move |event: &EventData<ToolcallEndPayload>, _conversation: &mut Conversation| {
                     let events = events.clone();
                     let event = LifecycleEvent::ToolcallEnd(event.clone());
                     async move {
@@ -604,6 +725,18 @@ mod tests {
                     }
                 }
             },
+            {
+                let events = events.clone();
+                move |event: &EventData<ReasoningPayload>, _conversation: &mut Conversation| {
+                    let events = events.clone();
+                    let event = LifecycleEvent::Reasoning(event.clone());
+                    async move {
+                        events.lock().unwrap().push(event);
+                        Ok(())
+                    }
+                }
+            },
+            NoOpInterceptor,
         );
 
         let mut conversation = Conversation::generate();
@@ -643,6 +776,11 @@ mod tests {
                     ToolResult::new("test_tool"),
                 ),
             )),
+            LifecycleEvent::Reasoning(EventData::new(
+                test_agent(),
+                test_model_id(),
+                ReasoningPayload::new("thinking..."),
+            )),
         ];
 
         for event in all_events.iter_mut() {
@@ -650,7 +788,7 @@ mod tests {
         }
 
         let handled = events.lock().unwrap();
-        assert_eq!(handled.len(), 6);
+        assert_eq!(handled.len(), 7);
     }
 
     #[tokio::test]
@@ -658,7 +796,7 @@ mod tests {
         let title = std::sync::Arc::new(std::sync::Mutex::new(None));
         let hook = Hook::default().on_start({
             let title = title.clone();
-            move |_event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |_event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let title = title.clone();
                 async move {
                     *title.lock().unwrap() = Some("Modified title".to_string());
@@ -692,7 +830,7 @@ mod tests {
 
         let hook1 = Hook::default().on_start({
             let counter = counter1.clone();
-            move |_event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |_event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let counter = counter.clone();
                 async move {
                     *counter.lock().unwrap() += 1;
@@ -703,7 +841,7 @@ mod tests {
 
         let hook2 = Hook::default().on_start({
             let counter = counter2.clone();
-            move |_event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |_event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let counter = counter.clone();
                 async move {
                     *counter.lock().unwrap() += 1;
@@ -729,7 +867,7 @@ mod tests {
 
         let hook1 = Hook::default().on_start({
             let events = events.clone();
-            move |event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let events = events.clone();
                 let event = event.clone();
                 async move {
@@ -741,7 +879,7 @@ mod tests {
 
         let hook2 = Hook::default().on_start({
             let events = events.clone();
-            move |event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let events = events.clone();
                 let event = event.clone();
                 async move {
@@ -753,7 +891,7 @@ mod tests {
 
         let hook3 = Hook::default().on_start({
             let events = events.clone();
-            move |event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let events = events.clone();
                 let event = event.clone();
                 async move {
@@ -784,7 +922,7 @@ mod tests {
         let hook1 = Hook::default()
             .on_start({
                 let start_title = start_title.clone();
-                move |_event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+                move |_event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                     let start_title = start_title.clone();
                     async move {
                         *start_title.lock().unwrap() = Some("Start".to_string());
@@ -794,7 +932,7 @@ mod tests {
             })
             .on_end({
                 let end_title = end_title.clone();
-                move |_event: &mut EventData<EndPayload>, _conversation: &mut Conversation| {
+                move |_event: &EventData<EndPayload>, _conversation: &mut Conversation| {
                     let end_title = end_title.clone();
                     async move {
                         *end_title.lock().unwrap() = Some("End".to_string());
@@ -828,7 +966,7 @@ mod tests {
 
         let handler1 = {
             let counter = counter1.clone();
-            move |_event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |_event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let counter = counter.clone();
                 async move {
                     *counter.lock().unwrap() += 1;
@@ -839,7 +977,7 @@ mod tests {
 
         let handler2 = {
             let counter = counter2.clone();
-            move |_event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |_event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let counter = counter.clone();
                 async move {
                     *counter.lock().unwrap() += 1;
@@ -869,7 +1007,7 @@ mod tests {
 
         let handler1 = {
             let counter = counter1.clone();
-            move |_event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |_event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let counter = counter.clone();
                 async move {
                     *counter.lock().unwrap() += 1;
@@ -880,7 +1018,7 @@ mod tests {
 
         let handler2 = {
             let counter = counter2.clone();
-            move |_event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |_event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let counter = counter.clone();
                 async move {
                     *counter.lock().unwrap() += 1;
@@ -909,7 +1047,7 @@ mod tests {
 
         let handler1 = {
             let events = events.clone();
-            move |event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let events = events.clone();
                 let event = event.clone();
                 async move {
@@ -921,7 +1059,7 @@ mod tests {
 
         let handler2 = {
             let events = events.clone();
-            move |event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let events = events.clone();
                 let event = event.clone();
                 async move {
@@ -933,7 +1071,7 @@ mod tests {
 
         let handler3 = {
             let events = events.clone();
-            move |event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let events = events.clone();
                 let event = event.clone();
                 async move {
@@ -968,7 +1106,7 @@ mod tests {
 
         let start_handler = {
             let start_title = start_title.clone();
-            move |_event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |_event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let start_title = start_title.clone();
                 async move {
                     *start_title.lock().unwrap() = Some("Started".to_string());
@@ -979,7 +1117,7 @@ mod tests {
 
         let logging_handler = {
             let events = events.clone();
-            move |event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let events = events.clone();
                 let event = event.clone();
                 async move {
@@ -1012,7 +1150,7 @@ mod tests {
         let hook = Hook::default()
             .on_start({
                 let start_title = start_title.clone();
-                move |_event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+                move |_event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                     let start_title = start_title.clone();
                     async move {
                         *start_title.lock().unwrap() = Some("Started".to_string());
@@ -1022,7 +1160,7 @@ mod tests {
             })
             .on_end({
                 let end_title = end_title.clone();
-                move |_event: &mut EventData<EndPayload>, _conversation: &mut Conversation| {
+                move |_event: &EventData<EndPayload>, _conversation: &mut Conversation| {
                     let end_title = end_title.clone();
                     async move {
                         *end_title.lock().unwrap() = Some("Ended".to_string());
@@ -1051,7 +1189,7 @@ mod tests {
 
         let handler1 = {
             let hook1_title = hook1_title.clone();
-            move |_event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |_event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let hook1_title = hook1_title.clone();
                 async move {
                     *hook1_title.lock().unwrap() = Some("Started".to_string());
@@ -1061,7 +1199,7 @@ mod tests {
         };
         let handler2 = {
             let hook2_title = hook2_title.clone();
-            move |_event: &mut EventData<StartPayload>, _conversation: &mut Conversation| {
+            move |_event: &EventData<StartPayload>, _conversation: &mut Conversation| {
                 let hook2_title = hook2_title.clone();
                 async move {
                     *hook2_title.lock().unwrap() = Some("Ended".to_string());

@@ -4,17 +4,16 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use async_trait::async_trait;
-use forge_domain::{
-    Conversation, EventData, EventHandle, ToolcallStartPayload,
-};
+use forge_domain::{Agent, ModelId, ToolCallFull, ToolCallInterceptor};
 use serde::{Deserialize, Serialize};
 
-/// Hook handler that executes external scripts for lifecycle events.
+/// Interceptor that executes external scripts to modify tool calls.
 ///
-/// It looks for scripts in `~/.forge/hooks/` and executes them if they exist.
-/// Currently only supports `ToolcallStart` event for command rewriting.
+/// Looks for scripts in `~/.forge/hooks/` and executes them if they exist.
+/// Currently supports the `rtk-toolcall-start.sh` script for command
+/// rewriting.
 #[derive(Clone, Default)]
-pub struct ExternalHookHandler;
+pub struct ExternalHookInterceptor;
 
 #[derive(Serialize, Deserialize)]
 struct ExternalHookInput {
@@ -34,34 +33,34 @@ struct HookSpecificOutput {
     tool_input: serde_json::Value,
 }
 
-impl ExternalHookHandler {
+impl ExternalHookInterceptor {
+    /// Creates a new external hook interceptor
     pub fn new() -> Self {
         Self
     }
 
-    fn get_hook_path(&self, event_name: &str) -> Option<PathBuf> {
+    fn get_hook_path(event_name: &str) -> Option<PathBuf> {
         let home = dirs::home_dir()?;
-        let hook_path = home.join(".forge").join("hooks").join(format!("rtk-{}.sh", event_name));
-        if hook_path.exists() {
-            Some(hook_path)
-        } else {
-            None
-        }
+        let hook_path = home
+            .join(".forge")
+            .join("hooks")
+            .join(format!("rtk-{}.sh", event_name));
+        hook_path.exists().then_some(hook_path)
     }
 }
 
 #[async_trait]
-impl EventHandle<EventData<ToolcallStartPayload>> for ExternalHookHandler {
-    async fn handle(
+impl ToolCallInterceptor for ExternalHookInterceptor {
+    async fn intercept(
         &self,
-        event: &mut EventData<ToolcallStartPayload>,
-        _conversation: &mut Conversation,
+        tool_call: &mut ToolCallFull,
+        _agent: &Agent,
+        _model_id: &ModelId,
     ) -> anyhow::Result<()> {
-        let Some(hook_path) = self.get_hook_path("toolcall-start") else {
+        let Some(hook_path) = Self::get_hook_path("toolcall-start") else {
             return Ok(());
         };
 
-        let tool_call = &event.payload.tool_call;
         let input = ExternalHookInput {
             tool_name: tool_call.name.as_str().to_string(),
             tool_input: serde_json::to_value(&tool_call.arguments)?,
@@ -85,7 +84,7 @@ impl EventHandle<EventData<ToolcallStartPayload>> for ExternalHookHandler {
                 if external_output.decision == "allow" {
                     if let Some(specific) = external_output.hook_specific_output {
                         let updated_args = serde_json::from_value(specific.tool_input)?;
-                        event.payload.tool_call.arguments = updated_args;
+                        tool_call.arguments = updated_args;
                     }
                 }
             }

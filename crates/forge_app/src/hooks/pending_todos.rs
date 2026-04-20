@@ -42,7 +42,7 @@ impl PendingTodosHandler {
 impl EventHandle<EventData<EndPayload>> for PendingTodosHandler {
     async fn handle(
         &self,
-        _event: &mut EventData<EndPayload>,
+        _event: &EventData<EndPayload>,
         conversation: &mut Conversation,
     ) -> anyhow::Result<()> {
         let pending_todos = conversation.metrics.get_active_todos();
@@ -163,11 +163,11 @@ mod tests {
     #[tokio::test]
     async fn test_no_pending_todos_does_nothing() {
         let handler = PendingTodosHandler::new();
-        let mut event = fixture_event();
+        let event = fixture_event();
         let mut conversation = fixture_conversation(vec![]);
 
         let initial_msg_count = conversation.context.as_ref().unwrap().messages.len();
-        handler.handle(&mut event, &mut conversation).await.unwrap();
+        handler.handle(&event, &mut conversation).await.unwrap();
 
         let actual = conversation.context.as_ref().unwrap().messages.len();
         let expected = initial_msg_count;
@@ -177,13 +177,13 @@ mod tests {
     #[tokio::test]
     async fn test_pending_todos_injects_reminder() {
         let handler = PendingTodosHandler::new();
-        let mut event = fixture_event();
+        let event = fixture_event();
         let mut conversation = fixture_conversation(vec![
             Todo::new("Fix the build").status(TodoStatus::Pending),
             Todo::new("Write tests").status(TodoStatus::InProgress),
         ]);
 
-        handler.handle(&mut event, &mut conversation).await.unwrap();
+        handler.handle(&event, &mut conversation).await.unwrap();
 
         let actual = conversation.context.as_ref().unwrap().messages.len();
         let expected = 1;
@@ -193,13 +193,13 @@ mod tests {
     #[tokio::test]
     async fn test_reminder_contains_formatted_list() {
         let handler = PendingTodosHandler::new();
-        let mut event = fixture_event();
+        let event = fixture_event();
         let mut conversation = fixture_conversation(vec![
             Todo::new("Fix the build").status(TodoStatus::Pending),
             Todo::new("Write tests").status(TodoStatus::InProgress),
         ]);
 
-        handler.handle(&mut event, &mut conversation).await.unwrap();
+        handler.handle(&event, &mut conversation).await.unwrap();
 
         let entry = &conversation.context.as_ref().unwrap().messages[0];
         let actual = entry.message.content().unwrap();
@@ -210,14 +210,14 @@ mod tests {
     #[tokio::test]
     async fn test_completed_todos_not_included() {
         let handler = PendingTodosHandler::new();
-        let mut event = fixture_event();
+        let event = fixture_event();
         let mut conversation = fixture_conversation(vec![
             Todo::new("Completed task").status(TodoStatus::Completed),
             Todo::new("Cancelled task").status(TodoStatus::Cancelled),
         ]);
 
         let initial_msg_count = conversation.context.as_ref().unwrap().messages.len();
-        handler.handle(&mut event, &mut conversation).await.unwrap();
+        handler.handle(&event, &mut conversation).await.unwrap();
 
         let actual = conversation.context.as_ref().unwrap().messages.len();
         let expected = initial_msg_count;
@@ -227,17 +227,17 @@ mod tests {
     #[tokio::test]
     async fn test_reminder_not_duplicated_for_same_todos() {
         let handler = PendingTodosHandler::new();
-        let mut event = fixture_event();
+        let event = fixture_event();
         let mut conversation =
             fixture_conversation(vec![Todo::new("Fix the build").status(TodoStatus::Pending)]);
 
         // First call should inject a reminder
-        handler.handle(&mut event, &mut conversation).await.unwrap();
+        handler.handle(&event, &mut conversation).await.unwrap();
         let after_first = conversation.context.as_ref().unwrap().messages.len();
         assert_eq!(after_first, 1);
 
         // Second call with the same pending todos should NOT add another reminder
-        handler.handle(&mut event, &mut conversation).await.unwrap();
+        handler.handle(&event, &mut conversation).await.unwrap();
         let after_second = conversation.context.as_ref().unwrap().messages.len();
         assert_eq!(after_second, 1); // Still 1, no duplicate
     }
@@ -245,14 +245,14 @@ mod tests {
     #[tokio::test]
     async fn test_reminder_added_when_todos_change() {
         let handler = PendingTodosHandler::new();
-        let mut event = fixture_event();
+        let event = fixture_event();
         let mut conversation = fixture_conversation(vec![
             Todo::new("Fix the build").status(TodoStatus::Pending),
             Todo::new("Write tests").status(TodoStatus::InProgress),
         ]);
 
         // First call should inject a reminder
-        handler.handle(&mut event, &mut conversation).await.unwrap();
+        handler.handle(&event, &mut conversation).await.unwrap();
         let after_first = conversation.context.as_ref().unwrap().messages.len();
         assert_eq!(after_first, 1);
 
@@ -265,7 +265,7 @@ mod tests {
         ]);
 
         // Second call with different pending todos should add a new reminder
-        handler.handle(&mut event, &mut conversation).await.unwrap();
+        handler.handle(&event, &mut conversation).await.unwrap();
         let after_second = conversation.context.as_ref().unwrap().messages.len();
         assert_eq!(after_second, 2); // New reminder added because todos changed
     }

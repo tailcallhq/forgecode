@@ -43,6 +43,10 @@ impl From<Model> for forge_domain::Model {
             vec![forge_domain::InputModality::Text]
         };
 
+        let id = value.id.to_lowercase();
+        let supports_reasoning =
+            Some(id.contains("claude-3-7") || id.contains("-4-") || id.contains("-opus-"));
+
         Self {
             id: ModelId::new(value.id),
             name: value.display_name,
@@ -50,7 +54,8 @@ impl From<Model> for forge_domain::Model {
             context_length,
             tools_supported: Some(true),
             supports_parallel_tool_calls: None,
-            supports_reasoning: None,
+            supports_reasoning,
+            supported_reasoning_efforts: None,
             input_modalities,
         }
     }

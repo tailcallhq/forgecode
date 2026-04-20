@@ -5,10 +5,10 @@ use std::time::Duration;
 use colored::Colorize;
 use forge_api::{Conversation, Environment, ForgeConfig, Metrics, Role, Usage, UserUsage};
 use forge_tracker::VERSION;
-use num_format::{Locale, ToFormattedString};
 
 use crate::display_constants::markers;
 use crate::model::ForgeCommandManager;
+use crate::utils::humanize_number;
 
 #[derive(Debug, PartialEq)]
 pub enum Section {
@@ -231,6 +231,95 @@ impl Info {
 
     pub fn extend(mut self, other: impl Into<Info>) -> Self {
         self.sections.extend(other.into().sections);
+        self
+    }
+
+    pub fn add_usage(mut self, usage: &Usage, context_length: Option<u64>) -> Self {
+        let cache_percentage = calculate_cache_percentage(usage);
+        let context_percentage = context_length.and_then(|limit| {
+            if limit > 0 {
+                Some((*usage.prompt_tokens * 100).checked_div(limit as usize).unwrap_or(0))
+            } else {
+                None
+            }
+        });
+
+        let input_display = if let Some(pct) = context_percentage {
+            format!(
+                "{} [{}% of context]",
+                humanize_number(*usage.prompt_tokens),
+                pct
+            )
+        } else {
+            humanize_number(*usage.prompt_tokens)
+        };
+
+        let cached_display = if cache_percentage > 0 {
+            format!(
+                "{} [{}%]",
+                humanize_number(*usage.cached_tokens),
+                cache_percentage
+            )
+        } else {
+            humanize_number(*usage.cached_tokens)
+        };
+
+        self = self
+            .add_title("TOKEN USAGE")
+            .add_key_value("Input Tokens", input_display)
+            .add_key_value("Cached Tokens", cached_display)
+            .add_key_value("Output Tokens", humanize_number(*usage.completion_tokens));
+
+        if let Some(cost) = usage.cost.as_ref() {
+            self = self.add_key_value("Cost", format!("${cost:.4}"));
+        }
+        self
+    }
+
+    pub fn add_conversation(
+        mut self,
+        conversation: &Conversation,
+        context_length: Option<u64>,
+    ) -> Self {
+        self = self.add_title("CONVERSATION");
+
+        self = self.add_key_value("ID", conversation.id.to_string());
+
+        if let Some(title) = &conversation.title {
+            self = self.add_key_value("Title", title);
+        }
+
+        // Add task and feedback (if available)
+        let mut user_messages = conversation
+            .context
+            .iter()
+            .flat_map(|ctx| ctx.messages.iter())
+            .filter(|message| message.has_role(Role::User));
+
+        let task = user_messages.next();
+
+        if let Some(task) = task
+            && let Some(task) = format_user_message(task)
+        {
+            self = self.add_key_value("Tasks", task);
+
+            for feedback in user_messages {
+                if let Some(feedback) = format_user_message(feedback) {
+                    self = self.add_value(feedback);
+                }
+            }
+        }
+
+        // Insert metrics information
+        if !conversation.metrics.file_operations.is_empty() {
+            self = self.extend(&conversation.metrics);
+        }
+
+        // Insert token usage
+        if let Some(usage) = conversation.accumulated_usage().as_ref() {
+            self = self.add_usage(usage, context_length);
+        }
+
         self
     }
 }
@@ -473,24 +562,18 @@ impl From<&Usage> for Info {
         let cached_display = if cache_percentage > 0 {
             format!(
                 "{} [{}%]",
-                value.cached_tokens.to_formatted_string(&Locale::en),
+                humanize_number(*value.cached_tokens),
                 cache_percentage
             )
         } else {
-            value.cached_tokens.to_formatted_string(&Locale::en)
+            humanize_number(*value.cached_tokens)
         };
 
         let mut usage_info = Info::new()
             .add_title("TOKEN USAGE")
-            .add_key_value(
-                "Input Tokens",
-                value.prompt_tokens.to_formatted_string(&Locale::en),
-            )
+            .add_key_value("Input Tokens", humanize_number(*value.prompt_tokens))
             .add_key_value("Cached Tokens", cached_display)
-            .add_key_value(
-                "Output Tokens",
-                value.completion_tokens.to_formatted_string(&Locale::en),
-            );
+            .add_key_value("Output Tokens", humanize_number(*value.completion_tokens));
 
         if let Some(cost) = value.cost.as_ref() {
             usage_info = usage_info.add_key_value("Cost", format!("${cost:.4}"));
@@ -628,6 +711,8 @@ impl From<&ForgeCommandManager> for Info {
             .add_title("KEYBOARD SHORTCUTS")
             .add_key_value("<CTRL+C>", "Interrupt current operation")
             .add_key_value("<CTRL+D>", "Quit Forge interactive shell")
+            .add_key_value("<CTRL+T>", "Cycle reasoning effort level (Low/Med/High/XHigh)")
+            .add_key_value("<CTRL+G>", "Toggle thinking process visibility")
             .add_key_value(multiline_shortcut, "Insert new line (multiline input)");
 
         info
@@ -710,47 +795,7 @@ fn format_user_message(msg: &forge_api::ContextMessage) -> Option<String> {
 
 impl From<&Conversation> for Info {
     fn from(conversation: &Conversation) -> Self {
-        let mut info = Info::new().add_title("CONVERSATION");
-
-        info = info.add_key_value("ID", conversation.id.to_string());
-
-        if let Some(title) = &conversation.title {
-            info = info.add_key_value("Title", title);
-        }
-
-        // Add task and feedback (if available)
-
-        let mut user_messages = conversation
-            .context
-            .iter()
-            .flat_map(|ctx| ctx.messages.iter())
-            .filter(|message| message.has_role(Role::User));
-
-        let task = user_messages.next();
-
-        if let Some(task) = task
-            && let Some(task) = format_user_message(task)
-        {
-            info = info.add_key_value("Tasks", task);
-
-            for feedback in user_messages {
-                if let Some(feedback) = format_user_message(feedback) {
-                    info = info.add_value(feedback);
-                }
-            }
-        }
-
-        // Insert metrics information
-        if !conversation.metrics.file_operations.is_empty() {
-            info = info.extend(&conversation.metrics);
-        }
-
-        // Insert token usage
-        if let Some(usage) = conversation.accumulated_usage().as_ref() {
-            info = info.extend(usage);
-        }
-
-        info
+        Info::new().add_conversation(conversation, None)
     }
 }
 

@@ -1212,6 +1212,7 @@ mod tests {
             tools_supported,
             supports_parallel_tool_calls: None,
             supports_reasoning: None,
+            supported_reasoning_efforts: None,
             input_modalities: vec![InputModality::Text],
         }
     }

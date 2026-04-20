@@ -26,9 +26,30 @@ pub fn humanize_time(dt: chrono::DateTime<chrono::Utc>) -> String {
 /// ```
 pub fn humanize_number(n: usize) -> String {
     match n {
-        n if n >= 1_000_000_000 => format!("{:.1}B", n as f64 / 1_000_000_000.0),
-        n if n >= 1_000_000 => format!("{:.1}M", n as f64 / 1_000_000.0),
-        n if n >= 1_000 => format!("{:.1}k", n as f64 / 1_000.0),
+        n if n >= 1_000_000_000 => {
+            let val = n as f64 / 1_000_000_000.0;
+            if (val * 10.0).round() % 10.0 == 0.0 {
+                format!("{:.0}B", val)
+            } else {
+                format!("{:.1}B", val)
+            }
+        }
+        n if n >= 1_000_000 => {
+            let val = n as f64 / 1_000_000.0;
+            if (val * 10.0).round() % 10.0 == 0.0 {
+                format!("{:.0}M", val)
+            } else {
+                format!("{:.1}M", val)
+            }
+        }
+        n if n >= 1_000 => {
+            let val = n as f64 / 1_000.0;
+            if (val * 10.0).round() % 10.0 == 0.0 {
+                format!("{:.0}k", val)
+            } else {
+                format!("{:.1}k", val)
+            }
+        }
         _ => n.to_string(),
     }
 }
@@ -57,6 +78,13 @@ mod tests {
     fn test_humanize_number_thousands() {
         let actual = humanize_number(4_500);
         let expected = "4.5k";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_humanize_number_whole_thousands() {
+        let actual = humanize_number(15_000);
+        let expected = "15k";
         assert_eq!(actual, expected);
     }
 

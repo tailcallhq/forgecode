@@ -6,7 +6,9 @@
     "response_type": "OpenAI",
     "url": "https://antinomy.ai/api/v1/chat/completions",
     "models": "https://antinomy.ai/api/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "deepseek",
@@ -15,7 +17,9 @@
     "response_type": "OpenAI",
     "url": "https://api.deepseek.com/chat/completions",
     "models": "https://api.deepseek.com/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "github_copilot",
@@ -30,7 +34,9 @@
           "auth_url": "https://github.com/login/device/code",
           "token_url": "https://github.com/login/oauth/access_token",
           "client_id": "Iv1.b507a08c87ecfe98",
-          "scopes": ["read:user"],
+          "scopes": [
+            "read:user"
+          ],
           "use_pkce": false,
           "token_refresh_url": "https://api.github.com/copilot_internal/v2/token",
           "custom_headers": {
@@ -50,7 +56,9 @@
     "response_type": "OpenAI",
     "url": "https://openrouter.ai/api/v1/chat/completions",
     "models": "https://openrouter.ai/api/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "requesty",
@@ -59,7 +67,9 @@
     "response_type": "OpenAI",
     "url": "https://router.requesty.ai/v1/chat/completions",
     "models": "https://router.requesty.ai/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "xai",
@@ -68,7 +78,9 @@
     "response_type": "OpenAI",
     "url": "https://api.x.ai/v1/chat/completions",
     "models": "https://api.x.ai/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "openai",
@@ -85,7 +97,14 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "o1-2024-12-17",
@@ -95,7 +114,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "o3",
@@ -105,7 +126,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "o3-2025-04-16",
@@ -115,7 +138,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "o3-mini",
@@ -125,7 +150,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "o3-mini-2025-01-31",
@@ -135,7 +162,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "o4-mini",
@@ -145,7 +174,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "o4-mini-2025-04-16",
@@ -155,7 +186,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "gpt-4.1",
@@ -164,7 +197,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4.1-2025-04-14",
@@ -173,7 +209,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4.1-mini",
@@ -182,7 +221,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4.1-mini-2025-04-14",
@@ -191,7 +233,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4.1-nano",
@@ -200,7 +245,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "gpt-4.1-nano-2025-04-14",
@@ -209,7 +256,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "gpt-4o",
@@ -218,7 +267,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4o-2024-11-20",
@@ -227,7 +279,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4o-2024-08-06",
@@ -236,7 +291,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4o-2024-05-13",
@@ -245,7 +303,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4o-mini",
@@ -254,7 +315,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4o-mini-2024-07-18",
@@ -263,7 +327,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4-turbo",
@@ -272,7 +339,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4-turbo-2024-04-09",
@@ -281,7 +351,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4",
@@ -290,7 +363,9 @@
         "context_length": 8192,
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "gpt-4-0613",
@@ -299,7 +374,9 @@
         "context_length": 8192,
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "gpt-4.5-preview",
@@ -308,7 +385,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-4.5-preview-2025-02-27",
@@ -317,7 +397,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-3.5-turbo",
@@ -326,7 +409,9 @@
         "context_length": 16385,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "gpt-3.5-turbo-0125",
@@ -335,7 +420,9 @@
         "context_length": 16385,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "gpt-3.5-turbo-1106",
@@ -344,7 +431,9 @@
         "context_length": 16385,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "chatgpt-4o-latest",
@@ -353,7 +442,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5",
@@ -363,7 +455,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5-2025-08-07",
@@ -373,7 +474,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5-mini",
@@ -383,7 +493,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5-mini-2025-08-07",
@@ -393,7 +512,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5-nano",
@@ -403,7 +531,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ],
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
       },
       {
         "id": "gpt-5-nano-2025-08-07",
@@ -413,7 +549,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ],
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
       },
       {
         "id": "gpt-5-chat-latest",
@@ -423,7 +567,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.1",
@@ -433,7 +586,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.1-chat-latest",
@@ -443,7 +605,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.2",
@@ -453,7 +624,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.2-chat-latest",
@@ -463,7 +643,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.2-pro",
@@ -473,7 +662,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.3-codex",
@@ -483,7 +681,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.4-2026-03-05",
@@ -493,7 +700,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.4-pro-2026-03-05",
@@ -503,7 +719,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.4-mini",
@@ -513,7 +738,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.4-nano",
@@ -523,19 +757,34 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "openai_compatible",
     "api_key_vars": "OPENAI_API_KEY",
-    "url_param_vars": ["OPENAI_URL"],
+    "url_param_vars": [
+      "OPENAI_URL"
+    ],
     "response_type": "OpenAI",
     "url": "{{OPENAI_URL}}/chat/completions",
     "models": "{{OPENAI_URL}}/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "kimi_coding",
@@ -544,7 +793,9 @@
     "response_type": "OpenAI",
     "url": "https://api.kimi.com/coding/v1/chat/completions",
     "models": "https://api.kimi.com/coding/v1/models",
-    "auth_methods": ["api_key"],
+    "auth_methods": [
+      "api_key"
+    ],
     "custom_headers": {
       "User-Agent": "KimiCLI/1.0.0"
     }
@@ -552,11 +803,15 @@
   {
     "id": "openai_responses_compatible",
     "api_key_vars": "OPENAI_API_KEY",
-    "url_param_vars": ["OPENAI_URL"],
+    "url_param_vars": [
+      "OPENAI_URL"
+    ],
     "response_type": "OpenAIResponses",
     "url": "{{OPENAI_URL}}/responses",
     "models": "{{OPENAI_URL}}/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "anthropic",
@@ -565,7 +820,9 @@
     "response_type": "Anthropic",
     "url": "https://api.anthropic.com/v1/messages",
     "models": "https://api.anthropic.com/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "claude_code",
@@ -582,7 +839,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-sonnet-4-6",
@@ -592,7 +858,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-opus-4-6",
@@ -602,7 +876,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-opus-4-5-20251101",
@@ -612,7 +895,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-haiku-4-5-20251001",
@@ -621,7 +913,10 @@
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-sonnet-4-5-20250929",
@@ -631,7 +926,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-opus-4-1-20250805",
@@ -641,7 +944,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-opus-4-20250514",
@@ -651,7 +963,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-sonnet-4-20250514",
@@ -661,7 +982,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-3-7-sonnet-20250219",
@@ -670,7 +999,10 @@
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-3-5-haiku-20241022",
@@ -679,7 +1011,10 @@
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-3-haiku-20240307",
@@ -688,7 +1023,10 @@
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       }
     ],
     "auth_methods": [
@@ -715,11 +1053,15 @@
   {
     "id": "anthropic_compatible",
     "api_key_vars": "ANTHROPIC_API_KEY",
-    "url_param_vars": ["ANTHROPIC_URL"],
+    "url_param_vars": [
+      "ANTHROPIC_URL"
+    ],
     "response_type": "Anthropic",
     "url": "{{ANTHROPIC_URL}}/messages",
     "models": "{{ANTHROPIC_URL}}/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "cerebras",
@@ -728,7 +1070,9 @@
     "response_type": "OpenAI",
     "url": "https://api.cerebras.ai/v1/chat/completions",
     "models": "https://api.cerebras.ai/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "zai",
@@ -745,7 +1089,14 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-5-turbo",
@@ -755,7 +1106,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-5",
@@ -765,7 +1118,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.7",
@@ -775,7 +1130,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.7-flash",
@@ -785,7 +1142,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.7-flashx",
@@ -795,7 +1154,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.6",
@@ -805,7 +1166,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.5",
@@ -815,7 +1178,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.5-air",
@@ -825,7 +1190,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.5-x",
@@ -835,7 +1202,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.5-airx",
@@ -845,7 +1214,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.5-flash",
@@ -855,7 +1226,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4-32b-0414-128k",
@@ -865,10 +1238,14 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": false,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "zai_coding",
@@ -885,7 +1262,14 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-5-turbo",
@@ -895,7 +1279,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-5",
@@ -905,7 +1291,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.7",
@@ -915,7 +1303,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.7-flash",
@@ -925,7 +1315,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.7-flashx",
@@ -935,7 +1327,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.6",
@@ -945,7 +1339,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.5",
@@ -955,7 +1351,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.5-air",
@@ -965,7 +1363,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.5-x",
@@ -975,7 +1375,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.5-airx",
@@ -985,7 +1387,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.5-flash",
@@ -995,7 +1399,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4-32b-0414-128k",
@@ -1005,10 +1411,14 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": false,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "big_model",
@@ -1017,12 +1427,17 @@
     "response_type": "OpenAI",
     "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
     "models": "https://open.bigmodel.cn/api/paas/v4/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "vertex_ai",
     "api_key_vars": "VERTEX_AI_AUTH_TOKEN",
-    "url_param_vars": ["PROJECT_ID", "LOCATION"],
+    "url_param_vars": [
+      "PROJECT_ID",
+      "LOCATION"
+    ],
     "response_type": "Google",
     "url": "https://{{#if (eq LOCATION \"global\")}}aiplatform.googleapis.com{{else}}{{LOCATION}}-aiplatform.googleapis.com{{/if}}/v1beta1/projects/{{PROJECT_ID}}/locations/{{LOCATION}}/publishers/google",
     "models": [
@@ -1034,7 +1449,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-3.1-pro-preview",
@@ -1044,7 +1467,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-3-flash-preview",
@@ -1054,7 +1485,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-3-pro-preview",
@@ -1064,7 +1503,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-2.5-pro",
@@ -1074,7 +1521,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-2.5-flash",
@@ -1084,7 +1539,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-2.0-flash",
@@ -1094,7 +1557,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-1.5-pro",
@@ -1103,7 +1574,10 @@
         "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-1.5-flash",
@@ -1112,7 +1586,10 @@
         "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-1.5-flash-8b",
@@ -1121,10 +1598,16 @@
         "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       }
     ],
-    "auth_methods": ["api_key", "google_adc"]
+    "auth_methods": [
+      "api_key",
+      "google_adc"
+    ]
   },
   {
     "id": "azure",
@@ -1137,59 +1620,90 @@
     "response_type": "OpenAI",
     "url": "https://{{AZURE_RESOURCE_NAME}}.openai.azure.com/openai/deployments/{{AZURE_DEPLOYMENT_NAME}}/chat/completions?api-version={{AZURE_API_VERSION}}",
     "models": "https://{{AZURE_RESOURCE_NAME}}.openai.azure.com/openai/models?api-version={{AZURE_API_VERSION}}",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "llama_cpp",
     "api_key_vars": "LLAMA_CPP_API_KEY",
-    "url_param_vars": ["LLAMA_CPP_URL", "LLAMA_CPP_PORT"],
+    "url_param_vars": [
+      "LLAMA_CPP_URL",
+      "LLAMA_CPP_PORT"
+    ],
     "response_type": "OpenAI",
     "url": "{{LLAMA_CPP_URL}}:{{LLAMA_CPP_PORT}}/v1/chat/completions",
     "models": "{{LLAMA_CPP_URL}}:{{LLAMA_CPP_PORT}}/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "vllm",
     "api_key_vars": "VLLM_API_KEY",
-    "url_param_vars": ["VLLM_URL", "VLLM_PORT"],
+    "url_param_vars": [
+      "VLLM_URL",
+      "VLLM_PORT"
+    ],
     "response_type": "OpenAI",
     "url": "{{VLLM_URL}}:{{VLLM_PORT}}/v1/chat/completions",
     "models": "{{VLLM_URL}}:{{VLLM_PORT}}/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "jan_ai",
     "api_key_vars": "JAN_AI_API_KEY",
-    "url_param_vars": ["JAN_AI_URL", "JAN_AI_PORT"],
+    "url_param_vars": [
+      "JAN_AI_URL",
+      "JAN_AI_PORT"
+    ],
     "response_type": "OpenAI",
     "url": "{{JAN_AI_URL}}:{{JAN_AI_PORT}}/v1/chat/completions",
     "models": "{{JAN_AI_URL}}:{{JAN_AI_PORT}}/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "ollama",
     "api_key_vars": "OLLAMA_API_KEY",
-    "url_param_vars": ["OLLAMA_URL", "OLLAMA_PORT"],
+    "url_param_vars": [
+      "OLLAMA_URL",
+      "OLLAMA_PORT"
+    ],
     "response_type": "OpenAI",
     "url": "{{OLLAMA_URL}}:{{OLLAMA_PORT}}/v1/chat/completions",
     "models": "{{OLLAMA_URL}}:{{OLLAMA_PORT}}/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "lm_studio",
     "api_key_vars": "LM_STUDIO_API_KEY",
-    "url_param_vars": ["LM_STUDIO_URL", "LM_STUDIO_PORT"],
+    "url_param_vars": [
+      "LM_STUDIO_URL",
+      "LM_STUDIO_PORT"
+    ],
     "response_type": "OpenAI",
     "url": "{{LM_STUDIO_URL}}:{{LM_STUDIO_PORT}}/v1/chat/completions",
     "models": "{{LM_STUDIO_URL}}:{{LM_STUDIO_PORT}}/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "forge_services",
     "provider_type": "context_engine",
-    "url_param_vars": ["FORGE_WORKSPACE_SERVER_URL"],
+    "url_param_vars": [
+      "FORGE_WORKSPACE_SERVER_URL"
+    ],
     "url": "{{FORGE_WORKSPACE_SERVER_URL}}",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "io_intelligence",
@@ -1198,11 +1712,15 @@
     "response_type": "OpenAI",
     "url": "https://api.intelligence.io.solutions/api/v1/chat/completions",
     "models": "https://api.intelligence.io.solutions/api/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "bedrock",
-    "url_param_vars": ["AWS_REGION"],
+    "url_param_vars": [
+      "AWS_REGION"
+    ],
     "response_type": "Bedrock",
     "url": "https://bedrock-runtime.{{AWS_REGION}}.amazonaws.com",
     "models": [
@@ -1213,7 +1731,10 @@
         "context_length": 202752,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "qwen.qwen3-coder-480b-a35b-v1:0",
@@ -1222,7 +1743,9 @@
         "context_length": 131072,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "moonshotai.kimi-k2.5",
@@ -1232,7 +1755,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "meta.llama3-1-405b-instruct-v1:0",
@@ -1241,7 +1772,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "deepseek.v3.2",
@@ -1251,7 +1784,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "global.anthropic.claude-sonnet-4-6",
@@ -1261,7 +1796,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "nvidia.nemotron-super-3-120b",
@@ -1271,7 +1814,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "minimax.minimax-m2.1",
@@ -1281,7 +1826,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "us.anthropic.claude-sonnet-4-20250514-v1:0",
@@ -1291,7 +1838,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "meta.llama3-3-70b-instruct-v1:0",
@@ -1300,7 +1855,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "google.gemma-3-12b-it",
@@ -1308,7 +1865,10 @@
         "description": "",
         "context_length": 131072,
         "tools_supported": false,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "us.anthropic.claude-opus-4-1-20250805-v1:0",
@@ -1318,7 +1878,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "anthropic.claude-haiku-4-5-20251001-v1:0",
@@ -1328,7 +1897,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "mistral.pixtral-large-2502-v1:0",
@@ -1337,7 +1914,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "anthropic.claude-3-5-sonnet-20240620-v1:0",
@@ -1346,7 +1926,10 @@
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "mistral.ministral-3-8b-instruct",
@@ -1355,7 +1938,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
@@ -1365,7 +1950,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "openai.gpt-oss-120b-1:0",
@@ -1374,7 +1967,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "openai.gpt-oss-safeguard-120b",
@@ -1383,7 +1978,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "anthropic.claude-3-5-sonnet-20241022-v2:0",
@@ -1392,7 +1989,10 @@
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "deepseek.v3-v1:0",
@@ -1402,7 +2002,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "minimax.minimax-m2",
@@ -1412,7 +2014,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "qwen.qwen3-vl-235b-a22b",
@@ -1421,7 +2025,10 @@
         "context_length": 262000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "meta.llama3-2-1b-instruct-v1:0",
@@ -1430,7 +2037,9 @@
         "context_length": 131000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "openai.gpt-oss-safeguard-20b",
@@ -1439,7 +2048,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
@@ -1449,7 +2060,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "nvidia.nemotron-nano-3-30b",
@@ -1459,7 +2079,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "anthropic.claude-opus-4-1-20250805-v1:0",
@@ -1469,7 +2091,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "eu.anthropic.claude-sonnet-4-6",
@@ -1479,7 +2110,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "qwen.qwen3-235b-a22b-2507-v1:0",
@@ -1488,7 +2127,9 @@
         "context_length": 262144,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "writer.palmyra-x5-v1:0",
@@ -1498,7 +2139,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "zai.glm-5",
@@ -1508,7 +2151,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "amazon.nova-micro-v1:0",
@@ -1517,7 +2162,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "writer.palmyra-x4-v1:0",
@@ -1527,7 +2174,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "mistral.voxtral-mini-3b-2507",
@@ -1536,7 +2185,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -1546,7 +2197,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "mistral.mistral-large-3-675b-instruct",
@@ -1555,7 +2214,10 @@
         "context_length": 256000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "zai.glm-4.7",
@@ -1565,7 +2227,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "qwen.qwen3-32b-v1:0",
@@ -1575,7 +2239,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "us.anthropic.claude-opus-4-6-v1",
@@ -1585,7 +2251,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -1595,7 +2270,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "meta.llama3-2-11b-instruct-v1:0",
@@ -1604,7 +2287,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "global.anthropic.claude-opus-4-6-v1",
@@ -1614,7 +2300,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -1624,7 +2319,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "anthropic.claude-sonnet-4-20250514-v1:0",
@@ -1634,7 +2337,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "mistral.ministral-3-3b-instruct",
@@ -1643,7 +2354,10 @@
         "context_length": 256000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "meta.llama4-maverick-17b-instruct-v1:0",
@@ -1652,7 +2366,10 @@
         "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "moonshot.kimi-k2-thinking",
@@ -1662,7 +2379,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "mistral.magistral-small-2509",
@@ -1672,7 +2391,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "us.anthropic.claude-opus-4-20250514-v1:0",
@@ -1682,7 +2409,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "eu.anthropic.claude-sonnet-4-20250514-v1:0",
@@ -1692,7 +2428,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "nvidia.nemotron-nano-12b-v2",
@@ -1701,7 +2445,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "zai.glm-4.7-flash",
@@ -1711,7 +2458,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "mistral.voxtral-small-24b-2507",
@@ -1720,7 +2469,9 @@
         "context_length": 32000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "eu.anthropic.claude-opus-4-6-v1",
@@ -1730,7 +2481,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "anthropic.claude-3-7-sonnet-20250219-v1:0",
@@ -1739,7 +2499,10 @@
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "openai.gpt-oss-20b-1:0",
@@ -1748,7 +2511,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "qwen.qwen3-coder-30b-a3b-v1:0",
@@ -1757,7 +2522,9 @@
         "context_length": 262144,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "meta.llama3-1-8b-instruct-v1:0",
@@ -1766,7 +2533,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
@@ -1776,7 +2545,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "meta.llama3-2-90b-instruct-v1:0",
@@ -1785,7 +2562,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "anthropic.claude-opus-4-6-v1",
@@ -1795,7 +2575,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "anthropic.claude-3-5-haiku-20241022-v1:0",
@@ -1804,7 +2593,10 @@
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "meta.llama3-2-3b-instruct-v1:0",
@@ -1813,7 +2605,9 @@
         "context_length": 131000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -1823,7 +2617,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "deepseek.r1-v1:0",
@@ -1833,7 +2635,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "mistral.ministral-3-14b-instruct",
@@ -1842,7 +2646,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "amazon.nova-lite-v1:0",
@@ -1851,7 +2657,10 @@
         "context_length": 300000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "amazon.nova-pro-v1:0",
@@ -1860,7 +2669,10 @@
         "context_length": 300000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "mistral.devstral-2-123b",
@@ -1869,7 +2681,9 @@
         "context_length": 256000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "qwen.qwen3-next-80b-a3b",
@@ -1878,7 +2692,9 @@
         "context_length": 262000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "minimax.minimax-m2.5",
@@ -1888,7 +2704,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "anthropic.claude-3-haiku-20240307-v1:0",
@@ -1897,7 +2715,10 @@
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "eu.anthropic.claude-opus-4-5-20251101-v1:0",
@@ -1907,7 +2728,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "meta.llama4-scout-17b-instruct-v1:0",
@@ -1916,7 +2746,10 @@
         "context_length": 3500000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "amazon.nova-2-lite-v1:0",
@@ -1925,7 +2758,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "global.anthropic.claude-opus-4-5-20251101-v1:0",
@@ -1935,7 +2771,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "amazon.nova-premier-v1:0",
@@ -1945,7 +2790,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "anthropic.claude-sonnet-4-6",
@@ -1955,7 +2808,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "anthropic.claude-opus-4-20250514-v1:0",
@@ -1965,7 +2826,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "nvidia.nemotron-nano-9b-v2",
@@ -1974,7 +2844,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "google.gemma-3-4b-it",
@@ -1983,7 +2855,10 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "meta.llama3-1-70b-instruct-v1:0",
@@ -1992,7 +2867,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
@@ -2002,7 +2879,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "anthropic.claude-opus-4-5-20251101-v1:0",
@@ -2012,7 +2897,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "us.anthropic.claude-sonnet-4-6",
@@ -2022,7 +2916,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "global.anthropic.claude-sonnet-4-20250514-v1:0",
@@ -2032,7 +2934,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "us.anthropic.claude-opus-4-7",
@@ -2042,7 +2952,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "global.anthropic.claude-opus-4-7",
@@ -2052,7 +2971,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "eu.anthropic.claude-opus-4-7",
@@ -2062,15 +2990,23 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "vertex_ai_anthropic",
     "api_key_vars": "VERTEX_AI_AUTH_TOKEN",
-    "url_param_vars": ["PROJECT_ID", "LOCATION"],
+    "url_param_vars": [
+      "PROJECT_ID",
+      "LOCATION"
+    ],
     "response_type": "Anthropic",
     "url": "{{#if (eq LOCATION \"global\")}}https://aiplatform.googleapis.com/v1/projects/{{PROJECT_ID}}/locations/{{LOCATION}}/publishers/anthropic/models/{{else}}https://{{LOCATION}}-aiplatform.googleapis.com/v1/projects/{{PROJECT_ID}}/locations/{{LOCATION}}/publishers/anthropic/models/{{/if}}",
     "models": [
@@ -2082,7 +3018,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-opus-4-7",
@@ -2092,7 +3036,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-opus-4-6",
@@ -2102,7 +3055,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-opus-4-5@20251101",
@@ -2112,7 +3074,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-sonnet-4-5@20250929",
@@ -2122,7 +3093,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-opus-4-1@20250805",
@@ -2132,7 +3111,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-opus-4@20250514",
@@ -2142,7 +3130,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-sonnet-4@20250514",
@@ -2152,7 +3149,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-3-7-sonnet@20250219",
@@ -2162,7 +3167,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-3-5-sonnet-v2@20241022",
@@ -2172,7 +3185,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-3-5-haiku@20241022",
@@ -2182,7 +3203,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-3-5-sonnet@20240620",
@@ -2192,7 +3221,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-3-haiku@20240307",
@@ -2202,7 +3239,10 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-3-sonnet@20240229",
@@ -2212,7 +3252,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-3-opus@20240229",
@@ -2222,10 +3270,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       }
     ],
-    "auth_methods": ["google_adc"]
+    "auth_methods": [
+      "google_adc"
+    ]
   },
   {
     "id": "google_ai_studio",
@@ -2242,7 +3295,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-3.1-flash-lite-preview",
@@ -2252,7 +3313,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-3-pro-preview",
@@ -2262,7 +3331,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-3-flash-preview",
@@ -2272,7 +3349,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-2.5-pro",
@@ -2282,7 +3367,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-2.5-flash",
@@ -2292,7 +3385,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-2.0-flash",
@@ -2302,16 +3403,27 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": false,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "minimax",
     "api_key_vars": "MINIMAX_API_KEY",
     "url_param_vars": [
-      { "name": "HOSTNAME", "options": ["api.minimax.io", "api.minimaxi.com"] }
+      {
+        "name": "HOSTNAME",
+        "options": [
+          "api.minimax.io",
+          "api.minimaxi.com"
+        ]
+      }
     ],
     "response_type": "Anthropic",
     "url": "https://{{#if HOSTNAME}}{{HOSTNAME}}{{else}}api.minimax.io{{/if}}/anthropic/v1/messages",
@@ -2324,7 +3436,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "MiniMax-M2.7-highspeed",
@@ -2334,7 +3448,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "MiniMax-M2.5",
@@ -2344,7 +3460,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "MiniMax-M2.5-highspeed",
@@ -2354,7 +3472,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "MiniMax-M2.1",
@@ -2364,7 +3484,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "MiniMax-M2.1-highspeed",
@@ -2374,7 +3496,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "MiniMax-M2",
@@ -2384,10 +3508,14 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "codex",
@@ -2404,7 +3532,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.4",
@@ -2414,7 +3551,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.3-codex-spark",
@@ -2424,7 +3570,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ],
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
       },
       {
         "id": "gpt-5.3-codex",
@@ -2434,7 +3588,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.2-codex",
@@ -2444,7 +3607,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.2",
@@ -2454,7 +3626,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.1-codex-max",
@@ -2464,7 +3645,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.1-codex",
@@ -2474,7 +3664,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.1-codex-mini",
@@ -2484,7 +3683,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
       }
     ],
     "auth_methods": [
@@ -2493,7 +3701,12 @@
           "auth_url": "https://auth.openai.com/oauth/authorize",
           "token_url": "https://auth.openai.com/oauth/token",
           "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-          "scopes": ["openid", "profile", "email", "offline_access"],
+          "scopes": [
+            "openid",
+            "profile",
+            "email",
+            "offline_access"
+          ],
           "redirect_uri": "http://localhost:1455/auth/callback",
           "use_pkce": true,
           "custom_headers": {
@@ -2510,7 +3723,12 @@
           "auth_url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
           "token_url": "https://auth.openai.com/oauth/token",
           "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-          "scopes": ["openid", "profile", "email", "offline_access"],
+          "scopes": [
+            "openid",
+            "profile",
+            "email",
+            "offline_access"
+          ],
           "use_pkce": false,
           "custom_headers": {
             "originator": "forge"
@@ -2534,7 +3752,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-opus-4-5",
@@ -2544,7 +3771,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-opus-4-1",
@@ -2554,7 +3790,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-sonnet-4-6",
@@ -2564,7 +3809,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-sonnet-4-5",
@@ -2574,7 +3827,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-sonnet-4",
@@ -2584,7 +3845,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-3-5-haiku",
@@ -2594,7 +3863,10 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "claude-haiku-4-5",
@@ -2604,7 +3876,10 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gemini-3.1-pro",
@@ -2614,9 +3889,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
-
       {
         "id": "gemini-3-flash",
         "name": "Gemini 3 Flash",
@@ -2625,7 +3907,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.4-pro",
@@ -2635,7 +3925,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.4",
@@ -2645,7 +3944,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.3-codex-spark",
@@ -2655,7 +3963,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.3-codex",
@@ -2665,7 +3982,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.2",
@@ -2675,7 +4001,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.2-codex",
@@ -2685,7 +4020,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.1",
@@ -2695,7 +4039,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.1-codex-max",
@@ -2705,7 +4058,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.1-codex",
@@ -2715,7 +4077,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5.1-codex-mini",
@@ -2725,7 +4096,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5",
@@ -2735,7 +4115,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5-codex",
@@ -2745,7 +4134,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "gpt-5-nano",
@@ -2755,7 +4153,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "glm-5",
@@ -2765,7 +4172,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "glm-5.1",
@@ -2775,7 +4190,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "minimax-m2.5",
@@ -2785,7 +4202,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "minimax-m2.5-free",
@@ -2795,9 +4220,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
-
       {
         "id": "mimo-v2-flash-free",
         "name": "MiMo V2 Flash Free",
@@ -2806,7 +4238,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "kimi-k2.5",
@@ -2816,9 +4250,16 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
-
       {
         "id": "trinity-large-preview-free",
         "name": "Trinity Large Preview Free",
@@ -2827,7 +4268,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "big-pickle",
@@ -2837,7 +4280,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "nemotron-3-super-free",
@@ -2847,7 +4292,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "mimo-v2-pro-free",
@@ -2857,7 +4304,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "mimo-v2-omni-free",
@@ -2867,10 +4316,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "opencode_go",
@@ -2887,7 +4341,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-5.1",
@@ -2897,7 +4353,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "kimi-k2.5",
@@ -2907,7 +4365,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "mimo-v2-pro",
@@ -2917,7 +4383,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "mimo-v2-omni",
@@ -2927,7 +4395,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "minimax-m2.7",
@@ -2937,7 +4413,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "minimax-m2.5",
@@ -2947,16 +4425,22 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "alibaba_coding",
     "provider_type": "llm",
     "api_key_vars": "ALIBABA_CODING_API_KEY",
-    "url_param_vars": ["ANTHROPIC_COMPACT_URL"],
+    "url_param_vars": [
+      "ANTHROPIC_COMPACT_URL"
+    ],
     "response_type": "Anthropic",
     "url": "{{ANTHROPIC_COMPACT_URL}}/messages",
     "models": [
@@ -2968,7 +4452,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "kimi-k2.5",
@@ -2978,7 +4470,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "glm-5",
@@ -2988,7 +4488,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "MiniMax-M2.5",
@@ -2998,7 +4500,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "qwen3-max-2026-01-23",
@@ -3008,7 +4512,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "qwen3-coder-next",
@@ -3018,7 +4524,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "qwen3-coder-plus",
@@ -3028,7 +4536,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "glm-4.7",
@@ -3038,7 +4548,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "qwen3.6-plus",
@@ -3048,10 +4560,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "novita",
@@ -3068,7 +4585,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "moonshotai/kimi-k2.5",
@@ -3078,7 +4597,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "zai-org/glm-5",
@@ -3088,7 +4615,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "minimax/minimax-m2.5",
@@ -3098,7 +4627,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "qwen/qwen3-embedding-0.6b",
@@ -3106,10 +4637,14 @@
         "description": "Qwen3 embedding model with 1024 dimensions and 8K max input",
         "context_length": 8192,
         "tools_supported": false,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   },
   {
     "id": "fireworks-ai",
@@ -3117,7 +4652,9 @@
     "url_param_vars": [],
     "response_type": "OpenAI",
     "url": "https://api.fireworks.ai/inference/v1/chat/completions",
-    "auth_methods": ["api_key"],
+    "auth_methods": [
+      "api_key"
+    ],
     "models": [
       {
         "id": "accounts/fireworks/routers/kimi-k2p5-turbo",
@@ -3127,7 +4664,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "accounts/fireworks/models/kimi-k2p5",
@@ -3137,7 +4682,15 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "supported_reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "input_modalities": [
+          "text",
+          "image"
+        ]
       },
       {
         "id": "accounts/fireworks/models/kimi-k2-instruct",
@@ -3146,7 +4699,9 @@
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "accounts/fireworks/models/kimi-k2-thinking",
@@ -3156,7 +4711,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "accounts/fireworks/models/deepseek-v3p1",
@@ -3166,7 +4723,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "accounts/fireworks/models/minimax-m2p1",
@@ -3176,7 +4735,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "accounts/fireworks/models/minimax-m2p5",
@@ -3186,7 +4747,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "accounts/fireworks/models/gpt-oss-120b",
@@ -3196,7 +4759,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "accounts/fireworks/models/glm-4p7",
@@ -3206,7 +4771,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "accounts/fireworks/models/deepseek-v3p2",
@@ -3216,7 +4783,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "accounts/fireworks/models/glm-4p5",
@@ -3226,7 +4795,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "accounts/fireworks/models/glm-5",
@@ -3236,7 +4807,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "accounts/fireworks/models/glm-4p5-air",
@@ -3246,7 +4819,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       },
       {
         "id": "accounts/fireworks/models/gpt-oss-20b",
@@ -3256,7 +4831,9 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       }
     ]
   },
@@ -3275,9 +4852,13 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
+        "input_modalities": [
+          "text"
+        ]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      "api_key"
+    ]
   }
 ]

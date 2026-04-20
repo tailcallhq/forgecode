@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use console::style;
 use convert_case::{Case, Casing};
+use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyModifiers};
 use forge_api::{
     API, AgentId, AnyProvider, ApiKeyRequest, AuthContextRequest, AuthContextResponse, ChatRequest,
     ChatResponse, CodeRequest, ConfigOperation, Conversation, ConversationId, DeviceCodeRequest,
@@ -41,6 +42,7 @@ use crate::error::UIError;
 use crate::info::Info;
 use crate::input::Console;
 use crate::model::{AppCommand, ForgeCommandManager};
+use forge_api::Effort;
 use crate::porcelain::Porcelain;
 use crate::prompt::ForgePrompt;
 use crate::state::UIState;
@@ -49,7 +51,7 @@ use crate::sync_display::SyncProgressDisplay;
 use crate::title_display::TitleDisplayExt;
 use crate::tools_display::format_tools;
 use crate::update::on_update;
-use crate::utils::humanize_time;
+use crate::utils::{humanize_number, humanize_time};
 use crate::zsh::ZshRPrompt;
 use crate::{TRACKER, banner, tracker};
 
@@ -150,6 +152,25 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
     }
 
+    /// Resolves the context length for the given model ID by looking up the
+    /// model list.
+    async fn get_context_length(&self, model_id: Option<&ModelId>) -> Option<u64> {
+        let mid = model_id?;
+        self.api.get_models().await.ok().and_then(|models| {
+            models.iter().find(|m| &m.id == mid).and_then(|m| m.context_length)
+        })
+    }
+
+    /// Resolves model and context length in a single call.
+    ///
+    /// Returns `(model_id, context_length)`.
+    async fn get_model_with_context_length(&self) -> (Option<ModelId>, Option<u64>) {
+        let agent = self.api.get_active_agent().await;
+        let model = self.get_agent_model(agent).await;
+        let context_length = self.get_context_length(model.as_ref()).await;
+        (model, context_length)
+    }
+
     /// Displays banner only if user is in interactive mode.
     fn display_banner(&self) -> Result<()> {
         if self.cli.is_interactive() {
@@ -239,7 +260,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         })
     }
 
-    async fn prompt(&self) -> Result<AppCommand> {
+    async fn prompt(&mut self) -> Result<AppCommand> {
         // Get usage from current conversation if available.
         // Use the last message's usage for token count (context window size),
         // but replace cost with the accumulated session cost so the cost
@@ -262,9 +283,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         // Prompt the user for input
         let agent_id = self.api.get_active_agent().await.unwrap_or_default();
-        let model = self
-            .get_agent_model(self.api.get_active_agent().await)
-            .await;
+        let (model, context_length) = self.get_model_with_context_length().await;
         let mut forge_prompt = ForgePrompt::new(self.state.cwd.clone(), agent_id);
         if let Some(u) = usage {
             forge_prompt.usage(u);
@@ -272,7 +291,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         if let Some(m) = model {
             forge_prompt.model(m);
         }
-        self.console.prompt(&mut forge_prompt).await
+        if let Some(l) = context_length {
+            forge_prompt.context_length(l);
+        }
+
+        if let Ok(Some(effort)) = self.api.get_reasoning_effort().await {
+            forge_prompt.effort(effort);
+        }
+
+        forge_prompt.effort_state(self.console.effort_state());
+
+        self.console.prompt(&mut forge_prompt, &self.api).await
     }
 
     pub async fn run(&mut self) {
@@ -1626,6 +1655,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // Fetch model (resolved with default model if unset)
         let model = self.get_agent_model(agent.clone()).await;
 
+        // Fetch context length if model is present
+        let context_length = self.get_context_length(model.as_ref()).await;
+
         // Fetch agent-specific provider or default provider if unset
         let agent_provider = self.get_provider(agent.clone()).await.ok();
 
@@ -1671,9 +1703,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         // Add conversation information if available
         if let Some(conversation) = conversation {
-            info = info.extend(Info::from(&conversation));
+            info = info.add_conversation(&conversation, context_length);
         } else {
-            info = info.extend(Info::new().add_title("CONVERSATION").add_key("ID"));
+            info = info.add_title("CONVERSATION").add_key("ID");
         }
 
         if porcelain {
@@ -2251,13 +2283,61 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         Ok(false)
     }
+    async fn cycle_reasoning_effort(&mut self) -> Result<()> {
+        let agent = self.api.get_active_agent().await;
+        let model_id = self.get_agent_model(agent).await;
+
+        let supported_efforts = if let Some(mid) = model_id {
+            self.api
+                .get_models()
+                .await
+                .ok()
+                .and_then(|models| {
+                    models
+                        .into_iter()
+                        .find(|m| m.id == mid)
+                        .map(|m| m.reasoning_efforts())
+                })
+                .unwrap_or_default()
+        } else {
+            vec![]
+        };
+
+        if supported_efforts.is_empty() {
+            return Ok(());
+        }
+
+        let current = self.api.get_reasoning_effort().await?.unwrap_or(Effort::Medium);
+
+        let next = if let Some(pos) = supported_efforts.iter().position(|e| e == &current) {
+            supported_efforts[(pos + 1) % supported_efforts.len()].clone()
+        } else {
+            supported_efforts.first().cloned().unwrap_or(Effort::Medium)
+        };
+
+        self.api
+            .update_config(vec![ConfigOperation::SetReasoningEffort(next.clone())])
+            .await?;
+        self.writeln_title(TitleFormat::action(format!(
+            "Reasoning effort set to {}",
+            next.to_string().bold()
+        )))?;
+        Ok(())
+    }
+
     async fn on_compaction(&mut self) -> Result<(), anyhow::Error> {
         let conversation_id = self.init_conversation().await?;
         let compaction_result = self.api.compact_conversation(&conversation_id).await?;
         let token_reduction = compaction_result.token_reduction_percentage();
         let message_reduction = compaction_result.message_reduction_percentage();
         let content = TitleFormat::action(format!(
-            "Context size reduced by {token_reduction:.1}% (tokens), {message_reduction:.1}% (messages)"
+            "Context size reduced from {} to {} tokens ({:.1}%), from {} to {} messages ({:.1}%)",
+            humanize_number(compaction_result.original_tokens),
+            humanize_number(compaction_result.compacted_tokens),
+            token_reduction,
+            compaction_result.original_messages,
+            compaction_result.compacted_messages,
+            message_reduction
         ));
         self.writeln_title(content)?;
         Ok(())
@@ -2290,15 +2370,30 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_reasoning_effort_selection(&mut self, global: bool) -> anyhow::Result<()> {
         use std::str::FromStr;
 
-        let effort_levels: Vec<String> = vec![
-            "none".to_string(),
-            "minimal".to_string(),
-            "low".to_string(),
-            "medium".to_string(),
-            "high".to_string(),
-            "xhigh".to_string(),
-            "max".to_string(),
-        ];
+        let agent = self.api.get_active_agent().await;
+        let model_id = self.get_agent_model(agent).await;
+
+        let effort_levels = if let Some(mid) = model_id {
+            self.api
+                .get_models()
+                .await
+                .ok()
+                .and_then(|models| {
+                    models
+                        .into_iter()
+                        .find(|m| m.id == mid)
+                        .map(|m| m.reasoning_efforts())
+                })
+                .map(|efforts| efforts.into_iter().map(|e| e.to_string()).collect())
+                .unwrap_or_default()
+        } else {
+            vec![]
+        };
+
+        if effort_levels.is_empty() {
+            self.writeln_title(TitleFormat::info("Current model does not support reasoning effort levels"))?;
+            return Ok(());
+        }
 
         let current_effort = self.api.get_reasoning_effort().await.ok().flatten();
         let current_str = current_effort.as_ref().map(|e| e.to_string());
@@ -3772,6 +3867,22 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let mut writer = StreamingWriter::new(self.spinner.clone(), self.api.clone());
 
         while let Some(message) = stream.next().await {
+            // Check for key events during streaming
+            if event::poll(Duration::from_millis(0)).unwrap_or(false) {
+                if let Ok(CrosstermEvent::Key(key)) = event::read() {
+                    if key.code == KeyCode::Char('t')
+                        && key.modifiers.contains(KeyModifiers::CONTROL)
+                    {
+                        self.cycle_reasoning_effort().await?;
+                    }
+                    if key.code == KeyCode::Char('g')
+                        && key.modifiers.contains(KeyModifiers::CONTROL)
+                    {
+                        writer.toggle_thinking()?;
+                    }
+                }
+            }
+
             match message {
                 Ok(message) => self.handle_chat_response(message, &mut writer).await?,
                 Err(err) => {
@@ -4020,7 +4131,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_show_conv_info(&mut self, conversation: Conversation) -> anyhow::Result<()> {
         self.spinner.start(Some("Loading Summary"))?;
 
-        let info = Info::default().extend(&conversation);
+        // Fetch context length
+        let agent = self.api.get_active_agent().await;
+        let model = self.get_agent_model(agent).await;
+        let context_length = self.get_context_length(model.as_ref()).await;
+
+        let info = Info::default().add_conversation(&conversation, context_length);
         self.writeln(info)?;
         self.spinner.stop(None)?;
 
@@ -4155,8 +4271,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             None
         };
 
+        // Fetch context length
+        let agent = self.api.get_active_agent().await;
+        let model = self.get_agent_model(agent).await;
+        let context_length = self.get_context_length(model.as_ref()).await;
+
         let mut info = if let Some(usage) = conversation_usage {
-            Info::from(&usage)
+            Info::new().add_usage(&usage, context_length)
         } else {
             Info::new()
         };
@@ -4374,6 +4495,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
         );
 
+        // Fetch context length if model_id is present
+        let context_length = self.get_context_length(model_id.as_ref()).await;
+
+        // Fetch reasoning effort
+        let effort = self.api.get_reasoning_effort().await.ok().flatten();
+
         // Calculate total cost including related conversations
         let cost = if let Some(ref conv) = conversation {
             let related_conversations = self.fetch_related_conversations(conv).await;
@@ -4401,6 +4528,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             )
             .model(model_id)
             .token_count(conversation.and_then(|conversation| conversation.token_count()))
+            .context_length(context_length)
+            .effort(effort)
             .cost(cost)
             .use_nerd_font(use_nerd_font);
 
