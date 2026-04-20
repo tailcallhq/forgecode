@@ -5,7 +5,8 @@ expression: snapshot
 transformation: DropReasoningDetails_preserve_fields
 before:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: Assistant message
         model: gpt-4
@@ -13,13 +14,14 @@ before:
           - text: Important reasoning
             signature: ~
             data: ~
-            id: ~
+            id: "[id]"
             format: ~
             index: ~
             type_of: ~
 after:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: Assistant message
         model: gpt-4

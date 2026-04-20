@@ -77,7 +77,7 @@ mod tests {
         let actual = transformer.transform(fixture.clone());
 
         let snapshot = TransformationSnapshot::new("SetModel(gpt-4)", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -95,7 +95,7 @@ mod tests {
 
         let snapshot =
             TransformationSnapshot::new("SetModel(gpt-4)_preserve_existing", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -115,7 +115,7 @@ mod tests {
         let actual = transformer.transform(fixture.clone());
 
         let snapshot = TransformationSnapshot::new("SetModel(gpt-4)_all_text", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -137,6 +137,6 @@ mod tests {
 
         let snapshot =
             TransformationSnapshot::new("SetModel(gpt-4)_user_and_assistant", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 }

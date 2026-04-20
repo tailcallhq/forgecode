@@ -438,7 +438,7 @@ mod tests {
 
         let snapshot =
             TransformationSnapshot::new("ReasoningNormalizer_model_changed", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -449,6 +449,6 @@ mod tests {
 
         let snapshot =
             TransformationSnapshot::new("ReasoningNormalizer_model_unchanged", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 }

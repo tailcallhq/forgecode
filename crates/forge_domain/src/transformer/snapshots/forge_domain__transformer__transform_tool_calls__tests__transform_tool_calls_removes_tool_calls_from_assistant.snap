@@ -5,10 +5,12 @@ expression: snapshot
 transformation: TransformToolCalls
 before:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: System
         content: System message
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: "I'll help you"
         tool_calls:
@@ -16,7 +18,8 @@ before:
             call_id: call_123
             arguments:
               param: value
-    - tool:
+    - id: "[id]"
+      tool:
         name: test_tool
         call_id: call_123
         output:
@@ -25,12 +28,15 @@ before:
             - text: Tool result text
 after:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: System
         content: System message
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: "I'll help you"
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: Tool result text

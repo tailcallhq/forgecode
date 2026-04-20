@@ -338,7 +338,7 @@ mod tests {
 
         assert_eq!(actual, "ls -la");
         let captured_context = fixture.captured_context.lock().await.clone().unwrap();
-        insta::assert_yaml_snapshot!(captured_context);
+        insta::assert_yaml_snapshot!(captured_context, { ".**.id" => "[id]" });
     }
 
     #[tokio::test]
@@ -353,7 +353,7 @@ mod tests {
 
         assert_eq!(actual, "pwd");
         let captured_context = fixture.captured_context.lock().await.clone().unwrap();
-        insta::assert_yaml_snapshot!(captured_context);
+        insta::assert_yaml_snapshot!(captured_context, { ".**.id" => "[id]" });
     }
 
     #[tokio::test]

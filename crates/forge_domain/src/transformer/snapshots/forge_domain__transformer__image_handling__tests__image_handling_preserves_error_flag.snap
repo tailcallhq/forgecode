@@ -5,7 +5,8 @@ expression: snapshot
 transformation: ImageHandling
 before:
   messages:
-    - tool:
+    - id: "[id]"
+      tool:
         name: error_tool
         call_id: call_error
         output:
@@ -17,7 +18,8 @@ before:
                 mime_type: image/png
 after:
   messages:
-    - tool:
+    - id: "[id]"
+      tool:
         name: error_tool
         call_id: call_error
         output:
@@ -25,9 +27,11 @@ after:
           values:
             - text: Error occurred
             - text: "[The image with ID 0 will be sent as an attachment in the next message]"
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: "[Here is the image attachment for ID 0]"
-    - image:
+    - id: "[id]"
+      image:
         url: "data:image/png;base64,error_image_data"
         mime_type: image/png

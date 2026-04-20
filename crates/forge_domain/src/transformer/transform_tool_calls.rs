@@ -176,7 +176,7 @@ mod tests {
         let actual = transformer.transform(fixture.clone());
 
         let snapshot = TransformationSnapshot::new("TransformToolCalls", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -187,7 +187,7 @@ mod tests {
 
         let snapshot =
             TransformationSnapshot::new("TransformToolCalls::with_model(gpt-4)", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -197,7 +197,7 @@ mod tests {
         let actual = transformer.transform(fixture.clone());
 
         let snapshot = TransformationSnapshot::new("TransformToolCalls", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -212,7 +212,7 @@ mod tests {
         let actual = transformer.transform(fixture.clone());
 
         let snapshot = TransformationSnapshot::new("TransformToolCalls", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]

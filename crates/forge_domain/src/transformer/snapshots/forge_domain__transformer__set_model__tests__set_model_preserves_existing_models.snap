@@ -5,27 +5,33 @@ expression: snapshot
 transformation: SetModel(gpt-4)_preserve_existing
 before:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message 1
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message 2
         model: claude-3
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message 3
 after:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message 1
         model: gpt-4
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message 2
         model: claude-3
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message 3
         model: gpt-4

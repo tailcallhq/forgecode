@@ -523,7 +523,7 @@ mod tests {
         // Perform a full compaction
         let compacted_context = compactor.compact(context, true).unwrap();
 
-        insta::assert_yaml_snapshot!(compacted_context);
+        insta::assert_yaml_snapshot!(compacted_context, { ".**.id" => "[id]" });
     }
 
     #[test]

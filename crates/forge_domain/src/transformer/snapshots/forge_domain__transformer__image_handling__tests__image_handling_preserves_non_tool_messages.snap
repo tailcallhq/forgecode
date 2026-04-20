@@ -5,16 +5,20 @@ expression: snapshot
 transformation: ImageHandling
 before:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: System
         content: System message
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: Assistant message
-    - tool:
+    - id: "[id]"
+      tool:
         name: image_tool
         call_id: call_preserve
         output:
@@ -25,25 +29,31 @@ before:
                 mime_type: image/png
 after:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: System
         content: System message
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: Assistant message
-    - tool:
+    - id: "[id]"
+      tool:
         name: image_tool
         call_id: call_preserve
         output:
           is_error: false
           values:
             - text: "[The image with ID 0 will be sent as an attachment in the next message]"
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: "[Here is the image attachment for ID 0]"
-    - image:
+    - id: "[id]"
+      image:
         url: "data:image/png;base64,test_image"
         mime_type: image/png

@@ -408,11 +408,10 @@ impl FromStr for MessageId {
 #[derive(Clone, Debug, Serialize, Deserialize, Setters)]
 #[setters(into, strip_option)]
 pub struct MessageEntry {
-    /// Stable identity for this entry. Not serialised in the domain wire
-    /// format — persistence flows through `ContextMessageRecord`, which
-    /// carries its own `id` field with on-read defaulting for pre-migration
-    /// rows.
-    #[serde(skip)]
+    /// Stable identity for this entry. Serialised and deserialised so
+    /// dump/import round-trips preserve canonical ids; defaults to a fresh
+    /// UUID when missing on-read for pre-migration blobs.
+    #[serde(default)]
     pub id: MessageId,
     #[serde(flatten)]
     pub message: ContextMessage,
@@ -936,7 +935,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -953,7 +952,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -979,7 +978,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -996,7 +995,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -1020,7 +1019,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -1050,7 +1049,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -1082,7 +1081,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -1100,7 +1099,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -1837,5 +1836,51 @@ mod tests {
         let id = MessageId::new();
         let round_tripped = MessageId::parse(id.to_string()).unwrap();
         assert_eq!(id, round_tripped);
+    }
+
+    /// Guards the dump/import pathway at `ui.rs:3861` / `ui.rs:3616`:
+    /// serializing a `Context` as JSON (as the `ConversationDump` wrapper
+    /// does) must preserve `MessageEntry.id` across the round-trip, not
+    /// mint fresh UUIDs on import.
+    #[test]
+    fn test_context_json_roundtrip_preserves_message_ids() {
+        let mut entry_a = MessageEntry::from(ContextMessage::user("hello", None));
+        let mut entry_b = MessageEntry::from(ContextMessage::assistant(
+            "world", None, None, None,
+        ));
+        let known_a = MessageId::new();
+        let known_b = MessageId::new();
+        entry_a.id = known_a;
+        entry_b.id = known_b;
+
+        let fixture = Context::default().messages(vec![entry_a, entry_b]);
+        let json = serde_json::to_string(&fixture).unwrap();
+        let restored: Context = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.messages[0].id, known_a);
+        assert_eq!(restored.messages[1].id, known_b);
+    }
+
+    /// Old blobs that predate `MessageEntry.id` deserialise with freshly
+    /// generated UUIDs (serde default) rather than failing.
+    #[test]
+    fn test_context_json_backfills_missing_message_ids() {
+        let entry = MessageEntry::from(ContextMessage::user("hello", None));
+        let fixture = Context::default().messages(vec![entry]);
+
+        let mut value: serde_json::Value = serde_json::to_value(&fixture).unwrap();
+        value["messages"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .for_each(|m| {
+                m.as_object_mut().unwrap().remove("id");
+            });
+        let legacy_json = serde_json::to_string(&value).unwrap();
+        let restored: Context = serde_json::from_str(&legacy_json).unwrap();
+
+        let nil_id: MessageId =
+            serde_json::from_str("\"00000000-0000-0000-0000-000000000000\"").unwrap();
+        assert_ne!(restored.messages[0].id, nil_id);
     }
 }
