@@ -760,6 +760,10 @@ mod tests {
             .reasoning(reasoning.clone())
             .stream(true);
 
+        // Capture the pre-persistence MessageIds so the round-trip check below
+        // catches any persistence path that silently regenerates them.
+        let expected_message_ids: Vec<_> = fixture.messages.iter().map(|m| m.id).collect();
+
         // Convert to record and back
         let record = ContextRecord::from(&fixture);
         let actual = Context::try_from(record).unwrap();
@@ -767,6 +771,12 @@ mod tests {
         // Verify all fields are preserved
         assert_eq!(actual.conversation_id, fixture.conversation_id);
         assert_eq!(actual.messages.len(), 4);
+
+        // MessageIds must round-trip — they are part of canonical identity and
+        // a silent regeneration during persistence would churn projection-side
+        // references (SummaryPayload.source_ids et al.).
+        let actual_message_ids: Vec<_> = actual.messages.iter().map(|m| m.id).collect();
+        assert_eq!(actual_message_ids, expected_message_ids);
         assert_eq!(actual.tools.len(), 1);
         assert_eq!(actual.tools[0].name.to_string(), "test_tool");
         assert_eq!(

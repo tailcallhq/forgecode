@@ -405,7 +405,7 @@ impl FromStr for MessageId {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Setters)]
+#[derive(Clone, Debug, Serialize, Deserialize, Setters, PartialEq)]
 #[setters(into, strip_option)]
 pub struct MessageEntry {
     /// Stable identity for this entry. Serialised and deserialised so
@@ -417,15 +417,6 @@ pub struct MessageEntry {
     pub message: ContextMessage,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
-}
-
-impl PartialEq for MessageEntry {
-    /// Compares content only — `id` is excluded because two entries with
-    /// the same content but different fresh identities should compare equal
-    /// in tests and content-equality paths.
-    fn eq(&self, other: &Self) -> bool {
-        self.message == other.message && self.usage == other.usage
-    }
 }
 
 impl From<ContextMessage> for MessageEntry {
@@ -879,8 +870,8 @@ mod tests {
             .set_system_messages(vec!["Updated system message"]);
 
         assert_eq!(
-            request.messages[0],
-            ContextMessage::system("Updated system message").into(),
+            request.messages[0].message,
+            ContextMessage::system("Updated system message"),
         );
     }
 
@@ -889,8 +880,8 @@ mod tests {
         let request = Context::default().set_system_messages(vec!["A system message"]);
 
         assert_eq!(
-            request.messages[0],
-            ContextMessage::system("A system message").into(),
+            request.messages[0].message,
+            ContextMessage::system("A system message"),
         );
     }
 
@@ -902,8 +893,8 @@ mod tests {
             .set_system_messages(vec!["A system message"]);
 
         assert_eq!(
-            request.messages[0],
-            ContextMessage::system("A system message").into(),
+            request.messages[0].message,
+            ContextMessage::system("A system message"),
         );
     }
 
