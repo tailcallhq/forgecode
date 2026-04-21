@@ -91,6 +91,11 @@ pub struct Compact {
     /// Whether to trigger compaction when the last message is from a user
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_turn_end: Option<bool>,
+
+    /// Maximum number of summary frames the tier-1 projector is allowed
+    /// to prepend to the assembled request. Defaults to `2` at runtime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_prepended_summaries: Option<usize>,
 }
 
 impl Default for Compact {
@@ -112,6 +117,7 @@ impl Compact {
             eviction_window: Percentage::new(0.2).unwrap(),
             retention_window: 0,
             on_turn_end: None,
+            max_prepended_summaries: None,
         }
     }
 }
@@ -129,6 +135,7 @@ impl Dummy<fake::Faker> for Compact {
             message_threshold: fake::Faker.fake_with_rng(rng),
             model: fake::Faker.fake_with_rng(rng),
             on_turn_end: fake::Faker.fake_with_rng(rng),
+            max_prepended_summaries: fake::Faker.fake_with_rng(rng),
         }
     }
 }

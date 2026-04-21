@@ -144,6 +144,7 @@ impl AgentExt for Agent {
                 message_threshold: workflow_compact.message_threshold,
                 model: workflow_compact.model.as_deref().map(ModelId::new),
                 on_turn_end: workflow_compact.on_turn_end,
+                max_prepended_summaries: workflow_compact.max_prepended_summaries,
             };
             merged_compact.merge(agent.compact.clone());
             agent.compact = merged_compact;
