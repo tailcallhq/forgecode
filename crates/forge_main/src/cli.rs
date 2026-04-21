@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use forge_domain::{AgentId, ConversationId, Effort, ModelId, ProviderId};
 
 #[derive(Parser)]
@@ -65,6 +65,11 @@ pub struct Cli {
     /// Event to dispatch to the workflow in JSON format.
     #[arg(long, short = 'e')]
     pub event: Option<String>,
+
+    /// Shell invocation metadata used to adjust output behavior for
+    /// shell-triggered prompts.
+    #[command(flatten)]
+    pub shell_mode: ShellModeArgs,
 }
 
 impl Cli {
@@ -75,6 +80,24 @@ impl Cli {
     pub fn is_interactive(&self) -> bool {
         self.prompt.is_none() && self.piped_input.is_none() && self.subcommands.is_none()
     }
+
+    /// Returns true when the invocation originated from shell integration.
+    pub fn is_shell_prompt(&self) -> bool {
+        self.shell_mode.shell_prompt
+    }
+
+    /// Returns true when shell integration requests reduced UI output.
+    pub fn is_quiet_shell_prompt(&self, config: &forge_config::ForgeConfig) -> bool {
+        self.is_shell_prompt() && config.shell_behavior_or_default().quiet
+    }
+}
+
+/// CLI flags that annotate shell-triggered invocations.
+#[derive(Args, Debug, Clone, Default)]
+pub struct ShellModeArgs {
+    /// Marks this invocation as originating from shell integration.
+    #[arg(long = "shell-prompt", default_value_t = false, hide = true)]
+    pub shell_prompt: bool,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -85,6 +108,10 @@ pub enum TopLevelCommand {
     /// Generate shell extension scripts.
     #[command(subcommand, alias = "extension")]
     Zsh(ZshCommandGroup),
+
+    /// Generate Fish shell extension scripts.
+    #[command(subcommand)]
+    Fish(FishCommandGroup),
 
     /// List agents, models, providers, tools, or MCP servers.
     List(ListCommandGroup),
@@ -142,12 +169,60 @@ pub enum TopLevelCommand {
     /// Update forge to the latest version.
     Update(UpdateArgs),
 
-    /// Setup zsh integration by updating .zshrc with plugin and theme (alias
-    /// for `zsh setup`).
-    Setup,
+    /// Setup shell integration by updating shell config with plugin and theme.
+    /// Auto-detects the current shell if not specified.
+    Setup(SetupCommand),
 
-    /// Run diagnostics on shell environment (alias for `zsh doctor`).
-    Doctor,
+    /// Run diagnostics on shell environment.
+    /// Auto-detects the current shell if not specified.
+    Doctor(DoctorCommand),
+
+    /// Clipboard operations for shell integration.
+    #[command(subcommand)]
+    Clipboard(ClipboardCommandGroup),
+}
+
+/// Shell type for setup and doctor commands.
+#[derive(Clone, Debug, ValueEnum)]
+pub enum ShellType {
+    /// Zsh shell.
+    Zsh,
+    /// Fish shell.
+    Fish,
+}
+
+/// Setup shell integration with auto-detection.
+#[derive(Parser, Debug, Clone)]
+pub struct SetupCommand {
+    /// Shell type to set up. If not specified, auto-detects the current shell.
+    #[arg(long, short)]
+    pub shell: Option<ShellType>,
+
+    #[command(subcommand)]
+    pub command: Option<SetupSubcommand>,
+}
+
+/// Setup subcommands.
+#[derive(Subcommand, Debug, Clone)]
+pub enum SetupSubcommand {
+    /// Teardown forge shell integration, restoring the original config file.
+    Teardown(TeardownCommand),
+}
+
+/// Teardown shell integration.
+#[derive(Parser, Debug, Clone)]
+pub struct TeardownCommand {
+    /// Shell type to teardown. If not specified, auto-detects the current shell.
+    #[arg(long, short)]
+    pub shell: Option<ShellType>,
+}
+
+/// Run diagnostics on shell environment with auto-detection.
+#[derive(Parser, Debug, Clone)]
+pub struct DoctorCommand {
+    /// Shell type to diagnose. If not specified, auto-detects the current shell.
+    #[arg(long, short)]
+    pub shell: Option<ShellType>,
 }
 
 /// Command group for custom command management.
@@ -406,6 +481,30 @@ pub enum ZshCommandGroup {
     },
 }
 
+/// Fish shell extension commands.
+#[derive(Subcommand, Debug, Clone)]
+pub enum FishCommandGroup {
+    /// Generate Fish shell plugin script
+    Plugin,
+    /// Generate Fish shell theme
+    Theme,
+    /// Run diagnostics on Fish shell environment
+    Doctor,
+    /// Get rprompt information (model and conversation stats) for shell
+    /// integration.
+    Rprompt,
+    /// Setup Fish integration by updating config.fish with plugin and theme
+    Setup,
+}
+
+/// Clipboard operations for shell integration.
+#[derive(Subcommand, Debug, Clone)]
+pub enum ClipboardCommandGroup {
+    /// Paste image from system clipboard as a temporary file path
+    #[command(name = "paste-image")]
+    PasteImage,
+}
+
 /// Command group for MCP server management.
 #[derive(Parser, Debug, Clone)]
 pub struct McpCommandGroup {
@@ -563,6 +662,25 @@ pub enum ConfigSetField {
         /// Model ID to set as default.
         model: ModelId,
     },
+    /// Set the provider and model for shell mode.
+    Shell {
+        /// Provider ID to use for shell mode.
+        provider: ProviderId,
+        /// Model ID to use for shell mode.
+        model: ModelId,
+    },
+    /// Set whether shell-triggered prompts should suppress transient UI output.
+    ShellBehaviorQuiet {
+        /// When true, hide reasoning, initialization, and finished markers for
+        /// shell-triggered prompts.
+        enabled: bool,
+    },
+    /// Set whether shell-triggered prompts should auto-start background sync.
+    ShellBehaviorSync {
+        /// When true, shell-triggered prompts auto-start background workspace
+        /// sync after the response completes.
+        enabled: bool,
+    },
     /// Set the provider and model for commit message generation.
     Commit {
         /// Provider ID to use for commit message generation.
@@ -591,6 +709,12 @@ pub enum ConfigGetField {
     Model,
     /// Get the active provider.
     Provider,
+    /// Get the shell mode config.
+    Shell,
+    /// Get whether shell-triggered prompts suppress transient UI output.
+    ShellBehaviorQuiet,
+    /// Get whether shell-triggered prompts auto-start background sync.
+    ShellBehaviorSync,
     /// Get the commit message generation config.
     Commit,
     /// Get the command suggestion generation config.
@@ -923,6 +1047,19 @@ mod tests {
     }
 
     #[test]
+    fn test_config_get_shell_field() {
+        let fixture = Cli::parse_from(["forge", "config", "get", "shell"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Config(config)) => match config.command {
+                ConfigCommand::Get(args) => matches!(args.field, ConfigGetField::Shell),
+                _ => panic!("Expected ConfigCommand::Get"),
+            },
+            _ => panic!("Expected TopLevelCommand::Config"),
+        };
+        assert!(actual);
+    }
+
+    #[test]
     fn test_config_set_commit_with_provider_and_model() {
         let fixture = Cli::parse_from([
             "forge",
@@ -936,6 +1073,35 @@ mod tests {
             Some(TopLevelCommand::Config(config)) => match config.command {
                 ConfigCommand::Set(args) => match args.field {
                     ConfigSetField::Commit { provider, model } => {
+                        Some((provider.to_string(), model.as_str().to_string()))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        };
+        let expected = Some((
+            "Anthropic".to_string(),
+            "claude-haiku-4-20250514".to_string(),
+        ));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_config_set_shell_with_provider_and_model() {
+        let fixture = Cli::parse_from([
+            "forge",
+            "config",
+            "set",
+            "shell",
+            "anthropic",
+            "claude-haiku-4-20250514",
+        ]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Config(config)) => match config.command {
+                ConfigCommand::Set(args) => match args.field {
+                    ConfigSetField::Shell { provider, model } => {
                         Some((provider.to_string(), model.as_str().to_string()))
                     }
                     _ => None,
@@ -1772,14 +1938,69 @@ mod tests {
     #[test]
     fn test_setup_alias() {
         let fixture = Cli::parse_from(["forge", "setup"]);
-        let actual = matches!(fixture.subcommands, Some(TopLevelCommand::Setup));
+        let actual = matches!(
+            fixture.subcommands,
+            Some(TopLevelCommand::Setup(SetupCommand {
+                shell: None,
+                command: None,
+            }))
+        );
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_setup_with_shell() {
+        let fixture = Cli::parse_from(["forge", "setup", "--shell", "fish"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Setup(cmd)) => matches!(cmd.shell, Some(ShellType::Fish)),
+            _ => false,
+        };
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_setup_teardown() {
+        let fixture = Cli::parse_from(["forge", "setup", "teardown"]);
+        let actual = matches!(
+            fixture.subcommands,
+            Some(TopLevelCommand::Setup(SetupCommand {
+                shell: None,
+                command: Some(SetupSubcommand::Teardown(TeardownCommand { shell: None })),
+            }))
+        );
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_setup_teardown_with_shell() {
+        let fixture = Cli::parse_from(["forge", "setup", "teardown", "--shell", "zsh"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Setup(SetupCommand {
+                command: Some(SetupSubcommand::Teardown(teardown_cmd)),
+                ..
+            })) => matches!(teardown_cmd.shell, Some(ShellType::Zsh)),
+            _ => false,
+        };
         assert_eq!(actual, true);
     }
 
     #[test]
     fn test_doctor_alias() {
         let fixture = Cli::parse_from(["forge", "doctor"]);
-        let actual = matches!(fixture.subcommands, Some(TopLevelCommand::Doctor));
+        let actual = matches!(
+            fixture.subcommands,
+            Some(TopLevelCommand::Doctor(DoctorCommand { shell: None }))
+        );
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_doctor_with_shell() {
+        let fixture = Cli::parse_from(["forge", "doctor", "--shell", "zsh"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Doctor(cmd)) => matches!(cmd.shell, Some(ShellType::Zsh)),
+            _ => false,
+        };
         assert_eq!(actual, true);
     }
 

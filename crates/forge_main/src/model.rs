@@ -434,6 +434,13 @@ pub enum AppCommand {
     #[command(name = "config-reasoning-effort", alias = "cre")]
     ConfigReasoningEffort,
 
+    /// Set the model used for shell mode.
+    /// This can be triggered with the '/config-shell-model' command (alias:
+    /// cshm).
+    #[strum(props(usage = "Set the model used for shell mode [alias: cshm]"))]
+    #[command(name = "config-shell-model", alias = "cshm")]
+    ConfigShellModel,
+
     /// Set the model used for commit message generation.
     /// This can be triggered with the '/config-commit-model' command (alias:
     /// ccm).
@@ -725,6 +732,7 @@ impl AppCommand {
             AppCommand::ConfigReload => "config-reload",
             AppCommand::ReasoningEffort => "reasoning-effort",
             AppCommand::ConfigReasoningEffort => "config-reasoning-effort",
+            AppCommand::ConfigShellModel => "config-shell-model",
             AppCommand::ConfigCommitModel => "config-commit-model",
             AppCommand::ConfigSuggestModel => "config-suggest-model",
             AppCommand::ConfigEdit => "config-edit",

@@ -39,10 +39,10 @@ use crate::conversation_selector::ConversationSelector;
 use crate::display_constants::{CommandType, headers, markers, status};
 use crate::editor::ReadLineError;
 use crate::error::UIError;
+use crate::fish::FishRPrompt;
 use crate::info::Info;
 use crate::input::Console;
 use crate::model::{AppCommand, ForgeCommandManager};
-use forge_api::Effort;
 use crate::porcelain::Porcelain;
 use crate::prompt::ForgePrompt;
 use crate::state::UIState;
@@ -54,6 +54,7 @@ use crate::update::on_update;
 use crate::utils::{humanize_number, humanize_time};
 use crate::zsh::ZshRPrompt;
 use crate::{TRACKER, banner, tracker};
+use forge_api::Effort;
 
 // File-specific constants
 const MISSING_AGENT_TITLE: &str = "<missing agent.title>";
@@ -119,6 +120,10 @@ pub struct UI<A: ConsoleWriter, F: Fn(ForgeConfig) -> A> {
 }
 
 impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI<A, F> {
+    fn shell_quiet_mode(&self) -> bool {
+        self.cli.is_quiet_shell_prompt(&self.config)
+    }
+
     /// Writes a line to the console output
     /// Takes anything that implements ToString trait
     fn writeln<T: ToString>(&mut self, content: T) -> anyhow::Result<()> {
@@ -157,7 +162,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn get_context_length(&self, model_id: Option<&ModelId>) -> Option<u64> {
         let mid = model_id?;
         self.api.get_models().await.ok().and_then(|models| {
-            models.iter().find(|m| &m.id == mid).and_then(|m| m.context_length)
+            models
+                .iter()
+                .find(|m| &m.id == mid)
+                .and_then(|m| m.context_length)
         })
     }
 
@@ -353,7 +361,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let input = self.cli.prompt.clone().or(self.cli.piped_input.clone());
         if let Some(input) = input {
             tracker::prompt(input.clone());
-            self.spinner.start(None)?;
+            if !self.shell_quiet_mode() {
+                self.spinner.start(None)?;
+            }
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     tracing::info!("User interrupted operation with Ctrl+C");
@@ -518,6 +528,29 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     crate::cli::ZshCommandGroup::Format { buffer } => {
                         print!("{}", crate::zsh::paste::wrap_pasted_text(&buffer));
                         return Ok(());
+                    }
+                }
+                return Ok(());
+            }
+            TopLevelCommand::Fish(fish_group) => {
+                match fish_group {
+                    crate::cli::FishCommandGroup::Plugin => {
+                        self.on_fish_plugin().await?;
+                    }
+                    crate::cli::FishCommandGroup::Theme => {
+                        self.on_fish_theme().await?;
+                    }
+                    crate::cli::FishCommandGroup::Doctor => {
+                        self.on_fish_doctor().await?;
+                    }
+                    crate::cli::FishCommandGroup::Rprompt => {
+                        if let Some(text) = self.handle_fish_rprompt_command().await {
+                            print!("{}", text)
+                        }
+                        return Ok(());
+                    }
+                    crate::cli::FishCommandGroup::Setup => {
+                        self.on_fish_setup().await?;
                     }
                 }
                 return Ok(());
@@ -750,12 +783,60 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 on_update(self.api.clone(), Some(&update)).await;
                 return Ok(());
             }
-            TopLevelCommand::Setup => {
-                self.on_zsh_setup().await?;
+            TopLevelCommand::Setup(setup_cmd) => {
+                match setup_cmd.command {
+                    Some(crate::cli::SetupSubcommand::Teardown(teardown_cmd)) => {
+                        let shell = teardown_cmd
+                            .shell
+                            .or_else(Self::detect_shell)
+                            .context("Could not detect shell. Use --shell <zsh|fish>")?;
+                        match shell {
+                            crate::cli::ShellType::Zsh => {
+                                self.on_zsh_setup_teardown().await?;
+                            }
+                            crate::cli::ShellType::Fish => {
+                                self.on_fish_setup_teardown().await?;
+                            }
+                        }
+                    }
+                    None => {
+                        let shell = setup_cmd
+                            .shell
+                            .or_else(Self::detect_shell)
+                            .context("Could not detect shell. Use --shell <zsh|fish>")?;
+                        match shell {
+                            crate::cli::ShellType::Zsh => {
+                                self.on_zsh_setup().await?;
+                            }
+                            crate::cli::ShellType::Fish => {
+                                self.on_fish_setup().await?;
+                            }
+                        }
+                    }
+                }
                 return Ok(());
             }
-            TopLevelCommand::Doctor => {
-                self.on_zsh_doctor().await?;
+            TopLevelCommand::Doctor(doctor_cmd) => {
+                let shell = doctor_cmd
+                    .shell
+                    .or_else(Self::detect_shell)
+                    .context("Could not detect shell. Use --shell <zsh|fish>")?;
+                match shell {
+                    crate::cli::ShellType::Zsh => {
+                        self.on_zsh_doctor().await?;
+                    }
+                    crate::cli::ShellType::Fish => {
+                        self.on_fish_doctor().await?;
+                    }
+                }
+                return Ok(());
+            }
+            TopLevelCommand::Clipboard(clipboard_group) => {
+                match clipboard_group {
+                    crate::cli::ClipboardCommandGroup::PasteImage => {
+                        self.on_clipboard_paste_image()?;
+                    }
+                }
                 return Ok(());
             }
         }
@@ -1738,6 +1819,20 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    /// Detect the current shell type from environment variables.
+    ///
+    /// Checks `$SHELL` to determine if the user is running zsh or fish.
+    fn detect_shell() -> Option<crate::cli::ShellType> {
+        let shell = std::env::var("SHELL").ok()?;
+        if shell.contains("zsh") {
+            Some(crate::cli::ShellType::Zsh)
+        } else if shell.contains("fish") {
+            Some(crate::cli::ShellType::Fish)
+        } else {
+            None
+        }
+    }
+
     /// Run ZSH environment diagnostics
     async fn on_zsh_doctor(&mut self) -> anyhow::Result<()> {
         // Stop spinner before streaming output to avoid interference
@@ -1895,6 +1990,179 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         doctor_result
     }
 
+    /// Generate Fish plugin script
+    async fn on_fish_plugin(&self) -> anyhow::Result<()> {
+        let plugin = crate::fish::generate_fish_plugin()?;
+        println!("{plugin}");
+        Ok(())
+    }
+
+    /// Generate Fish theme
+    async fn on_fish_theme(&self) -> anyhow::Result<()> {
+        let theme = crate::fish::generate_fish_theme()?;
+        println!("{theme}");
+        Ok(())
+    }
+
+    /// Run Fish environment diagnostics
+    async fn on_fish_doctor(&mut self) -> anyhow::Result<()> {
+        self.spinner.stop(None)?;
+        crate::fish::run_fish_doctor()?;
+        Ok(())
+    }
+
+    /// Paste image from clipboard to a temporary file
+    fn on_clipboard_paste_image(&self) -> anyhow::Result<()> {
+        let path = crate::clipboard::paste_image_from_clipboard()?;
+        println!("{}", path.display());
+        Ok(())
+    }
+
+    /// Setup Fish integration by updating config.fish
+    async fn on_fish_setup(&mut self) -> anyhow::Result<()> {
+        // Check nerd font support
+        println!();
+        println!(
+            "{} {} {}",
+            "󱙺".bold(),
+            "FORGE 33.0k".bold(),
+            "tonic-1.0".cyan()
+        );
+
+        let can_see_nerd_fonts =
+            ForgeWidget::confirm("Can you see all the icons clearly without any overlap?")
+                .with_default(true)
+                .prompt()?;
+
+        let disable_nerd_font = match can_see_nerd_fonts {
+            Some(true) => {
+                println!();
+                false
+            }
+            Some(false) => {
+                println!();
+                println!("   {} Nerd Fonts will be disabled", "⚠".yellow());
+                println!();
+                println!("   You can enable them later by:");
+                println!(
+                    "   1. Installing a Nerd Font from: {}",
+                    "https://www.nerdfonts.com/".dimmed()
+                );
+                println!("   2. Configuring your terminal to use a Nerd Font");
+                println!(
+                    "   3. Removing {} from your config.fish",
+                    "NERD_FONT=0".dimmed()
+                );
+                println!();
+                true
+            }
+            None => {
+                println!();
+                false
+            }
+        };
+
+        // Ask about editor preference
+        let editor_options = vec![
+            "Use system default ($EDITOR)",
+            "VS Code (code --wait)",
+            "Vim",
+            "Neovim (nvim)",
+            "Nano",
+            "Emacs",
+            "Sublime Text (subl --wait)",
+            "Skip - I'll configure it later",
+        ];
+
+        let selected_editor = ForgeWidget::select(
+            "Which editor would you like to use for editing prompts?",
+            editor_options,
+        )
+        .prompt()?;
+
+        let forge_editor = match selected_editor {
+            Some("Use system default ($EDITOR)") => None,
+            Some("VS Code (code --wait)") => Some("code --wait"),
+            Some("Vim") => Some("vim"),
+            Some("Neovim (nvim)") => Some("nvim"),
+            Some("Nano") => Some("nano"),
+            Some("Emacs") => Some("emacs"),
+            Some("Sublime Text (subl --wait)") => Some("subl --wait"),
+            Some("Skip - I'll configure it later") => None,
+            _ => None,
+        };
+
+        // Setup Fish integration with nerd font and editor configuration
+        self.spinner.start(Some("Configuring Fish"))?;
+        let result = crate::fish::setup_fish_integration(disable_nerd_font, forge_editor)?;
+        self.spinner.stop(None)?;
+
+        // Log backup creation if one was made
+        if let Some(backup_path) = result.backup_path {
+            self.writeln_title(TitleFormat::debug(format!(
+                "backup created at {}",
+                backup_path.display()
+            )))?;
+        }
+
+        self.writeln_title(TitleFormat::info(result.message))?;
+
+        self.writeln_title(TitleFormat::debug("running forge fish doctor"))?;
+        println!();
+        let doctor_result = self.on_fish_doctor().await;
+
+        if doctor_result.is_ok() {
+            self.writeln_title(TitleFormat::action(
+                "run `exec fish` now (or open a new terminal window) to load the updated shell config",
+            ))?;
+            self.writeln_title(TitleFormat::action(
+                "run `: Hi` after restarting your shell to confirm everything works",
+            ))?;
+        }
+
+        doctor_result
+    }
+
+    /// Teardown ZSH setup by removing the forge block from .zshrc
+    async fn on_zsh_setup_teardown(&mut self) -> anyhow::Result<()> {
+        self.spinner.start(Some("Tearing down ZSH setup"))?;
+        let result = crate::zsh::teardown_zsh_integration()?;
+        self.spinner.stop(None)?;
+
+        if let Some(backup_path) = result.backup_path {
+            self.writeln_title(TitleFormat::debug(format!(
+                "backup created at {}",
+                backup_path.display()
+            )))?;
+        }
+
+        self.writeln_title(TitleFormat::info(result.message))?;
+        self.writeln_title(TitleFormat::action(
+            "run `exec zsh` now (or open a new terminal window) to reload your shell config",
+        ))?;
+        Ok(())
+    }
+
+    /// Teardown Fish setup by removing the forge block from config.fish
+    async fn on_fish_setup_teardown(&mut self) -> anyhow::Result<()> {
+        self.spinner.start(Some("Tearing down Fish setup"))?;
+        let result = crate::fish::teardown_fish_integration()?;
+        self.spinner.stop(None)?;
+
+        if let Some(backup_path) = result.backup_path {
+            self.writeln_title(TitleFormat::debug(format!(
+                "backup created at {}",
+                backup_path.display()
+            )))?;
+        }
+
+        self.writeln_title(TitleFormat::info(result.message))?;
+        self.writeln_title(TitleFormat::action(
+            "run `exec fish` now (or open a new terminal window) to reload your shell config",
+        ))?;
+        Ok(())
+    }
+
     /// Handle the cmd command - generates shell command from natural language
     async fn on_cmd(&mut self, prompt: UserPrompt) -> anyhow::Result<()> {
         self.spinner.start(Some("Generating"))?;
@@ -1962,11 +2230,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 continue;
             }
 
-            let title = conv
-                .title
-                .as_deref()
-                .map(|t| t.to_string())
-                .unwrap_or_else(|| markers::EMPTY.to_string());
+            let title = ConversationSelector::conversation_title(&conv);
 
             // Format time using humantime library (same as conversation_selector.rs)
             let duration = chrono::Utc::now().signed_duration_since(
@@ -2216,6 +2480,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             AppCommand::ConfigReasoningEffort => {
                 self.on_reasoning_effort_selection(true).await?;
             }
+            AppCommand::ConfigShellModel => {
+                self.on_config_shell_model().await?;
+            }
             AppCommand::ConfigCommitModel => {
                 self.on_config_commit_model().await?;
             }
@@ -2314,7 +2581,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             return Ok(());
         }
 
-        let current = self.api.get_reasoning_effort().await?.unwrap_or(Effort::Medium);
+        let current = self
+            .api
+            .get_reasoning_effort()
+            .await?
+            .unwrap_or(Effort::Medium);
 
         let next = if let Some(pos) = supported_efforts.iter().position(|e| e == &current) {
             supported_efforts[(pos + 1) % supported_efforts.len()].clone()
@@ -2398,7 +2669,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         };
 
         if effort_levels.is_empty() {
-            self.writeln_title(TitleFormat::info("Current model does not support reasoning effort levels"))?;
+            self.writeln_title(TitleFormat::info(
+                "Current model does not support reasoning effort levels",
+            ))?;
             return Ok(());
         }
 
@@ -2431,6 +2704,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             )?;
         }
 
+        Ok(())
+    }
+
+    /// Selects and sets the shell model via interactive model picker.
+    async fn on_config_shell_model(&mut self) -> anyhow::Result<()> {
+        let selection = self.select_model(None).await?;
+        if let Some((model, provider_id)) = selection {
+            let shell_config = forge_domain::ModelConfig::new(provider_id.clone(), model.clone());
+            self.api
+                .update_config(vec![ConfigOperation::SetShellConfig(shell_config)])
+                .await?;
+            self.writeln_title(TitleFormat::action(model.as_str()).sub_title(format!(
+                "is now the shell model for provider '{provider_id}'"
+            )))?;
+        }
         Ok(())
     }
 
@@ -3737,7 +4025,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         // Print if the state is being reinitialized
         if self.state.conversation_id.is_none() {
-            self.print_conversation_status(is_new, id)?;
+            self.print_conversation_status(is_new, id).await?;
         }
 
         // Always set the conversation id in state
@@ -3746,7 +4034,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(id)
     }
 
-    fn print_conversation_status(
+    async fn print_conversation_status(
         &mut self,
         new_conversation: bool,
         id: ConversationId,
@@ -3759,7 +4047,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         title.push_str(format!(" {}", id.into_string()).as_str());
 
-        self.writeln_title(TitleFormat::debug(title))?;
+        // Show active model in subtitle for visibility
+        let model_info = self.api.get_session_config().await.map(|c| {
+            format!("{} · {}", c.provider, c.model)
+        });
+
+        let mut fmt = TitleFormat::debug(title);
+        if let Some(info) = model_info {
+            fmt = fmt.sub_title(info);
+        }
+
+        self.writeln_title(fmt)?;
         Ok(())
     }
 
@@ -4098,13 +4396,24 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 }
             }
             ChatResponse::TaskReasoning { content } => {
-                writer.write_dimmed(&content)?;
+                if !self.shell_quiet_mode() {
+                    writer.write_dimmed(&content)?;
+                }
             }
             ChatResponse::TaskComplete => {
                 writer.finish()?;
-                if let Some(conversation_id) = self.state.conversation_id {
+                if !self.shell_quiet_mode()
+                    && let Some(conversation_id) = self.state.conversation_id
+                {
+                    let model_info = self.api.get_session_config().await.map(|c| {
+                        format!("{} · {}", c.provider, c.model)
+                    });
+                    let sub = match model_info {
+                        Some(ref info) => format!("{} | {}", conversation_id.into_string(), info),
+                        None => conversation_id.into_string(),
+                    };
                     self.writeln_title(
-                        TitleFormat::debug("Finished").sub_title(conversation_id.into_string()),
+                        TitleFormat::debug("Finished").sub_title(sub),
                     )?;
                 }
                 if let Some(format) = self.config.auto_dump.clone() {
@@ -4392,6 +4701,40 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         .sub_title(format!("is now the commit model for provider '{provider}'")),
                 )?;
             }
+            ConfigSetField::Shell { provider, model } => {
+                let validated_model = self.validate_model(model.as_str(), Some(&provider)).await?;
+                let shell_config =
+                    forge_domain::ModelConfig::new(provider.clone(), validated_model.clone());
+                self.api
+                    .update_config(vec![ConfigOperation::SetShellConfig(shell_config)])
+                    .await?;
+                self.writeln_title(
+                    TitleFormat::action(validated_model.as_str())
+                        .sub_title(format!("is now the shell model for provider '{provider}'")),
+                )?;
+            }
+            ConfigSetField::ShellBehaviorQuiet { enabled } => {
+                let mut config = self.config.clone();
+                let behavior = config.shell_behavior_or_default().quiet(enabled);
+                config.shell_behavior = Some(behavior);
+                config.write()?;
+                self.config = forge_config::ForgeConfig::read()?;
+                self.writeln_title(
+                    TitleFormat::action(enabled.to_string())
+                        .sub_title("is now the shell quiet mode setting"),
+                )?;
+            }
+            ConfigSetField::ShellBehaviorSync { enabled } => {
+                let mut config = self.config.clone();
+                let behavior = config.shell_behavior_or_default().sync(enabled);
+                config.shell_behavior = Some(behavior);
+                config.write()?;
+                self.config = forge_config::ForgeConfig::read()?;
+                self.writeln_title(
+                    TitleFormat::action(enabled.to_string())
+                        .sub_title("is now the shell background sync setting"),
+                )?;
+            }
             ConfigSetField::Suggest { provider, model } => {
                 // Validate provider exists and model belongs to that specific provider
                 let validated_model = self.validate_model(model.as_str(), Some(&provider)).await?;
@@ -4444,6 +4787,22 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     Some(v) => self.writeln(v.to_string())?,
                     None => self.writeln("Provider: Not set")?,
                 }
+            }
+            ConfigGetField::Shell => {
+                let shell_config = self.api.get_shell_config().await?;
+                match shell_config {
+                    Some(config) => {
+                        self.writeln(config.provider.as_ref())?;
+                        self.writeln(config.model.as_str().to_string())?;
+                    }
+                    None => self.writeln("Shell: Not set")?,
+                }
+            }
+            ConfigGetField::ShellBehaviorQuiet => {
+                self.writeln(self.config.shell_behavior_or_default().quiet.to_string())?;
+            }
+            ConfigGetField::ShellBehaviorSync => {
+                self.writeln(self.config.shell_behavior_or_default().sync.to_string())?;
             }
             ConfigGetField::Commit => {
                 let commit_config = self.api.get_commit_config().await?;
@@ -4522,6 +4881,64 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .unwrap_or(true); // Default to true
 
         let rprompt = ZshRPrompt::from_config(&self.config)
+            .agent(
+                std::env::var("_FORGE_ACTIVE_AGENT")
+                    .ok()
+                    .filter(|text| !text.trim().is_empty())
+                    .map(AgentId::new),
+            )
+            .model(model_id)
+            .token_count(conversation.and_then(|conversation| conversation.token_count()))
+            .context_length(context_length)
+            .effort(effort)
+            .cost(cost)
+            .use_nerd_font(use_nerd_font);
+
+        Some(rprompt.to_string())
+    }
+
+    /// Handle Fish right prompt rendering using ANSI escape sequences.
+    async fn handle_fish_rprompt_command(&mut self) -> Option<String> {
+        let cid = std::env::var("_FORGE_CONVERSATION_ID")
+            .ok()
+            .filter(|text| !text.trim().is_empty())
+            .and_then(|str| ConversationId::from_str(str.as_str()).ok());
+
+        let (model_id, conversation) = tokio::join!(
+            async {
+                let shell_config = self.api.get_shell_config().await.ok().flatten();
+                let session_config = self.api.get_session_config().await;
+                shell_config.or(session_config).map(|c| c.model)
+            },
+            async {
+                if let Some(cid) = cid {
+                    self.api.conversation(&cid).await.ok().flatten()
+                } else {
+                    None
+                }
+            }
+        );
+
+        let context_length = self.get_context_length(model_id.as_ref()).await;
+        let effort = self.api.get_reasoning_effort().await.ok().flatten();
+
+        let cost = if let Some(ref conv) = conversation {
+            let related_conversations = self.fetch_related_conversations(conv).await;
+            let all_conversations: Vec<_> = std::iter::once(conv)
+                .chain(related_conversations.iter())
+                .cloned()
+                .collect();
+            Conversation::total_cost(&all_conversations)
+        } else {
+            None
+        };
+
+        let use_nerd_font = std::env::var("NERD_FONT")
+            .or_else(|_| std::env::var("USE_NERD_FONT"))
+            .map(|val| val == "1")
+            .unwrap_or(true);
+
+        let rprompt = FishRPrompt::from_config(&self.config)
             .agent(
                 std::env::var("_FORGE_ACTIVE_AGENT")
                     .ok()

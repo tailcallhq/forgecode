@@ -1,10 +1,12 @@
 pub mod banner;
 mod cli;
+mod clipboard;
 mod completer;
 mod conversation_selector;
 mod display_constants;
 mod editor;
 mod error;
+mod fish;
 mod highlighter;
 mod info;
 mod input;
