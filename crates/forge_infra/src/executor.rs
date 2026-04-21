@@ -2,6 +2,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use bstr::ByteSlice;
 use forge_app::CommandInfra;
 use forge_domain::{CommandOutput, ConsoleWriter as OutputPrinterTrait, Environment};
 use tokio::io::AsyncReadExt;
@@ -140,8 +141,8 @@ impl ForgeCommandExecutorService {
         drop(ready);
 
         Ok(CommandOutput {
-            stdout: String::from_utf8_lossy(&stdout_buffer).into_owned(),
-            stderr: String::from_utf8_lossy(&stderr_buffer).into_owned(),
+            stdout: stdout_buffer.to_str_lossy().into_owned(),
+            stderr: stderr_buffer.to_str_lossy().into_owned(),
             exit_code: status.code(),
             command,
         })
@@ -209,7 +210,7 @@ async fn stream<A: AsyncReadExt + Unpin, W: Write>(
         }
         // Flush dangling bytes from a stream that ended mid-codepoint.
         if !pending.is_empty() {
-            writer.write_all(String::from_utf8_lossy(&pending).as_bytes())?;
+            writer.write_all(pending.to_str_lossy().as_bytes())?;
             writer.flush()?;
         }
     }
@@ -220,29 +221,19 @@ async fn stream<A: AsyncReadExt + Unpin, W: Write>(
 /// incomplete trailing codepoint bytes for the caller to carry into the next
 /// chunk.
 fn write_lossy_utf8<W: Write>(writer: &mut W, buf: &[u8]) -> io::Result<Vec<u8>> {
-    let mut cursor = 0;
-    while cursor < buf.len() {
-        match std::str::from_utf8(buf.get(cursor..).unwrap_or(&[])) {
-            Ok(tail) => {
-                writer.write_all(tail.as_bytes())?;
-                return Ok(Vec::new());
+    let mut chunks = ByteSlice::utf8_chunks(buf).peekable();
+
+    while let Some(chunk) = chunks.next() {
+        writer.write_all(chunk.valid().as_bytes())?;
+
+        if !chunk.invalid().is_empty() {
+            if chunk.incomplete() && chunks.peek().is_none() {
+                return Ok(chunk.invalid().to_vec());
             }
-            Err(e) => {
-                let valid_up_to = e.valid_up_to();
-                let valid = buf.get(cursor..cursor + valid_up_to).unwrap_or(&[]);
-                writer.write_all(valid)?;
-                match e.error_len() {
-                    Some(len) => {
-                        writer.write_all("\u{FFFD}".as_bytes())?;
-                        cursor += valid_up_to + len;
-                    }
-                    None => {
-                        return Ok(buf.get(cursor + valid_up_to..).unwrap_or(&[]).to_vec());
-                    }
-                }
-            }
+            writer.write_all("\u{FFFD}".as_bytes())?;
         }
     }
+
     Ok(Vec::new())
 }
 

@@ -4,6 +4,7 @@ use std::future::Future;
 use std::str::FromStr;
 use std::sync::{Arc, OnceLock, RwLock};
 
+use bstr::ByteSlice;
 use backon::{ExponentialBuilder, Retryable};
 use forge_app::McpClientInfra;
 use forge_domain::{
@@ -453,7 +454,7 @@ impl ForgeMcpClient {
         // Read the HTTP request
         let mut buf = vec![0u8; 4096];
         let n = stream.read(&mut buf).await?;
-        let request = String::from_utf8_lossy(buf.get(..n).unwrap_or(&[]));
+        let request = buf.get(..n).unwrap_or(&[]).to_str_lossy();
         let first_line = request.lines().next().unwrap_or("");
         let path = first_line.split_whitespace().nth(1).unwrap_or("/");
 
@@ -681,7 +682,7 @@ pub async fn mcp_auth(server_url: &str, env: &Environment) -> anyhow::Result<()>
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut buf = vec![0u8; 4096];
     let n = stream.read(&mut buf).await?;
-    let request = String::from_utf8_lossy(buf.get(..n).unwrap_or(&[]));
+    let request = buf.get(..n).unwrap_or(&[]).to_str_lossy();
     let first_line = request.lines().next().unwrap_or("");
     let path = first_line.split_whitespace().nth(1).unwrap_or("/");
     let query_start = path.find('?').unwrap_or(path.len());
