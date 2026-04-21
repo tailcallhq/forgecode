@@ -59,12 +59,13 @@ pub fn project(
     // during the walk, force one at the last valid boundary reachable in
     // the leftover buffer. If no valid cut exists at all (canonical is too
     // short, all user-side, etc.) this is a no-op — the fallback rule.
-    if on_turn_end_armed && summaries.is_empty() {
-        if let Some(cut) = last_valid_cut(&buffer) {
-            let to_summarize: Vec<MessageEntry> = buffer.drain(..=cut).collect();
-            let payload = render_summary(&to_summarize, cwd)?;
-            summaries.push(payload);
-        }
+    if on_turn_end_armed
+        && summaries.is_empty()
+        && let Some(cut) = last_valid_cut(&buffer)
+    {
+        let to_summarize: Vec<MessageEntry> = buffer.drain(..=cut).collect();
+        let payload = render_summary(&to_summarize, cwd)?;
+        summaries.push(payload);
     }
 
     // Sliding cap: keep the N most-recent summary frames; older ones drop

@@ -714,3 +714,78 @@ async fn test_complete_when_empty_todos() {
         "Should have TaskComplete when no todos exist"
     );
 }
+
+/// When no compaction threshold is configured, the tier-1 projector is a
+/// no-op and the outbound dispatch matches canonical+pending verbatim —
+/// no summary frames are injected.
+#[tokio::test]
+async fn test_projection_no_op_when_threshold_unset() {
+    let mut ctx = TestContext::default().mock_assistant_responses(vec![
+        ChatCompletionMessage::assistant(Content::full("Hi back"))
+            .finish_reason(FinishReason::Stop),
+    ]);
+    ctx.run("Hi").await.unwrap();
+
+    let has_summary = ctx
+        .output
+        .outbound_contexts
+        .iter()
+        .flat_map(|c| c.messages.iter())
+        .filter_map(|m| m.content())
+        .any(|content| content.contains("<summary"));
+    assert!(
+        !has_summary,
+        "no summary frame should appear when no threshold is configured"
+    );
+}
+
+/// Canonical stays byte-identical across a successful turn's request-
+/// build projection: the tier-1 summary frame lands in the outbound
+/// context but the final saved conversation still contains the raw
+/// messages (no mutation of canonical).
+#[tokio::test]
+async fn test_tier1_projection_does_not_mutate_canonical() {
+    use forge_domain::{Agent, AgentId, Compact, ProviderId, Template};
+    let mut compact = Compact::new();
+    // Trip immediately on any positive token count.
+    compact.token_threshold = Some(1);
+    compact.message_threshold = Some(2);
+    // Use a large cap so the sliding step doesn't kick in and mask
+    // canonical-mutation effects.
+    compact.max_prepended_summaries = Some(10);
+
+    let agent = Agent::new(
+        AgentId::new("forge"),
+        ProviderId::ANTHROPIC,
+        forge_domain::ModelId::new("claude-3-5-sonnet-20241022"),
+    )
+    .system_prompt(Template::new("You are Forge"))
+    .user_prompt(Template::new(
+        "\n  <{{event.name}}>{{event.value}}</{{event.name}}>\n  <system_date>{{current_date}}</system_date>\n",
+    ))
+    .compact(compact)
+    .tools(vec![]);
+
+    let mut ctx = TestContext::default()
+        .agent(agent)
+        .mock_assistant_responses(vec![
+            ChatCompletionMessage::assistant(Content::full("Hello!"))
+                .finish_reason(FinishReason::Stop),
+        ]);
+
+    ctx.run("Hi").await.unwrap();
+
+    // Canonical (saved conversation history) must not contain the rendered
+    // summary frame — projection is a request-time transformation.
+    let canonical_has_summary = ctx
+        .output
+        .context_messages()
+        .iter()
+        .filter_map(|m| m.content())
+        .any(|content| content.contains("<summary"));
+    assert!(
+        !canonical_has_summary,
+        "canonical must not be mutated by tier-1 projection"
+    );
+}
+

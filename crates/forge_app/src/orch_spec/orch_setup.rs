@@ -100,6 +100,10 @@ impl TestContext {
 pub struct TestOutput {
     pub conversation_history: Vec<Conversation>,
     pub chat_responses: Vec<anyhow::Result<ChatResponse>>,
+    /// Lets tests assert what was actually sent to the model per request
+    /// — the turn's final canonical alone can't tell you whether the
+    /// projector spliced summary frames into the dispatched request.
+    pub outbound_contexts: Vec<forge_domain::Context>,
 }
 
 impl TestOutput {

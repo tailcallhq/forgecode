@@ -39,6 +39,11 @@ pub struct Runner {
     // Mock shell command outputs
     test_shell_outputs: Mutex<VecDeque<ShellOutput>>,
 
+    // Captures the context sent to each chat_agent dispatch so tests can
+    // assert projection effects — the final canonical alone can't tell
+    // you what was projected-then-dispatched at each iteration.
+    outbound_contexts: Mutex<Vec<forge_domain::Context>>,
+
     attachments: Vec<Attachment>,
     config: forge_config::ForgeConfig,
     env: Environment,
@@ -65,12 +70,17 @@ impl Runner {
             test_tool_calls: Mutex::new(VecDeque::from(setup.mock_tool_call_responses.clone())),
             test_completions: Mutex::new(VecDeque::from(setup.mock_assistant_responses.clone())),
             test_shell_outputs: Mutex::new(VecDeque::from(setup.mock_shell_outputs.clone())),
+            outbound_contexts: Mutex::new(Vec::new()),
         }
     }
 
     // Returns the conversation history
     async fn get_history(&self) -> Vec<Conversation> {
         self.conversation_history.lock().await.clone()
+    }
+
+    async fn get_outbound_contexts(&self) -> Vec<forge_domain::Context> {
+        self.outbound_contexts.lock().await.clone()
     }
 
     pub async fn run(setup: &mut TestContext, event: Event) -> anyhow::Result<()> {
@@ -159,6 +169,10 @@ impl Runner {
             .output
             .conversation_history
             .extend(runner.get_history().await);
+        setup
+            .output
+            .outbound_contexts
+            .extend(runner.get_outbound_contexts().await);
 
         result
     }
@@ -172,6 +186,7 @@ impl AgentService for Runner {
         context: forge_domain::Context,
         _provider_id: Option<ProviderId>,
     ) -> forge_domain::ResultStream<ChatCompletionMessage, anyhow::Error> {
+        self.outbound_contexts.lock().await.push(context.clone());
         let mut responses = self.test_completions.lock().await;
 
         if let Some(message) = responses.pop_front() {
