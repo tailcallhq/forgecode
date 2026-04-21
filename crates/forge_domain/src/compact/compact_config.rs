@@ -70,18 +70,14 @@ pub struct Compact {
     #[merge(strategy = crate::merge::option)]
     pub on_turn_end: Option<bool>,
 
-    /// Maximum number of summary frames the tier-1 projector is allowed
-    /// to prepend to the assembled request. Older frames slide off
-    /// (lossy true-sliding) when this cap is exceeded. `None` uses the
-    /// runtime default (`2`) so omitting the key has the same effect as
-    /// the default-configured value.
+    /// Cap on summary frames the tier-1 projector prepends. Older
+    /// frames slide off (lossy true-sliding) when the cap is exceeded;
+    /// `None` uses `DEFAULT_MAX_PREPENDED_SUMMARIES` at runtime.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[merge(strategy = crate::merge::option)]
     pub max_prepended_summaries: Option<usize>,
 }
 
-/// Runtime fallback applied when `Compact::max_prepended_summaries` is
-/// `None` — keeps the last two summary frames.
 pub const DEFAULT_MAX_PREPENDED_SUMMARIES: usize = 2;
 
 fn deserialize_percentage<'de, D>(deserializer: D) -> Result<f64, D::Error>
@@ -140,8 +136,8 @@ impl Compact {
         }
     }
 
-    /// Resolves the effective sliding-window cap, falling back to the
-    /// runtime default when unset.
+    /// Resolves the sliding-window cap to its configured value or
+    /// `DEFAULT_MAX_PREPENDED_SUMMARIES` when unset.
     pub fn effective_max_prepended_summaries(&self) -> usize {
         self.max_prepended_summaries
             .unwrap_or(DEFAULT_MAX_PREPENDED_SUMMARIES)

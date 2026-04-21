@@ -1,9 +1,8 @@
 use forge_domain::{ContextMessage, MessageEntry, Role};
 
-/// Newtype wrapper so we can impl `forge_compact::ContextMessage` for
-/// `MessageEntry` without tripping Rust's orphan rule — the trait lives in
-/// `forge_compact` and the type in `forge_domain`, neither of which is the
-/// local crate.
+/// Newtype around `MessageEntry` so `forge_compact::ContextMessage` can
+/// be implemented here — the trait and the type live in different
+/// upstream crates, which Rust's orphan rule otherwise forbids.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompactableEntry(pub MessageEntry);
 

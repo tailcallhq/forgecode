@@ -715,9 +715,9 @@ async fn test_complete_when_empty_todos() {
     );
 }
 
-/// When no compaction threshold is configured, the tier-1 projector is a
-/// no-op and the outbound dispatch matches canonical+pending verbatim —
-/// no summary frames are injected.
+/// With no token threshold configured the projector has nothing to
+/// dispatch on and must emit no summary frames. Guards against accidental
+/// always-fire behaviour when a knob is unset.
 #[tokio::test]
 async fn test_projection_no_op_when_threshold_unset() {
     let mut ctx = TestContext::default().mock_assistant_responses(vec![
@@ -739,19 +739,19 @@ async fn test_projection_no_op_when_threshold_unset() {
     );
 }
 
-/// Canonical stays byte-identical across a successful turn's request-
-/// build projection: the tier-1 summary frame lands in the outbound
-/// context but the final saved conversation still contains the raw
-/// messages (no mutation of canonical).
+/// Guards the immutable-history invariant at the orch level: a tier-1
+/// projection that produces summary frames for the dispatch must not
+/// leak those frames into the persisted canonical.
 #[tokio::test]
 async fn test_tier1_projection_does_not_mutate_canonical() {
     use forge_domain::{Agent, AgentId, Compact, ProviderId, Template};
     let mut compact = Compact::new();
-    // Trip immediately on any positive token count.
+    // Any positive token count trips the token threshold so tier-1
+    // definitely fires on this tiny fixture.
     compact.token_threshold = Some(1);
     compact.message_threshold = Some(2);
-    // Use a large cap so the sliding step doesn't kick in and mask
-    // canonical-mutation effects.
+    // Large cap keeps the slide step dormant — canonical leakage is
+    // what's under test, not the cap behaviour.
     compact.max_prepended_summaries = Some(10);
 
     let agent = Agent::new(
@@ -775,8 +775,6 @@ async fn test_tier1_projection_does_not_mutate_canonical() {
 
     ctx.run("Hi").await.unwrap();
 
-    // Canonical (saved conversation history) must not contain the rendered
-    // summary frame — projection is a request-time transformation.
     let canonical_has_summary = ctx
         .output
         .context_messages()

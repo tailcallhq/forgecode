@@ -5,21 +5,29 @@ use forge_domain::{
     Template, Transformer,
 };
 
-use super::{CompactionMethod, ProjectedEntry, Projection, ProjectionConfig, SummaryPayload};
+use super::{
+    CompactionMethod, ProjectedEntry, Projection, ProjectionConfig, ProjectorInput, SummaryPayload,
+};
 use crate::TemplateEngine;
 use crate::transformers::SummaryTransformer;
 
 const SUMMARY_TEMPLATE: &str = "forge-partial-summary-frame.md";
 
-/// Tier-1 projection per `REQUIREMENTS-side-quest-branch.md §Projection
-/// algorithm`: a single forward scan over canonical messages that flushes
-/// summary frames at valid boundaries when any compact trigger fires
-/// against the assembled request, then slides the summary list to the
-/// last N frames.
-///
-/// The caller re-appends `pending.user_input` + `pending.continuation`
-/// verbatim after this projection.
-pub fn project(
+/// Single forward scan over canonical. Flushes summary frames at valid
+/// boundaries whenever a compact trigger fires against the assembled
+/// request shape, then slides the summary list to the last N frames.
+pub fn project(input: &ProjectorInput<'_>) -> anyhow::Result<Projection> {
+    project_inner(
+        input.canonical,
+        input.pending,
+        input.compact,
+        input.config,
+        input.cwd,
+        input.max_prepended_summaries,
+    )
+}
+
+fn project_inner(
     canonical: &Context,
     pending: &PendingTurn,
     compact: &Compact,
@@ -27,8 +35,9 @@ pub fn project(
     cwd: &Path,
     max_prepended_summaries: usize,
 ) -> anyhow::Result<Projection> {
-    // Step 3's `on_turn_end` is evaluated once — true iff the assembled
-    // request's last message (= tail of pending) is user-role.
+    // `on_turn_end` is once-per-projection, not per-step — armed iff
+    // the tail of pending (= last msg of the assembled request) is a
+    // user message.
     let on_turn_end_armed =
         compact.on_turn_end == Some(true) && pending_tail_is_user(pending);
 
@@ -39,9 +48,10 @@ pub fn project(
     for idx in 0..messages.len() {
         buffer.push(messages[idx].clone());
 
-        // Trigger check uses the assembled request at this step — last N of
-        // summaries-so-far plus buffer plus pending — so the budget tracks
-        // what the model would actually see if the walk stopped here.
+        // Triggers evaluate against the assembled request shape at this
+        // step — old summaries destined to slide off are excluded,
+        // pending is included — so the budget matches what the model
+        // would see if the walk stopped here.
         if trigger_fires(
             &summaries,
             &buffer,
@@ -55,10 +65,9 @@ pub fn project(
         }
     }
 
-    // `on_turn_end` obligation: if armed and no trigger produced a summary
-    // during the walk, force one at the last valid boundary reachable in
-    // the leftover buffer. If no valid cut exists at all (canonical is too
-    // short, all user-side, etc.) this is a no-op — the fallback rule.
+    // `on_turn_end` obligation: force one summary if armed and the walk
+    // hasn't produced any. No valid cut = silent no-op (fallback rule
+    // matches base's `find_sequence_preserving_last_n` returning None).
     if on_turn_end_armed
         && summaries.is_empty()
         && let Some(cut) = last_valid_cut(&buffer)
@@ -68,8 +77,8 @@ pub fn project(
         summaries.push(payload);
     }
 
-    // Sliding cap: keep the N most-recent summary frames; older ones drop
-    // entirely (lossy true-sliding).
+    // Lossy true-sliding: older frames drop entirely once the cap is
+    // hit; content not in the last N frames is gone.
     let skip = summaries.len().saturating_sub(max_prepended_summaries);
     let kept: Vec<SummaryPayload> = summaries.into_iter().skip(skip).collect();
 
@@ -107,10 +116,10 @@ fn render_summary(entries: &[MessageEntry], cwd: &Path) -> anyhow::Result<Summar
     Ok(SummaryPayload { method: CompactionMethod::Template, source_ids, text })
 }
 
-/// Per-step trigger evaluation against the assembled request shape at
-/// this point in the walk: `[last N of summaries-so-far][buffer][pending]`.
-/// `on_turn_end` is explicitly excluded here — it's a once-per-projection
-/// obligation handled separately.
+/// Evaluates per-step triggers against
+/// `[last N of summaries-so-far][buffer][pending]`. `on_turn_end` is
+/// deliberately absent — its obligation is evaluated once per
+/// projection, not on every walk step.
 fn trigger_fires(
     summaries: &[SummaryPayload],
     buffer: &[MessageEntry],
@@ -119,12 +128,14 @@ fn trigger_fires(
     config: &ProjectionConfig,
     cap: usize,
 ) -> bool {
+    // Only the last N summaries-so-far count — frames destined to
+    // slide off at the end must not inflate mid-walk trigger decisions.
     let skip = summaries.len().saturating_sub(cap);
     let kept_summaries = &summaries[skip..];
 
-    // token_threshold / token_threshold_percentage — resolved into
-    // config.effective_token_threshold upstream, so one token comparison
-    // covers both knobs.
+    // `token_threshold_percentage` is folded into
+    // `effective_token_threshold` upstream, so one comparison covers
+    // both knobs.
     let assembled_tokens = summaries_tokens(kept_summaries)
         + buffer
             .iter()
@@ -135,8 +146,6 @@ fn trigger_fires(
         return true;
     }
 
-    // message_threshold — total `messages.len()` across the assembled
-    // request. Each rendered summary counts as one message.
     if let Some(msg_threshold) = compact.message_threshold {
         let msg_count = kept_summaries.len() + buffer.len() + pending.iter_messages().count();
         if msg_count >= msg_threshold {
@@ -144,8 +153,8 @@ fn trigger_fires(
         }
     }
 
-    // turn_threshold — user-role messages across the assembled request.
-    // Summary frames are rendered as user messages so each counts as a turn.
+    // Rendered summary frames are inserted as user messages, so each
+    // one counts as a turn — matches base's `should_compact_due_to_turns`.
     if let Some(turn_threshold) = compact.turn_threshold {
         let user_count = kept_summaries.len()
             + buffer
@@ -188,12 +197,9 @@ fn is_toolcall_result(e: &MessageEntry) -> bool {
     matches!(&e.message, ContextMessage::Tool(_))
 }
 
-/// Is the buffer's current tail a valid flush boundary, given the next
-/// canonical message (or `None` if the walk has finished)?
-///
-/// Atomicity rules: a flush must never land inside an assistant
-/// `tool_call` / `tool_result` pair, and must never split a parallel
-/// `tool_result` group.
+/// Atomicity guard: a flush must never split a `tool_call` /
+/// `tool_result` pair or a parallel `tool_result` group — the model
+/// rejects requests with dangling pair halves.
 fn is_valid_flush_at_end(buffer: &[MessageEntry], next: Option<&MessageEntry>) -> bool {
     let Some(last) = buffer.last() else {
         return false;
@@ -207,8 +213,8 @@ fn is_valid_flush_at_end(buffer: &[MessageEntry], next: Option<&MessageEntry>) -
     true
 }
 
-/// Find the latest index `i` in `buffer` where `buffer[..=i]` ends at a
-/// valid flush boundary. Used only by the `on_turn_end` fallback path.
+/// Latest index where `buffer[..=i]` ends at a valid flush boundary.
+/// Used only by the `on_turn_end` obligation path.
 fn last_valid_cut(buffer: &[MessageEntry]) -> Option<usize> {
     for i in (0..buffer.len()).rev() {
         if is_toolcall(&buffer[i]) {
@@ -283,15 +289,33 @@ mod tests {
         c
     }
 
-    /// No trigger configured: walk completes with zero summaries and the
-    /// projection is pass-through.
+    fn run(
+        ctx: &Context,
+        pending: &PendingTurn,
+        compact: &Compact,
+        config: &ProjectionConfig,
+        cap: usize,
+    ) -> anyhow::Result<Projection> {
+        let cwd_buf = cwd();
+        let input = ProjectorInput {
+            canonical: ctx,
+            pending,
+            compact,
+            config,
+            cwd: &cwd_buf,
+            max_prepended_summaries: cap,
+        };
+        project(&input)
+    }
+
+    /// Zero summaries when no trigger is configured — nothing to fire on.
     #[test]
     fn test_no_trigger_passes_through() {
         let ctx = context(vec![user("q1"), assistant("a1"), user("q2")]);
         let pending = PendingTurn::default();
         let compact = Compact::new();
 
-        let projection = project(&ctx, &pending, &compact, &cfg(usize::MAX), &cwd(), 2).unwrap();
+        let projection = run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
 
         assert_eq!(projection.entries.len(), 3);
         assert!(
@@ -302,11 +326,9 @@ mod tests {
         );
     }
 
-    /// `message_threshold = 3` + four canonical messages fires one summary
-    /// at the third buffered message and keeps the fourth in leftover.
-    /// Two canonical messages after the first summary don't re-trigger
-    /// because the assembled request shape (1 summary + 1 buffer + 0
-    /// pending = 2 messages) is still below the threshold.
+    /// Post-flush assembled size (1 summary + leftover) stays below the
+    /// threshold, so no second flush fires — guards against runaway
+    /// re-triggering once a summary enters the assembled count.
     #[test]
     fn test_message_threshold_fires_at_valid_boundary() {
         let ctx = context(vec![user("q1"), assistant("a1"), user("q2"), assistant("a2")]);
@@ -314,7 +336,7 @@ mod tests {
         let compact = compact_with_msg_threshold(3);
 
         let projection =
-            project(&ctx, &pending, &compact, &cfg(usize::MAX), &cwd(), 2).unwrap();
+            run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
 
         let summaries: Vec<_> = projection
             .entries
@@ -331,9 +353,9 @@ mod tests {
         assert_eq!(originals.len(), 1, "expected a single trailing message in leftover buffer");
     }
 
-    /// Never flush between an assistant `tool_call` and the matching
-    /// `tool_result` — a trigger firing on the tool_call keeps appending
-    /// until the result is also in the buffer, then flushes.
+    /// Guards tool-pair atomicity: a trigger that fires mid-pair must
+    /// defer to the next valid boundary. Dangling tool halves land the
+    /// request in a 400 at the provider.
     #[test]
     fn test_tool_call_and_result_flush_together() {
         let ctx = context(vec![
@@ -348,7 +370,7 @@ mod tests {
         let compact = compact_with_msg_threshold(2);
 
         let projection =
-            project(&ctx, &pending, &compact, &cfg(usize::MAX), &cwd(), 2).unwrap();
+            run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
 
         // The leftover buffer must not contain a bare tool_call or bare
         // tool_result; they either both survive or both get folded into the
@@ -369,8 +391,8 @@ mod tests {
         );
     }
 
-    /// Sliding cap: produce three summaries with a very aggressive
-    /// threshold and verify only the last two survive (default cap = 2).
+    /// Cap bounds the summary-prefix size regardless of how aggressive
+    /// the trigger is — prevents unbounded growth from cascading flushes.
     #[test]
     fn test_sliding_cap_drops_oldest_summaries() {
         let ctx = context(vec![
@@ -385,7 +407,7 @@ mod tests {
         let pending = PendingTurn::default();
         let compact = compact_with_msg_threshold(2);
 
-        let projection = project(&ctx, &pending, &compact, &cfg(usize::MAX), &cwd(), 2).unwrap();
+        let projection = run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
 
         let summaries: Vec<_> = projection
             .entries
@@ -399,9 +421,9 @@ mod tests {
         );
     }
 
-    /// `on_turn_end` obligation: trigger is otherwise dormant but one
-    /// summary still gets produced because pending ends with a user
-    /// message.
+    /// `on_turn_end` alone — with every budget trigger dormant — still
+    /// forces one summary because the obligation is independent of
+    /// threshold checks.
     #[test]
     fn test_on_turn_end_forces_summary_when_armed() {
         let ctx = context(vec![user("q1"), assistant("a1"), user("q2"), assistant("a2")]);
@@ -411,7 +433,7 @@ mod tests {
         let mut compact = Compact::new();
         compact.on_turn_end = Some(true);
 
-        let projection = project(&ctx, &pending, &compact, &cfg(usize::MAX), &cwd(), 2).unwrap();
+        let projection = run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
 
         let summaries: Vec<_> = projection
             .entries
@@ -421,8 +443,8 @@ mod tests {
         assert_eq!(summaries.len(), 1, "on_turn_end must produce at least one summary");
     }
 
-    /// Fallback: canonical has only user messages so no assistant-side
-    /// boundary exists — zero summaries, canonical passes through.
+    /// An unsatisfiable flush is a silent no-op, not a hard error —
+    /// matches base's `find_sequence_preserving_last_n` returning None.
     #[test]
     fn test_no_valid_boundary_falls_back_to_pass_through() {
         let ctx = context(vec![user("q1"), user("q2"), user("q3")]);
@@ -432,25 +454,24 @@ mod tests {
         compact.on_turn_end = Some(true);
         compact.message_threshold = Some(1);
 
-        let projection = project(&ctx, &pending, &compact, &cfg(0), &cwd(), 2).unwrap();
+        let projection = run(&ctx, &pending, &compact, &cfg(0), 2).unwrap();
 
-        // Only-user canonical still has valid flush boundaries (user tails
-        // are not tool pairs). But the summary of pure-user messages is a
-        // degenerate case; verify the algorithm at least doesn't panic
-        // and produces a coherent projection of the same or smaller size.
+        // Degenerate all-user canonical: summarising it is meaningless
+        // but the algorithm must not panic, and output must be coherent.
         assert!(!projection.entries.is_empty());
     }
 
-    /// Two calls with the same inputs produce byte-identical summary text
-    /// — the template render is deterministic.
+    /// Summary text is byte-stable across repeated projections so the
+    /// request hash stays the same — a prerequisite for any future
+    /// sidecar memoisation or response caching.
     #[test]
     fn test_projection_is_deterministic() {
         let ctx = context(vec![user("q1"), assistant("a1"), user("q2"), assistant("a2")]);
         let pending = PendingTurn::default();
         let compact = compact_with_msg_threshold(2);
 
-        let first = project(&ctx, &pending, &compact, &cfg(usize::MAX), &cwd(), 2).unwrap();
-        let second = project(&ctx, &pending, &compact, &cfg(usize::MAX), &cwd(), 2).unwrap();
+        let first = run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
+        let second = run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
 
         let extract_summary = |p: &Projection| -> Option<String> {
             p.entries.iter().find_map(|e| match e {

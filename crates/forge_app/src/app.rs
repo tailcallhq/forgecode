@@ -159,8 +159,6 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             tracing_handler.clone().and(title_handler.clone())
         };
 
-        // CompactionHandler is gone — compaction now runs as a tier-1
-        // projection at request-build time so canonical stays immutable.
         let hook = Hook::default()
             .on_start(tracing_handler.clone().and(title_handler))
             .on_request(tracing_handler.clone().and(DoomLoopDetector::default()))

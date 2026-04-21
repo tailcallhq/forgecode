@@ -100,9 +100,8 @@ impl TestContext {
 pub struct TestOutput {
     pub conversation_history: Vec<Conversation>,
     pub chat_responses: Vec<anyhow::Result<ChatResponse>>,
-    /// Lets tests assert what was actually sent to the model per request
-    /// — the turn's final canonical alone can't tell you whether the
-    /// projector spliced summary frames into the dispatched request.
+    /// Projected context the model saw per dispatch. Canonical-only
+    /// inspection can't distinguish pass-through from a tier-1 splice.
     pub outbound_contexts: Vec<forge_domain::Context>,
 }
 

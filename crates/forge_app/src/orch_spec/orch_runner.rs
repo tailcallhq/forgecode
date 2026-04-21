@@ -39,9 +39,9 @@ pub struct Runner {
     // Mock shell command outputs
     test_shell_outputs: Mutex<VecDeque<ShellOutput>>,
 
-    // Captures the context sent to each chat_agent dispatch so tests can
-    // assert projection effects — the final canonical alone can't tell
-    // you what was projected-then-dispatched at each iteration.
+    // Records the projected context handed to each chat_agent dispatch
+    // — canonical-only inspection can't distinguish pass-through from
+    // a tier-1 splice, so tests need the actual outbound shape.
     outbound_contexts: Mutex<Vec<forge_domain::Context>>,
 
     attachments: Vec<Attachment>,
@@ -154,9 +154,9 @@ impl Runner {
         let (mut orch, runner) = (orch, services);
 
         let result = orch.run().await;
-        // run_inner only saves on success; on halt the caller is
-        // responsible. ForgeApp::chat does that — mirror it here so
-        // halt-safety tests can observe the restored canonical.
+        // Save on halt — mirrors `ForgeApp::chat`'s behaviour so
+        // halt-safety tests observe the restored canonical. `run_inner`
+        // deliberately only saves on success.
         if result.is_err() {
             let _ = runner.update(orch.get_conversation().clone()).await;
         }
