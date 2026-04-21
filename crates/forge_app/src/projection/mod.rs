@@ -5,7 +5,7 @@ use forge_domain::{Compact, Context, MessageEntry, MessageId, PendingTurn};
 use crate::Error;
 
 mod message_entry_adapter;
-mod tier1;
+mod summarizer;
 
 pub use message_entry_adapter::CompactableEntry;
 
@@ -47,12 +47,12 @@ pub struct Projection {
     pub directives: Vec<RequestDirective>,
 }
 
-/// `Tier0` passes canonical through unchanged; `Tier1` runs the
-/// forward-scan template projector.
+/// `Passthrough` forwards canonical unchanged; `Summarize` runs the
+/// forward-scan template summarizer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
-    Tier0,
-    Tier1,
+    Passthrough,
+    Summarize,
 }
 
 /// Resolved thresholds for tier selection. Populated from `Compact`
@@ -63,13 +63,13 @@ pub struct ProjectionConfig {
 }
 
 impl ProjectionConfig {
-    /// Dispatches to `Tier1` once the combined canonical+pending token
-    /// count reaches the configured threshold.
+    /// Dispatches to `Summarize` once the combined canonical+pending
+    /// token count reaches the configured threshold.
     pub fn select_tier(&self, request_tokens: usize) -> Tier {
         if request_tokens >= self.effective_token_threshold {
-            Tier::Tier1
+            Tier::Summarize
         } else {
-            Tier::Tier0
+            Tier::Passthrough
         }
     }
 }
@@ -106,8 +106,8 @@ pub struct Projector;
 impl Projector {
     pub async fn project(tier: Tier, input: &ProjectorInput<'_>) -> anyhow::Result<Projection> {
         match tier {
-            Tier::Tier0 => Ok(passthrough(input.canonical)),
-            Tier::Tier1 => tier1::project(input),
+            Tier::Passthrough => Ok(passthrough(input.canonical)),
+            Tier::Summarize => summarizer::project(input),
         }
     }
 }
@@ -128,18 +128,18 @@ mod tests {
 
     use super::*;
 
-    fn config(tier_1: usize) -> ProjectionConfig {
-        ProjectionConfig { effective_token_threshold: tier_1 }
+    fn config(threshold: usize) -> ProjectionConfig {
+        ProjectionConfig { effective_token_threshold: threshold }
     }
 
-    /// Below threshold selects `Tier0`; at or above selects `Tier1`.
+    /// Below threshold selects `Passthrough`; at or above selects `Summarize`.
     #[test]
     fn test_select_tier_bands() {
         let cfg = config(100);
-        assert_eq!(cfg.select_tier(0), Tier::Tier0);
-        assert_eq!(cfg.select_tier(99), Tier::Tier0);
-        assert_eq!(cfg.select_tier(100), Tier::Tier1);
-        assert_eq!(cfg.select_tier(10_000), Tier::Tier1);
+        assert_eq!(cfg.select_tier(0), Tier::Passthrough);
+        assert_eq!(cfg.select_tier(99), Tier::Passthrough);
+        assert_eq!(cfg.select_tier(100), Tier::Summarize);
+        assert_eq!(cfg.select_tier(10_000), Tier::Summarize);
     }
 
     /// `ProjectionConfig::try_from` refuses to build with an unpopulated
