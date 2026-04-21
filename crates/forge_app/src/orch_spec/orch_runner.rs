@@ -108,9 +108,8 @@ impl Runner {
             .add_system_message(conversation)
             .await?;
 
-        // Render user prompt. Commit 1 squashes pending back into canonical
-        // so orch_spec retains its pre-PendingTurn fixture shape; later
-        // commits wire the pending through orch separately.
+        // Render user prompt into a PendingTurn. Canonical stays untouched;
+        // orch combines canonical + pending at its own entry.
         let (conversation, pending) = UserPromptGenerator::new(
             services.clone(),
             agent.clone(),
@@ -119,16 +118,6 @@ impl Runner {
         )
         .generate(conversation)
         .await?;
-        let conversation = if pending.is_empty() {
-            conversation
-        } else {
-            let mut conversation = conversation;
-            let mut context = conversation.context.take().unwrap_or_default();
-            for entry in pending.into_messages() {
-                context.messages.push(entry);
-            }
-            conversation.context(context)
-        };
 
         let conversation = InitConversationMetrics::new(setup.current_time).apply(conversation);
         // Apply initial metrics (including todos) if provided by the test
@@ -141,7 +130,8 @@ impl Runner {
             ApplyTunableParameters::new(agent.clone(), system_tools.clone()).apply(conversation);
         let conversation = SetConversationId.apply(conversation);
 
-        let orch = Orchestrator::new(services.clone(), conversation, agent, setup.config.clone())
+        let orch =
+            Orchestrator::new(services.clone(), conversation, pending, agent, setup.config.clone())
             .error_tracker(ToolErrorTracker::new(3))
             .tool_definitions(system_tools)
             .hook(Arc::new(
@@ -154,6 +144,12 @@ impl Runner {
         let (mut orch, runner) = (orch, services);
 
         let result = orch.run().await;
+        // run_inner only saves on success; on halt the caller is
+        // responsible. ForgeApp::chat does that — mirror it here so
+        // halt-safety tests can observe the restored canonical.
+        if result.is_err() {
+            let _ = runner.update(orch.get_conversation().clone()).await;
+        }
         drop(orch);
 
         let chat_responses = handle.await?;

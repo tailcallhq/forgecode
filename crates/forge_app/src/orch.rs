@@ -20,6 +20,11 @@ pub struct Orchestrator<S> {
     services: Arc<S>,
     sender: Option<ArcSender>,
     conversation: Conversation,
+    /// In-flight turn content accumulated from user_prompt and the
+    /// tool-call loop. Kept separate from `conversation.context` so
+    /// halts leave canonical byte-identical and the projector can run
+    /// on canonical-only.
+    pending: PendingTurn,
     tool_definitions: Vec<ToolDefinition>,
     models: Vec<Model>,
     agent: Agent,
@@ -32,11 +37,13 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
     pub fn new(
         services: Arc<S>,
         conversation: Conversation,
+        pending: PendingTurn,
         agent: Agent,
         config: forge_config::ForgeConfig,
     ) -> Self {
         Self {
             conversation,
+            pending,
             services,
             agent,
             config,
@@ -238,9 +245,31 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
 
     // Create a helper method with the core functionality
     pub async fn run(&mut self) -> anyhow::Result<()> {
+        // Snapshot canonical at entry. On any halt path the loop's
+        // mid-turn mutations (which mix pending and continuation into
+        // `self.conversation.context`) are rolled back so canonical stays
+        // byte-identical to its pre-turn state — the append-on-completion
+        // invariant. Metrics deliberately don't roll back; tool-call side
+        // effects already happened and session metrics should reflect that.
+        let canonical_snapshot = self.conversation.context.clone();
+        let result = self.run_inner().await;
+        if result.is_err() {
+            self.conversation.context = canonical_snapshot;
+        }
+        result
+    }
+
+    async fn run_inner(&mut self) -> anyhow::Result<()> {
         let model_id = self.get_model();
 
+        // Combine committed canonical with the in-flight PendingTurn so the
+        // loop's working context mirrors the full request shape. Canonical
+        // itself is not mutated here — `self.conversation.context` stays
+        // untouched until turn completion (see append-on-completion).
         let mut context = self.conversation.context.clone().unwrap_or_default();
+        for entry in self.pending.iter_messages() {
+            context.messages.push(entry.clone());
+        }
 
         // Fire the Start lifecycle event
         let start_event = LifecycleEvent::Start(EventData::new(
@@ -266,9 +295,11 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             ToolCallContext::new(self.conversation.metrics.clone()).sender(self.sender.clone());
 
         while !should_yield {
-            // Set context for the current loop iteration
+            // Mirror the loop's in-flight context into the conversation so
+            // hooks (`on_request`, response, toolcall, etc.) can read and
+            // augment it. No disk save happens mid-turn; only the final
+            // write at turn completion persists.
             self.conversation.context = Some(context.clone());
-            self.services.update(self.conversation.clone()).await?;
 
             let request_event = LifecycleEvent::Request(EventData::new(
                 self.agent.clone(),
@@ -381,10 +412,11 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 should_yield = true;
             }
 
-            // Update context in the conversation
+            // Mirror the iteration's ending context back into the
+            // conversation so later iterations' hooks see it. Still no
+            // disk save here — final commit happens once at turn end.
             context = SetModel::new(model_id.clone()).transform(context);
             self.conversation.context = Some(context.clone());
-            self.services.update(self.conversation.clone()).await?;
             request_count += 1;
 
             if !should_yield && let Some(max_request_allowed) = max_requests_per_turn {
@@ -415,8 +447,10 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 self.conversation.metrics = metrics.clone();
             })?;
 
-            // If completing (should_yield is due), fire End hook and check if
-            // it adds messages
+            // On the tentative final iteration, fire the End hook; if it
+            // appends follow-up messages (e.g., pending-todos reminder), the
+            // loop continues. No disk save here — we keep the final commit
+            // as the only write.
             if should_yield {
                 let end_count_before = self.conversation.len();
                 self.hook
@@ -429,10 +463,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                         &mut self.conversation,
                     )
                     .await?;
-                self.services.update(self.conversation.clone()).await?;
-                // Check if End hook added messages - if so, continue the loop
                 if self.conversation.len() > end_count_before {
-                    // End hook added messages, sync context and continue
                     if let Some(updated_context) = &self.conversation.context {
                         context = updated_context.clone();
                     }

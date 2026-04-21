@@ -139,19 +139,6 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             .update_file_stats(conversation)
             .await;
 
-        // Commit 1 transition: orch and downstream still expect the pending
-        // to live inside `conversation.context`. Squash pending back in so
-        // behaviour is identical to pre-`PendingTurn` releases; commit 2
-        // moves the pending into a separate orch input.
-        let mut conversation = conversation;
-        if !pending.is_empty() {
-            let mut context = conversation.context.take().unwrap_or_default();
-            for entry in pending.into_messages() {
-                context.messages.push(entry);
-            }
-            conversation = conversation.context(context);
-        }
-
         let conversation = InitConversationMetrics::new(current_time).apply(conversation);
         let conversation = ApplyTunableParameters::new(agent.clone(), tool_definitions.clone())
             .apply(conversation);
@@ -187,6 +174,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
         let orch = Orchestrator::new(
             services.clone(),
             conversation,
+            pending,
             agent,
             self.services.get_config()?,
         )
