@@ -21,11 +21,14 @@
 - [How Forge Works: Three Modes](#how-forge-works-three-modes)
   - [Interactive Mode (TUI)](#interactive-mode-tui)
   - [One-Shot CLI Mode](#one-shot-cli-mode)
-  - [ZSH Plugin Mode (`:` prefix)](#zsh-plugin-mode--prefix)
-- [ZSH Plugin: The `:` Prefix System](#zsh-plugin-the--prefix-system)
+  - [Shell Plugin Mode (`:` prefix)](#shell-plugin-mode--prefix)
+- [Shell Plugin: The `:` Prefix System](#shell-plugin-the--prefix-system)
+  - [ZSH Plugin](#zsh-plugin)
+  - [Fish Plugin](#fish-plugin)
   - [Agents](#agents)
   - [Sending Prompts](#sending-prompts)
   - [Attaching Files](#attaching-files)
+  - [Pasting Images](#pasting-images)
   - [Conversation Management](#conversation-management)
   - [Git Integration](#git-integration)
   - [Shell Command Tools](#shell-command-tools)
@@ -211,32 +214,66 @@ forge suggest "find large log files" # Translate natural language to a shell com
 
 > **Note:** `forge conversation resume <id>` opens the interactive TUI. It does **not** just print a message and exit. If you run it and see the cursor waiting, you are inside the interactive session. Type your prompt or press `Ctrl+C` to exit.
 
-### ZSH Plugin Mode (`:` prefix)
+### Shell Plugin Mode (`:` prefix)
 
-Install the ZSH plugin once with `forge setup`, then use `:` commands directly at your shell prompt without ever typing `forge`. This is the fastest mode for day-to-day development: send prompts, switch conversations, commit, and suggest commands without leaving your shell.
+Install the shell plugin once with `forge setup` (ZSH) or `forge fish setup` (Fish), then use `:` commands directly at your shell prompt without ever typing `forge`. This is the fastest mode for day-to-day development: send prompts, switch conversations, commit, and suggest commands without leaving your shell.
 
-```zsh
+```bash
 : refactor the auth module      # Send a prompt to the active agent
 :commit                         # AI-powered git commit
 :suggest "find large log files" # Translate description → shell command in your buffer
 :conversation                   # Browse saved conversations with fzf preview
+:paste-image                    # Paste image from clipboard as @[path] attachment
 ```
 
-See the full [ZSH Plugin reference below](#zsh-plugin-the--prefix-system) for all commands and aliases.
+Works in both ZSH and Fish. See the full [Shell Plugin reference below](#shell-plugin-the--prefix-system) for all commands and aliases.
 
 ---
 
-## ZSH Plugin: The `:` Prefix System
+## Shell Plugin: The `:` Prefix System
 
-When you install the ZSH plugin (`forge setup`), you get a `:` prefix command system at your shell prompt. This is the fastest way to use Forge during normal development; you never leave your shell.
+When you install the shell plugin (`forge setup` for ZSH or `forge fish setup` for Fish), you get a `:` prefix command system at your shell prompt. This is the fastest way to use Forge during normal development; you never leave your shell.
 
 **How it works:** Lines starting with `:` are intercepted before the shell sees them and routed to Forge. Everything else runs normally.
 
-```zsh
+```bash
 : <prompt>         # Send a prompt to the active agent
 :sage <prompt>     # Send a prompt to a specific agent by name (sage, muse, forge, or any custom agent)
 :agent <name>      # Switch the active agent; opens fzf picker if no name given
 ```
+
+### ZSH Plugin
+
+Install with:
+
+```bash
+forge setup                              # Install ZSH plugin (updates .zshrc)
+```
+
+Features:
+- Full syntax highlighting for `:` commands and `@[file]` tags
+- Bracketed paste support with automatic `@[path]` wrapping
+- ZLE widget integration (custom accept-line, tab completion)
+- Right-prompt theme showing model, cost, and token usage
+- `forge doctor` to diagnose ZSH environment issues
+
+### Fish Plugin
+
+Install with:
+
+```bash
+forge fish setup                         # Install Fish plugin (updates ~/.config/fish/config.fish)
+```
+
+Features:
+- `:` command routing via `bind \r` (Enter key interception)
+- Tab completion for files (`@`) and agents (`:`) via fzf
+- Right-prompt theme via `fish_right_prompt` (reuses `forge zsh rprompt`)
+- `fish_preexec`/`fish_postexec` hooks for terminal context capture
+- Bracketed paste support with `@[path]` wrapping
+- `forge fish doctor` to diagnose Fish environment issues
+
+> **Note:** Fish's built-in syntax highlighting cannot be customized for `:` commands. The `:command` prefix will appear in Fish's default error color (red) since `:` is not a recognized command. The plugin intercepts Enter before Fish evaluates the line, so commands work correctly despite the visual difference from ZSH.
 
 ### Agents
 
@@ -267,6 +304,22 @@ Type `@` in a prompt, then press Tab to fuzzy-search and select files. The path 
 ```zsh
 : review this code @[src/auth.rs] @[tests/auth_test.rs]
 ```
+
+### Pasting Images
+
+Copy an image to your clipboard (Ctrl+C in a browser, screenshot tool, etc.), then use `:paste-image` to attach it:
+
+```bash
+:paste-image                     # Read image from clipboard, insert as @[path] attachment
+:pi                              # Shortcut
+```
+
+This saves the clipboard image to a temporary file and inserts `@[/tmp/forge-paste-xxx.png]` into your command line. You can then add a prompt and press Enter to send it to the AI.
+
+**Supported platforms:**
+- **macOS**: `pngpaste` (install with `brew install pngpaste`)
+- **Linux X11**: `xclip` (install with `apt install xclip` or equivalent)
+- **Linux Wayland**: `wl-paste` (install with your distribution's package manager)
 
 ### Conversation Management
 
@@ -404,6 +457,7 @@ After running `:sync`, the AI can search your codebase by meaning rather than ex
 | `:login` | `:provider-login` | Login to a provider |
 | `:logout` | | Logout from a provider |
 | `:keyboard-shortcuts` | `:kb` | Show keyboard shortcuts |
+| `:paste-image` | `:pi` | Paste image from clipboard as attachment |
 | `:doctor` | | Run shell environment diagnostics |
 
 ---
@@ -478,6 +532,9 @@ forge list tool --agent <id>             # List tools for a specific agent
 forge doctor                             # Run shell environment diagnostics
 forge update                             # Update forge to the latest version
 forge setup                              # Install ZSH plugin (updates .zshrc)
+forge fish setup                         # Install Fish plugin (updates ~/.config/fish/config.fish)
+forge fish doctor                        # Run Fish environment diagnostics
+forge clipboard paste-image              # Save clipboard image to temp file, output path
 ```
 
 ## Advanced Configuration
@@ -826,16 +883,16 @@ FORGE_DEBUG_REQUESTS=/path/to/debug/requests.json  # Write debug HTTP request fi
 </details>
 
 <details>
-<summary><strong>ZSH Plugin Configuration</strong></summary>
+<summary><strong>Shell Plugin Configuration</strong></summary>
 
-Configure the ZSH plugin behavior:
+Configure the ZSH and Fish plugin behavior:
 
 ```bash
 # .env
 FORGE_BIN=forge                    # Command to use for forge operations (default: "forge")
 ```
 
-The `FORGE_BIN` environment variable allows you to customize the command used by the ZSH plugin when transforming `:` prefixed commands. If not set, it defaults to `"forge"`.
+The `FORGE_BIN` environment variable allows you to customize the command used by the shell plugin when transforming `:` prefixed commands. If not set, it defaults to `"forge"`.
 
 </details>
 

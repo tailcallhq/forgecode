@@ -1,15 +1,17 @@
-# Forge ZSH Plugin
+# Forge Shell Plugin
 
-A powerful ZSH plugin that provides intelligent command transformation, file tagging, and conversation management for the Forge AI assistant.
+A powerful shell plugin that provides intelligent command transformation, file tagging, and conversation management for the Forge AI assistant. Supports both **ZSH** and **Fish**.
 
 ## Features
 
 - **Smart Command Transformation**: Convert `:command` syntax into forge executions
 - **Agent Selection**: Tab completion for available agents using `:agent_name`
 - **File Tagging**: Interactive file selection with `@[filename]` syntax
-- **Syntax Highlighting**: Visual feedback for commands and tagged files
+- **Syntax Highlighting**: Visual feedback for commands and tagged files (ZSH only)
 - **Conversation Continuity**: Automatic session management across commands
 - **Interactive Completion**: Fuzzy finding for files and agents
+- **Image Pasting**: Paste images from clipboard as `@[path]` attachments (`:paste-image`)
+- **Right-Prompt Theme**: Shows model, cost, and token usage in your shell prompt
 
 ## Prerequisites
 
@@ -30,6 +32,28 @@ sudo apt install fzf fd-find
 
 # Arch Linux
 sudo pacman -S fzf fd
+```
+
+### Image Paste Prerequisites (optional)
+
+For `:paste-image` / `:pi` support:
+
+- **macOS**: `pngpaste` (`brew install pngpaste`)
+- **Linux X11**: `xclip` (`apt install xclip`)
+- **Linux Wayland**: `wl-paste` (your distribution's package manager)
+
+## Installation
+
+### ZSH
+
+```bash
+forge setup    # Updates ~/.zshrc with plugin and theme
+```
+
+### Fish
+
+```bash
+forge fish setup    # Updates ~/.config/fish/config.fish with plugin and theme
 ```
 
 ## Usage
@@ -204,6 +228,26 @@ The plugin provides visual feedback through syntax highlighting:
 - **Agent Commands** (`:agent`): Agent names in **yellow bold**
 - **Command Text**: Remaining text in **white bold**
 
+> **Note:** Syntax highlighting is only available in ZSH. Fish has built-in syntax highlighting that cannot be overridden for `:` commands. In Fish, `:command` will appear in the default error color (red), but the plugin intercepts Enter before Fish evaluates the line, so commands work correctly.
+
+## Pasting Images
+
+You can paste images from your clipboard directly into a prompt:
+
+```bash
+:paste-image    # or :pi
+```
+
+This reads an image from the system clipboard, saves it to a temporary file, and inserts `@[/tmp/forge-paste-xxx.png]` into your command line. Add a prompt and press Enter to send the image to the AI.
+
+**Supported clipboard tools:**
+
+| Platform | Tool | Install |
+|---|---|---|
+| macOS | `pngpaste` | `brew install pngpaste` |
+| Linux (X11) | `xclip` | `apt install xclip` |
+| Linux (Wayland) | `wl-paste` | Distribution package manager |
+
 ## Configuration
 
 Customize the plugin behavior by setting these variables before loading the plugin:
@@ -245,7 +289,7 @@ Run comprehensive environment diagnostics to check your Forge setup:
 :doctor
 ```
 
-This will check:
+**ZSH** (`forge doctor`) checks:
 - ZSH version and terminal information
 - Forge installation and version
 - Plugin and theme loading status
@@ -254,6 +298,13 @@ This will check:
 - ZSH plugins (autosuggestions, syntax-highlighting)
 - Editor configuration and PATH setup
 - Nerd Font support for icons
+
+**Fish** (`forge fish doctor`) checks:
+- Fish version and terminal information
+- Forge installation and version
+- Plugin and theme loading status
+- Dependencies (fzf, fd, bat)
+- Editor configuration and PATH setup
 
 ### .forge Directory
 
@@ -265,7 +316,7 @@ The plugin creates a `.forge` directory in your current working directory (simil
 
 ### Command History
 
-All transformed commands are properly saved to ZSH history, allowing you to:
+All transformed commands are properly saved to shell history, allowing you to:
 - Navigate command history with arrow keys
 - Search previous forge commands with `Ctrl+R`
 - Reuse complex commands with file tags
@@ -304,6 +355,16 @@ All transformed commands are properly saved to ZSH history, allowing you to:
 : New conversation starts here
 ```
 
+### Pasting Images
+
+```bash
+# Copy an image to clipboard first (Ctrl+C in browser, screenshot, etc.)
+:paste-image    # Inserts @[/tmp/forge-paste-xxx.png] into command line
+:pi             # Shortcut
+
+# Combine with a prompt
+:paste-image then describe what you see
+```
 
 ### Codebase Indexing
 
