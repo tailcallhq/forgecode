@@ -121,10 +121,7 @@ pub enum ProviderModels {
 impl fake::Dummy<fake::Faker> for ProviderModels {
     fn dummy_with_rng<R: fake::RngExt + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
         // Generate a static list of models for testing
-        Self::Static(vec![StaticModelEntry::dummy_with_rng(
-            &fake::Faker,
-            rng,
-        )])
+        Self::Static(vec![StaticModelEntry::dummy_with_rng(&fake::Faker, rng)])
     }
 }
 
@@ -441,7 +438,9 @@ mod tests {
     fn test_provider_models_url() {
         let json = r#""https://api.example.com/models""#;
         let models: ProviderModels = serde_json::from_str(json).unwrap();
-        assert!(matches!(models, ProviderModels::Url(url) if url == "https://api.example.com/models"));
+        assert!(
+            matches!(models, ProviderModels::Url(url) if url == "https://api.example.com/models")
+        );
     }
 
     #[test]
@@ -482,18 +481,16 @@ mod tests {
 
     #[test]
     fn test_provider_models_round_trip() {
-        let original = ProviderModels::Static(vec![
-            StaticModelEntry {
-                id: "qwen3-35b".to_string(),
-                name: Some("Qwen 3.5 35B".to_string()),
-                description: Some("Local reasoning model".to_string()),
-                context_length: Some(262144),
-                tools_supported: Some(true),
-                supports_parallel_tool_calls: Some(true),
-                supports_reasoning: Some(true),
-                input_modalities: vec![InputModality::Text],
-            },
-        ]);
+        let original = ProviderModels::Static(vec![StaticModelEntry {
+            id: "qwen3-35b".to_string(),
+            name: Some("Qwen 3.5 35B".to_string()),
+            description: Some("Local reasoning model".to_string()),
+            context_length: Some(262144),
+            tools_supported: Some(true),
+            supports_parallel_tool_calls: Some(true),
+            supports_reasoning: Some(true),
+            input_modalities: vec![InputModality::Text],
+        }]);
 
         let json = serde_json::to_string(&original).unwrap();
         let parsed: ProviderModels = serde_json::from_str(&json).unwrap();
@@ -503,8 +500,14 @@ mod tests {
                 assert_eq!(parsed_entries.len(), 1);
                 assert_eq!(parsed_entries[0].id, "qwen3-35b");
                 assert_eq!(parsed_entries[0].name, orig_entries[0].name);
-                assert_eq!(parsed_entries[0].context_length, orig_entries[0].context_length);
-                assert_eq!(parsed_entries[0].tools_supported, orig_entries[0].tools_supported);
+                assert_eq!(
+                    parsed_entries[0].context_length,
+                    orig_entries[0].context_length
+                );
+                assert_eq!(
+                    parsed_entries[0].tools_supported,
+                    orig_entries[0].tools_supported
+                );
             }
             other => panic!("Expected Static variants, got {:?}", other),
         }
