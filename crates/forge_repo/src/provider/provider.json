@@ -2878,6 +2878,26 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "qwen3.6-plus",
+        "name": "Qwen3.6 Plus",
+        "description": "Advanced reasoning model with enhanced capabilities",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k2.6",
+        "name": "Kimi K2.6",
+        "description": "Moonshot AI Kimi K2.6 model with multimodal input, reasoning, and tool calling capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key"]
@@ -2958,6 +2978,26 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text"]
+      },
+      {
+        "id": "qwen3.6-plus",
+        "name": "Qwen3.6 Plus",
+        "description": "Advanced reasoning model with enhanced capabilities",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k2.6",
+        "name": "Kimi K2.6",
+        "description": "Moonshot AI Kimi K2.6 model with multimodal input, reasoning, and tool calling capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key"]
