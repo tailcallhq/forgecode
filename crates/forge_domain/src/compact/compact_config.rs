@@ -13,9 +13,11 @@ use crate::ModelId;
 pub struct Compact {
     /// Forbids a flush when fewer than this many canonical messages
     /// would remain after it, preserving the recent tail verbatim.
-    #[merge(strategy = crate::merge::std::overwrite)]
-    #[serde(default)]
-    pub retention_window: usize,
+    /// `None` means no retention — consumers read via
+    /// `effective_retention_window`.
+    #[merge(strategy = crate::merge::option)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention_window: Option<usize>,
 
     /// Absolute token cap above which the summarizer fires. Combined
     /// with `token_threshold_percentage` by taking the lower value.
@@ -104,7 +106,7 @@ impl Compact {
             turn_threshold: None,
             message_threshold: None,
             model: None,
-            retention_window: 0,
+            retention_window: None,
             on_turn_end: None,
             max_prepended_summaries: None,
         }
@@ -115,6 +117,12 @@ impl Compact {
     pub fn effective_max_prepended_summaries(&self) -> usize {
         self.max_prepended_summaries
             .unwrap_or(DEFAULT_MAX_PREPENDED_SUMMARIES)
+    }
+
+    /// Resolves the tail-preservation count to its configured value or
+    /// `0` (no retention) when unset.
+    pub fn effective_retention_window(&self) -> usize {
+        self.retention_window.unwrap_or(0)
     }
 }
 

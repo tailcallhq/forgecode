@@ -46,7 +46,7 @@ fn project_inner(
 
     let messages = &canonical.messages;
     let total = messages.len();
-    let retention = compact.retention_window;
+    let retention = compact.effective_retention_window();
     for idx in 0..total {
         buffer.push(messages[idx].clone());
 
@@ -556,7 +556,7 @@ mod tests {
         ]);
         let pending = PendingTurn::default();
         let mut compact = compact_with_msg_threshold(2);
-        compact.retention_window = 3;
+        compact.retention_window = Some(3);
 
         let projection = run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
 
@@ -588,7 +588,7 @@ mod tests {
         let mut compact = Compact::new();
         compact.on_turn_end = Some(true);
         compact.message_threshold = Some(1);
-        compact.retention_window = 10;
+        compact.retention_window = Some(10);
 
         let projection = run(&ctx, &pending, &compact, &cfg(0), 2).unwrap();
 

@@ -378,11 +378,11 @@
       ]
     },
     "Compact": {
-      "description": "Configuration for automatic context compaction for all agents",
+      "description": "Workflow-level summarizer defaults. Merged into each agent's\n`forge_domain::Compact` at run time so unset agent fields inherit\nthese values.",
       "type": "object",
       "properties": {
         "max_prepended_summaries": {
-          "description": "Maximum number of summary frames the tier-1 projector is allowed\nto prepend to the assembled request. Defaults to `2` at runtime.",
+          "description": "Cap on summary frames the summarizer prepends; older frames\nslide off when exceeded. `None` uses the runtime default.",
           "type": [
             "integer",
             "null"
@@ -391,7 +391,7 @@
           "minimum": 0
         },
         "message_threshold": {
-          "description": "Maximum number of messages before triggering compaction",
+          "description": "Fires the summarizer once the total message count in the\nassembled request reaches this threshold.",
           "type": [
             "integer",
             "null"
@@ -400,28 +400,30 @@
           "minimum": 0
         },
         "model": {
-          "description": "Model ID to use for compaction, useful when compacting with a\ncheaper/faster model. If not specified, the root level model will be\nused.",
+          "description": "Overrides the agent's primary model for summary rendering so\na cheaper or faster model can handle summarization.",
           "type": [
             "string",
             "null"
           ]
         },
         "on_turn_end": {
-          "description": "Whether to trigger compaction when the last message is from a user",
+          "description": "Fires one summary per projection when the assembled request's\ntail is a user message. Independent of budget thresholds.",
           "type": [
             "boolean",
             "null"
           ]
         },
         "retention_window": {
-          "description": "Number of most recent canonical messages the summariser must\nleave verbatim — a flush is forbidden if fewer than this many\nmessages remain after it.",
-          "type": "integer",
+          "description": "Forbids a flush when fewer than this many canonical messages\nwould remain after it, preserving the recent tail verbatim.\n`None` means no retention.",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint",
-          "default": 0,
           "minimum": 0
         },
         "token_threshold": {
-          "description": "Maximum number of tokens before triggering compaction. This acts as an\nabsolute cap and is combined with\n`token_threshold_percentage` by taking the lower value.",
+          "description": "Absolute token cap above which the summarizer fires. Combined\nwith `token_threshold_percentage` by taking the lower value.",
           "type": [
             "integer",
             "null"
@@ -430,7 +432,7 @@
           "minimum": 0
         },
         "token_threshold_percentage": {
-          "description": "Maximum percentage of the model context window used to derive the token\nthreshold before triggering compaction. This is combined with\n`token_threshold` by taking the lower value.",
+          "description": "Fraction of the model's context window above which the\nsummarizer fires. Combined with `token_threshold` by taking\nthe lower value.",
           "anyOf": [
             {
               "$ref": "#/$defs/double"
@@ -441,7 +443,7 @@
           ]
         },
         "turn_threshold": {
-          "description": "Maximum number of conversation turns before triggering compaction",
+          "description": "Fires the summarizer once the user-role message count in the\nassembled request reaches this threshold.",
           "type": [
             "integer",
             "null"
