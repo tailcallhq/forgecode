@@ -285,6 +285,28 @@
         }
       ]
     },
+    "shell": {
+      "description": "Model and provider configuration used for shell mode.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "shell_behavior": {
+      "description": "Behavior settings for shell-triggered prompt executions.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ShellBehaviorConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "subagents": {
       "description": "Enables subagent support via the task tool; when true the forge agent\ngains access to the `task` tool for delegating work to specialised\nsub-agents, and the `sage` research-only agent tool is removed.\nWhen false the `task` tool is disabled and `sage` is available instead.",
       "type": "boolean",
@@ -856,6 +878,22 @@
         "status_codes",
         "suppress_errors"
       ]
+    },
+    "ShellBehaviorConfig": {
+      "description": "Controls presentation and background behavior for shell-triggered prompts.",
+      "type": "object",
+      "properties": {
+        "quiet": {
+          "description": "Suppresses transient UI output such as reasoning, initialization titles,\nand finished markers for shell-triggered prompt executions.",
+          "type": "boolean",
+          "default": false
+        },
+        "sync": {
+          "description": "Enables automatic background workspace sync after a shell-triggered\nprompt completes.",
+          "type": "boolean",
+          "default": false
+        }
+      }
     },
     "TlsBackend": {
       "description": "TLS backend option.",

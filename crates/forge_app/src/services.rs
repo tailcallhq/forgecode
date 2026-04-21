@@ -190,6 +190,9 @@ pub trait AppConfigService: Send + Sync {
     /// generation).
     async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
 
+    /// Gets the shell configuration (provider and model for shell mode).
+    async fn get_shell_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
+
     /// Gets the suggest configuration (provider and model for command
     /// suggestion generation).
     async fn get_suggest_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
@@ -952,6 +955,10 @@ impl<I: Services> AppConfigService for I {
 
     async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>> {
         self.config_service().get_commit_config().await
+    }
+
+    async fn get_shell_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>> {
+        self.config_service().get_shell_config().await
     }
 
     async fn get_suggest_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>> {

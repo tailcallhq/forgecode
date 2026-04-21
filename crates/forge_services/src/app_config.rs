@@ -40,6 +40,14 @@ impl<F: ProviderRepository + EnvironmentInfra<Config = forge_config::ForgeConfig
         }))
     }
 
+    async fn get_shell_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>> {
+        let config = self.infra.get_config()?;
+        Ok(config.shell.clone().map(|mc| ModelConfig {
+            provider: ProviderId::from(mc.provider_id),
+            model: ModelId::new(mc.model_id),
+        }))
+    }
+
     async fn get_suggest_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>> {
         let config = self.infra.get_config()?;
         Ok(config.suggest.clone().map(|mc| ModelConfig {
@@ -122,6 +130,7 @@ mod tests {
                             tools_supported: Some(true),
                             supports_parallel_tool_calls: Some(true),
                             supports_reasoning: Some(false),
+                            supported_reasoning_efforts: None,
                             input_modalities: vec![InputModality::Text],
                         }])),
                         custom_headers: None,
@@ -148,6 +157,7 @@ mod tests {
                             tools_supported: Some(true),
                             supports_parallel_tool_calls: Some(true),
                             supports_reasoning: Some(true),
+                            supported_reasoning_efforts: None,
                             input_modalities: vec![InputModality::Text],
                         }])),
                         custom_headers: None,
@@ -183,6 +193,12 @@ mod tests {
                             let pid_str = mc.provider.as_ref().to_string();
                             let mid_str = mc.model.to_string();
                             config.session = Some(ModelConfig::new(pid_str, mid_str));
+                        }
+                        ConfigOperation::SetShellConfig(mc) => {
+                            config.shell = Some(ModelConfig::new(
+                                mc.provider.as_ref().to_string(),
+                                mc.model.to_string(),
+                            ));
                         }
                         ConfigOperation::SetCommitConfig(mc) => {
                             config.commit = mc.map(|m| {

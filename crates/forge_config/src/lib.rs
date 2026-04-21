@@ -10,6 +10,7 @@ mod percentage;
 mod reader;
 mod reasoning;
 mod retry;
+mod shell_behavior;
 mod writer;
 
 pub use auto_dump::*;
@@ -23,6 +24,7 @@ pub use percentage::*;
 pub use reader::*;
 pub use reasoning::*;
 pub use retry::*;
+pub use shell_behavior::*;
 pub use writer::*;
 
 /// A `Result` type alias for this crate's [`Error`] type.

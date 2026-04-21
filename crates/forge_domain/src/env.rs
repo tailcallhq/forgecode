@@ -20,6 +20,8 @@ pub enum ConfigOperation {
     /// session (provider + model) is replaced atomically. When they match only
     /// the model field is updated.
     SetSessionConfig(ModelConfig),
+    /// Set the shell mode provider and model configuration.
+    SetShellConfig(ModelConfig),
     /// Set the commit-message generation configuration.
     ///
     /// `None` clears the commit configuration so the active session

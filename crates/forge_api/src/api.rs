@@ -165,6 +165,9 @@ pub trait API: Sync + Send {
     /// generation).
     async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
 
+    /// Gets the shell configuration (provider and model for shell mode).
+    async fn get_shell_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
+
     /// Gets the suggest configuration (provider and model for command
     /// suggestion generation).
     async fn get_suggest_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;

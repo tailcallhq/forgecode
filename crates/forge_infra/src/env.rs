@@ -37,6 +37,12 @@ fn apply_config_op(fc: &mut ForgeConfig, op: ConfigOperation) {
             let mid_str = mc.model.to_string();
             fc.session = Some(ModelConfig { provider_id: pid_str, model_id: mid_str });
         }
+        ConfigOperation::SetShellConfig(mc) => {
+            fc.shell = Some(ModelConfig {
+                provider_id: mc.provider.as_ref().to_string(),
+                model_id: mc.model.to_string(),
+            });
+        }
         ConfigOperation::SetCommitConfig(mc) => {
             fc.commit = mc.map(|m| ModelConfig {
                 provider_id: m.provider.as_ref().to_string(),
