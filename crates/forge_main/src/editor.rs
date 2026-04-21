@@ -163,10 +163,7 @@ impl ForgeEditMode {
     /// Creates a new `ForgeEditMode` wrapping an Emacs mode with the given
     /// keybindings.
     fn new(keybindings: reedline::Keybindings, effort_state: Arc<Mutex<EffortState>>) -> Self {
-        Self {
-            inner: Emacs::new(keybindings),
-            effort_state,
-        }
+        Self { inner: Emacs::new(keybindings), effort_state }
     }
 }
 

@@ -103,11 +103,7 @@ impl<P: ConsoleWriter + 'static> StreamingWriter<P> {
     /// Creates a new stream writer with the given shared spinner and output
     /// printer.
     pub fn new(spinner: SharedSpinner<P>, printer: Arc<P>) -> Self {
-        Self {
-            active: None,
-            spinner,
-            printer,
-        }
+        Self { active: None, spinner, printer }
     }
 
     /// Writes markdown content with normal styling.

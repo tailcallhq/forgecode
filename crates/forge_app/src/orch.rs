@@ -430,9 +430,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                     model_id.clone(),
                     EndPayload,
                 ));
-                self.hook
-                    .handle(&end_event, &mut self.conversation)
-                    .await?;
+                self.hook.handle(&end_event, &mut self.conversation).await?;
                 self.services.update(self.conversation.clone()).await?;
                 // Check if End hook added messages - if so, continue the loop
                 if self.conversation.len() > end_count_before {

@@ -397,7 +397,8 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + 'stat
         match provider.models().cloned() {
             Some(forge_domain::ModelSource::Hardcoded(models)) => Ok(models),
             Some(forge_domain::ModelSource::Url(url)) => {
-                let provider_client = OpenAIResponsesProvider::new(provider.clone(), self.infra.clone());
+                let provider_client =
+                    OpenAIResponsesProvider::new(provider.clone(), self.infra.clone());
                 let headers = create_headers(provider_client.get_headers());
                 let response = self
                     .infra

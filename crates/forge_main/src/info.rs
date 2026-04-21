@@ -2,9 +2,9 @@ use std::fmt;
 use std::path::Path;
 use std::time::Duration;
 
+use crate::VERSION;
 use colored::Colorize;
 use forge_api::{Conversation, Environment, ForgeConfig, Metrics, Role, Usage, UserUsage};
-use crate::VERSION;
 
 use crate::display_constants::markers;
 use crate::model::ForgeCommandManager;
@@ -75,7 +75,7 @@ impl Section {
 /// # Output Format
 ///
 /// ```text
-/// 
+///
 /// CONFIGURATION
 ///   model gpt-4
 /// provider openai
@@ -238,7 +238,11 @@ impl Info {
         let cache_percentage = calculate_cache_percentage(usage);
         let context_percentage = context_length.and_then(|limit| {
             if limit > 0 {
-                Some((*usage.prompt_tokens * 100).checked_div(limit as usize).unwrap_or(0))
+                Some(
+                    (*usage.prompt_tokens * 100)
+                        .checked_div(limit as usize)
+                        .unwrap_or(0),
+                )
             } else {
                 None
             }
@@ -711,7 +715,10 @@ impl From<&ForgeCommandManager> for Info {
             .add_title("KEYBOARD SHORTCUTS")
             .add_key_value("<CTRL+C>", "Interrupt current operation")
             .add_key_value("<CTRL+D>", "Quit Forge interactive shell")
-            .add_key_value("<CTRL+T>", "Cycle reasoning effort level (Low/Med/High/XHigh)")
+            .add_key_value(
+                "<CTRL+T>",
+                "Cycle reasoning effort level (Low/Med/High/XHigh)",
+            )
             .add_key_value("<CTRL+G>", "Toggle thinking process visibility")
             .add_key_value(multiline_shortcut, "Insert new line (multiline input)");
 

@@ -28,11 +28,7 @@ impl Console {
             command.clone(),
             effort_state.clone(),
         ));
-        Self {
-            command,
-            editor,
-            effort_state,
-        }
+        Self { command, editor, effort_state }
     }
 
     /// Returns a snapshot of the current effort, if set.

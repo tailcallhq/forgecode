@@ -4,10 +4,10 @@ use std::path::PathBuf;
 
 use convert_case::{Case, Casing};
 use derive_setters::Setters;
-use std::sync::{Arc, Mutex};
 use forge_api::{AgentId, Effort, ModelId, Usage};
 use nu_ansi_term::{Color, Style};
 use reedline::{Prompt, PromptHistorySearchStatus};
+use std::sync::{Arc, Mutex};
 
 use crate::display_constants::markers;
 use crate::editor::EffortState;
@@ -183,7 +183,10 @@ impl Prompt for ForgePrompt {
         let (effort, supported_count) = if let Some(ref state) = self.effort_state {
             let state = state.lock().ok();
             (
-                state.as_ref().and_then(|s| s.current.clone()).or(self.effort.clone()),
+                state
+                    .as_ref()
+                    .and_then(|s| s.current.clone())
+                    .or(self.effort.clone()),
                 state.as_ref().map(|s| s.supported.len()),
             )
         } else {

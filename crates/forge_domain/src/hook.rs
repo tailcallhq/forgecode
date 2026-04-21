@@ -108,9 +108,7 @@ pub struct ReasoningPayload {
 impl ReasoningPayload {
     /// Creates a new reasoning payload
     pub fn new(reasoning: impl Into<String>) -> Self {
-        Self {
-            reasoning: reasoning.into(),
-        }
+        Self { reasoning: reasoning.into() }
     }
 }
 
@@ -854,7 +852,10 @@ mod tests {
         let mut conversation = Conversation::generate();
         let mut event =
             LifecycleEvent::Start(EventData::new(test_agent(), test_model_id(), StartPayload));
-        combined.handle(&mut event, &mut conversation).await.unwrap();
+        combined
+            .handle(&mut event, &mut conversation)
+            .await
+            .unwrap();
 
         // Both handlers should have been called
         assert_eq!(*counter1.lock().unwrap(), 1);
@@ -905,7 +906,10 @@ mod tests {
         let mut conversation = Conversation::generate();
         let mut event =
             LifecycleEvent::Start(EventData::new(test_agent(), test_model_id(), StartPayload));
-        combined.handle(&mut event, &mut conversation).await.unwrap();
+        combined
+            .handle(&mut event, &mut conversation)
+            .await
+            .unwrap();
 
         let handled = events.lock().unwrap();
         assert_eq!(handled.len(), 3);
@@ -949,13 +953,19 @@ mod tests {
         // Test Start event
         let mut event =
             LifecycleEvent::Start(EventData::new(test_agent(), test_model_id(), StartPayload));
-        combined.handle(&mut event, &mut conversation).await.unwrap();
+        combined
+            .handle(&mut event, &mut conversation)
+            .await
+            .unwrap();
         assert_eq!(*start_title.lock().unwrap(), Some("Start".to_string()));
 
         // Test End event
         let mut event =
             LifecycleEvent::End(EventData::new(test_agent(), test_model_id(), EndPayload));
-        combined.handle(&mut event, &mut conversation).await.unwrap();
+        combined
+            .handle(&mut event, &mut conversation)
+            .await
+            .unwrap();
         assert_eq!(*end_title.lock().unwrap(), Some("End".to_string()));
     }
 
