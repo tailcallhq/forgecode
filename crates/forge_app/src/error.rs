@@ -48,4 +48,10 @@ pub enum Error {
 
     #[error("No active model configured")]
     NoActiveModel,
+
+    #[error(
+        "projection config requires a derived token threshold; ensure \
+         Agent::compaction_threshold has run before building ProjectionConfig"
+    )]
+    ProjectionConfigNotReady,
 }
