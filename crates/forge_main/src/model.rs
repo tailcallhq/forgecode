@@ -100,6 +100,7 @@ impl ForgeCommandManager {
                 | "muse"
                 | "sage"
                 | "help"
+                // Reserved for a future projector-aware compact command.
                 | "compact"
                 | "new"
                 | "info"
