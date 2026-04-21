@@ -163,3 +163,4 @@ forge_test_kit = { path = "crates/forge_test_kit" }
 
 forge_markdown_stream = { path = "crates/forge_markdown_stream" }
 forge_config = { path = "crates/forge_config" }
+forge_compact = { path = "crates/forge_compact" }

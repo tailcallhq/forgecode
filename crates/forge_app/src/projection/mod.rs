@@ -2,6 +2,10 @@ use forge_domain::{Compact, Context, MessageEntry, MessageId};
 
 use crate::Error;
 
+mod message_entry_adapter;
+
+pub use message_entry_adapter::CompactableEntry;
+
 /// A single entry in a projection: either a canonical message preserved
 /// verbatim, or a summary that replaces a span of canonical messages.
 #[derive(Debug, Clone, PartialEq)]

@@ -2042,6 +2042,7 @@ dependencies = [
  "derive_more",
  "derive_setters",
  "fake",
+ "forge_compact",
  "forge_config",
  "forge_display",
  "forge_domain",
