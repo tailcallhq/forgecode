@@ -381,13 +381,8 @@
       "description": "Configuration for automatic context compaction for all agents",
       "type": "object",
       "properties": {
-        "eviction_window": {
-          "description": "Maximum percentage of the context that can be summarized during\ncompaction. Valid values are between 0.0 and 1.0, where 0.0 means no\ncompaction and 1.0 allows summarizing all messages. Works alongside\nretention_window - the more conservative limit (fewer messages to\ncompact) takes precedence.",
-          "$ref": "#/$defs/double",
-          "default": 0.0
-        },
-        "max_tokens": {
-          "description": "Maximum number of tokens to keep after compaction",
+        "max_prepended_summaries": {
+          "description": "Maximum number of summary frames the tier-1 projector is allowed\nto prepend to the assembled request. Defaults to `2` at runtime.",
           "type": [
             "integer",
             "null"
@@ -419,7 +414,7 @@
           ]
         },
         "retention_window": {
-          "description": "Number of most recent messages to preserve during compaction.\nThese messages won't be considered for summarization. Works alongside\neviction_window - the more conservative limit (fewer messages to\ncompact) takes precedence.",
+          "description": "Number of most recent canonical messages the summariser must\nleave verbatim — a flush is forbidden if fewer than this many\nmessages remain after it.",
           "type": "integer",
           "format": "uint",
           "default": 0,

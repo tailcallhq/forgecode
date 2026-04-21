@@ -10,26 +10,12 @@ use crate::{Context, ModelId, Role};
 #[derive(Debug, Clone, Serialize, Deserialize, Merge, Setters, JsonSchema, PartialEq)]
 #[setters(strip_option, into)]
 pub struct Compact {
-    /// Number of most recent messages to preserve during compaction.
-    /// These messages won't be considered for summarization. Works alongside
-    /// eviction_window - the more conservative limit (fewer messages to
-    /// compact) takes precedence.
+    /// Number of most recent canonical messages the summariser must
+    /// leave verbatim. A flush is forbidden if fewer than this many
+    /// messages remain after it.
     #[merge(strategy = crate::merge::std::overwrite)]
     #[serde(default)]
     pub retention_window: usize,
-
-    /// Maximum percentage of the context that can be summarized during
-    /// compaction. Valid values are between 0.0 and 1.0, where 0.0 means no
-    /// compaction and 1.0 allows summarizing all messages. Works alongside
-    /// retention_window - the more conservative limit (fewer messages to
-    /// compact) takes precedence.
-    #[merge(strategy = crate::merge::std::overwrite)]
-    #[serde(default, deserialize_with = "deserialize_percentage")]
-    pub eviction_window: f64,
-
-    /// Maximum number of tokens to keep after compaction
-    #[merge(strategy = crate::merge::option)]
-    pub max_tokens: Option<usize>,
 
     /// Maximum number of tokens before triggering compaction. This acts as an
     /// absolute cap and is combined with
@@ -80,21 +66,6 @@ pub struct Compact {
 
 pub const DEFAULT_MAX_PREPENDED_SUMMARIES: usize = 2;
 
-fn deserialize_percentage<'de, D>(deserializer: D) -> Result<f64, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::Error;
-
-    let value = f64::deserialize(deserializer)?;
-    if !(0.0..=1.0).contains(&value) {
-        return Err(Error::custom(format!(
-            "percentage must be between 0.0 and 1.0, got {value}"
-        )));
-    }
-    Ok(value)
-}
-
 fn deserialize_optional_percentage<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -123,13 +94,11 @@ impl Compact {
     /// limit
     pub fn new() -> Self {
         Self {
-            max_tokens: None,
             token_threshold: None,
             token_threshold_percentage: None,
             turn_threshold: None,
             message_threshold: None,
             model: None,
-            eviction_window: 0.2, // Default to 20% compaction
             retention_window: 0,
             on_turn_end: None,
             max_prepended_summaries: None,

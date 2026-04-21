@@ -134,8 +134,6 @@ impl AgentExt for Agent {
             // Agent settings take priority over workflow settings.
             let mut merged_compact = Compact {
                 retention_window: workflow_compact.retention_window,
-                eviction_window: workflow_compact.eviction_window.value(),
-                max_tokens: workflow_compact.max_tokens,
                 token_threshold: workflow_compact.token_threshold,
                 token_threshold_percentage: workflow_compact
                     .token_threshold_percentage
@@ -284,13 +282,9 @@ mod tests {
     /// overwrites workflow values with agent values.
     #[test]
     fn test_compact_agent_settings_take_priority_over_workflow_config() {
-        use forge_config::Percentage;
-
         // Workflow config with custom compact settings (from .forge.toml)
         let workflow_compact = forge_config::Compact::default()
             .retention_window(10_usize)
-            .eviction_window(Percentage::new(0.3).unwrap())
-            .max_tokens(5000_usize)
             .token_threshold(80000_usize)
             .token_threshold_percentage(0.65_f64);
 
@@ -335,14 +329,11 @@ mod tests {
     /// values.
     #[test]
     fn test_compact_partial_agent_settings_override_workflow_values() {
-        use forge_config::Percentage;
         use forge_domain::Compact as DomainCompact;
 
         // Workflow config with ALL settings
         let workflow_compact = forge_config::Compact::default()
             .retention_window(15_usize)
-            .eviction_window(Percentage::new(0.25).unwrap())
-            .max_tokens(6000_usize)
             .token_threshold(90000_usize)
             .token_threshold_percentage(0.4_f64)
             .turn_threshold(20_usize);

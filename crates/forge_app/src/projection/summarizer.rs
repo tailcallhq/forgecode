@@ -45,7 +45,9 @@ fn project_inner(
     let mut summaries: Vec<SummaryPayload> = Vec::new();
 
     let messages = &canonical.messages;
-    for idx in 0..messages.len() {
+    let total = messages.len();
+    let retention = compact.retention_window;
+    for idx in 0..total {
         buffer.push(messages[idx].clone());
 
         // Triggers evaluate against the assembled request shape at this
@@ -59,7 +61,8 @@ fn project_inner(
             compact,
             config,
             max_prepended_summaries,
-        ) && is_valid_flush_at_end(&buffer, messages.get(idx + 1))
+        ) && retention_allows_flush(idx, total, retention)
+            && is_valid_flush_at_end(&buffer, messages.get(idx + 1))
         {
             flush_summary(&mut buffer, &mut summaries, cwd)?;
         }
@@ -70,7 +73,7 @@ fn project_inner(
     // matches base's `find_sequence_preserving_last_n` returning None).
     if on_turn_end_armed
         && summaries.is_empty()
-        && let Some(cut) = last_valid_cut(&buffer)
+        && let Some(cut) = last_valid_cut(&buffer, retention)
     {
         let to_summarize: Vec<MessageEntry> = buffer.drain(..=cut).collect();
         let payload = render_summary(&to_summarize, cwd)?;
@@ -228,22 +231,36 @@ fn is_valid_flush_at_end(buffer: &[MessageEntry], next: Option<&MessageEntry>) -
     }
 }
 
+/// `retention_window` preserves the last N canonical messages verbatim
+/// — a flush at `idx` is only allowed if at least `retention` messages
+/// remain after it (so none of them land in a summary).
+fn retention_allows_flush(idx: usize, total: usize, retention: usize) -> bool {
+    idx + retention < total
+}
+
 /// Latest index where `buffer[..=i]` ends at a valid flush boundary.
 /// Used only by the `on_turn_end` obligation. Prefers cuts whose new
 /// buffer starts with an assistant; if none satisfy the soft rule,
 /// falls back to atomicity-only (REQUIREMENTS: "where possible").
-fn last_valid_cut(buffer: &[MessageEntry]) -> Option<usize> {
+/// `retention` forbids cuts that would leave fewer than N trailing
+/// messages in the leftover buffer.
+fn last_valid_cut(buffer: &[MessageEntry], retention: usize) -> Option<usize> {
     let strict = (0..buffer.len())
         .rev()
-        .find(|&i| is_valid_cut_at(buffer, i, true));
+        .find(|&i| is_valid_cut_at(buffer, i, true, retention));
     strict.or_else(|| {
         (0..buffer.len())
             .rev()
-            .find(|&i| is_valid_cut_at(buffer, i, false))
+            .find(|&i| is_valid_cut_at(buffer, i, false, retention))
     })
 }
 
-fn is_valid_cut_at(buffer: &[MessageEntry], i: usize, prefer_assistant_next: bool) -> bool {
+fn is_valid_cut_at(
+    buffer: &[MessageEntry],
+    i: usize,
+    prefer_assistant_next: bool,
+    retention: usize,
+) -> bool {
     if is_toolcall(&buffer[i]) {
         return false;
     }
@@ -257,6 +274,12 @@ fn is_valid_cut_at(buffer: &[MessageEntry], i: usize, prefer_assistant_next: boo
     // contain an assistant so the fallback rule kicks in for
     // all-user spans instead of emitting a user-only summary.
     if !buffer[..=i].iter().any(is_assistant) {
+        return false;
+    }
+    // Retention protects the last N entries of the buffer — cutting
+    // at or past `buffer.len() - retention` would fold retained
+    // messages into the summary.
+    if i + retention >= buffer.len() {
         return false;
     }
     if prefer_assistant_next {
@@ -516,6 +539,65 @@ mod tests {
             .filter(|e| matches!(e, ProjectedEntry::Summary(_)))
             .collect();
         assert_eq!(summaries.len(), 1, "on_turn_end must produce at least one summary");
+    }
+
+    /// `retention_window` protects the trailing N canonical messages
+    /// from ever landing in a summary — mirrors base's
+    /// preserve-last-N behaviour.
+    #[test]
+    fn test_retention_window_protects_trailing_messages() {
+        let ctx = context(vec![
+            user("q1"),
+            assistant("a1"),
+            user("q2"),
+            assistant("a2"),
+            user("q3"),
+            assistant("a3"),
+        ]);
+        let pending = PendingTurn::default();
+        let mut compact = compact_with_msg_threshold(2);
+        compact.retention_window = 3;
+
+        let projection = run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
+
+        // Retention = 3 reserves `[q2, a2, u3, a3]` — the last 3
+        // canonical messages — from flushing. Flushes can only fold
+        // `[q1, a1, u2]`-ish prefixes. The trailing 3 originals must
+        // all survive as verbatim originals in the projection.
+        let trailing_originals = projection
+            .entries
+            .iter()
+            .rev()
+            .take(3)
+            .filter(|e| matches!(e, ProjectedEntry::Original(_)))
+            .count();
+        assert_eq!(
+            trailing_originals, 3,
+            "retention_window=3 must keep the last 3 canonical messages verbatim"
+        );
+    }
+
+    /// `retention_window >= canonical.len()` forbids every flush — the
+    /// projector falls back to zero summaries and pass-through.
+    #[test]
+    fn test_retention_covering_everything_blocks_all_flushes() {
+        let ctx = context(vec![user("q1"), assistant("a1"), user("q2"), assistant("a2")]);
+        let mut pending = PendingTurn::default();
+        pending.push_user_input(ContextMessage::Text(TextMessage::new(Role::User, "q3")));
+
+        let mut compact = Compact::new();
+        compact.on_turn_end = Some(true);
+        compact.message_threshold = Some(1);
+        compact.retention_window = 10;
+
+        let projection = run(&ctx, &pending, &compact, &cfg(0), 2).unwrap();
+
+        let summaries = projection
+            .entries
+            .iter()
+            .filter(|e| matches!(e, ProjectedEntry::Summary(_)))
+            .count();
+        assert_eq!(summaries, 0, "full-coverage retention must block every flush");
     }
 
     /// All-user canonical has no assistant to anchor a summary, so

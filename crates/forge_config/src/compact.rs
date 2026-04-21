@@ -43,24 +43,11 @@ pub struct Update {
 #[derive(Debug, Clone, Serialize, Deserialize, Setters, JsonSchema, PartialEq)]
 #[setters(strip_option, into)]
 pub struct Compact {
-    /// Number of most recent messages to preserve during compaction.
-    /// These messages won't be considered for summarization. Works alongside
-    /// eviction_window - the more conservative limit (fewer messages to
-    /// compact) takes precedence.
+    /// Number of most recent canonical messages the summariser must
+    /// leave verbatim — a flush is forbidden if fewer than this many
+    /// messages remain after it.
     #[serde(default)]
     pub retention_window: usize,
-
-    /// Maximum percentage of the context that can be summarized during
-    /// compaction. Valid values are between 0.0 and 1.0, where 0.0 means no
-    /// compaction and 1.0 allows summarizing all messages. Works alongside
-    /// retention_window - the more conservative limit (fewer messages to
-    /// compact) takes precedence.
-    #[serde(default)]
-    pub eviction_window: Percentage,
-
-    /// Maximum number of tokens to keep after compaction
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<usize>,
 
     /// Maximum number of tokens before triggering compaction. This acts as an
     /// absolute cap and is combined with
@@ -108,13 +95,11 @@ impl Compact {
     /// Creates a new compaction configuration with all optional fields unset
     pub fn new() -> Self {
         Self {
-            max_tokens: None,
             token_threshold: None,
             token_threshold_percentage: None,
             turn_threshold: None,
             message_threshold: None,
             model: None,
-            eviction_window: Percentage::new(0.2).unwrap(),
             retention_window: 0,
             on_turn_end: None,
             max_prepended_summaries: None,
@@ -127,8 +112,6 @@ impl Dummy<fake::Faker> for Compact {
         use fake::Fake;
         Self {
             retention_window: fake::Faker.fake_with_rng(rng),
-            eviction_window: Percentage::from((0.0f64..=1.0f64).fake_with_rng::<f64, R>(rng)),
-            max_tokens: fake::Faker.fake_with_rng(rng),
             token_threshold: fake::Faker.fake_with_rng(rng),
             token_threshold_percentage: fake::Faker.fake_with_rng(rng),
             turn_threshold: fake::Faker.fake_with_rng(rng),
@@ -147,41 +130,6 @@ mod tests {
     use super::*;
     use crate::ForgeConfig;
     use crate::reader::ConfigReader;
-
-    #[test]
-    fn test_f64_eviction_window_round_trip() {
-        let fixture = Compact {
-            eviction_window: Percentage::new(0.2).unwrap(),
-            ..Compact::new()
-        };
-
-        let toml = toml_edit::ser::to_string_pretty(&fixture).unwrap();
-
-        assert!(
-            toml.contains("eviction_window = 0.2\n"),
-            "expected `eviction_window = 0.2` in TOML output, got:\n{toml}"
-        );
-    }
-
-    #[test]
-    fn test_f64_eviction_window_deserialize_round_trip() {
-        let fixture = Compact {
-            eviction_window: Percentage::new(0.2).unwrap(),
-            ..Compact::new()
-        };
-        let config_fixture = ForgeConfig::default().compact(fixture.clone());
-
-        let toml = toml_edit::ser::to_string_pretty(&config_fixture).unwrap();
-
-        let actual = ConfigReader::default()
-            .read_defaults()
-            .read_toml(&toml)
-            .build()
-            .unwrap();
-        let actual = actual.compact.expect("compact config should deserialize");
-
-        assert_eq!(actual.eviction_window, fixture.eviction_window);
-    }
 
     #[test]
     fn test_token_threshold_percentage_round_trip() {
@@ -227,19 +175,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_eviction_window_rejects_out_of_range() {
-        let toml = "[compact]\neviction_window = 1.5\n";
-
-        let result = ConfigReader::default()
-            .read_defaults()
-            .read_toml(toml)
-            .build();
-
-        assert!(
-            result.is_err(),
-            "expected error for eviction_window = 1.5, got: {:?}",
-            result.ok()
-        );
-    }
 }
