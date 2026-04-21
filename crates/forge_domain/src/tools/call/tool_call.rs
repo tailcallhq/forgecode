@@ -148,9 +148,8 @@ impl ToolCallFull {
                         let arguments = if current_arguments.is_empty() {
                             ToolCallArguments::default()
                         } else {
-                            ToolCallArguments::from_json(current_arguments.as_str())
+                            ToolCallArguments::parse_json(&current_arguments)?
                         };
-
                         tool_calls.push(ToolCallFull {
                             name: tool_name,
                             call_id: Some(existing_call_id.clone()),
@@ -188,9 +187,8 @@ impl ToolCallFull {
             let arguments = if current_arguments.is_empty() {
                 ToolCallArguments::default()
             } else {
-                ToolCallArguments::from_json(current_arguments.as_str())
+                ToolCallArguments::parse_json(&current_arguments)?
             };
-
             tool_calls.push(ToolCallFull {
                 name: tool_name,
                 call_id: current_call_id,
@@ -384,23 +382,19 @@ mod tests {
             ToolCallFull {
                 name: ToolName::new("read"),
                 call_id: Some(ToolCallId("call_1".to_string())),
-                arguments: ToolCallArguments::from_json(
-                    r#"{"path": "crates/forge_services/src/fixtures/mascot.md"}"#,
-                ),
+                arguments: ToolCallArguments::from_json(r#"{"path": "crates/forge_services/src/fixtures/mascot.md"}"#).normalize(),
                 thought_signature: None,
             },
             ToolCallFull {
                 name: ToolName::new("read"),
                 call_id: Some(ToolCallId("call_2".to_string())),
-                arguments: ToolCallArguments::from_json(r#"{"path": "docs/onboarding.md"}"#),
+                arguments: ToolCallArguments::from_json(r#"{"path": "docs/onboarding.md"}"#).normalize(),
                 thought_signature: None,
             },
             ToolCallFull {
                 name: ToolName::new("read"),
                 call_id: Some(ToolCallId("call_3".to_string())),
-                arguments: ToolCallArguments::from_json(
-                    r#"{"path": "crates/forge_services/src/service/service.md"}"#,
-                ),
+                arguments: ToolCallArguments::from_json(r#"{"path": "crates/forge_services/src/service/service.md"}"#).normalize(),
                 thought_signature: None,
             },
         ];
@@ -522,7 +516,7 @@ mod tests {
         let expected = vec![ToolCallFull {
             call_id: Some(ToolCallId("call_1".to_string())),
             name: ToolName::new("read"),
-            arguments: ToolCallArguments::from_json(r#"{"path": "docs/onboarding.md"}"#),
+            arguments: ToolCallArguments::from_json(r#"{"path": "docs/onboarding.md"}"#).normalize().normalize(),
             thought_signature: None,
         }];
 
@@ -604,7 +598,7 @@ mod tests {
         let expected = vec![ToolCallFull {
             call_id: Some(ToolCallId("0".to_string())),
             name: ToolName::new("read"),
-            arguments: ToolCallArguments::from_json(r#"{"path": "/test/file.md"}"#),
+            arguments: ToolCallArguments::from_json(r#"{"path": "/test/file.md"}"#).normalize(),
             thought_signature: None,
         }];
 
@@ -712,7 +706,7 @@ mod tests {
         let expected = vec![ToolCallFull {
             call_id: Some(ToolCallId("call_1".to_string())),
             name: ToolName::new("shell"),
-            arguments: ToolCallArguments::from_json(r#"{"command": "date"}"#),
+            arguments: ToolCallArguments::from_json(r#"{"command": "date"}"#).normalize(),
             thought_signature: Some("signature_abc123".to_string()),
         }];
 
@@ -742,13 +736,13 @@ mod tests {
             ToolCallFull {
                 call_id: Some(ToolCallId("call_1".to_string())),
                 name: ToolName::new("read"),
-                arguments: ToolCallArguments::from_json(r#"{"path": "file1.txt"}"#),
+                arguments: ToolCallArguments::from_json(r#"{"path": "file1.txt"}"#).normalize(),
                 thought_signature: Some("sig_1".to_string()),
             },
             ToolCallFull {
                 call_id: Some(ToolCallId("call_2".to_string())),
                 name: ToolName::new("read"),
-                arguments: ToolCallArguments::from_json(r#"{"path": "file2.txt"}"#),
+                arguments: ToolCallArguments::from_json(r#"{"path": "file2.txt"}"#).normalize(),
                 thought_signature: Some("sig_2".to_string()),
             },
         ];

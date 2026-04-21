@@ -746,35 +746,28 @@ mod tests {
     #[tokio::test]
     async fn test_into_full_with_tool_call_parse_failure_creates_retryable_error() {
         use crate::{ToolCallId, ToolCallPart, ToolName};
-
-        // Fixture: Create a stream with invalid tool call JSON
         let invalid_tool_call_part = ToolCallPart {
             call_id: Some(ToolCallId::new("call_123")),
             name: Some(ToolName::new("test_tool")),
             arguments_part: "invalid json {".to_string(), // Invalid JSON
             thought_signature: None,
         };
-
         let messages = vec![Ok(ChatCompletionMessage::default()
             .content(Content::part("Processing..."))
             .add_tool_call(ToolCall::Part(invalid_tool_call_part)))];
-
         let result_stream: BoxStream<ChatCompletionMessage, anyhow::Error> =
             Box::pin(tokio_stream::iter(messages));
-
-        // Actual: Convert stream to full message
-        let actual = result_stream.into_full(false).await;
-
-        // Expected: Should not fail with invalid tool calls
-        assert!(actual.is_ok());
-        let actual = actual.unwrap();
-        let expected = ToolCallFull {
-            name: ToolName::new("test_tool"),
-            call_id: Some(ToolCallId::new("call_123")),
-            arguments: ToolCallArguments::from_json("invalid json {"),
-            thought_signature: None,
-        };
-        assert_eq!(actual.tool_calls[0], expected);
+        let actual: Result<ChatCompletionMessageFull, anyhow::Error> = result_stream.into_full(false).await;
+        // Expected: Should fail with a Retryable error since the tool call has invalid JSON
+        assert!(actual.is_err(), "Invalid tool call JSON should create a Retryable error");
+        let err = actual.unwrap_err();
+        // The error should be a Retryable error
+        // Check the error chain for Retryable
+        let is_retryable = err
+            .downcast_ref::<crate::Error>()
+            .map(|e| matches!(e, crate::Error::Retryable(_)))
+            .unwrap_or(false);
+        assert!(is_retryable, "Error should be Retryable, got: {:?}", err);
     }
 
     #[tokio::test]
