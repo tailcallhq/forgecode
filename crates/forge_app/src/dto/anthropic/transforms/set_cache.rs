@@ -2,20 +2,21 @@ use forge_domain::Transformer;
 
 use crate::dto::anthropic::Request;
 
-/// Transformer that implements a simple two-breakpoint cache strategy:
-/// - Always caches the first message in the conversation
-/// - Always caches the last message in the conversation
-/// - Removes cache control from the second-to-last message
+/// Transformer that keeps Anthropic prompt-cache markers stable:
+/// - Always caches every system message so the static system prefix remains
+///   reusable
+/// - Falls back to caching the first conversation message when there is no
+///   system prompt so single-turn requests still establish a reusable prefix
+/// - Uses exactly one rolling message-level marker on the newest message
 pub struct SetCache;
 
 impl Transformer for SetCache {
     type Value = Request;
 
-    /// Implements a simple two-breakpoint cache strategy:
-    /// 1. Cache the first system message as it should be static.
-    /// 2. Cache the last message (index messages.len() - 1)
-    /// 3. Remove cache control from second-to-last message (index
-    ///    messages.len() - 2)
+    /// Applies the default Anthropic cache strategy:
+    /// 1. Cache every system message when present, otherwise cache the first
+    ///    conversation message.
+    /// 2. Cache only the last message as the rolling message-level marker.
     fn transform(&mut self, mut request: Self::Value) -> Self::Value {
         let len = request.get_messages().len();
         let sys_len = request.system.as_ref().map_or(0, |msgs| msgs.len());
@@ -24,21 +25,28 @@ impl Transformer for SetCache {
             return request;
         }
 
-        // Cache the very first system message, ideally you should keep static content
-        // in it.
-        if let Some(system_messages) = request.system.as_mut()
-            && let Some(first_message) = system_messages.first_mut()
-        {
-            *first_message = std::mem::take(first_message).cached(true);
-        } else {
-            // If no system messages, we can still cache the first message in the
-            // conversation.
-            if let Some(first_message) = request.get_messages_mut().first_mut() {
-                *first_message = std::mem::take(first_message).cached(true);
+        let has_system_prompt = request
+            .system
+            .as_ref()
+            .is_some_and(|messages| !messages.is_empty());
+
+        if let Some(system_messages) = request.system.as_mut() {
+            for message in system_messages.iter_mut() {
+                *message = std::mem::take(message).cached(true);
             }
         }
 
-        // Add cache control to last message (if different from first)
+        for message in request.get_messages_mut().iter_mut() {
+            *message = std::mem::take(message).cached(false);
+        }
+
+        if !has_system_prompt
+            && len > 0
+            && let Some(first_message) = request.get_messages_mut().first_mut()
+        {
+            *first_message = std::mem::take(first_message).cached(true);
+        }
+
         if let Some(message) = request.get_messages_mut().last_mut() {
             *message = std::mem::take(message).cached(true);
         }
@@ -161,28 +169,28 @@ mod tests {
     }
 
     #[test]
-    fn test_three_messages_only_last_cached() {
+    fn test_three_messages_cache_first_and_last_only() {
         let actual = create_test_context("uau");
         let expected = "[ua[u";
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn test_four_messages_only_last_cached() {
+    fn test_four_messages_cache_first_and_last_only() {
         let actual = create_test_context("uaua");
         let expected = "[uau[a";
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn test_five_messages_only_last_cached() {
+    fn test_five_messages_cache_first_and_last_only() {
         let actual = create_test_context("uauau");
         let expected = "[uaua[u";
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn test_longer_conversation() {
+    fn test_longer_conversation_caches_first_and_last_only() {
         let actual = create_test_context("uauauauaua");
         let expected = "[uauauauau[a";
         assert_eq!(actual, expected);
@@ -217,10 +225,8 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_system_messages_only_first_cached() {
-        // This test assumes multiple system messages are possible, but only first is
-        // cached
-        let context = Context {
+    fn test_multiple_system_messages_all_cached() {
+        let fixture = Context {
             conversation_id: None,
             messages: vec![
                 ContextMessage::Text(TextMessage::new(Role::System, "first")).into(),
@@ -243,16 +249,19 @@ mod tests {
             initiator: None,
         };
 
-        let request = Request::try_from(context).expect("Failed to convert context to request");
+        let request = Request::try_from(fixture).expect("Failed to convert context to request");
         let mut transformer = SetCache;
         let request = transformer.transform(request);
 
-        // Check that only first system message is cached
-        let system_messages = request.system.as_ref().unwrap();
-        assert_eq!(system_messages[0].is_cached(), true);
-        assert_eq!(system_messages[1].is_cached(), false);
-
-        // Check that last conversation message is cached
-        assert_eq!(request.get_messages().last().unwrap().is_cached(), true);
+        let expected = vec![true, true];
+        let actual = request
+            .system
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|message| message.is_cached())
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected);
+        assert!(request.get_messages()[0].is_cached());
     }
 }

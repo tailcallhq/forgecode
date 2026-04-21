@@ -4,7 +4,6 @@ categories:
   - title: "🚀 Features"
     labels:
       - "type: feature"
-      - "type: provider"
 
   - title: "📝 Documentation"
     labels:
@@ -14,6 +13,7 @@ categories:
     labels:
       - "type: bug"
       - "type: fix"
+      - "type: provider"
 
   - title: "🚀 Performance"
     labels:
