@@ -191,11 +191,23 @@ pub fn render_list_item<S: InlineStyler + ListStyler>(
     );
     let next_prefix = format!("{}{}", margin, " ".repeat(content_indent));
 
+    // The wrapper takes separate first/next content budgets. In list items the
+    // visible widths of the first and continuation prefixes match by
+    // construction, but keep the calculation explicit so merge logic stays
+    // obvious.
+    const MIN_CONTENT_WIDTH: usize = 5;
+    let first_content_width = width
+        .saturating_sub(visible_length(&first_prefix))
+        .max(MIN_CONTENT_WIDTH);
+    let next_content_width = width
+        .saturating_sub(visible_length(&next_prefix))
+        .max(MIN_CONTENT_WIDTH);
+
     // Wrap the content
     let wrapped = wrap_text_preserving_spaces(
         &rendered_content,
-        width.saturating_sub(visible_length(&first_prefix)),
-        width.saturating_sub(visible_length(&next_prefix)),
+        first_content_width,
+        next_content_width,
         &first_prefix,
         &next_prefix,
     );
@@ -368,6 +380,48 @@ mod tests {
         ");
     }
 
+    // Use Theme rather than TagStyler: visible_length skips ANSI codes but
+    // counts TagStyler's literal <dash> markers, which would inflate widths.
+
+    #[test]
+    fn test_wrapping_respects_width() {
+        let theme = crate::theme::Theme::dark();
+        let mut state = ListState::default();
+        let lines = render_list_item(
+            0,
+            &ListBullet::Dash,
+            "word1 word2 word3 word4 word5 word6 word7 word8",
+            20,
+            "  ",
+            &theme,
+            &mut state,
+        );
+        for line in &lines {
+            let vis = visible_length(line);
+            assert!(vis <= 20, "line {line:?} has visible width {vis} > 20");
+        }
+    }
+
+    #[test]
+    fn test_wrapping_respects_width_nested() {
+        let theme = crate::theme::Theme::dark();
+        let mut state = ListState::default();
+        let _ = render_list_item(0, &ListBullet::Dash, "parent", 30, "  ", &theme, &mut state);
+        let lines = render_list_item(
+            1,
+            &ListBullet::Dash,
+            "alpha beta gamma delta epsilon zeta eta theta",
+            30,
+            "  ",
+            &theme,
+            &mut state,
+        );
+        for line in &lines {
+            let vis = visible_length(line);
+            assert!(vis <= 30, "line {line:?} has visible width {vis} > 30");
+        }
+    }
+
     #[test]
     fn test_wrapping_preserves_korean_word_spaces() {
         let actual = render_with_width(0, ListBullet::Dash, "한글 공백 보존 확인", 8);
@@ -379,7 +433,7 @@ mod tests {
     #[test]
     fn test_wrapping_respects_bullet_prefix_width() {
         let actual = render_with_width(0, ListBullet::Dash, "한글 공백", 6);
-        let expected = "  <dash>•</dash> 한\n    글\n    공\n    백";
+        let expected = "  <dash>•</dash> 한글\n    공백";
 
         pretty_assertions::assert_eq!(actual, expected);
     }
@@ -387,7 +441,7 @@ mod tests {
     #[test]
     fn test_wrapping_respects_checkbox_prefix_width() {
         let actual = render_with_width(0, ListBullet::Dash, "[ ] 한글 공백", 8);
-        let expected = "  <dash>•</dash> <unchecked></unchecked> 한\n      글\n      공\n      백";
+        let expected = "  <dash>•</dash> <unchecked></unchecked> 한글\n      공백";
 
         pretty_assertions::assert_eq!(actual, expected);
     }
@@ -416,7 +470,7 @@ mod tests {
             &mut fixture,
         )
         .join("\n");
-        let expected = "  <num>10.</num> 한\n      글\n      공\n      백";
+        let expected = "  <num>10.</num> 한글\n      공백";
 
         pretty_assertions::assert_eq!(actual, expected);
     }
@@ -424,7 +478,7 @@ mod tests {
     #[test]
     fn test_wrapping_splits_long_tokens() {
         let actual = render_with_width(0, ListBullet::Dash, "supercalifragilistic", 10);
-        let expected = "  <dash>•</dash> superc\n    alifra\n    gilist\n    ic";
+        let expected = "  <dash>•</dash> super\n    califr\n    agilis\n    tic";
 
         pretty_assertions::assert_eq!(actual, expected);
     }

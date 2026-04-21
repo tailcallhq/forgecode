@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -108,7 +109,7 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> SkillR
             .map(|skill| self.render_skill(skill, &env))
             .collect::<Vec<_>>();
 
-        Ok(rendered_skills)
+        Ok(sort_skills(rendered_skills))
     }
 }
 
@@ -131,7 +132,7 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
             .with_context(|| format!("Failed to list directory: {}", dir.display()))?;
 
         // Filter for directories only (entries that end with '/')
-        let subdirs: Vec<_> = entries
+        let mut subdirs: Vec<_> = entries
             .into_iter()
             .filter_map(|walked| {
                 if walked.is_dir() && !walked.path.is_empty() {
@@ -142,6 +143,7 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
                 }
             })
             .collect();
+        sort_paths(&mut subdirs);
 
         // Read SKILL.md from each subdirectory in parallel
         let futures = subdirs.into_iter().map(|subdir| {
@@ -163,7 +165,7 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
 
                             // Get all resource files in the skill directory recursively
                             let walker = Walker::unlimited().cwd(subdir.clone());
-                            let resources = infra
+                            let mut resources = infra
                                 .walk(walker)
                                 .await
                                 .unwrap_or_default()
@@ -182,6 +184,7 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
                                     }
                                 })
                                 .collect::<Vec<_>>();
+                            sort_paths(&mut resources);
 
                             // Try to extract skill from front matter, otherwise create with
                             // directory name
@@ -303,6 +306,30 @@ fn resolve_skill_conflicts(skills: Vec<Skill>) -> Vec<Skill> {
     result
 }
 
+fn sort_skills(mut skills: Vec<Skill>) -> Vec<Skill> {
+    for skill in &mut skills {
+        sort_paths(&mut skill.resources);
+    }
+
+    skills.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then_with(|| path_sort_key(a.path.as_deref()).cmp(&path_sort_key(b.path.as_deref())))
+            .then_with(|| a.description.cmp(&b.description))
+    });
+
+    skills
+}
+
+fn sort_paths(paths: &mut [PathBuf]) {
+    paths.sort_by_key(|a| path_sort_key(Some(a.as_path())));
+}
+
+fn path_sort_key(path: Option<&Path>) -> String {
+    path.map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use forge_config::ForgeConfig;
@@ -341,6 +368,35 @@ mod tests {
         );
         assert_eq!(actual[0].command, "cwd prompt");
         assert_eq!(actual[1].name, "skill2");
+    }
+
+    #[test]
+    fn test_sort_skills_orders_names_and_resources() {
+        // Fixture
+        let fixture = vec![
+            Skill::new("zeta", "prompt", "desc")
+                .path("/tmp/zeta/SKILL.md")
+                .resources(vec![
+                    PathBuf::from("/tmp/zeta/b.txt"),
+                    PathBuf::from("/tmp/zeta/a.txt"),
+                ]),
+            Skill::new("alpha", "prompt", "desc").path("/tmp/alpha/SKILL.md"),
+        ];
+
+        // Act
+        let actual = sort_skills(fixture);
+
+        // Assert
+        let expected = vec![
+            Skill::new("alpha", "prompt", "desc").path("/tmp/alpha/SKILL.md"),
+            Skill::new("zeta", "prompt", "desc")
+                .path("/tmp/zeta/SKILL.md")
+                .resources(vec![
+                    PathBuf::from("/tmp/zeta/a.txt"),
+                    PathBuf::from("/tmp/zeta/b.txt"),
+                ]),
+        ];
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -439,6 +495,13 @@ mod tests {
 
         // Assert - should load all skills
         assert_eq!(actual.len(), 2); // minimal-skill, test-skill
+        assert_eq!(
+            actual
+                .iter()
+                .map(|skill| skill.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["minimal-skill", "test-skill"]
+        );
 
         // Verify skill with no resources
         let minimal_skill = actual.iter().find(|s| s.name == "minimal-skill").unwrap();
@@ -448,25 +511,21 @@ mod tests {
         let test_skill = actual.iter().find(|s| s.name == "test-skill").unwrap();
         assert_eq!(test_skill.description, "A test skill with resources");
         assert_eq!(test_skill.resources.len(), 3); // file_1.txt, foo/file_2.txt, foo/bar/file_3.txt
-
-        // Verify nested directory structure is captured
-        assert!(
+        assert_eq!(
             test_skill
                 .resources
                 .iter()
-                .any(|p| p.ends_with("file_1.txt"))
-        );
-        assert!(
-            test_skill
-                .resources
-                .iter()
-                .any(|p| p.ends_with("foo/file_2.txt"))
-        );
-        assert!(
-            test_skill
-                .resources
-                .iter()
-                .any(|p| p.ends_with("foo/bar/file_3.txt"))
+                .map(|path| path
+                    .strip_prefix(&skill_dir)
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string())
+                .collect::<Vec<_>>(),
+            vec![
+                "test-skill/file_1.txt".to_string(),
+                "test-skill/foo/bar/file_3.txt".to_string(),
+                "test-skill/foo/file_2.txt".to_string(),
+            ]
         );
 
         // Ensure SKILL.md is never included in resources

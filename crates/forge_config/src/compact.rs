@@ -62,9 +62,17 @@ pub struct Compact {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<usize>,
 
-    /// Maximum number of tokens before triggering compaction
+    /// Maximum number of tokens before triggering compaction. This acts as an
+    /// absolute cap and is combined with
+    /// `token_threshold_percentage` by taking the lower value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_threshold: Option<usize>,
+
+    /// Maximum percentage of the model context window used to derive the token
+    /// threshold before triggering compaction. This is combined with
+    /// `token_threshold` by taking the lower value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_threshold_percentage: Option<Percentage>,
 
     /// Maximum number of conversation turns before triggering compaction
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -97,6 +105,7 @@ impl Compact {
         Self {
             max_tokens: None,
             token_threshold: None,
+            token_threshold_percentage: None,
             turn_threshold: None,
             message_threshold: None,
             model: None,
@@ -115,6 +124,7 @@ impl Dummy<fake::Faker> for Compact {
             eviction_window: Percentage::from((0.0f64..=1.0f64).fake_with_rng::<f64, R>(rng)),
             max_tokens: fake::Faker.fake_with_rng(rng),
             token_threshold: fake::Faker.fake_with_rng(rng),
+            token_threshold_percentage: fake::Faker.fake_with_rng(rng),
             turn_threshold: fake::Faker.fake_with_rng(rng),
             message_threshold: fake::Faker.fake_with_rng(rng),
             model: fake::Faker.fake_with_rng(rng),
@@ -128,6 +138,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+    use crate::ForgeConfig;
     use crate::reader::ConfigReader;
 
     #[test]
@@ -151,18 +162,62 @@ mod tests {
             eviction_window: Percentage::new(0.2).unwrap(),
             ..Compact::new()
         };
+        let config_fixture = ForgeConfig::default().compact(fixture.clone());
 
-        let toml = toml_edit::ser::to_string_pretty(&fixture).unwrap();
+        let toml = toml_edit::ser::to_string_pretty(&config_fixture).unwrap();
 
         let actual = ConfigReader::default()
             .read_defaults()
             .read_toml(&toml)
             .build()
-            .unwrap()
-            .compact
-            .unwrap_or_default();
+            .unwrap();
+        let actual = actual.compact.expect("compact config should deserialize");
 
         assert_eq!(actual.eviction_window, fixture.eviction_window);
+    }
+
+    #[test]
+    fn test_token_threshold_percentage_round_trip() {
+        let fixture = Compact {
+            token_threshold_percentage: Some(Percentage::new(0.7).unwrap()),
+            ..Compact::new()
+        };
+        let config_fixture = ForgeConfig::default().compact(fixture.clone());
+
+        let toml = toml_edit::ser::to_string_pretty(&config_fixture).unwrap();
+
+        assert!(
+            toml.contains("token_threshold_percentage = 0.7\n"),
+            "expected `token_threshold_percentage = 0.7` in TOML output, got:\n{toml}"
+        );
+
+        let actual = ConfigReader::default()
+            .read_defaults()
+            .read_toml(&toml)
+            .build()
+            .unwrap();
+        let actual = actual.compact.expect("compact config should deserialize");
+
+        assert_eq!(
+            actual.token_threshold_percentage,
+            fixture.token_threshold_percentage
+        );
+    }
+
+    #[test]
+    fn test_token_threshold_percentage_rejects_out_of_range() {
+        let toml = "[compact]\ntoken_threshold_percentage = 1.5\n";
+
+        let result = ConfigReader::default()
+            .read_defaults()
+            .read_toml(toml)
+            .build();
+
+        assert!(
+            result.is_err(),
+            "expected error for token_threshold_percentage = 1.5, got: {:?}",
+            result.ok()
+        );
     }
 
     #[test]

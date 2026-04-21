@@ -195,8 +195,7 @@ impl ContextMessage {
         reasoning_details: Option<Vec<ReasoningFull>>,
         tool_calls: Option<Vec<ToolCallFull>>,
     ) -> Self {
-        let tool_calls =
-            tool_calls.and_then(|calls| if calls.is_empty() { None } else { Some(calls) });
+        let tool_calls = tool_calls.filter(|calls| !calls.is_empty());
         TextMessage {
             role: Role::Assistant,
             content: content.to_string(),
@@ -640,6 +639,12 @@ impl Context {
     /// Checks if reasoning is enabled by user or not.
     pub fn is_reasoning_supported(&self) -> bool {
         self.reasoning.as_ref().is_some_and(|reasoning| {
+            // `Effort::None` is a strong opt-out that wins over `enabled` and
+            // `max_tokens`.
+            if matches!(reasoning.effort, Some(crate::Effort::None)) {
+                return false;
+            }
+
             // When enabled parameter is defined then return it's value directly.
             if reasoning.enabled.is_some() {
                 return reasoning.enabled.unwrap_or_default();
@@ -1190,6 +1195,37 @@ mod tests {
         assert_eq!(
             actual, expected,
             "Should not be supported when explicitly disabled, even with effort set"
+        );
+    }
+
+    #[test]
+    fn test_context_is_reasoning_not_supported_when_effort_is_none() {
+        // `Effort::None` is documented as "skips the thinking step entirely" and
+        // must act as an explicit opt-out regardless of other fields.
+        let fixture = Context::default().reasoning(crate::ReasoningConfig {
+            effort: Some(crate::Effort::None),
+            ..Default::default()
+        });
+
+        let actual = fixture.is_reasoning_supported();
+
+        assert!(!actual);
+    }
+
+    #[test]
+    fn test_context_is_reasoning_not_supported_when_effort_none_overrides_enabled_true() {
+        let fixture = Context::default().reasoning(crate::ReasoningConfig {
+            enabled: Some(true),
+            effort: Some(crate::Effort::None),
+            max_tokens: Some(8000),
+            ..Default::default()
+        });
+
+        let actual = fixture.is_reasoning_supported();
+
+        assert!(
+            !actual,
+            "Effort::None must win over enabled: true and max_tokens"
         );
     }
 

@@ -1,0 +1,7 @@
+---
+source: crates/forge_repo/src/agent.rs
+expression: actual.tools
+---
+- read
+- task
+- mcp_*
