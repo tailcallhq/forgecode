@@ -11,6 +11,7 @@ use tokio::sync::Notify;
 use tracing::warn;
 
 use crate::agent::AgentService;
+use crate::projection::{ProjectedEntry, ProjectionConfig};
 use crate::transformers::{DropReasoningOnlyMessages, ModelSpecificReasoning};
 use crate::{EnvironmentInfra, TemplateEngine};
 
@@ -200,6 +201,67 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         Ok(tool_supported)
     }
 
+    /// Splits the combined canonical+pending context, runs tier-1
+    /// projection over canonical only, and re-appends pending to the
+    /// projected output — the final request shape is
+    /// `[last N summaries][leftover buffer][pending.user_input][pending.continuation]`
+    /// per REQUIREMENTS §Projection algorithm. Pass-through when the agent
+    /// has no configured token threshold (no knob to trip).
+    async fn project_context(&self, context: Context) -> anyhow::Result<Context> {
+        let Ok(cfg) = ProjectionConfig::try_from(&self.agent.compact) else {
+            return Ok(context);
+        };
+        let max_summaries = self.agent.compact.effective_max_prepended_summaries();
+        let cwd = self.services.get_environment().cwd.clone();
+
+        // Select tier from the combined canonical+pending budget — Tier0
+        // passes through, Tier1 runs the forward-scan sliding projector.
+        let request_tokens = *context.token_count();
+        let tier = cfg.select_tier(request_tokens);
+        if tier == crate::projection::Tier::Tier0 {
+            return Ok(context);
+        }
+
+        // Partition messages by pending-id membership. Pending entries
+        // keep their ids stable across the orch's squash/unsquash so id
+        // lookup is authoritative.
+        let pending_ids: HashSet<MessageId> =
+            self.pending.iter_messages().map(|m| m.id).collect();
+        let mut canonical_only = context.clone();
+        let mut pending_entries: Vec<MessageEntry> = Vec::new();
+        canonical_only.messages.retain(|m| {
+            if pending_ids.contains(&m.id) {
+                pending_entries.push(m.clone());
+                false
+            } else {
+                true
+            }
+        });
+
+        let projection = crate::projection::project_tier1(
+            &canonical_only,
+            &self.pending,
+            &self.agent.compact,
+            &cfg,
+            &cwd,
+            max_summaries,
+        )?;
+
+        let mut projected = canonical_only;
+        projected.messages = projection
+            .entries
+            .into_iter()
+            .map(|entry| match entry {
+                ProjectedEntry::Original(boxed) => *boxed,
+                ProjectedEntry::Summary(payload) => {
+                    MessageEntry::from(ContextMessage::user(payload.text, None))
+                }
+            })
+            .collect();
+        projected.messages.extend(pending_entries);
+        Ok(projected)
+    }
+
     async fn execute_chat_turn(
         &self,
         model_id: &ModelId,
@@ -316,13 +378,20 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 context = updated.clone();
             }
 
+            // Project canonical before the retry loop so every attempt
+            // sees the same projected request shape. Projection is
+            // recomputed every dispatch — no sidecar memoisation in this
+            // branch.
+            let projected = self.project_context(context.clone()).await?;
+            let reasoning_supported = projected.is_reasoning_supported();
+
             let message = crate::retry::retry_with_config(
                 &self.config.clone().retry.unwrap_or_default(),
                 || {
                     self.execute_chat_turn(
                         &model_id,
-                        context.clone(),
-                        context.is_reasoning_supported(),
+                        projected.clone(),
+                        reasoning_supported,
                     )
                 },
                 self.sender.as_ref().map(|sender| {

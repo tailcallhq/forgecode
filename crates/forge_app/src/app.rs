@@ -10,7 +10,7 @@ use crate::apply_tunable_parameters::ApplyTunableParameters;
 use crate::changed_files::ChangedFiles;
 use crate::dto::ToolsOverview;
 use crate::hooks::{
-    CompactionHandler, DoomLoopDetector, PendingTodosHandler, TitleGenerationHandler,
+    DoomLoopDetector, PendingTodosHandler, TitleGenerationHandler,
     TracingHandler,
 };
 use crate::init_conversation_metrics::InitConversationMetrics;
@@ -159,14 +159,12 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             tracing_handler.clone().and(title_handler.clone())
         };
 
+        // CompactionHandler is gone — compaction now runs as a tier-1
+        // projection at request-build time so canonical stays immutable.
         let hook = Hook::default()
             .on_start(tracing_handler.clone().and(title_handler))
             .on_request(tracing_handler.clone().and(DoomLoopDetector::default()))
-            .on_response(
-                tracing_handler
-                    .clone()
-                    .and(CompactionHandler::new(agent.clone(), environment.clone())),
-            )
+            .on_response(tracing_handler.clone())
             .on_toolcall_start(tracing_handler.clone())
             .on_toolcall_end(tracing_handler)
             .on_end(on_end_hook);
