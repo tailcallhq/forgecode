@@ -82,7 +82,6 @@ impl Default for ZshRPrompt {
 
 const AGENT_SYMBOL: &str = "\u{f167a}";
 const MODEL_SYMBOL: &str = "\u{ec19}";
-const REASONING_SYMBOL: &str = "\u{eb41}";
 
 /// Terminal width (in columns) at which the reasoning effort label switches
 /// from the compact three-letter form to the full uppercase label.
@@ -178,11 +177,6 @@ impl Display for ZshRPrompt {
                     .take(3)
                     .collect::<String>()
                     .to_uppercase()
-            };
-            let effort_label = if self.use_nerd_font {
-                format!("{REASONING_SYMBOL} {}", effort_label)
-            } else {
-                effort_label
             };
             let styled = if active {
                 effort_label.zsh().fg(ZshColor::YELLOW)
@@ -298,7 +292,8 @@ mod tests {
             .reasoning_effort(Some(Effort::High))
             .to_string();
 
-        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}\u{eb41} HIGH%f";
+        let expected =
+            " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}HIGH%f";
         assert_eq!(actual, expected);
     }
 
@@ -311,15 +306,14 @@ mod tests {
             .reasoning_effort(Some(Effort::Medium))
             .to_string();
 
-        let expected =
-            " %B%F{240}\u{f167a} FORGE%f%b %F{240}\u{ec19} gpt-4%f %F{240}\u{eb41} MEDIUM%f";
+        let expected = " %B%F{240}\u{f167a} FORGE%f%b %F{240}\u{ec19} gpt-4%f %F{240}MEDIUM%f";
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_rprompt_with_reasoning_effort_without_nerdfonts() {
-        // With nerd fonts disabled the reasoning effort is rendered as plain
-        // uppercase text without any leading glyph.
+        // Nerd fonts disabled: agent and model lose their glyph prefixes;
+        // the reasoning effort remains as a plain uppercase color-coded label.
         let actual = ZshRPrompt::default()
             .agent(Some(AgentId::new("forge")))
             .model(Some(ModelId::new("gpt-4")))
@@ -371,7 +365,8 @@ mod tests {
             .reasoning_effort(Some(Effort::XHigh))
             .to_string();
 
-        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}\u{eb41} XHIGH%f";
+        let expected =
+            " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}XHIGH%f";
         assert_eq!(actual, expected);
     }
 
@@ -387,7 +382,8 @@ mod tests {
             .terminal_width(Some(80))
             .to_string();
 
-        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}\u{eb41} MED%f";
+        let expected =
+            " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}MED%f";
         assert_eq!(actual, expected);
     }
 
@@ -403,7 +399,8 @@ mod tests {
             .terminal_width(Some(120))
             .to_string();
 
-        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}\u{eb41} MEDIUM%f";
+        let expected =
+            " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}MEDIUM%f";
         assert_eq!(actual, expected);
     }
 
@@ -419,7 +416,8 @@ mod tests {
             .terminal_width(Some(WIDE_TERMINAL_THRESHOLD))
             .to_string();
 
-        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}\u{eb41} HIGH%f";
+        let expected =
+            " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}HIGH%f";
         assert_eq!(actual, expected);
     }
 
@@ -435,7 +433,8 @@ mod tests {
             .terminal_width(Some(80))
             .to_string();
 
-        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}\u{eb41} MIN%f";
+        let expected =
+            " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}MIN%f";
         assert_eq!(actual, expected);
     }
 }
