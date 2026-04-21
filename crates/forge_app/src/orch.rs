@@ -310,6 +310,12 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .handle(&request_event, &mut self.conversation)
                 .await?;
 
+            // Without this, Request-hook mutations (e.g. DoomLoopDetector's
+            // system_reminder) would land in the NEXT dispatch, not this one.
+            if let Some(updated) = &self.conversation.context {
+                context = updated.clone();
+            }
+
             let message = crate::retry::retry_with_config(
                 &self.config.clone().retry.unwrap_or_default(),
                 || {
@@ -390,6 +396,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 }
             }
 
+            let pre_append_len = context.messages.len();
             context = context.append_message(
                 message.content.clone(),
                 message.thought_signature.clone(),
@@ -399,6 +406,14 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 tool_call_records,
                 message.phase,
             );
+            // Track the newly-appended assistant + tool_result entries as
+            // pending continuation so subsequent iterations' projection
+            // strips them out of canonical and the forward-scan tier
+            // selection can account for their tokens against the pending
+            // budget rather than the buffer.
+            for entry in &context.messages[pre_append_len..] {
+                self.pending.continuation.push(entry.clone());
+            }
 
             if self.error_tracker.limit_reached() {
                 self.send(ChatResponse::Interrupt {
@@ -465,6 +480,12 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                     .await?;
                 if self.conversation.len() > end_count_before {
                     if let Some(updated_context) = &self.conversation.context {
+                        // Hook-added tail messages are in-flight pending
+                        // continuation too; track them so the next
+                        // iteration's projection treats them correctly.
+                        for entry in &updated_context.messages[end_count_before..] {
+                            self.pending.continuation.push(entry.clone());
+                        }
                         context = updated_context.clone();
                     }
                     should_yield = false;
