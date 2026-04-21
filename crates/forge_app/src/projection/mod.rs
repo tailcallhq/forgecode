@@ -3,8 +3,10 @@ use forge_domain::{Compact, Context, MessageEntry, MessageId};
 use crate::Error;
 
 mod message_entry_adapter;
+mod tier1;
 
 pub use message_entry_adapter::CompactableEntry;
+pub use tier1::project as project_tier1;
 
 /// A single entry in a projection: either a canonical message preserved
 /// verbatim, or a summary that replaces a span of canonical messages.
