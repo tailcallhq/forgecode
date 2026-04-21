@@ -86,7 +86,7 @@ impl TryFrom<&Compact> for ProjectionConfig {
 }
 
 /// Bundle of inputs a tier's `project` function consumes. Packaged so
-/// new tiers (e.g. an LLM summariser) can be added without churn on
+/// new tiers (e.g. an LLM summarizer) can be added without churn on
 /// every call site.
 pub struct ProjectorInput<'a> {
     pub canonical: &'a Context,
@@ -98,7 +98,7 @@ pub struct ProjectorInput<'a> {
 }
 
 /// Dispatch point for projection tiers. New tiers (e.g. an LLM
-/// summariser) register here without the orchestrator needing to learn
+/// summarizer) register here without the orchestrator needing to learn
 /// their shape. `async` today so a future tier with an I/O dispatch can
 /// slot in without changing this signature.
 pub struct Projector;

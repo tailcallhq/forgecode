@@ -41,7 +41,7 @@ pub struct Runner {
 
     // Records the projected context handed to each chat_agent dispatch
     // — canonical-only inspection can't distinguish pass-through from
-    // a summariser splice, so tests need the actual outbound shape.
+    // a summarizer splice, so tests need the actual outbound shape.
     outbound_contexts: Mutex<Vec<forge_domain::Context>>,
 
     attachments: Vec<Attachment>,

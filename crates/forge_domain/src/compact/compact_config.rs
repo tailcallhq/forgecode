@@ -6,27 +6,27 @@ use tracing::debug;
 
 use crate::{Context, ModelId, Role};
 
-/// Configuration for automatic context compaction
+/// Per-agent summarizer config consumed by the projector at
+/// request-build. Triggers fire when any threshold is met; the
+/// sliding window keeps the last N rendered summary frames.
 #[derive(Debug, Clone, Serialize, Deserialize, Merge, Setters, JsonSchema, PartialEq)]
 #[setters(strip_option, into)]
 pub struct Compact {
-    /// Number of most recent canonical messages the summariser must
-    /// leave verbatim. A flush is forbidden if fewer than this many
-    /// messages remain after it.
+    /// Forbids a flush when fewer than this many canonical messages
+    /// would remain after it, preserving the recent tail verbatim.
     #[merge(strategy = crate::merge::std::overwrite)]
     #[serde(default)]
     pub retention_window: usize,
 
-    /// Maximum number of tokens before triggering compaction. This acts as an
-    /// absolute cap and is combined with
-    /// `token_threshold_percentage` by taking the lower value.
+    /// Absolute token cap above which the summarizer fires. Combined
+    /// with `token_threshold_percentage` by taking the lower value.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[merge(strategy = crate::merge::option)]
     pub token_threshold: Option<usize>,
 
-    /// Maximum percentage of the model context window used to derive the token
-    /// threshold before triggering compaction. This is combined with
-    /// `token_threshold` by taking the lower value.
+    /// Fraction of the model's context window above which the
+    /// summarizer fires. Combined with `token_threshold` by taking
+    /// the lower value.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -35,35 +35,41 @@ pub struct Compact {
     #[merge(strategy = crate::merge::option)]
     pub token_threshold_percentage: Option<f64>,
 
-    /// Maximum number of conversation turns before triggering compaction
+    /// Fires the summarizer once the user-role message count in the
+    /// assembled request reaches this threshold.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[merge(strategy = crate::merge::option)]
     pub turn_threshold: Option<usize>,
 
-    /// Maximum number of messages before triggering compaction
+    /// Fires the summarizer once the total message count in the
+    /// assembled request reaches this threshold.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[merge(strategy = crate::merge::option)]
     pub message_threshold: Option<usize>,
 
-    /// Model ID to use for compaction, useful when compacting with a
-    /// cheaper/faster model. If not specified, the root level model will be
-    /// used.
+    /// Overrides the agent's primary model for summary rendering so
+    /// a cheaper or faster model can handle summarization.
     #[merge(strategy = crate::merge::option)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelId>,
-    /// Whether to trigger compaction when the last message is from a user
+
+    /// Fires one summary per projection when the assembled request's
+    /// tail is a user message. Independent of budget thresholds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[merge(strategy = crate::merge::option)]
     pub on_turn_end: Option<bool>,
 
-    /// Cap on summary frames the tier-1 projector prepends. Older
-    /// frames slide off (lossy true-sliding) when the cap is exceeded;
+    /// Cap on summary frames the summarizer prepends. Older frames
+    /// slide off (lossy true-sliding) when the cap is exceeded;
     /// `None` uses `DEFAULT_MAX_PREPENDED_SUMMARIES` at runtime.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[merge(strategy = crate::merge::option)]
     pub max_prepended_summaries: Option<usize>,
 }
 
+/// Runtime fallback for `Compact::max_prepended_summaries` — two
+/// frames keeps the last two summarization events visible without
+/// bloating the request head.
 pub const DEFAULT_MAX_PREPENDED_SUMMARIES: usize = 2;
 
 fn deserialize_optional_percentage<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
@@ -90,8 +96,8 @@ impl Default for Compact {
 }
 
 impl Compact {
-    /// Creates a new compaction configuration with the specified maximum token
-    /// limit
+    /// All thresholds unset — the projector falls through to passthrough
+    /// until the caller dials a threshold in.
     pub fn new() -> Self {
         Self {
             token_threshold: None,
@@ -126,7 +132,6 @@ impl Compact {
     fn should_compact_due_to_tokens(&self, token_count: usize) -> bool {
         if let Some(token_threshold) = self.token_threshold {
             debug!(tokens = ?token_count, "Token count");
-            // use provided prompt_tokens if available, otherwise estimate token count
             token_count >= token_threshold
         } else {
             false

@@ -39,48 +39,50 @@ pub struct Update {
     pub auto_update: Option<bool>,
 }
 
-/// Configuration for automatic context compaction for all agents
+/// Workflow-level summarizer defaults. Merged into each agent's
+/// `forge_domain::Compact` at run time so unset agent fields inherit
+/// these values.
 #[derive(Debug, Clone, Serialize, Deserialize, Setters, JsonSchema, PartialEq)]
 #[setters(strip_option, into)]
 pub struct Compact {
-    /// Number of most recent canonical messages the summariser must
-    /// leave verbatim — a flush is forbidden if fewer than this many
-    /// messages remain after it.
+    /// Forbids a flush when fewer than this many canonical messages
+    /// would remain after it, preserving the recent tail verbatim.
     #[serde(default)]
     pub retention_window: usize,
 
-    /// Maximum number of tokens before triggering compaction. This acts as an
-    /// absolute cap and is combined with
-    /// `token_threshold_percentage` by taking the lower value.
+    /// Absolute token cap above which the summarizer fires. Combined
+    /// with `token_threshold_percentage` by taking the lower value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_threshold: Option<usize>,
 
-    /// Maximum percentage of the model context window used to derive the token
-    /// threshold before triggering compaction. This is combined with
-    /// `token_threshold` by taking the lower value.
+    /// Fraction of the model's context window above which the
+    /// summarizer fires. Combined with `token_threshold` by taking
+    /// the lower value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_threshold_percentage: Option<Percentage>,
 
-    /// Maximum number of conversation turns before triggering compaction
+    /// Fires the summarizer once the user-role message count in the
+    /// assembled request reaches this threshold.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_threshold: Option<usize>,
 
-    /// Maximum number of messages before triggering compaction
+    /// Fires the summarizer once the total message count in the
+    /// assembled request reaches this threshold.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message_threshold: Option<usize>,
 
-    /// Model ID to use for compaction, useful when compacting with a
-    /// cheaper/faster model. If not specified, the root level model will be
-    /// used.
+    /// Overrides the agent's primary model for summary rendering so
+    /// a cheaper or faster model can handle summarization.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 
-    /// Whether to trigger compaction when the last message is from a user
+    /// Fires one summary per projection when the assembled request's
+    /// tail is a user message. Independent of budget thresholds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_turn_end: Option<bool>,
 
-    /// Maximum number of summary frames the tier-1 projector is allowed
-    /// to prepend to the assembled request. Defaults to `2` at runtime.
+    /// Cap on summary frames the summarizer prepends; older frames
+    /// slide off when exceeded. `None` uses the runtime default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_prepended_summaries: Option<usize>,
 }
@@ -92,7 +94,8 @@ impl Default for Compact {
 }
 
 impl Compact {
-    /// Creates a new compaction configuration with all optional fields unset
+    /// All fields unset so the domain `Compact` merge keeps the
+    /// agent's own values wherever the agent configured them.
     pub fn new() -> Self {
         Self {
             token_threshold: None,
