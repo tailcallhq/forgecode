@@ -124,20 +124,33 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
                 .add_system_message(conversation)
                 .await?;
 
-        // Insert user prompt
-        let conversation = UserPromptGenerator::new(
+        // Build pending-turn messages; canonical stays untouched.
+        let (conversation, pending) = UserPromptGenerator::new(
             self.services.clone(),
             agent.clone(),
             chat.event.clone(),
             current_time,
         )
-        .add_user_prompt(conversation)
+        .generate(conversation)
         .await?;
 
         // Detect and render externally changed files notification
         let conversation = ChangedFiles::new(services.clone(), agent.clone())
             .update_file_stats(conversation)
             .await;
+
+        // Commit 1 transition: orch and downstream still expect the pending
+        // to live inside `conversation.context`. Squash pending back in so
+        // behaviour is identical to pre-`PendingTurn` releases; commit 2
+        // moves the pending into a separate orch input.
+        let mut conversation = conversation;
+        if !pending.is_empty() {
+            let mut context = conversation.context.take().unwrap_or_default();
+            for entry in pending.into_messages() {
+                context.messages.push(entry);
+            }
+            conversation = conversation.context(context);
+        }
 
         let conversation = InitConversationMetrics::new(current_time).apply(conversation);
         let conversation = ApplyTunableParameters::new(agent.clone(), tool_definitions.clone())

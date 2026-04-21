@@ -108,15 +108,27 @@ impl Runner {
             .add_system_message(conversation)
             .await?;
 
-        // Render user prompt into context.
-        let conversation = UserPromptGenerator::new(
+        // Render user prompt. Commit 1 squashes pending back into canonical
+        // so orch_spec retains its pre-PendingTurn fixture shape; later
+        // commits wire the pending through orch separately.
+        let (conversation, pending) = UserPromptGenerator::new(
             services.clone(),
             agent.clone(),
             event.clone(),
             setup.current_time,
         )
-        .add_user_prompt(conversation)
+        .generate(conversation)
         .await?;
+        let conversation = if pending.is_empty() {
+            conversation
+        } else {
+            let mut conversation = conversation;
+            let mut context = conversation.context.take().unwrap_or_default();
+            for entry in pending.into_messages() {
+                context.messages.push(entry);
+            }
+            conversation.context(context)
+        };
 
         let conversation = InitConversationMetrics::new(setup.current_time).apply(conversation);
         // Apply initial metrics (including todos) if provided by the test

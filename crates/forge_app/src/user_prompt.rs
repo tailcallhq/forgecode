@@ -29,62 +29,62 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
         Self { services: service, agent, event, current_time }
     }
 
-    /// Sets the user prompt in the context based on agent configuration and
-    /// event data
-    pub async fn add_user_prompt(
+    /// Builds the pending-turn messages for this user input. The
+    /// conversation's `context` (canonical) is left untouched; halted
+    /// turns drop the pending without ever persisting to canonical.
+    pub async fn generate(
         &self,
         conversation: Conversation,
-    ) -> anyhow::Result<Conversation> {
-        // Check if this is a resume BEFORE adding new messages
+    ) -> anyhow::Result<(Conversation, PendingTurn)> {
         let is_resume = conversation
             .context
             .as_ref()
             .map(|ctx| ctx.messages.iter().any(|msg| msg.has_role(Role::User)))
             .unwrap_or(false);
 
-        let (conversation, content) = self.add_rendered_message(conversation).await?;
-        let conversation = if is_resume {
-            self.add_todos_on_resume(conversation)?
-        } else {
-            conversation
-        };
-        let conversation = self.add_additional_context(conversation).await?;
-        let conversation = if let Some(content) = content {
-            self.add_attachments(conversation, &content).await?
-        } else {
-            conversation
-        };
+        let mut pending = PendingTurn::default();
 
-        Ok(conversation)
-    }
+        let content = self
+            .build_rendered_message(&conversation, &mut pending)
+            .await?;
 
-    /// Adds existing todos as a user message when resuming a conversation
-    fn add_todos_on_resume(&self, mut conversation: Conversation) -> anyhow::Result<Conversation> {
-        let mut context = conversation.context.take().unwrap_or_default();
-
-        // Load existing todos from session metrics
-        let todos = conversation.metrics.todos.clone();
-
-        if !todos.is_empty() {
-            // Format todos as markdown checklist
-            let todo_content = self.format_todos_as_markdown(&todos);
-
-            // Add as a droppable user message after the new task
-            let todo_message = TextMessage {
-                role: Role::User,
-                content: todo_content,
-                raw_content: None,
-                tool_calls: None,
-                thought_signature: None,
-                reasoning_details: None,
-                model: Some(self.agent.model.clone()),
-                droppable: true, // Droppable so it can be removed during context compression
-                phase: None,
-            };
-            context = context.add_message(ContextMessage::Text(todo_message));
+        if is_resume {
+            self.build_todos_on_resume(&conversation, &mut pending);
         }
 
-        Ok(conversation.context(context))
+        self.build_additional_context(&mut pending);
+
+        let conversation = if let Some(content) = content {
+            self.build_attachments(conversation, &mut pending, &content)
+                .await?
+        } else {
+            conversation
+        };
+
+        Ok((conversation, pending))
+    }
+
+    /// Pushes the todo-resume reminder (if any) into pending. Reads todos
+    /// from session metrics; droppable so later compaction can drop it.
+    fn build_todos_on_resume(&self, conversation: &Conversation, pending: &mut PendingTurn) {
+        let todos = &conversation.metrics.todos;
+        if todos.is_empty() {
+            return;
+        }
+
+        let todo_content = self.format_todos_as_markdown(todos);
+        let todo_message = TextMessage {
+            role: Role::User,
+            content: todo_content,
+            raw_content: None,
+            tool_calls: None,
+            thought_signature: None,
+            reasoning_details: None,
+            model: Some(self.agent.model.clone()),
+            droppable: true,
+            phase: None,
+        };
+        pending.push_user_input(ContextMessage::Text(todo_message));
     }
 
     /// Formats todos as a markdown checklist
@@ -108,40 +108,42 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
         content
     }
 
-    /// Adds additional context (piped input) as a droppable user message
-    async fn add_additional_context(
-        &self,
-        mut conversation: Conversation,
-    ) -> anyhow::Result<Conversation> {
-        let mut context = conversation.context.take().unwrap_or_default();
-
-        if let Some(piped_input) = &self.event.additional_context {
-            let piped_message = TextMessage {
-                role: Role::User,
-                content: piped_input.clone(),
-                raw_content: None,
-                tool_calls: None,
-                thought_signature: None,
-                reasoning_details: None,
-                model: Some(self.agent.model.clone()),
-                droppable: true, // Piped input is droppable
-                phase: None,
-            };
-            context = context.add_message(ContextMessage::Text(piped_message));
-        }
-
-        Ok(conversation.context(context))
+    /// Pushes the piped additional-context message (if any) into pending.
+    /// Droppable so later compaction can drop it.
+    fn build_additional_context(&self, pending: &mut PendingTurn) {
+        let Some(piped_input) = &self.event.additional_context else {
+            return;
+        };
+        let piped_message = TextMessage {
+            role: Role::User,
+            content: piped_input.clone(),
+            raw_content: None,
+            tool_calls: None,
+            thought_signature: None,
+            reasoning_details: None,
+            model: Some(self.agent.model.clone()),
+            droppable: true,
+            phase: None,
+        };
+        pending.push_user_input(ContextMessage::Text(piped_message));
     }
 
-    /// Renders the user message content and adds it to the conversation
-    /// Returns the conversation and the rendered content for attachment parsing
-    async fn add_rendered_message(
+    /// Renders the user's primary message into pending and returns the
+    /// rendered content so attachment parsing can scan it.
+    async fn build_rendered_message(
         &self,
-        mut conversation: Conversation,
-    ) -> anyhow::Result<(Conversation, Option<String>)> {
-        let mut context = conversation.context.take().unwrap_or_default();
+        conversation: &Conversation,
+        pending: &mut PendingTurn,
+    ) -> anyhow::Result<Option<String>> {
         let event_value = self.event.value.clone();
         let template_engine = TemplateEngine::default();
+
+        // Treat it as feedback when canonical already has a user message.
+        let has_user_messages = conversation
+            .context
+            .as_ref()
+            .map(|ctx| ctx.messages.iter().any(|msg| msg.has_role(Role::User)))
+            .unwrap_or(false);
 
         let content = if let Some(user_prompt) = &self.agent.user_prompt
             && self.event.value.is_some()
@@ -155,9 +157,6 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
             let mut event_context = EventContext::new(EventContextValue::new(user_input))
                 .current_date(self.current_time.format("%Y-%m-%d").to_string());
 
-            // Check if context already contains user messages to determine if it's feedback
-            let has_user_messages = context.messages.iter().any(|msg| msg.has_role(Role::User));
-
             if has_user_messages {
                 event_context = event_context.into_feedback();
             } else {
@@ -166,7 +165,6 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
 
             debug!(event_context = ?event_context, "Event context");
 
-            // Render the command first.
             let event_context = match self.event.value.as_ref().and_then(|v| v.as_command()) {
                 Some(command) => {
                     let rendered_prompt = template_engine.render_template(
@@ -178,14 +176,12 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
                 None => event_context,
             };
 
-            // Inject terminal context into the event context when available.
             let event_context =
                 match TerminalContextService::new(self.services.clone()).get_terminal_context() {
                     Some(ctx) => event_context.terminal_context(Some(ctx)),
                     None => event_context,
                 };
 
-            // Render the event value into agent's user prompt template.
             Some(
                 template_engine.render_template(
                     Template::new(user_prompt.template.as_str()),
@@ -193,14 +189,12 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
                 )?,
             )
         } else {
-            // Use the raw event value as content if no user_prompt is provided
             event_value
                 .as_ref()
                 .and_then(|v| v.as_user_prompt().map(|p| p.deref().to_owned()))
         };
 
         if let Some(content) = &content {
-            // Create User Message
             let message = TextMessage {
                 role: Role::User,
                 content: content.clone(),
@@ -212,31 +206,29 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
                 droppable: false,
                 phase: None,
             };
-            context = context.add_message(ContextMessage::Text(message));
+            pending.push_user_input(ContextMessage::Text(message));
         }
 
-        Ok((conversation.context(context), content))
+        Ok(content)
     }
 
-    /// Parses and adds attachments to the conversation based on the provided
-    /// content
-    async fn add_attachments(
+    /// Parses attachments out of the rendered content and routes them into
+    /// pending. Metrics (which are session-wide, not canonical) still
+    /// update on `conversation` so read-operation tracking is preserved
+    /// regardless of turn outcome.
+    async fn build_attachments(
         &self,
         mut conversation: Conversation,
+        pending: &mut PendingTurn,
         content: &str,
     ) -> anyhow::Result<Conversation> {
-        let mut context = conversation.context.take().unwrap_or_default();
-
-        // Parse Attachments (do NOT parse piped input for attachments)
         let attachments = self.services.attachments(content).await?;
 
-        // Track file attachments as read operations in metrics
         let mut metrics = conversation.metrics.clone();
         for attachment in &attachments {
-            // Only track file content attachments (not images or directory listings).
-            // Use the raw content_hash (computed before line-numbering) so that the
-            // external-change detector, which hashes the raw file on disk, sees a
-            // matching hash and does not raise a false "modified externally" warning.
+            // Use the raw content_hash (pre-line-numbering) so the external-
+            // change detector's file-on-disk hash matches and doesn't raise
+            // a spurious "modified externally" warning on the next turn.
             if let AttachmentContent::FileContent { info, .. } = &attachment.content {
                 metrics = metrics.insert(
                     attachment.path.clone(),
@@ -247,9 +239,16 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
         }
         conversation.metrics = metrics;
 
-        context = context.add_attachments(attachments, Some(self.agent.model.clone()));
+        // Reuse Context's attachment-to-message lowering to avoid duplicating
+        // the per-variant rendering logic, then route the produced entries
+        // into pending.
+        let attachment_ctx = Context::default()
+            .add_attachments(attachments, Some(self.agent.model.clone()));
+        for entry in attachment_ctx.messages {
+            pending.user_input.push(entry);
+        }
 
-        Ok(conversation.context(context))
+        Ok(conversation)
     }
 }
 
@@ -323,30 +322,21 @@ mod tests {
         let conversation = fixture_conversation();
         let generator = fixture_generator(agent.clone(), event);
 
-        let actual = generator.add_user_prompt(conversation).await.unwrap();
+        let (conv, pending) = generator.generate(conversation).await.unwrap();
 
-        let messages = actual.context.unwrap().messages;
-        assert_eq!(
-            messages.len(),
-            2,
-            "Should have context message and main message"
+        assert!(
+            conv.context.unwrap().messages.is_empty(),
+            "canonical must stay untouched"
         );
+        assert_eq!(pending.user_input.len(), 2);
 
-        // First message should be the context (droppable)
-        let task_message = messages.first().unwrap();
+        let task_message = pending.user_input.first().unwrap();
         assert_eq!(task_message.content().unwrap(), "First Message");
-        assert!(
-            !task_message.is_droppable(),
-            "Context message should be droppable"
-        );
+        assert!(!task_message.is_droppable());
 
-        // Second message should not be droppable
-        let context_message = messages.last().unwrap();
+        let context_message = pending.user_input.last().unwrap();
         assert_eq!(context_message.content().unwrap(), "Second Message");
-        assert!(
-            context_message.is_droppable(),
-            "Main message should not be droppable"
-        );
+        assert!(context_message.is_droppable());
     }
 
     #[tokio::test]
@@ -356,14 +346,11 @@ mod tests {
         let conversation = fixture_conversation();
         let generator = fixture_generator(agent.clone(), event);
 
-        let actual = generator.add_user_prompt(conversation).await.unwrap();
+        let (_, pending) = generator.generate(conversation).await.unwrap();
 
-        let messages = actual.context.unwrap().messages;
-        assert_eq!(messages.len(), 2);
-
-        // Verify order: main message first, then additional context
-        assert_eq!(messages[0].content().unwrap(), "First Message");
-        assert_eq!(messages[1].content().unwrap(), "Second Message");
+        assert_eq!(pending.user_input.len(), 2);
+        assert_eq!(pending.user_input[0].content().unwrap(), "First Message");
+        assert_eq!(pending.user_input[1].content().unwrap(), "Second Message");
     }
 
     #[tokio::test]
@@ -373,11 +360,10 @@ mod tests {
         let conversation = fixture_conversation();
         let generator = fixture_generator(agent.clone(), event);
 
-        let actual = generator.add_user_prompt(conversation).await.unwrap();
+        let (_, pending) = generator.generate(conversation).await.unwrap();
 
-        let messages = actual.context.unwrap().messages;
-        assert_eq!(messages.len(), 1, "Should only have the main message");
-        assert_eq!(messages[0].content().unwrap(), "Simple task");
+        assert_eq!(pending.user_input.len(), 1);
+        assert_eq!(pending.user_input[0].content().unwrap(), "Simple task");
     }
 
     #[tokio::test]
@@ -387,14 +373,10 @@ mod tests {
         let conversation = fixture_conversation();
         let generator = fixture_generator(agent.clone(), event);
 
-        let actual = generator.add_user_prompt(conversation).await.unwrap();
+        let (_, pending) = generator.generate(conversation).await.unwrap();
 
-        let messages = actual.context.unwrap().messages;
-        assert_eq!(
-            messages.len(),
-            0,
-            "Should not add any message for empty event"
-        );
+        assert!(pending.user_input.is_empty());
+        assert!(pending.continuation.is_empty());
     }
 
     #[tokio::test]
@@ -404,21 +386,39 @@ mod tests {
         let conversation = fixture_conversation();
         let generator = fixture_generator(agent.clone(), event);
 
-        let actual = generator.add_user_prompt(conversation).await.unwrap();
-
-        let messages = actual.context.unwrap().messages;
-        let message = messages.first().unwrap();
+        let (_, pending) = generator.generate(conversation).await.unwrap();
+        let message = pending.user_input.first().unwrap();
 
         if let ContextMessage::Text(text_msg) = &**message {
-            assert!(
-                text_msg.raw_content.is_some(),
-                "Raw content should be preserved"
-            );
+            assert!(text_msg.raw_content.is_some());
             let raw = text_msg.raw_content.as_ref().unwrap();
             assert_eq!(raw.as_user_prompt().unwrap().as_str(), "Task text");
         } else {
-            panic!("Expected TextMessage");
+            panic!("expected TextMessage");
         }
+    }
+
+    /// The canonical invariant: `generate` leaves `conversation.context`
+    /// byte-identical to its input — every new message goes into pending.
+    #[tokio::test]
+    async fn test_generate_leaves_canonical_untouched() {
+        let agent = fixture_agent_without_user_prompt();
+        let event = Event::new("New user message");
+        let conversation = Conversation::new(ConversationId::default()).context(
+            Context::default()
+                .add_message(ContextMessage::system("system"))
+                .add_message(ContextMessage::user("prior turn", None)),
+        );
+        let before = conversation.context.clone();
+        let generator = fixture_generator(agent.clone(), event);
+
+        let (after, pending) = generator.generate(conversation).await.unwrap();
+
+        assert_eq!(
+            after.context, before,
+            "canonical must not change as a result of generate()"
+        );
+        assert_eq!(pending.user_input.len(), 1);
     }
 
     #[tokio::test]
@@ -482,7 +482,7 @@ mod tests {
         );
 
         // Execute
-        let actual = generator.add_user_prompt(conversation).await.unwrap();
+        let (actual, _pending) = generator.generate(conversation).await.unwrap();
 
         // Assert - Both files should be tracked as read operations
         let file1_op = actual.metrics.file_operations.get("/test/file1.rs");
@@ -585,23 +585,19 @@ mod tests {
         );
 
         // Execute
-        let actual = generator.add_user_prompt(conversation).await.unwrap();
+        let (actual, pending) = generator.generate(conversation).await.unwrap();
 
-        // Assert - Should have system, previous user, new user message, and todo list
-        let messages = actual.context.unwrap().messages;
-        assert_eq!(messages.len(), 4, "Should have 4 messages");
+        // Assert - canonical stays at 2 messages (system + previous user);
+        // new user message and todo list land in pending.
+        let canonical = actual.context.unwrap().messages;
+        assert_eq!(canonical.len(), 2);
+        assert_eq!(canonical[0].content().unwrap(), "System message");
+        assert_eq!(canonical[1].content().unwrap(), "Previous task");
 
-        // First is system message
-        assert_eq!(messages[0].content().unwrap(), "System message");
+        assert_eq!(pending.user_input.len(), 2);
+        assert_eq!(pending.user_input[0].content().unwrap(), "Continue working");
 
-        // Second is previous user task
-        assert_eq!(messages[1].content().unwrap(), "Previous task");
-
-        // Third is the new user message
-        assert_eq!(messages[2].content().unwrap(), "Continue working");
-
-        // Fourth should be the todo list (droppable)
-        let todo_message = &messages[3];
+        let todo_message = &pending.user_input[1];
         assert!(
             todo_message.is_droppable(),
             "Todo message should be droppable"
@@ -674,11 +670,13 @@ mod tests {
         );
 
         // Execute
-        let actual = generator.add_user_prompt(conversation).await.unwrap();
+        let (actual, pending) = generator.generate(conversation).await.unwrap();
 
-        // Assert - Should only have the user message, no todos
-        let messages = actual.context.unwrap().messages;
-        assert_eq!(messages.len(), 1, "Should only have user message");
-        assert_eq!(messages[0].content().unwrap(), "First task");
+        // Assert - canonical is empty; user message lands in pending with
+        // no todo injection (new conversation, nothing to resume).
+        let canonical = actual.context.unwrap_or_default().messages;
+        assert!(canonical.is_empty(), "canonical untouched for new conv");
+        assert_eq!(pending.user_input.len(), 1, "only the new user message");
+        assert_eq!(pending.user_input[0].content().unwrap(), "First task");
     }
 }
