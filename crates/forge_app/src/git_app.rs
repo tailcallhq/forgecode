@@ -126,11 +126,12 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> GitApp<
         })
     }
 
-    /// Commits changes with the provided commit message
+    /// Commits changes with the provided commit message.
     ///
-    /// Sets the user as the author (from git config) and ForgeCode as the
-    /// committer. This properly attributes the commit to both the user and
-    /// ForgeCode using Git's author/committer distinction.
+    /// When `use_forge_committer` is enabled, Forge uses the Git
+    /// author/committer distinction to keep the user as the author while
+    /// setting ForgeCode as the committer. When disabled, Git uses the local
+    /// configured committer identity.
     ///
     /// # Arguments
     ///
@@ -143,14 +144,17 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> GitApp<
     pub async fn commit(&self, message: String, has_staged_files: bool) -> Result<CommitResult> {
         let cwd = self.services.get_environment().cwd;
         let flags = if has_staged_files { "" } else { " -a" };
+        let use_forge_committer = self.services.get_config()?.use_forge_committer;
 
-        // Set ForgeCode as the committer while keeping the user as the author
-        // by prefixing the command with environment variables
         // Escape single quotes in the message by replacing ' with '\''
         let escaped_message = message.replace('\'', r"'\''");
-        let commit_command = format!(
-            "GIT_COMMITTER_NAME='ForgeCode' GIT_COMMITTER_EMAIL='noreply@forgecode.dev' git commit {flags} -m '{escaped_message}'"
-        );
+        let commit_command = if use_forge_committer {
+            format!(
+                "GIT_COMMITTER_NAME='ForgeCode' GIT_COMMITTER_EMAIL='noreply@forgecode.dev' git commit {flags} -m '{escaped_message}'"
+            )
+        } else {
+            format!("git commit {flags} -m '{escaped_message}'")
+        };
 
         let commit_result = self
             .services
