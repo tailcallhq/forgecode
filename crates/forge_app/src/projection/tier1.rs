@@ -197,9 +197,16 @@ fn is_toolcall_result(e: &MessageEntry) -> bool {
     matches!(&e.message, ContextMessage::Tool(_))
 }
 
-/// Atomicity guard: a flush must never split a `tool_call` /
-/// `tool_result` pair or a parallel `tool_result` group — the model
-/// rejects requests with dangling pair halves.
+fn is_assistant(e: &MessageEntry) -> bool {
+    matches!(&e.message, ContextMessage::Text(t) if t.role == Role::Assistant)
+}
+
+/// Enforces the flush-boundary rules from REQUIREMENTS:
+/// - hard: never split a `tool_call`/`tool_result` pair or a parallel
+///   `tool_result` group;
+/// - soft: the next buffer should start with an assistant. During the
+///   forward scan this is treated as hard because the walker can
+///   always keep appending; leftover-at-EOS is the fallback path.
 fn is_valid_flush_at_end(buffer: &[MessageEntry], next: Option<&MessageEntry>) -> bool {
     let Some(last) = buffer.last() else {
         return false;
@@ -210,25 +217,47 @@ fn is_valid_flush_at_end(buffer: &[MessageEntry], next: Option<&MessageEntry>) -
     if is_toolcall_result(last) && next.is_some_and(is_toolcall_result) {
         return false;
     }
-    true
+    // End-of-scan (`next == None`) is valid — there's no future
+    // assistant to wait for, so we flush the hot trigger now.
+    match next {
+        Some(n) => is_assistant(n),
+        None => true,
+    }
 }
 
 /// Latest index where `buffer[..=i]` ends at a valid flush boundary.
-/// Used only by the `on_turn_end` obligation path.
+/// Used only by the `on_turn_end` obligation. Prefers cuts whose new
+/// buffer starts with an assistant; if none satisfy the soft rule,
+/// falls back to atomicity-only (REQUIREMENTS: "where possible").
 fn last_valid_cut(buffer: &[MessageEntry]) -> Option<usize> {
-    for i in (0..buffer.len()).rev() {
-        if is_toolcall(&buffer[i]) {
-            continue;
-        }
-        if is_toolcall_result(&buffer[i])
-            && i + 1 < buffer.len()
-            && is_toolcall_result(&buffer[i + 1])
-        {
-            continue;
-        }
-        return Some(i);
+    let strict = (0..buffer.len())
+        .rev()
+        .find(|&i| is_valid_cut_at(buffer, i, true));
+    strict.or_else(|| {
+        (0..buffer.len())
+            .rev()
+            .find(|&i| is_valid_cut_at(buffer, i, false))
+    })
+}
+
+fn is_valid_cut_at(buffer: &[MessageEntry], i: usize, prefer_assistant_next: bool) -> bool {
+    if is_toolcall(&buffer[i]) {
+        return false;
     }
-    None
+    if is_toolcall_result(&buffer[i])
+        && i + 1 < buffer.len()
+        && is_toolcall_result(&buffer[i + 1])
+    {
+        return false;
+    }
+    if prefer_assistant_next {
+        match buffer.get(i + 1) {
+            None => true,
+            Some(next) => is_assistant(next),
+        }
+    } else {
+        true
+    }
 }
 
 fn pending_tail_is_user(pending: &PendingTurn) -> bool {
@@ -418,6 +447,42 @@ mod tests {
             summaries.len() <= 2,
             "sliding cap must keep at most 2 summaries, got {}",
             summaries.len()
+        );
+    }
+
+    /// Mirrors base's `start-at-first-assistant` rule from within the
+    /// forward scan: a trigger firing on `[user, user]` must defer the
+    /// flush until the next canonical message is an assistant, so the
+    /// new buffer starts at an assistant message.
+    #[test]
+    fn test_flush_defers_until_next_is_assistant() {
+        let ctx = context(vec![
+            user("q1"),
+            user("q2"),
+            assistant("a1"),
+            user("q3"),
+            assistant("a2"),
+        ]);
+        let pending = PendingTurn::default();
+        let compact = compact_with_msg_threshold(2);
+
+        let projection = run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
+
+        // First flushable boundary is at index 2 (before the 'a1'
+        // assistant) — the summary folds `[q1, q2]`, not `[q1]` alone.
+        let summary = projection
+            .entries
+            .iter()
+            .find_map(|e| match e {
+                ProjectedEntry::Summary(s) => Some(s),
+                _ => None,
+            })
+            .expect("expected a summary frame");
+        assert_eq!(
+            summary.source_ids.len(),
+            2,
+            "summary must span both leading user messages, got {}",
+            summary.source_ids.len()
         );
     }
 
