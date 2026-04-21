@@ -4,8 +4,8 @@ use std::future::Future;
 use std::str::FromStr;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use bstr::ByteSlice;
 use backon::{ExponentialBuilder, Retryable};
+use bstr::ByteSlice;
 use forge_app::McpClientInfra;
 use forge_domain::{
     Environment, Image, McpHttpServer, McpServerConfig, ToolDefinition, ToolName, ToolOutput,
