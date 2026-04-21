@@ -204,6 +204,8 @@ fn is_assistant(e: &MessageEntry) -> bool {
 /// Enforces the flush-boundary rules from REQUIREMENTS:
 /// - hard: never split a `tool_call`/`tool_result` pair or a parallel
 ///   `tool_result` group;
+/// - hard: the buffer being flushed must contain an assistant — else
+///   the fallback rule takes over (zero summaries, canonical verbatim);
 /// - soft: the next buffer should start with an assistant. During the
 ///   forward scan this is treated as hard because the walker can
 ///   always keep appending; leftover-at-EOS is the fallback path.
@@ -217,8 +219,9 @@ fn is_valid_flush_at_end(buffer: &[MessageEntry], next: Option<&MessageEntry>) -
     if is_toolcall_result(last) && next.is_some_and(is_toolcall_result) {
         return false;
     }
-    // End-of-scan (`next == None`) is valid — there's no future
-    // assistant to wait for, so we flush the hot trigger now.
+    if !buffer.iter().any(is_assistant) {
+        return false;
+    }
     match next {
         Some(n) => is_assistant(n),
         None => true,
@@ -248,6 +251,12 @@ fn is_valid_cut_at(buffer: &[MessageEntry], i: usize, prefer_assistant_next: boo
         && i + 1 < buffer.len()
         && is_toolcall_result(&buffer[i + 1])
     {
+        return false;
+    }
+    // The span about to be summarised is `buffer[..=i]`; it must
+    // contain an assistant so the fallback rule kicks in for
+    // all-user spans instead of emitting a user-only summary.
+    if !buffer[..=i].iter().any(is_assistant) {
         return false;
     }
     if prefer_assistant_next {
@@ -451,11 +460,12 @@ mod tests {
     }
 
     /// Mirrors base's `start-at-first-assistant` rule from within the
-    /// forward scan: a trigger firing on `[user, user]` must defer the
-    /// flush until the next canonical message is an assistant, so the
-    /// new buffer starts at an assistant message.
+    /// forward scan: a trigger firing on `[user, user]` defers because
+    /// (a) the buffer has no assistant and (b) the next message isn't
+    /// an assistant either. The first flushed buffer must include at
+    /// least one assistant.
     #[test]
-    fn test_flush_defers_until_next_is_assistant() {
+    fn test_flush_defers_until_buffer_has_assistant_and_next_is_assistant() {
         let ctx = context(vec![
             user("q1"),
             user("q2"),
@@ -468,9 +478,10 @@ mod tests {
 
         let projection = run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
 
-        // First flushable boundary is at index 2 (before the 'a1'
-        // assistant) — the summary folds `[q1, q2]`, not `[q1]` alone.
-        let summary = projection
+        // First valid flush lands at index 3 (after appending `q3`,
+        // with `a2` next). Buffer contains `a1` and next is `a2`, so
+        // both rules hold. Summary folds the four preceding messages.
+        let first_summary = projection
             .entries
             .iter()
             .find_map(|e| match e {
@@ -479,10 +490,9 @@ mod tests {
             })
             .expect("expected a summary frame");
         assert_eq!(
-            summary.source_ids.len(),
-            2,
-            "summary must span both leading user messages, got {}",
-            summary.source_ids.len()
+            first_summary.source_ids.len(),
+            4,
+            "first summary must span through the first assistant-next boundary"
         );
     }
 
@@ -508,10 +518,11 @@ mod tests {
         assert_eq!(summaries.len(), 1, "on_turn_end must produce at least one summary");
     }
 
-    /// An unsatisfiable flush is a silent no-op, not a hard error —
-    /// matches base's `find_sequence_preserving_last_n` returning None.
+    /// All-user canonical has no assistant to anchor a summary, so
+    /// every trigger (including `on_turn_end`) is a silent no-op and
+    /// canonical passes through verbatim — the REQUIREMENTS fallback.
     #[test]
-    fn test_no_valid_boundary_falls_back_to_pass_through() {
+    fn test_all_user_canonical_falls_back_to_pass_through() {
         let ctx = context(vec![user("q1"), user("q2"), user("q3")]);
         let mut pending = PendingTurn::default();
         pending.push_user_input(ContextMessage::Text(TextMessage::new(Role::User, "q4")));
@@ -521,9 +532,18 @@ mod tests {
 
         let projection = run(&ctx, &pending, &compact, &cfg(0), 2).unwrap();
 
-        // Degenerate all-user canonical: summarising it is meaningless
-        // but the algorithm must not panic, and output must be coherent.
-        assert!(!projection.entries.is_empty());
+        let summaries = projection
+            .entries
+            .iter()
+            .filter(|e| matches!(e, ProjectedEntry::Summary(_)))
+            .count();
+        let originals = projection
+            .entries
+            .iter()
+            .filter(|e| matches!(e, ProjectedEntry::Original(_)))
+            .count();
+        assert_eq!(summaries, 0, "all-user canonical must emit zero summaries");
+        assert_eq!(originals, 3, "canonical must pass through verbatim");
     }
 
     /// Summary text is byte-stable across repeated projections so the
