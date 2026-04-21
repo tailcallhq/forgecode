@@ -628,12 +628,6 @@ pub enum ConversationCommand {
         html: bool,
     },
 
-    /// Compact conversation to reduce token usage.
-    Compact {
-        /// Conversation ID to compact.
-        id: ConversationId,
-    },
-
     /// Retry last command without modifying context.
     Retry {
         /// Conversation ID to retry.
@@ -1063,27 +1057,6 @@ mod tests {
         assert_eq!(
             id,
             ConversationId::parse("550e8400-e29b-41d4-a716-446655440002").unwrap()
-        );
-    }
-
-    #[test]
-    fn test_conversation_compact_with_id() {
-        let fixture = Cli::parse_from([
-            "forge",
-            "conversation",
-            "compact",
-            "550e8400-e29b-41d4-a716-446655440003",
-        ]);
-        let id = match fixture.subcommands {
-            Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Compact { id } => id,
-                _ => ConversationId::default(),
-            },
-            _ => ConversationId::default(),
-        };
-        assert_eq!(
-            id,
-            ConversationId::parse("550e8400-e29b-41d4-a716-446655440003").unwrap()
         );
     }
 

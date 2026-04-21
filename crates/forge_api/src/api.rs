@@ -93,14 +93,6 @@ pub trait API: Sync + Send {
         title: String,
     ) -> Result<()>;
 
-    /// Compacts the context of the main agent for the given conversation and
-    /// persists it. Returns metrics about the compaction (original vs.
-    /// compacted tokens and messages).
-    async fn compact_conversation(
-        &self,
-        conversation_id: &ConversationId,
-    ) -> Result<CompactionResult>;
-
     /// Executes a shell command using the shell tool infrastructure
     async fn execute_shell_command(
         &self,

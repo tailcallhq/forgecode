@@ -145,20 +145,6 @@ impl<
         self.services.upsert_conversation(conversation).await
     }
 
-    async fn compact_conversation(
-        &self,
-        conversation_id: &ConversationId,
-    ) -> anyhow::Result<CompactionResult> {
-        let agent_id = self
-            .services
-            .get_active_agent_id()
-            .await?
-            .unwrap_or_default();
-        self.app()
-            .compact_conversation(agent_id, conversation_id)
-            .await
-    }
-
     fn environment(&self) -> Environment {
         self.services.get_environment().clone()
     }

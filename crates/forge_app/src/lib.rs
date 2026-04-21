@@ -5,7 +5,6 @@ mod app;
 mod apply_tunable_parameters;
 mod changed_files;
 mod command_generator;
-mod compact;
 mod data_gen;
 pub mod dto;
 mod error;
