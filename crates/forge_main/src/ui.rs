@@ -4845,7 +4845,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .and_then(|str| ConversationId::from_str(str.as_str()).ok());
 
         // Make IO calls in parallel
-        let (model_id, conversation) = tokio::join!(
+        let (model_id, conversation, reasoning_effort) = tokio::join!(
             async { self.api.get_session_config().await.map(|c| c.model) },
             async {
                 if let Some(cid) = cid {
@@ -4853,7 +4853,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 } else {
                     None
                 }
-            }
+            },
+            async { self.api.get_reasoning_effort().await.ok().flatten() }
         );
 
         // Fetch context length if model_id is present
@@ -4879,6 +4880,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .or_else(|_| std::env::var("USE_NERD_FONT"))
             .map(|val| val == "1")
             .unwrap_or(true); // Default to true
+
+        // Read terminal width from COLUMNS (propagated by the zsh shell plugin)
+        // so the rprompt can pick a compact or full-length reasoning effort
+        // label. Missing or unparseable values fall back to the full-length
+        // form in the renderer.
+        let terminal_width = std::env::var("COLUMNS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok());
 
         let rprompt = ZshRPrompt::from_config(&self.config)
             .agent(
@@ -4950,6 +4959,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .context_length(context_length)
             .effort(effort)
             .cost(cost)
+            .reasoning_effort(reasoning_effort)
+            .terminal_width(terminal_width)
             .use_nerd_font(use_nerd_font);
 
         Some(rprompt.to_string())
