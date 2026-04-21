@@ -105,12 +105,19 @@ pub fn display(cli_mode: bool) -> io::Result<()> {
 
     println!("{banner}\n");
 
-    // Encourage zsh integration after the banner
-    if !cli_mode {
+    if !cli_mode && !is_zsh_plugin_loaded() {
         display_zsh_encouragement();
     }
 
     Ok(())
+}
+
+/// Returns `true` when the zsh plugin exported `_FORGE_PLUGIN_LOADED` into the
+/// environment inherited by this forge process.
+fn is_zsh_plugin_loaded() -> bool {
+    std::env::var("_FORGE_PLUGIN_LOADED")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
 }
 
 /// Encourages users to use the zsh plugin for a better experience.
@@ -135,4 +142,66 @@ fn display_zsh_encouragement() {
         ),
     ]);
     println!("{}", tip);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+    use std::ffi::OsString;
+    use std::sync::{LazyLock, Mutex, MutexGuard};
+
+    use super::*;
+
+    static ENV_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    struct EnvGuard {
+        key: &'static str,
+        original_value: Option<OsString>,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let lock = ENV_MUTEX.lock().unwrap_or_else(|error| error.into_inner());
+            let original_value = env::var_os(key);
+            unsafe {
+                env::set_var(key, value);
+            }
+            Self { key, original_value, _lock: lock }
+        }
+
+        fn unset(key: &'static str) -> Self {
+            let lock = ENV_MUTEX.lock().unwrap_or_else(|error| error.into_inner());
+            let original_value = env::var_os(key);
+            unsafe {
+                env::remove_var(key);
+            }
+            Self { key, original_value, _lock: lock }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.original_value {
+                Some(value) => unsafe {
+                    env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    env::remove_var(self.key);
+                },
+            }
+        }
+    }
+
+    #[test]
+    fn test_is_zsh_plugin_loaded_when_env_var_set() {
+        let _guard = EnvGuard::set("_FORGE_PLUGIN_LOADED", "1700000000");
+        assert!(is_zsh_plugin_loaded());
+    }
+
+    #[test]
+    fn test_is_zsh_plugin_loaded_when_env_var_missing() {
+        let _guard = EnvGuard::unset("_FORGE_PLUGIN_LOADED");
+        assert!(!is_zsh_plugin_loaded());
+    }
 }
