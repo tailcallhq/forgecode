@@ -265,12 +265,16 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let model = self
             .get_agent_model(self.api.get_active_agent().await)
             .await;
+        let reasoning_effort = self.api.get_reasoning_effort().await.ok().flatten();
         let mut forge_prompt = ForgePrompt::new(self.state.cwd.clone(), agent_id);
         if let Some(u) = usage {
             forge_prompt.usage(u);
         }
         if let Some(m) = model {
             forge_prompt.model(m);
+        }
+        if let Some(e) = reasoning_effort {
+            forge_prompt.reasoning_effort(e);
         }
         self.console.prompt(&mut forge_prompt).await
     }
