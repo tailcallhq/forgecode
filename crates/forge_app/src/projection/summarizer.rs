@@ -69,8 +69,8 @@ fn project_inner(
     }
 
     // `on_turn_end` obligation: force one summary if armed and the walk
-    // hasn't produced any. No valid cut = silent no-op (fallback rule
-    // matches base's `find_sequence_preserving_last_n` returning None).
+    // hasn't produced any. No valid cut = silent no-op, matching the
+    // REQUIREMENTS fallback for unsatisfiable flushes.
     if on_turn_end_armed
         && summaries.is_empty()
         && let Some(cut) = last_valid_cut(&buffer, retention)
@@ -157,7 +157,7 @@ fn trigger_fires(
     }
 
     // Rendered summary frames are inserted as user messages, so each
-    // one counts as a turn — matches base's `should_compact_due_to_turns`.
+    // one counts as a turn against `turn_threshold`.
     if let Some(turn_threshold) = compact.turn_threshold {
         let user_count = kept_summaries.len()
             + buffer
