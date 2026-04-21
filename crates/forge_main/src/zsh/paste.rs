@@ -115,21 +115,19 @@ fn resolve_file_path(candidate: &str) -> Option<String> {
 ///
 /// Returns the byte offset of the first unescaped whitespace character, or
 /// the length of `input` if no unescaped whitespace is found.
+///
+/// Uses `char` iteration rather than byte-level inspection so that UTF-8
+/// continuation bytes (e.g. `0x85` in the two-byte encoding of Cyrillic `х`)
+/// are never mistaken for standalone Unicode whitespace code-points like
+/// U+0085 (NEL) or U+00A0 (NBSP).
 fn find_token_end(input: &str) -> usize {
-    let bytes = input.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes.get(i) == Some(&b'\\') && i + 1 < bytes.len() {
-            // Skip escaped character
-            i += 2;
-        } else if bytes
-            .get(i)
-            .map(|b| (*b as char).is_whitespace())
-            .unwrap_or(false)
-        {
-            return i;
-        } else {
-            i += 1;
+    let mut chars = input.char_indices().peekable();
+    while let Some((byte_idx, ch)) = chars.next() {
+        if ch == '\\' {
+            // Skip the escaped character (whatever it is)
+            chars.next();
+        } else if ch.is_whitespace() {
+            return byte_idx;
         }
     }
     input.len()
@@ -535,20 +533,16 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-    // Verifies that Cyrillic text with multi-byte UTF-8 characters doesn't panic
-    // when pasting. The original bug was caused by unsafe string slicing at byte
-    // boundaries inside multi-byte UTF-8 characters.
+    // Verifies that Cyrillic text with multi-byte UTF-8 characters is
+    // preserved correctly. The original bug treated UTF-8 continuation bytes
+    // as standalone code-points, so byte 0x85 (part of Cyrillic 'х') was
+    // mistaken for U+0085 (NEL whitespace), splitting the token mid-character.
     #[test]
-    fn test_wrap_pasted_text_cyrillic_no_crash() {
+    fn test_wrap_pasted_text_cyrillic_preserved() {
         let fixture = "Проверь ПОЛНОСТЬЮ этот проект на соответствие КАЖДОГО пункта функционала исходному тексту задачи";
-        // This should NOT panic - the fix uses .get() instead of direct slicing
         let actual = wrap_pasted_text(fixture);
-        eprintln!("DEBUG: actual output = {:?}", actual);
-        // The text should be preserved (it contains no absolute paths)
-        // The important thing is this doesn't panic with "byte index is not a char
-        // boundary"
-        assert!(!actual.is_empty());
-        assert!(actual.starts_with("Проверь"));
+        // The text should be fully preserved (it contains no absolute paths)
+        assert_eq!(actual, fixture);
     }
 
     #[test]
@@ -557,6 +551,32 @@ mod tests {
         let fixture = "Проверь /usr/bin/env и /tmp пожалуйста";
         let actual = wrap_pasted_text(fixture);
         let expected = "Проверь @[/usr/bin/env] и @[/tmp] пожалуйста";
+        assert_eq!(actual, expected);
+    }
+
+    // Verifies that Chinese text (3-byte UTF-8 characters) is preserved
+    // correctly when pasted. Some CJK characters contain continuation bytes
+    // whose values (0x80-0xBF) overlap with Unicode whitespace code-points
+    // like U+0085 (NEL) and U+00A0 (NBSP).
+    #[test]
+    fn test_wrap_pasted_text_chinese_preserved() {
+        let fixture = "你好世界这是一个测试中文内容粘贴不应该被截断";
+        let actual = wrap_pasted_text(fixture);
+        assert_eq!(actual, fixture);
+    }
+
+    #[test]
+    fn test_wrap_pasted_text_chinese_with_spaces() {
+        let fixture = "你好 世界 这是一个 测试";
+        let actual = wrap_pasted_text(fixture);
+        assert_eq!(actual, fixture);
+    }
+
+    #[test]
+    fn test_wrap_pasted_text_chinese_with_mixed_paths() {
+        let fixture = "请检查 /usr/bin/env 这个文件";
+        let actual = wrap_pasted_text(fixture);
+        let expected = "请检查 @[/usr/bin/env] 这个文件";
         assert_eq!(actual, expected);
     }
 }
