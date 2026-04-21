@@ -43,8 +43,8 @@ pub fn generate_zsh_plugin() -> Result<String> {
     output.push_str("\n# --- Clap Completions ---\n");
     output.push_str(&completions_str);
 
-    // Set environment variable to indicate plugin is loaded (with timestamp)
-    output.push_str("\n_FORGE_PLUGIN_LOADED=$(date +%s)\n");
+    // Exported so child `forge` processes can detect an active plugin.
+    output.push_str("\nexport _FORGE_PLUGIN_LOADED=$(date +%s)\n");
 
     Ok(output)
 }
@@ -54,8 +54,8 @@ pub fn generate_zsh_theme() -> Result<String> {
     let mut content =
         super::normalize_script(include_str!("../../../../shell-plugin/forge.theme.zsh"));
 
-    // Set environment variable to indicate theme is loaded (with timestamp)
-    content.push_str("\n_FORGE_THEME_LOADED=$(date +%s)\n");
+    // Exported so child `forge` processes can detect an active theme.
+    content.push_str("\nexport _FORGE_THEME_LOADED=$(date +%s)\n");
 
     Ok(content)
 }
