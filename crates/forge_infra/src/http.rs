@@ -540,9 +540,8 @@ mod tests {
             actual.get("http-referer"),
             Some(&HeaderValue::from_static("https://kilocode.ai"))
         );
-        assert_eq!(
+        assert!(
             actual.get("x-app-version").is_some(),
-            true,
             "x-app-version should still be added"
         );
     }
