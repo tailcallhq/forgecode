@@ -7,8 +7,8 @@ use forge_app::domain::{
 };
 use forge_app::dto::anthropic::{
     AuthSystemMessage, CapitalizeToolNames, DropInvalidToolUse, EnforceStrictObjectSchema,
-    EventData, ListModelResponse, ReasoningTransform, RemoveOutputFormat, Request, SanitizeToolIds,
-    SetCache,
+    EventData, ListModelResponse, McpToolNames, ReasoningTransform, RemoveOutputFormat, Request,
+    SanitizeToolIds, SetCache,
 };
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider, ProviderId};
@@ -123,6 +123,7 @@ impl<T: HttpInfra> Anthropic<T> {
 
         let pipeline = AuthSystemMessage::default()
             .when(|_| self.use_oauth)
+            .pipe(McpToolNames.when(|_| self.use_oauth))
             .pipe(CapitalizeToolNames)
             .pipe(DropInvalidToolUse)
             .pipe(SanitizeToolIds);

@@ -18,7 +18,7 @@ fn generate_mcp_tool_name(server_name: &ServerName, tool_name: &ToolName) -> Too
     let sanitized_tool_name = tool_name.clone().into_sanitized();
 
     ToolName::new(format!(
-        "mcp__{sanitized_server_name}__{sanitized_tool_name}"
+        "mcp_{sanitized_server_name}_tool_{sanitized_tool_name}"
     ))
 }
 
@@ -179,7 +179,12 @@ where
 
         let tools = self.tools.read().await;
 
-        let tool = tools.get(&call.name).context("Tool not found")?;
+        // Try exact match first, then fall back to legacy-format lookup for
+        // tool calls arriving in the Claude Code `mcp__{server}__{tool}` format.
+        let tool = tools
+            .get(&call.name)
+            .or_else(|| call.name.to_legacy_mcp_name().and_then(|n| tools.get(&n)))
+            .context("Tool not found")?;
 
         tool.executable.call_tool(call.arguments.parse()?).await
     }
@@ -240,10 +245,10 @@ mod tests {
     use super::generate_mcp_tool_name;
 
     #[test]
-    fn test_generate_mcp_tool_name_uses_prefixed_format() {
+    fn test_generate_mcp_tool_name_uses_legacy_format() {
         let fixture = ServerName::from("hugging-face".to_string());
         let actual = generate_mcp_tool_name(&fixture, &ToolName::new("read-channel"));
-        let expected = ToolName::new("mcp__hugging_face__read_channel");
+        let expected = ToolName::new("mcp_hugging_face_tool_read_channel");
         assert_eq!(actual, expected);
     }
 
@@ -251,7 +256,34 @@ mod tests {
     fn test_generate_mcp_tool_name_sanitizes_server_and_tool_names() {
         let fixture = ServerName::from("claude.ai Slack".to_string());
         let actual = generate_mcp_tool_name(&fixture, &ToolName::new("Add comment"));
-        let expected = ToolName::new("mcp__claude_ai_slack__add_comment");
+        let expected = ToolName::new("mcp_claude_ai_slack_tool_add_comment");
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_to_legacy_mcp_name_converts_claude_code_format() {
+        let actual = ToolName::new("mcp__github__create_issue").to_legacy_mcp_name();
+        let expected = Some(ToolName::new("mcp_github_tool_create_issue"));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_to_legacy_mcp_name_converts_multipart_server_name() {
+        let actual = ToolName::new("mcp__hugging_face__read_channel").to_legacy_mcp_name();
+        let expected = Some(ToolName::new("mcp_hugging_face_tool_read_channel"));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_to_legacy_mcp_name_returns_none_for_non_mcp_tools() {
+        let actual = ToolName::new("read").to_legacy_mcp_name();
+        assert_eq!(actual, None);
+    }
+
+    #[test]
+    fn test_to_legacy_mcp_name_returns_none_for_legacy_format() {
+        // Already in legacy format — should not double-convert
+        let actual = ToolName::new("mcp_github_tool_create_issue").to_legacy_mcp_name();
+        assert_eq!(actual, None);
     }
 }
