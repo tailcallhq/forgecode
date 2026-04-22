@@ -112,13 +112,6 @@ impl ToolCallArguments {
         ToolCallArguments::Unparsed(str.to_string())
     }
 
-    #[cfg(test)]
-    pub(crate) fn from_json_for_test(str: &str) -> Self {
-        serde_json::from_str::<Value>(str)
-            .map(ToolCallArguments::Parsed)
-            .unwrap_or_else(|_| ToolCallArguments::Unparsed(str.to_string()))
-    }
-
     /// Parse a JSON string into ToolCallArguments with proper error handling.
     ///
     /// This attempts to parse the string as JSON using json_repair for recovery.
