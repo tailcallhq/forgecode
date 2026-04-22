@@ -114,9 +114,9 @@ impl ToolCallArguments {
 
     /// Parse a JSON string into ToolCallArguments with proper error handling.
     ///
-    /// This attempts to parse the string as JSON using json_repair for recovery.
-    /// Returns a retryable error if parsing fails, allowing the system to retry
-    /// the request with the model.
+    /// This attempts to parse the string as JSON using json_repair for
+    /// recovery. Returns a retryable error if parsing fails, allowing the
+    /// system to retry the request with the model.
     pub fn parse_json(str: &str) -> crate::Result<Self> {
         match serde_json::from_str::<Value>(str) {
             Ok(value) => Ok(ToolCallArguments::Parsed(value)),

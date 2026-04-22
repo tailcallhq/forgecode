@@ -382,19 +382,26 @@ mod tests {
             ToolCallFull {
                 name: ToolName::new("read"),
                 call_id: Some(ToolCallId("call_1".to_string())),
-                arguments: ToolCallArguments::from_json(r#"{"path": "crates/forge_services/src/fixtures/mascot.md"}"#).normalize(),
+                arguments: ToolCallArguments::from_json(
+                    r#"{"path": "crates/forge_services/src/fixtures/mascot.md"}"#,
+                )
+                .normalize(),
                 thought_signature: None,
             },
             ToolCallFull {
                 name: ToolName::new("read"),
                 call_id: Some(ToolCallId("call_2".to_string())),
-                arguments: ToolCallArguments::from_json(r#"{"path": "docs/onboarding.md"}"#).normalize(),
+                arguments: ToolCallArguments::from_json(r#"{"path": "docs/onboarding.md"}"#)
+                    .normalize(),
                 thought_signature: None,
             },
             ToolCallFull {
                 name: ToolName::new("read"),
                 call_id: Some(ToolCallId("call_3".to_string())),
-                arguments: ToolCallArguments::from_json(r#"{"path": "crates/forge_services/src/service/service.md"}"#).normalize(),
+                arguments: ToolCallArguments::from_json(
+                    r#"{"path": "crates/forge_services/src/service/service.md"}"#,
+                )
+                .normalize(),
                 thought_signature: None,
             },
         ];
@@ -516,7 +523,9 @@ mod tests {
         let expected = vec![ToolCallFull {
             call_id: Some(ToolCallId("call_1".to_string())),
             name: ToolName::new("read"),
-            arguments: ToolCallArguments::from_json(r#"{"path": "docs/onboarding.md"}"#).normalize().normalize(),
+            arguments: ToolCallArguments::from_json(r#"{"path": "docs/onboarding.md"}"#)
+                .normalize()
+                .normalize(),
             thought_signature: None,
         }];
 

@@ -754,9 +754,14 @@ mod tests {
             .add_tool_call(ToolCall::Part(invalid_tool_call_part)))];
         let result_stream: BoxStream<ChatCompletionMessage, anyhow::Error> =
             Box::pin(tokio_stream::iter(messages));
-        let actual: Result<ChatCompletionMessageFull, anyhow::Error> = result_stream.into_full(false).await;
-        // Expected: Should fail with a Retryable error since the tool call has invalid JSON
-        assert!(actual.is_err(), "Invalid tool call JSON should create a Retryable error");
+        let actual: Result<ChatCompletionMessageFull, anyhow::Error> =
+            result_stream.into_full(false).await;
+        // Expected: Should fail with a Retryable error since the tool call has invalid
+        // JSON
+        assert!(
+            actual.is_err(),
+            "Invalid tool call JSON should create a Retryable error"
+        );
         let err = actual.unwrap_err();
         // The error should be a Retryable error
         // Check the error chain for Retryable
