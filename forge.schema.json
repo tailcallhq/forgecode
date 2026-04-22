@@ -313,7 +313,7 @@
       "default": false
     },
     "sudo": {
-      "description": "Whether all shell commands should be executed with `sudo` privileges.\n\nWhen enabled, every command dispatched through the shell tool is\nautomatically prefixed with `sudo`. The user is prompted for their\npassword once when the setting is activated; the credentials are then\ncached by `sudo` for the remainder of the session (controlled by the\nsystem's `timestamp_timeout` setting).",
+      "description": "Whether all shell commands should be executed with `sudo` privileges.\n\n**Session-scoped**: this field is never persisted to disk. It is\ntoggled at runtime with `:su` / `:unsu` and resets to `false` every\ntime forge starts. When enabled, every command dispatched through the\nshell tool is automatically prefixed with `sudo`. The user is prompted\nfor their password once when the setting is activated; the credentials\nare then cached by `sudo` for the remainder of the session (controlled\nby the system's `timestamp_timeout` setting).",
       "type": "boolean",
       "default": false
     },

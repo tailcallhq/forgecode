@@ -217,8 +217,8 @@ mod tests {
                         ConfigOperation::SetReasoningEffort(_) => {
                             // No-op in tests
                         }
-                        ConfigOperation::SetSudo(enabled) => {
-                            config.sudo = enabled;
+                        ConfigOperation::SetSudo(_) => {
+                            // Sudo is session-scoped, not persisted to config
                         }
                     }
                 }

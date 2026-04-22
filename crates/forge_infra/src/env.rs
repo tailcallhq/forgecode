@@ -6,7 +6,11 @@ use std::sync::Arc;
 use forge_app::EnvironmentInfra;
 use forge_config::{ConfigReader, ForgeConfig, ModelConfig};
 use forge_domain::{ConfigOperation, Environment};
+use tokio::task::JoinHandle;
 use tracing::debug;
+
+/// Interval in seconds between sudo keepalive refreshes.
+const SUDO_KEEPALIVE_INTERVAL_SECS: u64 = 300; // 5 minutes
 
 /// Builds a [`forge_domain::Environment`] from runtime context only.
 ///
@@ -89,6 +93,9 @@ pub struct ForgeEnvironmentInfra {
     /// Shared flag mirrored into the command executor so it can prefix
     /// commands with `sudo` without re-reading config from disk.
     sudo: Arc<AtomicBool>,
+    /// Handle for the background task that periodically refreshes the sudo
+    /// timestamp so it does not expire during a long session.
+    keepalive: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl ForgeEnvironmentInfra {
@@ -101,8 +108,16 @@ impl ForgeEnvironmentInfra {
     /// * `cwd` - The working directory path; used to resolve `.env` files
     /// * `config` - The pre-read [`ForgeConfig`] to seed the in-memory cache
     pub fn new(cwd: PathBuf, config: ForgeConfig) -> Self {
-        let sudo = Arc::new(AtomicBool::new(config.sudo));
-        Self { cwd, cache: Arc::new(std::sync::Mutex::new(Some(config))), sudo }
+        // Always start with sudo disabled regardless of what was persisted
+        // in the config file. Sudo mode is session-scoped (in-memory only)
+        // and must be explicitly activated with `:su` each time forge starts.
+        let sudo = Arc::new(AtomicBool::new(false));
+        Self {
+            cwd,
+            cache: Arc::new(std::sync::Mutex::new(Some(config))),
+            sudo,
+            keepalive: Arc::new(tokio::sync::Mutex::new(None)),
+        }
     }
 
     /// Returns the shared `sudo` flag so the command executor can observe it.
@@ -118,8 +133,8 @@ impl ForgeEnvironmentInfra {
     /// Returns an error if the cache is empty and the disk read fails.
     pub fn cached_config(&self) -> anyhow::Result<ForgeConfig> {
         let mut cache = self.cache.lock().expect("cache mutex poisoned");
-        if let Some(ref config) = *cache {
-            Ok(config.clone())
+        let mut config = if let Some(ref config) = *cache {
+            config.clone()
         } else {
             let config = ConfigReader::default()
                 .read_defaults()
@@ -127,8 +142,13 @@ impl ForgeEnvironmentInfra {
                 .read_env()
                 .build()?;
             *cache = Some(config.clone());
-            Ok(config)
-        }
+            config
+        };
+        // Override the sudo field with the in-memory flag so that
+        // get_config always reflects the session-scoped sudo state
+        // rather than whatever was persisted to disk.
+        config.sudo = self.sudo.load(Ordering::Relaxed);
+        Ok(config)
     }
 }
 
@@ -163,6 +183,10 @@ impl EnvironmentInfra for ForgeEnvironmentInfra {
         for op in ops {
             if let ConfigOperation::SetSudo(enabled) = op {
                 self.sudo.store(enabled, Ordering::Relaxed);
+                self.refresh_keepalive(enabled).await;
+                // Sudo is session-scoped: update the in-memory flag only,
+                // do NOT persist to disk.
+                continue;
             }
             apply_config_op(&mut fc, op);
         }
@@ -174,6 +198,41 @@ impl EnvironmentInfra for ForgeEnvironmentInfra {
         *self.cache.lock().expect("cache mutex poisoned") = None;
 
         Ok(())
+    }
+}
+
+impl ForgeEnvironmentInfra {
+    /// Starts or stops the sudo keepalive background task.
+    ///
+    /// When `enabled` is `true`, spawns a background task that periodically
+    /// runs `sudo -v` to refresh the credential timestamp so it does not
+    /// expire during the session. When `enabled` is `false`, aborts any
+    /// running keepalive task.
+    pub(crate) async fn refresh_keepalive(&self, enabled: bool) {
+        let mut guard = self.keepalive.lock().await;
+        // Abort any existing keepalive task
+        if let Some(handle) = guard.take() {
+            handle.abort();
+        }
+        if enabled {
+            let handle = tokio::spawn(async {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(
+                        SUDO_KEEPALIVE_INTERVAL_SECS,
+                    ))
+                    .await;
+                    // Use std::process::Command to avoid depending on the
+                    // command executor (which would create a circular dep).
+                    let _ = std::process::Command::new("sudo")
+                        .arg("-v")
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status();
+                }
+            });
+            *guard = Some(handle);
+        }
     }
 }
 
