@@ -318,9 +318,17 @@ mod tests {
 
         let actual = agent.apply_config(&config).compact;
 
-        assert_eq!(actual.retention_window, Some(5), "agent value wins when set");
+        assert_eq!(
+            actual.retention_window,
+            Some(5),
+            "agent value wins when set"
+        );
         assert_eq!(actual.token_threshold_percentage, Some(0.25));
-        assert_eq!(actual.token_threshold, Some(90000), "workflow fills unset agent field");
+        assert_eq!(
+            actual.token_threshold,
+            Some(90000),
+            "workflow fills unset agent field"
+        );
         assert_eq!(actual.turn_threshold, Some(20));
     }
 }

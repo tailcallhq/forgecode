@@ -128,8 +128,7 @@ mod tests {
         let expected_messages = vec![ContextMessage::Text(
             TextMessage::new(Role::User, "Message 1").model(ModelId::new("gpt-4")),
         )];
-        let actual_messages: Vec<_> =
-            actual.messages.iter().map(|m| m.message.clone()).collect();
+        let actual_messages: Vec<_> = actual.messages.iter().map(|m| m.message.clone()).collect();
         assert_eq!(actual_messages, expected_messages);
     }
 
@@ -146,8 +145,7 @@ mod tests {
                 TextMessage::new(Role::User, "Message 3").model(ModelId::new("gpt-4")),
             ),
         ];
-        let actual_messages: Vec<_> =
-            actual.messages.iter().map(|m| m.message.clone()).collect();
+        let actual_messages: Vec<_> = actual.messages.iter().map(|m| m.message.clone()).collect();
         assert_eq!(actual_messages, expected_messages);
     }
 

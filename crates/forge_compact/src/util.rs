@@ -2,11 +2,12 @@ use std::ops::{Deref, RangeInclusive};
 
 use crate::Message;
 
-/// Wraps each item in a `Vec` into `Message::Original`, ready for internal processing.
+/// Wraps each item in a `Vec` into `Message::Original`, ready for internal
+/// processing.
 ///
-/// This is the inverse of `deref_messages`: it lifts plain items into the `Message`
-/// wrapper so the compaction algorithm can track whether each entry is an original
-/// message or a synthesised summary.
+/// This is the inverse of `deref_messages`: it lifts plain items into the
+/// `Message` wrapper so the compaction algorithm can track whether each entry
+/// is an original message or a synthesised summary.
 pub fn wrap_messages<Item>(items: Vec<Item>) -> Vec<Message<Item>> {
     items
         .into_iter()
@@ -16,16 +17,18 @@ pub fn wrap_messages<Item>(items: Vec<Item>) -> Vec<Message<Item>> {
 
 /// Collects references to the inner values of a slice of `Deref`-able wrappers.
 ///
-/// Useful for converting a `&[Message<T>]` to a `Vec<&T>` before passing to callbacks
-/// that operate on bare item references.
+/// Useful for converting a `&[Message<T>]` to a `Vec<&T>` before passing to
+/// callbacks that operate on bare item references.
 pub fn deref_messages<W: Deref>(messages: &[W]) -> Vec<&W::Target> {
     messages.iter().map(|m| m.deref()).collect()
 }
 
-/// Replaces all items within `range` in `items` with the single `replacement` item.
+/// Replaces all items within `range` in `items` with the single `replacement`
+/// item.
 ///
-/// Returns a new `Vec` containing the elements before the range, the replacement, and the
-/// elements after the range. Returns `items` unchanged if the range is out of bounds.
+/// Returns a new `Vec` containing the elements before the range, the
+/// replacement, and the elements after the range. Returns `items` unchanged if
+/// the range is out of bounds.
 pub fn replace_range<Item>(
     items: Vec<Item>,
     replacement: Item,

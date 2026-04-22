@@ -135,10 +135,13 @@ impl<Item: ContextMessage + Clone> Compaction<Item> {
 
                 if self.threshold(window.as_slice()) {
                     // Threshold exceeded — attempt to compact the window.
-                    let summary_count_before = window.iter().filter(|m| m.is_compact_summary()).count();
+                    let summary_count_before =
+                        window.iter().filter(|m| m.is_compact_summary()).count();
                     let compacted_window = self.compact_complete(window);
-                    let summary_count_after =
-                        compacted_window.iter().filter(|m| m.is_compact_summary()).count();
+                    let summary_count_after = compacted_window
+                        .iter()
+                        .filter(|m| m.is_compact_summary())
+                        .count();
                     if summary_count_after > summary_count_before {
                         // A new Summary was introduced: replace the front window in
                         // `remaining` with the summarised version and restart the scan.
@@ -316,7 +319,8 @@ mod tests {
     }
 
     /// Build a `Vec<Message<TestMsg>>` from a pattern string where each char
-    /// maps to a role: s=system, u=user, a=assistant, t=toolcall, r=toolcall_result.
+    /// maps to a role: s=system, u=user, a=assistant, t=toolcall,
+    /// r=toolcall_result.
     fn messages_from(pattern: &str) -> Vec<Message<TestMsg>> {
         pattern
             .chars()
@@ -324,8 +328,8 @@ mod tests {
             .collect()
     }
 
-    /// Returns the pattern string with `[` and `]` inserted around the compacted
-    /// range, mirroring the helper in `forge_domain`.
+    /// Returns the pattern string with `[` and `]` inserted around the
+    /// compacted range, mirroring the helper in `forge_domain`.
     fn seq(pattern: &str, retain: usize) -> String {
         let c = compaction(retain);
         let messages = messages_from(pattern);
@@ -409,8 +413,8 @@ mod tests {
             .collect()
     }
 
-    /// Like `compact` but uses a threshold that only triggers when there are more
-    /// than `min` items, letting us test the no-compaction path too.
+    /// Like `compact` but uses a threshold that only triggers when there are
+    /// more than `min` items, letting us test the no-compaction path too.
     fn compact_with_min(pattern: &str, retain: usize, min: usize) -> String {
         let c = Compaction {
             summarize: Box::new(|_| TestMsg::new('S')),
@@ -508,17 +512,18 @@ mod tests {
 
     /// Verifies the incremental-addition invariant for cache-key stability:
     ///
-    /// Assume `n` messages compact range `i..=i+j` into a summary `S`.  When a new
-    /// message is appended (making `n+1` total), the algorithm must:
+    /// Assume `n` messages compact range `i..=i+j` into a summary `S`.  When a
+    /// new message is appended (making `n+1` total), the algorithm must:
     ///   1. Produce one more output message than the base case:
     ///      `output(n+1).len() == output(n).len() + 1`.
-    ///   2. Produce exactly one summary in each case (no re-summarisation of an existing
-    ///      summary into another summary).
-    ///   3. Call the summarizer with a source slice that is a prefix-extension of the
-    ///      base source: the same original messages plus one more.
+    ///   2. Produce exactly one summary in each case (no re-summarisation of an
+    ///      existing summary into another summary).
+    ///   3. Call the summarizer with a source slice that is a prefix-extension
+    ///      of the base source: the same original messages plus one more.
     ///
-    /// Concretely: `"suaua"` with threshold `> 4` fires once and compacts `[aua]` → `"suS"`.
-    /// `"suauau"` with the same threshold fires once and compacts `[auau]` → `"suSu"`. ✓
+    /// Concretely: `"suaua"` with threshold `> 4` fires once and compacts
+    /// `[aua]` → `"suS"`. `"suauau"` with the same threshold fires once and
+    /// compacts `[auau]` → `"suSu"`. ✓
     #[test]
     fn test_compact_conversation_cache_key_stability() {
         use std::cell::RefCell;
@@ -530,7 +535,8 @@ mod tests {
 
         // threshold > 4: fires for windows of 5+.  With "suaua" (5) the full slice
         // exceeds the threshold exactly once.  With "suauau" (6) the first window that
-        // exceeds the threshold is also the full slice, so again exactly one compaction.
+        // exceeds the threshold is also the full slice, so again exactly one
+        // compaction.
         let c = Compaction {
             summarize: Box::new(move |msgs: &[&TestMsg]| {
                 calls_clone
@@ -544,8 +550,8 @@ mod tests {
 
         // --- Base: n = 5 messages "suaua" ---
         // Window grows to size 5; threshold fires; compact range [a,u,a] → S.
-        // Remaining becomes [s,u,S]; threshold needs > 4 but only 3 items → no more compaction.
-        // Result: "suS"
+        // Remaining becomes [s,u,S]; threshold needs > 4 but only 3 items → no more
+        // compaction. Result: "suS"
         let base: Vec<TestMsg> = items_from("suaua");
         let result_base = c.compact_conversation(base.clone());
         let base_pattern: String = result_base.iter().map(|m| m.role).collect();
@@ -555,14 +561,19 @@ mod tests {
         );
         let first_call_sources: Vec<char> = {
             let b = calls.borrow();
-            assert_eq!(b.len(), 1, "expected exactly 1 summarize call for base, got {}", b.len());
+            assert_eq!(
+                b.len(),
+                1,
+                "expected exactly 1 summarize call for base, got {}",
+                b.len()
+            );
             b[0].clone()
         };
 
         // --- Extended: n+1 = 6 messages "suauau" ---
-        // Window grows to size 5: [s,u,a,u,a] → threshold fires; compact [a,u,a] at 2..=4 → S.
-        // Remaining: [s,u,S,u]. Threshold needs > 4; only 4 items → no more compaction.
-        // Result: "suSu"
+        // Window grows to size 5: [s,u,a,u,a] → threshold fires; compact [a,u,a] at
+        // 2..=4 → S. Remaining: [s,u,S,u]. Threshold needs > 4; only 4 items →
+        // no more compaction. Result: "suSu"
         let mut extended = base;
         extended.push(TestMsg::new('u'));
         calls.borrow_mut().clear();
@@ -592,7 +603,8 @@ mod tests {
         );
 
         // Source-prefix invariant: the extended source starts with the same messages
-        // as the base source — the algorithm compacts the same prefix plus one new item.
+        // as the base source — the algorithm compacts the same prefix plus one new
+        // item.
         assert_eq!(
             &second_call_sources[..first_call_sources.len()],
             first_call_sources.as_slice(),
@@ -631,12 +643,17 @@ mod tests {
         let s = summaries[0];
         assert_eq!(s.message.role, 'S');
         let source_roles: String = s.source.iter().map(|m| m.role).collect();
-        assert_eq!(source_roles, "aua", "summary must preserve the compacted source");
+        assert_eq!(
+            source_roles, "aua",
+            "summary must preserve the compacted source"
+        );
 
         // And the `Message::is_compact_summary` / `source()` helpers work.
         assert!(tagged[2].is_compact_summary());
         assert_eq!(
-            tagged[2].source().map(|s| s.iter().map(|m| m.role).collect::<String>()),
+            tagged[2]
+                .source()
+                .map(|s| s.iter().map(|m| m.role).collect::<String>()),
             Some("aua".into())
         );
         assert!(!tagged[0].is_compact_summary());

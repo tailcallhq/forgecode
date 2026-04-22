@@ -1834,9 +1834,7 @@ mod tests {
     #[test]
     fn test_context_json_roundtrip_preserves_message_ids() {
         let mut entry_a = MessageEntry::from(ContextMessage::user("hello", None));
-        let mut entry_b = MessageEntry::from(ContextMessage::assistant(
-            "world", None, None, None,
-        ));
+        let mut entry_b = MessageEntry::from(ContextMessage::assistant("world", None, None, None));
         let known_a = MessageId::new();
         let known_b = MessageId::new();
         entry_a.id = known_a;

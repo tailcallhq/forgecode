@@ -786,4 +786,3 @@ async fn test_summarizer_projection_does_not_mutate_canonical() {
         "canonical must not be mutated by summarizer projection"
     );
 }
-

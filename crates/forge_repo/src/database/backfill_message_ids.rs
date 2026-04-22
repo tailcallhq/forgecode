@@ -99,7 +99,9 @@ fn read_context(conn: &mut SqliteConnection, conv_id: &str) -> Result<Option<Str
 }
 
 fn preview_needs_migration(conn: &mut SqliteConnection, conv_id: &str) -> Result<bool> {
-    let Some(blob) = read_context(conn, conv_id)? else { return Ok(false) };
+    let Some(blob) = read_context(conn, conv_id)? else {
+        return Ok(false);
+    };
     let backfilled = backfill_blob(&blob)
         .with_context(|| format!("corrupt context JSON in conversation {conv_id}"))?;
     Ok(backfilled.is_some())
@@ -108,10 +110,14 @@ fn preview_needs_migration(conn: &mut SqliteConnection, conv_id: &str) -> Result
 fn migrate_row_under_write_lock(conn: &mut SqliteConnection, conv_id: &str) -> Result<bool> {
     diesel::sql_query("BEGIN IMMEDIATE").execute(conn)?;
     let outcome = (|| -> Result<bool> {
-        let Some(blob) = read_context(conn, conv_id)? else { return Ok(false) };
+        let Some(blob) = read_context(conn, conv_id)? else {
+            return Ok(false);
+        };
         let backfilled = backfill_blob(&blob)
             .with_context(|| format!("corrupt context JSON in conversation {conv_id}"))?;
-        let Some(new_blob) = backfilled else { return Ok(false) };
+        let Some(new_blob) = backfilled else {
+            return Ok(false);
+        };
         diesel::update(conversations::table)
             .filter(conversations::conversation_id.eq(conv_id))
             .set(conversations::context.eq(new_blob))
@@ -171,7 +177,9 @@ fn backfill_blob(blob: &str) -> Result<Option<String>> {
 
     let mut changed = false;
     for msg in messages {
-        let Some(obj) = msg.as_object_mut() else { continue };
+        let Some(obj) = msg.as_object_mut() else {
+            continue;
+        };
 
         if obj.contains_key("id") {
             continue;
@@ -265,7 +273,8 @@ mod tests {
     /// Wrapper blob without `id` gets a fresh UUID, payload intact.
     #[test]
     fn test_backfill_wrapper_without_id() {
-        let legacy = r#"{"messages":[{"message":{"text":{"role":"User","content":"hi"}},"usage":null}]}"#;
+        let legacy =
+            r#"{"messages":[{"message":{"text":{"role":"User","content":"hi"}},"usage":null}]}"#;
         let mut db = new_conn();
         insert_conversation(&mut db, "conv-1", legacy);
 
@@ -308,11 +317,9 @@ mod tests {
         let first = page_ids(&mut conn, "", 2).unwrap();
         assert_eq!(first, vec!["aaa".to_string(), "bbb".to_string()]);
 
-        diesel::delete(
-            conversations::table.filter(conversations::conversation_id.eq("aaa")),
-        )
-        .execute(&mut conn)
-        .unwrap();
+        diesel::delete(conversations::table.filter(conversations::conversation_id.eq("aaa")))
+            .execute(&mut conn)
+            .unwrap();
 
         let second = page_ids(&mut conn, "bbb", 2).unwrap();
         assert_eq!(second, vec!["ccc".to_string()]);
@@ -398,8 +405,7 @@ mod tests {
         assert_eq!(total_skipped.load(Ordering::Relaxed), 1);
 
         let mut verify = pool.get().unwrap();
-        let stored: Value =
-            serde_json::from_str(&fetch_context(&mut verify, "conv-1")).unwrap();
+        let stored: Value = serde_json::from_str(&fetch_context(&mut verify, "conv-1")).unwrap();
         let entry = &stored["messages"][0];
         assert!(entry.get("id").and_then(|v| v.as_str()).is_some());
     }
@@ -472,18 +478,15 @@ mod tests {
     #[test]
     fn test_migrate_row_handles_context_nulled_between_reads() {
         let mut conn = new_conn();
-        let legacy =
-            r#"{"messages":[{"message":{"text":{"role":"User","content":"hi"}}}]}"#;
+        let legacy = r#"{"messages":[{"message":{"text":{"role":"User","content":"hi"}}}]}"#;
         insert_conversation(&mut conn, "conv-1", legacy);
 
         assert!(preview_needs_migration(&mut conn, "conv-1").unwrap());
 
-        diesel::update(
-            conversations::table.filter(conversations::conversation_id.eq("conv-1")),
-        )
-        .set(conversations::context.eq::<Option<String>>(None))
-        .execute(&mut conn)
-        .expect("null the context");
+        diesel::update(conversations::table.filter(conversations::conversation_id.eq("conv-1")))
+            .set(conversations::context.eq::<Option<String>>(None))
+            .execute(&mut conn)
+            .expect("null the context");
 
         let updated = migrate_row_under_write_lock(&mut conn, "conv-1").unwrap();
         assert!(!updated);
@@ -506,8 +509,7 @@ mod tests {
         setup
             .run_pending_migrations(MIGRATIONS)
             .expect("run migrations");
-        let legacy_a =
-            r#"{"messages":[{"message":{"text":{"role":"User","content":"first"}}}]}"#;
+        let legacy_a = r#"{"messages":[{"message":{"text":{"role":"User","content":"first"}}}]}"#;
         insert_conversation(&mut setup, "conv-1", legacy_a);
         drop(setup);
 
@@ -516,8 +518,7 @@ mod tests {
 
         // Rival connection swaps the blob to a different unmigrated shape
         // (e.g., an older binary writing without `id`).
-        let legacy_b =
-            r#"{"messages":[{"message":{"text":{"role":"User","content":"second"}}}]}"#;
+        let legacy_b = r#"{"messages":[{"message":{"text":{"role":"User","content":"second"}}}]}"#;
         let mut rival = pool.get().unwrap();
         diesel::update(conversations::table)
             .filter(conversations::conversation_id.eq("conv-1"))
@@ -529,12 +530,13 @@ mod tests {
         let updated = migrate_row_under_write_lock(&mut migrator, "conv-1").unwrap();
         assert!(updated, "row must migrate despite mid-run rival write");
 
-        let stored: Value =
-            serde_json::from_str(&fetch_context(&mut migrator, "conv-1")).unwrap();
+        let stored: Value = serde_json::from_str(&fetch_context(&mut migrator, "conv-1")).unwrap();
         let entry = &stored["messages"][0];
         assert!(entry.get("id").and_then(|v| v.as_str()).is_some());
         assert_eq!(
-            entry.pointer("/message/text/content").and_then(|v| v.as_str()),
+            entry
+                .pointer("/message/text/content")
+                .and_then(|v| v.as_str()),
             Some("second"),
             "migrated row must carry the rival's content, not the stale read",
         );
@@ -576,9 +578,7 @@ mod tests {
     #[derive(Debug)]
     struct WalCustomizer;
 
-    impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
-        for WalCustomizer
-    {
+    impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error> for WalCustomizer {
         fn on_acquire(
             &self,
             conn: &mut SqliteConnection,

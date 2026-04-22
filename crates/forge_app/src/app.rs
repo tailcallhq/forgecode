@@ -9,10 +9,7 @@ use forge_stream::MpscStream;
 use crate::apply_tunable_parameters::ApplyTunableParameters;
 use crate::changed_files::ChangedFiles;
 use crate::dto::ToolsOverview;
-use crate::hooks::{
-    DoomLoopDetector, PendingTodosHandler, TitleGenerationHandler,
-    TracingHandler,
-};
+use crate::hooks::{DoomLoopDetector, PendingTodosHandler, TitleGenerationHandler, TracingHandler};
 use crate::init_conversation_metrics::InitConversationMetrics;
 use crate::orch::Orchestrator;
 use crate::services::{AgentRegistry, CustomInstructionsService, ProviderAuthService};

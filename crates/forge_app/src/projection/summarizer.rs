@@ -38,8 +38,7 @@ fn project_inner(
     // `on_turn_end` is once-per-projection, not per-step — armed iff
     // the tail of pending (= last msg of the assembled request) is a
     // user message.
-    let on_turn_end_armed =
-        compact.on_turn_end == Some(true) && pending_tail_is_user(pending);
+    let on_turn_end_armed = compact.on_turn_end == Some(true) && pending_tail_is_user(pending);
 
     let mut buffer: Vec<MessageEntry> = Vec::new();
     let mut summaries: Vec<SummaryPayload> = Vec::new();
@@ -112,10 +111,8 @@ fn render_summary(entries: &[MessageEntry], cwd: &Path) -> anyhow::Result<Summar
     let sequence_context = Context::default().messages(entries.to_vec());
     let summary = ContextSummary::from(&sequence_context);
     let summary = SummaryTransformer::new(cwd).transform(summary);
-    let text = TemplateEngine::default().render(
-        Template::<ContextSummary>::new(SUMMARY_TEMPLATE),
-        &summary,
-    )?;
+    let text = TemplateEngine::default()
+        .render(Template::<ContextSummary>::new(SUMMARY_TEMPLATE), &summary)?;
     Ok(SummaryPayload { method: CompactionMethod::Template, source_ids, text })
 }
 
@@ -140,10 +137,7 @@ fn trigger_fires(
     // `effective_token_threshold` upstream, so one comparison covers
     // both knobs.
     let assembled_tokens = summaries_tokens(kept_summaries)
-        + buffer
-            .iter()
-            .map(|e| e.token_count_approx())
-            .sum::<usize>()
+        + buffer.iter().map(|e| e.token_count_approx()).sum::<usize>()
         + pending.token_count_approx();
     if assembled_tokens >= config.effective_token_threshold {
         return true;
@@ -160,14 +154,8 @@ fn trigger_fires(
     // one counts as a turn against `turn_threshold`.
     if let Some(turn_threshold) = compact.turn_threshold {
         let user_count = kept_summaries.len()
-            + buffer
-                .iter()
-                .filter(|e| is_user_text(e))
-                .count()
-            + pending
-                .iter_messages()
-                .filter(|e| is_user_text(e))
-                .count();
+            + buffer.iter().filter(|e| is_user_text(e)).count()
+            + pending.iter_messages().filter(|e| is_user_text(e)).count();
         if user_count >= turn_threshold {
             return true;
         }
@@ -207,11 +195,11 @@ fn is_assistant(e: &MessageEntry) -> bool {
 /// Enforces the flush-boundary rules from REQUIREMENTS:
 /// - hard: never split a `tool_call`/`tool_result` pair or a parallel
 ///   `tool_result` group;
-/// - hard: the buffer being flushed must contain an assistant — else
-///   the fallback rule takes over (zero summaries, canonical verbatim);
-/// - soft: the next buffer should start with an assistant. During the
-///   forward scan this is treated as hard because the walker can
-///   always keep appending; leftover-at-EOS is the fallback path.
+/// - hard: the buffer being flushed must contain an assistant — else the
+///   fallback rule takes over (zero summaries, canonical verbatim);
+/// - soft: the next buffer should start with an assistant. During the forward
+///   scan this is treated as hard because the walker can always keep appending;
+///   leftover-at-EOS is the fallback path.
 fn is_valid_flush_at_end(buffer: &[MessageEntry], next: Option<&MessageEntry>) -> bool {
     let Some(last) = buffer.last() else {
         return false;
@@ -267,9 +255,7 @@ fn is_valid_cut_at(
     if is_toolcall(current) {
         return false;
     }
-    if is_toolcall_result(current)
-        && buffer.get(i + 1).is_some_and(is_toolcall_result)
-    {
+    if is_toolcall_result(current) && buffer.get(i + 1).is_some_and(is_toolcall_result) {
         return false;
     }
     // The span about to be summarised is `buffer[..=i]`; it must
@@ -298,10 +284,7 @@ fn is_valid_cut_at(
 }
 
 fn pending_tail_is_user(pending: &PendingTurn) -> bool {
-    pending
-        .iter_messages()
-        .last()
-        .is_some_and(is_user_text)
+    pending.iter_messages().last().is_some_and(is_user_text)
 }
 
 #[cfg(test)]
@@ -327,13 +310,17 @@ mod tests {
     }
 
     fn assistant(text: &str) -> MessageEntry {
-        MessageEntry::from(ContextMessage::Text(TextMessage::new(Role::Assistant, text)))
+        MessageEntry::from(ContextMessage::Text(TextMessage::new(
+            Role::Assistant,
+            text,
+        )))
     }
 
     fn assistant_with_tool(text: &str, call_id: &str) -> MessageEntry {
         MessageEntry::from(ContextMessage::Text(
-            TextMessage::new(Role::Assistant, text)
-                .tool_calls(vec![ToolCallFull::new(ToolName::new("read")).call_id(call_id)]),
+            TextMessage::new(Role::Assistant, text).tool_calls(vec![
+                ToolCallFull::new(ToolName::new("read")).call_id(call_id),
+            ]),
         ))
     }
 
@@ -397,12 +384,16 @@ mod tests {
     /// re-triggering once a summary enters the assembled count.
     #[test]
     fn test_message_threshold_fires_at_valid_boundary() {
-        let ctx = context(vec![user("q1"), assistant("a1"), user("q2"), assistant("a2")]);
+        let ctx = context(vec![
+            user("q1"),
+            assistant("a1"),
+            user("q2"),
+            assistant("a2"),
+        ]);
         let pending = PendingTurn::default();
         let compact = compact_with_msg_threshold(3);
 
-        let projection =
-            run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
+        let projection = run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
 
         let summaries: Vec<_> = projection
             .entries
@@ -416,7 +407,11 @@ mod tests {
             .iter()
             .filter(|e| matches!(e, ProjectedEntry::Original(_)))
             .collect();
-        assert_eq!(originals.len(), 1, "expected a single trailing message in leftover buffer");
+        assert_eq!(
+            originals.len(),
+            1,
+            "expected a single trailing message in leftover buffer"
+        );
     }
 
     /// Guards tool-pair atomicity: a trigger that fires mid-pair must
@@ -435,8 +430,7 @@ mod tests {
         // algorithm must defer until after the tool_result lands.
         let compact = compact_with_msg_threshold(2);
 
-        let projection =
-            run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
+        let projection = run(&ctx, &pending, &compact, &cfg(usize::MAX), 2).unwrap();
 
         // The leftover buffer must not contain a bare tool_call or bare
         // tool_result; they either both survive or both get folded into the
@@ -529,7 +523,12 @@ mod tests {
     /// threshold checks.
     #[test]
     fn test_on_turn_end_forces_summary_when_armed() {
-        let ctx = context(vec![user("q1"), assistant("a1"), user("q2"), assistant("a2")]);
+        let ctx = context(vec![
+            user("q1"),
+            assistant("a1"),
+            user("q2"),
+            assistant("a2"),
+        ]);
         let mut pending = PendingTurn::default();
         pending.push_user_input(ContextMessage::Text(TextMessage::new(Role::User, "q3")));
 
@@ -543,7 +542,11 @@ mod tests {
             .iter()
             .filter(|e| matches!(e, ProjectedEntry::Summary(_)))
             .collect();
-        assert_eq!(summaries.len(), 1, "on_turn_end must produce at least one summary");
+        assert_eq!(
+            summaries.len(),
+            1,
+            "on_turn_end must produce at least one summary"
+        );
     }
 
     /// `retention_window` protects the trailing N canonical messages
@@ -586,7 +589,12 @@ mod tests {
     /// projector falls back to zero summaries and pass-through.
     #[test]
     fn test_retention_covering_everything_blocks_all_flushes() {
-        let ctx = context(vec![user("q1"), assistant("a1"), user("q2"), assistant("a2")]);
+        let ctx = context(vec![
+            user("q1"),
+            assistant("a1"),
+            user("q2"),
+            assistant("a2"),
+        ]);
         let mut pending = PendingTurn::default();
         pending.push_user_input(ContextMessage::Text(TextMessage::new(Role::User, "q3")));
 
@@ -602,7 +610,10 @@ mod tests {
             .iter()
             .filter(|e| matches!(e, ProjectedEntry::Summary(_)))
             .count();
-        assert_eq!(summaries, 0, "full-coverage retention must block every flush");
+        assert_eq!(
+            summaries, 0,
+            "full-coverage retention must block every flush"
+        );
     }
 
     /// All-user canonical has no assistant to anchor a summary, so
@@ -638,7 +649,12 @@ mod tests {
     /// sidecar memoisation or response caching.
     #[test]
     fn test_projection_is_deterministic() {
-        let ctx = context(vec![user("q1"), assistant("a1"), user("q2"), assistant("a2")]);
+        let ctx = context(vec![
+            user("q1"),
+            assistant("a1"),
+            user("q2"),
+            assistant("a2"),
+        ]);
         let pending = PendingTurn::default();
         let compact = compact_with_msg_threshold(2);
 

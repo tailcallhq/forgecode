@@ -140,16 +140,21 @@ impl Runner {
             ApplyTunableParameters::new(agent.clone(), system_tools.clone()).apply(conversation);
         let conversation = SetConversationId.apply(conversation);
 
-        let orch =
-            Orchestrator::new(services.clone(), conversation, pending, agent, setup.config.clone())
-            .error_tracker(ToolErrorTracker::new(3))
-            .tool_definitions(system_tools)
-            .hook(Arc::new(
-                Hook::default()
-                    .on_request(DoomLoopDetector::default())
-                    .on_end(PendingTodosHandler::new()),
-            ))
-            .sender(tx);
+        let orch = Orchestrator::new(
+            services.clone(),
+            conversation,
+            pending,
+            agent,
+            setup.config.clone(),
+        )
+        .error_tracker(ToolErrorTracker::new(3))
+        .tool_definitions(system_tools)
+        .hook(Arc::new(
+            Hook::default()
+                .on_request(DoomLoopDetector::default())
+                .on_end(PendingTodosHandler::new()),
+        ))
+        .sender(tx);
 
         let (mut orch, runner) = (orch, services);
 

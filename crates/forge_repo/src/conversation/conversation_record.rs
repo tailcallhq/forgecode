@@ -1064,10 +1064,8 @@ mod tests {
     /// deserialises with a fresh UUID.
     #[test]
     fn test_legacy_direct_format_backfills_message_id() {
-        let value_record: ContextMessageValueRecord = (&forge_domain::ContextMessage::user(
-            "Hello", None,
-        ))
-            .into();
+        let value_record: ContextMessageValueRecord =
+            (&forge_domain::ContextMessage::user("Hello", None)).into();
         let legacy_json = serde_json::to_string(&value_record).unwrap();
 
         let record: ContextMessageRecord = serde_json::from_str(&legacy_json).unwrap();

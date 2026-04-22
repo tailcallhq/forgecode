@@ -203,9 +203,10 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
 
     /// Runs the tiered projector on canonical-only and re-appends
     /// pending, producing the final request shape
-    /// `[summaries][leftover buffer][pending.user_input][pending.continuation]`.
-    /// Pass-through when no token threshold is configured — there's
-    /// nothing for tier selection to dispatch against.
+    /// `[summaries][leftover
+    /// buffer][pending.user_input][pending.continuation]`. Pass-through
+    /// when no token threshold is configured — there's nothing for tier
+    /// selection to dispatch against.
     async fn project_context(&self, context: Context) -> anyhow::Result<Context> {
         let Ok(cfg) = ProjectionConfig::try_from(&self.agent.compact) else {
             return Ok(context);
@@ -219,8 +220,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         // Pending's `MessageId`s stay stable across squash/unsquash, so
         // id membership is authoritative for pulling pending back out
         // of the combined working context.
-        let pending_ids: HashSet<MessageId> =
-            self.pending.iter_messages().map(|m| m.id).collect();
+        let pending_ids: HashSet<MessageId> = self.pending.iter_messages().map(|m| m.id).collect();
         let mut canonical_only = context.clone();
         let mut pending_entries: Vec<MessageEntry> = Vec::new();
         canonical_only.messages.retain(|m| {
@@ -373,13 +373,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
 
             let message = crate::retry::retry_with_config(
                 &self.config.clone().retry.unwrap_or_default(),
-                || {
-                    self.execute_chat_turn(
-                        &model_id,
-                        projected.clone(),
-                        reasoning_supported,
-                    )
-                },
+                || self.execute_chat_turn(&model_id, projected.clone(), reasoning_supported),
                 self.sender.as_ref().map(|sender| {
                     let sender = sender.clone();
                     let agent_id = self.agent.id.clone();

@@ -242,8 +242,8 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
         // Reuse Context's attachment-to-message lowering to avoid duplicating
         // the per-variant rendering logic, then route the produced entries
         // into pending.
-        let attachment_ctx = Context::default()
-            .add_attachments(attachments, Some(self.agent.model.clone()));
+        let attachment_ctx =
+            Context::default().add_attachments(attachments, Some(self.agent.model.clone()));
         for entry in attachment_ctx.messages {
             pending.user_input.push(entry);
         }
