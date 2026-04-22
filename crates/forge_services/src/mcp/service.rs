@@ -17,7 +17,9 @@ fn generate_mcp_tool_name(server_name: &ServerName, tool_name: &ToolName) -> Too
     let sanitized_server_name = ToolName::sanitized(server_name.to_string().as_str());
     let sanitized_tool_name = tool_name.clone().into_sanitized();
 
-    ToolName::new(format!("mcp__{sanitized_server_name}__{sanitized_tool_name}"))
+    ToolName::new(format!(
+        "mcp__{sanitized_server_name}__{sanitized_tool_name}"
+    ))
 }
 
 #[derive(Clone)]
