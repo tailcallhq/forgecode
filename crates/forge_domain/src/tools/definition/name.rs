@@ -57,9 +57,7 @@ impl ToolName {
     /// server/tool separator.
     pub fn to_legacy_mcp_name(&self) -> Option<ToolName> {
         let rest = self.0.strip_prefix("mcp__")?;
-        let sep_pos = rest.find("__")?;
-        let server = &rest[..sep_pos];
-        let tool = &rest[sep_pos + 2..];
+        let (server, tool) = rest.split_once("__")?;
         Some(ToolName::new(format!("mcp_{server}_tool_{tool}")))
     }
 }

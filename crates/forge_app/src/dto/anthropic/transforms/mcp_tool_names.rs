@@ -33,10 +33,8 @@ fn to_claude_code_format(name: &str) -> String {
     };
 
     // Only convert names that contain the `_tool_` separator (internal format).
-    // rfind handles edge-case server names ending in `_tool`.
-    if let Some(sep_pos) = rest.rfind("_tool_") {
-        let server = &rest[..sep_pos];
-        let tool = &rest[sep_pos + 6..]; // "_tool_" is 6 chars
+    // rsplit_once handles edge-case server names containing `_tool_`.
+    if let Some((server, tool)) = rest.rsplit_once("_tool_") {
         return format!("mcp__{server}__{tool}");
     }
 
