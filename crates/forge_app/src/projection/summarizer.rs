@@ -47,8 +47,8 @@ fn project_inner(
     let messages = &canonical.messages;
     let total = messages.len();
     let retention = compact.effective_retention_window();
-    for idx in 0..total {
-        buffer.push(messages[idx].clone());
+    for (idx, entry) in messages.iter().enumerate() {
+        buffer.push(entry.clone());
 
         // Triggers evaluate against the assembled request shape at this
         // step — old summaries destined to slide off are excluded,
@@ -134,7 +134,7 @@ fn trigger_fires(
     // Only the last N summaries-so-far count — frames destined to
     // slide off at the end must not inflate mid-walk trigger decisions.
     let skip = summaries.len().saturating_sub(cap);
-    let kept_summaries = &summaries[skip..];
+    let kept_summaries = summaries.get(skip..).unwrap_or(&[]);
 
     // `token_threshold_percentage` is folded into
     // `effective_token_threshold` upstream, so one comparison covers
@@ -261,19 +261,24 @@ fn is_valid_cut_at(
     prefer_assistant_next: bool,
     retention: usize,
 ) -> bool {
-    if is_toolcall(&buffer[i]) {
+    let Some(current) = buffer.get(i) else {
+        return false;
+    };
+    if is_toolcall(current) {
         return false;
     }
-    if is_toolcall_result(&buffer[i])
-        && i + 1 < buffer.len()
-        && is_toolcall_result(&buffer[i + 1])
+    if is_toolcall_result(current)
+        && buffer.get(i + 1).is_some_and(is_toolcall_result)
     {
         return false;
     }
     // The span about to be summarised is `buffer[..=i]`; it must
     // contain an assistant so the fallback rule kicks in for
     // all-user spans instead of emitting a user-only summary.
-    if !buffer[..=i].iter().any(is_assistant) {
+    let Some(prefix) = buffer.get(..=i) else {
+        return false;
+    };
+    if !prefix.iter().any(is_assistant) {
         return false;
     }
     // Retention protects the last N entries of the buffer — cutting

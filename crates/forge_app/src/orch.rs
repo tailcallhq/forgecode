@@ -465,7 +465,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             // in-flight: track them as continuation so the next
             // iteration's projection strips them out of canonical and
             // counts their tokens against the pending budget.
-            for entry in &context.messages[pre_append_len..] {
+            for entry in context.messages.iter().skip(pre_append_len) {
                 self.pending.continuation.push(entry.clone());
             }
 
@@ -536,7 +536,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                         // End-hook tail messages are still in-flight —
                         // continuation too, so the next iteration's
                         // projection strips them out of canonical.
-                        for entry in &updated_context.messages[end_count_before..] {
+                        for entry in updated_context.messages.iter().skip(end_count_before) {
                             self.pending.continuation.push(entry.clone());
                         }
                         context = updated_context.clone();
