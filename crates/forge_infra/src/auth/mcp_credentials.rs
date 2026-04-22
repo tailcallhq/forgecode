@@ -123,21 +123,24 @@ impl McpCredentialStore {
 mod tests {
     use std::path::PathBuf;
 
+    use tempfile::TempDir;
+
     use super::*;
 
-    fn test_env() -> Environment {
+    fn test_env(base_path: PathBuf) -> Environment {
         Environment {
             os: "test".to_string(),
             cwd: PathBuf::from("/tmp"),
             home: Some(PathBuf::from("/home/test")),
             shell: "bash".to_string(),
-            base_path: PathBuf::from("/tmp/test-forge"),
+            base_path,
         }
     }
 
     #[tokio::test]
     async fn test_credential_store_save_load() {
-        let env = test_env();
+        let tmp = TempDir::new().unwrap();
+        let env = test_env(tmp.path().to_path_buf());
         let mut store = McpCredentialStore::default();
 
         let entry = McpCredentialEntry {
@@ -162,15 +165,12 @@ mod tests {
             entry.tokens.refresh_token,
             Some("test-refresh-token".to_string())
         );
-
-        // Cleanup
-        let path = McpCredentialStore::credential_path(&env);
-        let _ = fs::remove_file(&path).await;
     }
 
     #[tokio::test]
     async fn test_credential_store_remove() {
-        let env = test_env();
+        let tmp = TempDir::new().unwrap();
+        let env = test_env(tmp.path().to_path_buf());
         let mut store = McpCredentialStore::default();
 
         store.set(McpCredentialEntry {
@@ -187,14 +187,14 @@ mod tests {
         store.remove("https://api.example.com/mcp");
         assert!(!store.has_credentials("https://api.example.com/mcp"));
 
-        // Cleanup
-        let path = McpCredentialStore::credential_path(&env);
-        let _ = fs::remove_file(&path).await;
+        // Ensure the env reference is retained to keep the TempDir alive.
+        let _ = McpCredentialStore::credential_path(&env);
     }
 
     #[tokio::test]
     async fn test_credential_store_empty() {
-        let env = test_env();
+        let tmp = TempDir::new().unwrap();
+        let env = test_env(tmp.path().to_path_buf());
         let store = McpCredentialStore::load(&env).await.unwrap();
         assert!(store.credentials.is_empty());
     }

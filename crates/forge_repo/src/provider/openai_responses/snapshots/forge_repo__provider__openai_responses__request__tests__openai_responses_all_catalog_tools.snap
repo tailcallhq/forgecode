@@ -727,7 +727,7 @@ expression: actual.tools
       "description": "Input structure for the Task tool - delegates work to specialized agents",
       "properties": {
         "agent_id": {
-          "description": "The ID of the specialized agent to delegate to (e.g., \"sage\", \"forge\",\n\"muse\")",
+          "description": "The ID of the specialized agent to delegate to (e.g., \"forge\", \"muse\",\n\"sage\")",
           "type": "string"
         },
         "session_id": {
