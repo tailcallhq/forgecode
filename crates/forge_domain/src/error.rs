@@ -149,8 +149,9 @@ impl Error {
         Self::SyncFailed { count }
     }
 
-    /// Convert a JSON error to a Retryable error for retry on malformed arguments.
-    /// This wraps a serde_json::Error in a ToolCallArgument error which is then made retryable.
+    /// Convert a JSON error to a Retryable error for retry on malformed
+    /// arguments. This wraps a serde_json::Error in a ToolCallArgument
+    /// error which is then made retryable.
     pub fn tool_call_json_error(error: serde_json::Error, args: String) -> Self {
         let json_error = forge_json_repair::JsonRepairError::JsonError(error);
         Self::Retryable(anyhow::anyhow!(Self::ToolCallArgument {
