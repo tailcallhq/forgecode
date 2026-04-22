@@ -202,7 +202,7 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
                 "HTTP-Referer",
                 HeaderValue::from_static("https://forgecode.dev"),
             );
-        };
+        }
         headers.insert(
             reqwest::header::CONNECTION,
             HeaderValue::from_static("keep-alive"),
