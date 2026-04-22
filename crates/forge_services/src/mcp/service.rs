@@ -13,6 +13,13 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::mcp::tool::McpExecutor;
 
+fn generate_mcp_tool_name(server_name: &ServerName, tool_name: &ToolName) -> ToolName {
+    let sanitized_server_name = ToolName::sanitized(server_name.to_string().as_str());
+    let sanitized_tool_name = tool_name.clone().into_sanitized();
+
+    ToolName::new(format!("mcp__{sanitized_server_name}__{sanitized_tool_name}"))
+}
+
 #[derive(Clone)]
 pub struct ForgeMcpService<M, I, C> {
     tools: Arc<RwLock<HashMap<ToolName, ToolHolder<McpExecutor<C>>>>>,
@@ -58,12 +65,7 @@ where
         for mut tool in tools.into_iter() {
             let actual_name = tool.name.clone();
             let server = McpExecutor::new(actual_name, client.clone())?;
-
-            // Generate a unique name for the tool
-            let generated_name = ToolName::new(format!(
-                "mcp_{server_name}_tool_{}",
-                tool.name.into_sanitized()
-            ));
+            let generated_name = generate_mcp_tool_name(server_name, &tool.name);
 
             tool.name = generated_name.clone();
 
@@ -225,5 +227,29 @@ where
 
     async fn reload_mcp(&self) -> anyhow::Result<()> {
         self.refresh_cache().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use forge_app::domain::{ServerName, ToolName};
+    use pretty_assertions::assert_eq;
+
+    use super::generate_mcp_tool_name;
+
+    #[test]
+    fn test_generate_mcp_tool_name_uses_prefixed_format() {
+        let fixture = ServerName::from("hugging-face".to_string());
+        let actual = generate_mcp_tool_name(&fixture, &ToolName::new("read-channel"));
+        let expected = ToolName::new("mcp__hugging_face__read_channel");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_generate_mcp_tool_name_sanitizes_server_and_tool_names() {
+        let fixture = ServerName::from("claude.ai Slack".to_string());
+        let actual = generate_mcp_tool_name(&fixture, &ToolName::new("Add comment"));
+        let expected = ToolName::new("mcp__claude_ai_slack__add_comment");
+        assert_eq!(actual, expected);
     }
 }
