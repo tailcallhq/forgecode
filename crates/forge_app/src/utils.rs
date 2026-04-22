@@ -401,6 +401,20 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
                         serde_json::Value::Array(required_values),
                     );
                 }
+            } else if strict_mode
+                && !map.contains_key("type")
+                && !map.contains_key("anyOf")
+                && !map.contains_key("oneOf")
+                && !map.contains_key("allOf")
+            {
+                // In strict mode, OpenAI/Codex requires all property schemas to have a
+                // 'type' key. External MCP tool schemas may define properties with only a
+                // description and no type. Default such typeless leaf schemas to "string"
+                // so the request is not rejected with "schema must have a 'type' key".
+                map.insert(
+                    "type".to_string(),
+                    serde_json::Value::String("string".to_string()),
+                );
             }
 
             if strict_mode
@@ -795,6 +809,68 @@ mod tests {
 
         assert_eq!(schema["additionalProperties"], json!(false));
         assert_eq!(schema["required"], json!(["age", "name"]));
+    }
+
+    #[test]
+    fn test_typeless_property_gets_string_type_in_strict_mode() {
+        // MCP tool schemas from external servers (e.g. Affine) may define properties
+        // with only a description and no type key. The OpenAI/Codex endpoint rejects
+        // such schemas with "schema must have a 'type' key". This test verifies that
+        // enforce_strict_schema defaults typeless leaf properties to "string".
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "content": {
+                    "description": "The content of the comment"
+                },
+                "author": {
+                    "description": "The author name"
+                }
+            }
+        });
+
+        enforce_strict_schema(&mut schema, true);
+
+        let actual = schema.clone();
+        let expected = json!({
+            "type": "object",
+            "properties": {
+                "content": {
+                    "description": "The content of the comment",
+                    "type": "string"
+                },
+                "author": {
+                    "description": "The author name",
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false,
+            "required": ["author", "content"]
+        });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_typeless_property_not_modified_in_non_strict_mode() {
+        // In non-strict mode, typeless properties should not be modified.
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "content": {
+                    "description": "The content of the comment"
+                }
+            }
+        });
+
+        enforce_strict_schema(&mut schema, false);
+
+        // In non-strict mode, no type should be injected
+        assert_eq!(schema["properties"]["content"]["type"], json!(null));
+        assert_eq!(
+            schema["properties"]["content"]["description"],
+            json!("The content of the comment")
+        );
     }
 
     #[test]
