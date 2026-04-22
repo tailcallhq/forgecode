@@ -779,7 +779,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 return Ok(());
             }
             TopLevelCommand::Update(args) => {
-                let update = forge_config::Update::default().auto_update(args.no_confirm);
+                let update = self
+                    .config
+                    .updates
+                    .clone()
+                    .unwrap_or_default()
+                    .auto_update(args.no_confirm);
                 on_update(self.api.clone(), Some(&update)).await;
                 return Ok(());
             }
@@ -2328,7 +2333,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 self.on_show_tools(agent_id, false).await?;
             }
             AppCommand::Update => {
-                on_update(self.api.clone(), None).await;
+                on_update(self.api.clone(), self.config.updates.as_ref()).await;
             }
             AppCommand::Exit => {
                 return Ok(true);
