@@ -117,8 +117,9 @@ impl<Item: ContextMessage + Clone> Compaction<Item> {
             let mut compacted = false;
             for size in 1..=remaining.len() {
                 // Peek at the front window without removing anything yet.
-                let window: Vec<Message<Item>> = remaining[..size]
+                let window: Vec<Message<Item>> = remaining
                     .iter()
+                    .take(size)
                     .map(|m| match m {
                         Message::Original { message } => {
                             Message::Original { message: message.clone() }
@@ -255,7 +256,9 @@ impl<Item: ContextMessage + Clone> Compaction<Item> {
 
     fn compact_complete(&self, messages: Vec<Message<Item>>) -> Vec<Message<Item>> {
         if let Some(range) = self.find_compact_range(&messages) {
-            let source_slice = &messages[*range.start()..=*range.end()];
+            let source_slice = messages
+                .get(*range.start()..=*range.end())
+                .expect("find_compact_range returns indices within messages.len()");
             let summary = Message::Summary(Summary {
                 message: self.summarize(source_slice),
                 source: source_slice.iter().map(|m| m.deref().clone()).collect(),
