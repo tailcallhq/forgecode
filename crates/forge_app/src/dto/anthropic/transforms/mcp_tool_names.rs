@@ -2,12 +2,14 @@ use forge_domain::Transformer;
 
 use crate::dto::anthropic::Request;
 
-/// Converts MCP tool names from Forge's internal format (`mcp_{server}_tool_{tool}`)
-/// to the Claude Code compatible format (`mcp__{server}__{tool}`).
+/// Converts MCP tool names from Forge's internal format
+/// (`mcp_{server}_tool_{tool}`) to the Claude Code compatible format
+/// (`mcp__{server}__{tool}`).
 ///
-/// Claude Code expects MCP tools to use double-underscore separators between the
-/// `mcp` prefix, server name, and tool name. This transformer is applied only when
-/// sending requests to the Claude Code provider (OAuth-authenticated sessions).
+/// Claude Code expects MCP tools to use double-underscore separators between
+/// the `mcp` prefix, server name, and tool name. This transformer is applied
+/// only when sending requests to the Claude Code provider (OAuth-authenticated
+/// sessions).
 pub struct McpToolNames;
 
 impl Transformer for McpToolNames {
@@ -24,9 +26,10 @@ impl Transformer for McpToolNames {
 /// Converts a tool name from the internal `mcp_{server}_tool_{tool}` format to
 /// the Claude Code `mcp__{server}__{tool}` format.
 ///
-/// Uses the last occurrence of `_tool_` as the server/tool separator to correctly
-/// handle server names that themselves contain `_tool_` as a substring. Names that
-/// do not match the internal format are returned unchanged.
+/// Uses the last occurrence of `_tool_` as the server/tool separator to
+/// correctly handle server names that themselves contain `_tool_` as a
+/// substring. Names that do not match the internal format are returned
+/// unchanged.
 fn to_claude_code_format(name: &str) -> String {
     let Some(rest) = name.strip_prefix("mcp_") else {
         return name.to_string();
@@ -89,9 +92,15 @@ mod tests {
     #[test]
     fn test_transformer_converts_mcp_tools_in_request() {
         let fixture = Context::default()
-            .add_tool(ToolDefinition::new("mcp_github_tool_create_issue").description("Create a GitHub issue"))
+            .add_tool(
+                ToolDefinition::new("mcp_github_tool_create_issue")
+                    .description("Create a GitHub issue"),
+            )
             .add_tool(ToolDefinition::new("read").description("Read a file"))
-            .add_tool(ToolDefinition::new("mcp_slack_tool_send_message").description("Send a Slack message"))
+            .add_tool(
+                ToolDefinition::new("mcp_slack_tool_send_message")
+                    .description("Send a Slack message"),
+            )
             .add_message(ContextMessage::user(
                 "test",
                 Some(ModelId::new("claude-3-5-sonnet-20241022")),
