@@ -82,6 +82,12 @@ impl<H: HttpInfra> Anthropic<H> {
             headers.push(("anthropic-beta".to_string(), betas.join(",")));
         }
 
+        if let Some(custom_headers) = &self.provider.custom_headers {
+            for (key, value) in custom_headers {
+                headers.push((key.clone(), value.clone()));
+            }
+        }
+
         headers
     }
 }
@@ -898,6 +904,68 @@ mod tests {
                 model_id
             );
         }
+    }
+
+    #[test]
+    fn test_get_headers_includes_provider_custom_headers() {
+        let chat_url = Url::parse("https://api.anthropic.com/v1/messages").unwrap();
+        let model_url = Url::parse("https://api.anthropic.com/v1/models").unwrap();
+
+        let provider = Provider {
+            id: ProviderId::ANTHROPIC,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(forge_app::domain::ProviderResponse::Anthropic),
+            url: chat_url,
+            credential: Some(forge_domain::AuthCredential {
+                id: ProviderId::ANTHROPIC,
+                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                    "sk-test-key".to_string(),
+                )),
+                url_params: std::collections::HashMap::new(),
+            }),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: Some(forge_domain::ModelSource::Url(model_url)),
+            custom_headers: Some(std::collections::HashMap::from([
+                ("User-Agent".to_string(), "ExampleAgent/1.0".to_string()),
+                (
+                    "HTTP-Referer".to_string(),
+                    "https://example.invalid".to_string(),
+                ),
+                ("X-Title".to_string(), "Example Agent".to_string()),
+                ("X-Custom-Header".to_string(), "custom-value".to_string()),
+            ])),
+        };
+
+        let fixture = Anthropic::new(
+            Arc::new(MockHttpClient::new()),
+            provider,
+            "2023-06-01".to_string(),
+            false,
+        );
+
+        let actual = fixture.get_headers(Some(&ModelId::new("claude-opus-4-6")));
+
+        assert!(
+            actual
+                .iter()
+                .any(|(key, value)| key == "User-Agent" && value == "ExampleAgent/1.0")
+        );
+        assert!(
+            actual
+                .iter()
+                .any(|(key, value)| key == "HTTP-Referer" && value == "https://example.invalid")
+        );
+        assert!(
+            actual
+                .iter()
+                .any(|(key, value)| key == "X-Title" && value == "Example Agent")
+        );
+        assert!(
+            actual
+                .iter()
+                .any(|(key, value)| key == "X-Custom-Header" && value == "custom-value")
+        );
     }
 
     #[test]
