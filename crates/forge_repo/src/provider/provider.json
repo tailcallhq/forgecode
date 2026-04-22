@@ -4718,6 +4718,16 @@
         ]
       },
       {
+        "id": "accounts/fireworks/routers/kimi-k2p6",
+        "name": "Kimi K2.6 (Firepass)",
+        "description": "Kimi K2.6 model",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "accounts/fireworks/models/kimi-k2p5",
         "name": "Kimi K2.5",
         "description": "Kimi K2.5 model",
@@ -4734,6 +4744,16 @@
           "text",
           "image"
         ]
+      },
+      {
+        "id": "accounts/fireworks/models/kimi-k2p6",
+        "name": "Kimi K2.6",
+        "description": "Kimi K2.6 model",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       },
       {
         "id": "accounts/fireworks/models/kimi-k2-instruct",
@@ -4900,8 +4920,15 @@
         ]
       }
     ],
-    "auth_methods": [
-      "api_key"
-    ]
+    "auth_methods": ["api_key"]
+  },
+  {
+    "id": "adal",
+    "api_key_vars": "ADAL_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.sylph.ai/v1/chat/completions",
+    "models": "https://api.sylph.ai/v1/models",
+    "auth_methods": ["api_key"]
   }
 ]
