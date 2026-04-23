@@ -1,7 +1,10 @@
+use std::borrow::Cow;
+
 use forge_app::OAuthHttpProvider;
 use forge_domain::{AuthCodeParams, OAuthConfig, OAuthTokenResponse};
 use oauth2::PkceCodeChallenge;
 use serde::Serialize;
+use url::Url;
 
 use crate::auth::util::build_http_client;
 
@@ -68,21 +71,48 @@ impl OAuthHttpProvider for AnthropicHttpProvider {
         verifier: Option<&str>,
     ) -> anyhow::Result<OAuthTokenResponse> {
         // Anthropic-specific token exchange
-        let (code, state) = if code.contains('#') {
-            let parts: Vec<&str> = code.split('#').collect();
+        // Supports multiple input formats:
+        // 1. Full callback URL: https://platform.claude.com/oauth/code/callback?code=abc&state=def
+        // 2. Hash format: code#state
+        // 3. Query string: code=abc&state=def
+        // 4. Raw code (fallback)
+        let trimmed = code.trim();
+
+        let (auth_code, state) = if let Ok(url) = Url::parse(trimmed) {
+            // Full URL format - extract code and state from query params
+            let auth_code = url
+                .query_pairs()
+                .find(|(k, _): &(Cow<'_, str>, _)| k == "code")
+                .map(|(_, v): (Cow<'_, str>, _)| v.to_string());
+            let state = url
+                .query_pairs()
+                .find(|(k, _): &(Cow<'_, str>, _)| k == "state")
+                .map(|(_, v): (Cow<'_, str>, _)| v.to_string());
+            (auth_code, state)
+        } else if trimmed.contains('#') {
+            let parts: Vec<&str> = trimmed.split('#').collect();
             (
-                parts.first().map(|s| s.to_string()).unwrap_or_default(),
+                parts.first().map(|s| s.to_string()),
                 parts.get(1).map(|s| s.to_string()),
             )
+        } else if trimmed.contains('=') {
+            // Try parsing as query string
+            let params: std::collections::HashMap<String, String> =
+                url::form_urlencoded::parse(trimmed.as_bytes())
+                    .into_owned()
+                    .collect();
+            (params.get("code").cloned(), params.get("state").cloned())
         } else {
-            (code.to_string(), None)
+            (Some(trimmed.to_string()), None)
         };
+
+        let auth_code = auth_code.ok_or_else(|| anyhow::anyhow!("Could not extract authorization code from input"))?;
 
         let verifier = verifier
             .ok_or_else(|| anyhow::anyhow!("PKCE verifier required for Anthropic OAuth"))?;
 
         let request_body = AnthropicTokenRequest {
-            code,
+            code: auth_code,
             state: state.unwrap_or_else(|| verifier.to_string()),
             grant_type: "authorization_code".to_string(),
             client_id: config.client_id.to_string(),

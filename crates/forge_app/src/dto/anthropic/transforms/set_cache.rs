@@ -2,9 +2,12 @@ use forge_domain::Transformer;
 
 use crate::dto::anthropic::Request;
 
+/// Anthropic rejects requests with more than 4 `cache_control` blocks.
+const MAX_CACHE_CONTROL_BLOCKS: usize = 4;
+
 /// Transformer that keeps Anthropic prompt-cache markers stable:
-/// - Always caches every system message so the static system prefix remains
-///   reusable
+/// - Prefers newer cache breakpoints because later markers capture more of the
+///   prompt prefix than earlier ones
 /// - Falls back to caching the first conversation message when there is no
 ///   system prompt so single-turn requests still establish a reusable prefix
 /// - Uses exactly one rolling message-level marker on the newest message
@@ -14,9 +17,9 @@ impl Transformer for SetCache {
     type Value = Request;
 
     /// Applies the default Anthropic cache strategy:
-    /// 1. Cache every system message when present, otherwise cache the first
-    ///    conversation message.
-    /// 2. Cache only the last message as the rolling message-level marker.
+    /// 1. Clear any existing cache markers.
+    /// 2. Select preferred cache breakpoints.
+    /// 3. Keep only the newest breakpoints up to Anthropic's 4-block limit.
     fn transform(&mut self, mut request: Self::Value) -> Self::Value {
         let len = request.get_messages().len();
         let sys_len = request.system.as_ref().map_or(0, |msgs| msgs.len());
@@ -25,14 +28,9 @@ impl Transformer for SetCache {
             return request;
         }
 
-        let has_system_prompt = request
-            .system
-            .as_ref()
-            .is_some_and(|messages| !messages.is_empty());
-
         if let Some(system_messages) = request.system.as_mut() {
             for message in system_messages.iter_mut() {
-                *message = std::mem::take(message).cached(true);
+                *message = std::mem::take(message).cached(false);
             }
         }
 
@@ -40,19 +38,51 @@ impl Transformer for SetCache {
             *message = std::mem::take(message).cached(false);
         }
 
-        if !has_system_prompt
-            && len > 0
-            && let Some(first_message) = request.get_messages_mut().first_mut()
-        {
-            *first_message = std::mem::take(first_message).cached(true);
+        let has_system_prompt = request
+            .system
+            .as_ref()
+            .is_some_and(|messages| !messages.is_empty());
+
+        let mut desired_markers = Vec::new();
+
+        if has_system_prompt {
+            desired_markers.extend((0..sys_len).map(CacheMarker::System));
+        } else if len > 0 {
+            desired_markers.push(CacheMarker::Message(0));
         }
 
-        if let Some(message) = request.get_messages_mut().last_mut() {
-            *message = std::mem::take(message).cached(true);
+        if len > 0 {
+            let last_message = CacheMarker::Message(len - 1);
+            if !desired_markers.contains(&last_message) {
+                desired_markers.push(last_message);
+            }
+        }
+
+        let keep_from = desired_markers.len().saturating_sub(MAX_CACHE_CONTROL_BLOCKS);
+        for marker in desired_markers.into_iter().skip(keep_from) {
+            match marker {
+                CacheMarker::System(idx) => {
+                    if let Some(message) = request.system.as_mut().and_then(|messages| messages.get_mut(idx))
+                    {
+                        *message = std::mem::take(message).cached(true);
+                    }
+                }
+                CacheMarker::Message(idx) => {
+                    if let Some(message) = request.get_messages_mut().get_mut(idx) {
+                        *message = std::mem::take(message).cached(true);
+                    }
+                }
+            }
         }
 
         request
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CacheMarker {
+    System(usize),
+    Message(usize),
 }
 
 #[cfg(test)]
@@ -225,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_system_messages_all_cached() {
+    fn test_multiple_system_messages_keep_newest_within_limit() {
         let fixture = Context {
             conversation_id: None,
             messages: vec![
@@ -263,5 +293,52 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(actual, expected);
         assert!(request.get_messages()[0].is_cached());
+    }
+
+    #[test]
+    fn test_cache_markers_never_exceed_anthropic_limit() {
+        let fixture = Context {
+            conversation_id: None,
+            messages: vec![
+                ContextMessage::Text(TextMessage::new(Role::System, "s1")).into(),
+                ContextMessage::Text(TextMessage::new(Role::System, "s2")).into(),
+                ContextMessage::Text(TextMessage::new(Role::System, "s3")).into(),
+                ContextMessage::Text(TextMessage::new(Role::System, "s4")).into(),
+                ContextMessage::Text(TextMessage::new(Role::System, "s5")).into(),
+                ContextMessage::Text(
+                    TextMessage::new(Role::User, "user")
+                        .model(ModelId::new("claude-3-5-sonnet-20241022")),
+                )
+                .into(),
+            ],
+            tools: vec![],
+            tool_choice: None,
+            max_tokens: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            reasoning: None,
+            stream: None,
+            response_format: None,
+            initiator: None,
+        };
+
+        let request = Request::try_from(fixture).expect("Failed to convert context to request");
+        let mut transformer = SetCache;
+        let request = transformer.transform(request);
+
+        let system_cache_flags = request
+            .system
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|message| message.is_cached())
+            .collect::<Vec<_>>();
+        assert_eq!(system_cache_flags, vec![false, false, true, true, true]);
+        assert!(request.get_messages()[0].is_cached());
+
+        let total_cached_blocks = system_cache_flags.into_iter().filter(|cached| *cached).count()
+            + request.get_messages().iter().filter(|message| message.is_cached()).count();
+        assert_eq!(total_cached_blocks, MAX_CACHE_CONTROL_BLOCKS);
     }
 }
