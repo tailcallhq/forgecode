@@ -75,9 +75,10 @@ impl ExternalHookInterceptor {
         let Some(home) = dirs::home_dir() else {
             return Vec::new();
         };
-        let hook_dir = home.join(".forge").join("hooks").join(format!(
-            "{event_name}.d"
-        ));
+        let hook_dir = home
+            .join(".forge")
+            .join("hooks")
+            .join(format!("{event_name}.d"));
 
         if !hook_dir.is_dir() {
             return Vec::new();
@@ -255,7 +256,8 @@ mod tests {
 
     #[test]
     fn test_hook_output_deserialize_allow_with_modification() {
-        let json = r#"{"decision":"allow","hookSpecificOutput":{"tool_input":{"command":"rtk ls"}}}"#;
+        let json =
+            r#"{"decision":"allow","hookSpecificOutput":{"tool_input":{"command":"rtk ls"}}}"#;
         let output: HookOutput = serde_json::from_str(json).unwrap();
         assert_eq!(output.decision, "allow");
         assert!(output.hook_specific_output.is_some());

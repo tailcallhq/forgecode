@@ -257,10 +257,9 @@ mod tests {
             title: None,
             context: Some(
                 forge_domain::Context::default().add_message(ContextMessage::Text(
-                    forge_domain::TextMessage::new(Role::User, "fallback content")
-                        .raw_content(forge_domain::EventValue::text(
-                            "Build the authentication module",
-                        )),
+                    forge_domain::TextMessage::new(Role::User, "fallback content").raw_content(
+                        forge_domain::EventValue::text("Build the authentication module"),
+                    ),
                 )),
             ),
             metrics: Metrics::default().started_at(now),

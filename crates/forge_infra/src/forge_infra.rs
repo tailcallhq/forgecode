@@ -1,7 +1,3 @@
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::process::ExitStatus;
-use std::sync::Arc;
 use bytes::Bytes;
 use forge_app::{
     CommandInfra, DirectoryReaderInfra, EnvironmentInfra, FileDirectoryInfra, FileInfoInfra,
@@ -14,6 +10,10 @@ use forge_domain::{
 use reqwest::header::HeaderMap;
 use reqwest::{Response, Url};
 use reqwest_eventsource::EventSource;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::process::ExitStatus;
+use std::sync::Arc;
 
 use crate::auth::{AnyAuthStrategy, ForgeAuthStrategyFactory};
 use crate::console::StdConsoleWriter;

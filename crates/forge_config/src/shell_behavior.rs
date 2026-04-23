@@ -6,9 +6,7 @@ pub const DEFAULT_SHELL_BEHAVIOR_QUIET: bool = true;
 pub const DEFAULT_SHELL_BEHAVIOR_SYNC: bool = false;
 
 /// Controls presentation and background behavior for shell-triggered prompts.
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, fake::Dummy, Setters,
-)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, fake::Dummy, Setters)]
 #[serde(rename_all = "snake_case")]
 #[setters(strip_option)]
 pub struct ShellBehaviorConfig {
@@ -25,7 +23,10 @@ pub struct ShellBehaviorConfig {
 
 impl Default for ShellBehaviorConfig {
     fn default() -> Self {
-        Self { quiet: DEFAULT_SHELL_BEHAVIOR_QUIET, sync: DEFAULT_SHELL_BEHAVIOR_SYNC }
+        Self {
+            quiet: DEFAULT_SHELL_BEHAVIOR_QUIET,
+            sync: DEFAULT_SHELL_BEHAVIOR_SYNC,
+        }
     }
 }
 
