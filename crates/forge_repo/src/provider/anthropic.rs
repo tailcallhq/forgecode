@@ -5,7 +5,7 @@ use forge_app::domain::{
     ChatCompletionMessage, Context, Model, ModelId, ResultStream, Transformer,
 };
 use forge_app::dto::anthropic::{
-    AuthSystemMessage, CapitalizeToolNames, DropInvalidToolUse, EnforceStrictObjectSchema,
+    AuthSystemMessage, BillingHeader, CapitalizeToolNames, DropInvalidToolUse, EnforceStrictObjectSchema,
     EventData, ListModelResponse, McpToolNames, ReasoningTransform, RemoveOutputFormat, Request,
     SanitizeToolIds, SetCache,
 };
@@ -87,6 +87,13 @@ impl<H: HttpInfra> Anthropic<H> {
             headers.push(("anthropic-beta".to_string(), betas.join(",")));
         }
 
+        // Append provider-level custom headers (from provider.json config)
+        if let Some(custom_headers) = &self.provider.custom_headers {
+            for (k, v) in custom_headers {
+                headers.push((k.clone(), v.clone()));
+            }
+        }
+
         headers
     }
 }
@@ -126,8 +133,9 @@ impl<T: HttpInfra> Anthropic<T> {
             request = request.model(model.as_str().to_string());
         }
 
-        let pipeline = AuthSystemMessage::default()
+        let pipeline = BillingHeader
             .when(|_| self.use_oauth)
+            .pipe(AuthSystemMessage::default().when(|_| self.use_oauth))
             .pipe(McpToolNames.when(|_| self.use_oauth))
             .pipe(CapitalizeToolNames)
             .pipe(DropInvalidToolUse)
@@ -796,6 +804,47 @@ mod tests {
         assert!(
             beta_value.contains("oauth-2025-04-20"),
             "Beta header should include oauth flag for OAuth auth"
+        );
+    }
+
+    #[test]
+    fn test_get_headers_includes_provider_custom_headers() {
+        let chat_url = Url::parse("https://api.anthropic.com/v1/messages").unwrap();
+        let model_url = Url::parse("https://api.anthropic.com/v1/models").unwrap();
+
+        let mut custom = std::collections::HashMap::new();
+        custom.insert("anthropic-client".to_string(), "2025-04-08/forge".to_string());
+
+        let provider = Provider {
+            id: forge_app::domain::ProviderId::ANTHROPIC,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(forge_app::domain::ProviderResponse::Anthropic),
+            url: chat_url,
+            credential: Some(forge_domain::AuthCredential {
+                id: forge_app::domain::ProviderId::ANTHROPIC,
+                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                    "sk-test-key".to_string(),
+                )),
+                url_params: std::collections::HashMap::new(),
+            }),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: Some(forge_domain::ModelSource::Url(model_url)),
+            custom_headers: Some(custom),
+        };
+
+        let fixture = Anthropic::new(
+            Arc::new(MockHttpClient::new()),
+            provider,
+            "2023-06-01".to_string(),
+            false,
+        );
+
+        let actual = fixture.get_headers(None);
+
+        assert!(
+            actual.iter().any(|(k, v)| k == "anthropic-client" && v == "2025-04-08/forge"),
+            "Should include provider-level custom header"
         );
     }
 

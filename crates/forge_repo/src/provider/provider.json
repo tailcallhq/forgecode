@@ -763,14 +763,17 @@
             "user:inference",
             "user:sessions:claude_code"
           ],
-          "redirect_uri": "https://console.anthropic.com/oauth/code/callback",
+          "redirect_uri": "http://localhost:3456/oauth/callback",
           "use_pkce": true,
           "extra_auth_params": {
             "code": "true"
           }
         }
       }
-    ]
+    ],
+    "custom_headers": {
+      "anthropic-client": "2025-04-08/forge"
+    }
   },
   {
     "id": "anthropic_compatible",

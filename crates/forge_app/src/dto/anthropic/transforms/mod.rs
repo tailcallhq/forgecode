@@ -1,4 +1,5 @@
 mod auth_system_message;
+mod billing_header;
 mod capitalize_tool_names;
 mod drop_invalid_toolcalls;
 mod enforce_schema;
@@ -9,6 +10,7 @@ mod sanitize_tool_ids;
 mod set_cache;
 
 pub use auth_system_message::AuthSystemMessage;
+pub use billing_header::BillingHeader;
 pub use capitalize_tool_names::CapitalizeToolNames;
 pub use drop_invalid_toolcalls::DropInvalidToolUse;
 pub use enforce_schema::EnforceStrictObjectSchema;
