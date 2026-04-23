@@ -75,6 +75,7 @@ impl ProviderId {
     pub const NOVITA: ProviderId = ProviderId(Cow::Borrowed("novita"));
     pub const GOOGLE_AI_STUDIO: ProviderId = ProviderId(Cow::Borrowed("google_ai_studio"));
     pub const MODAL: ProviderId = ProviderId(Cow::Borrowed("modal"));
+    pub const ADAL: ProviderId = ProviderId(Cow::Borrowed("adal"));
 
     /// Returns all built-in provider IDs
     ///
@@ -110,6 +111,7 @@ impl ProviderId {
             ProviderId::NOVITA,
             ProviderId::GOOGLE_AI_STUDIO,
             ProviderId::MODAL,
+            ProviderId::ADAL,
         ]
     }
 
@@ -139,6 +141,7 @@ impl ProviderId {
             "novita" => "Novita".to_string(),
             "google_ai_studio" => "GoogleAIStudio".to_string(),
             "modal" => "Modal".to_string(),
+            "adal" => "AdaL".to_string(),
             _ => {
                 // For other providers, use UpperCamelCase conversion
                 use convert_case::{Case, Casing};
@@ -184,8 +187,12 @@ impl std::str::FromStr for ProviderId {
             "opencode_go" => ProviderId::OPENCODE_GO,
             "fireworks-ai" => ProviderId::FIREWORKS_AI,
             "novita" => ProviderId::NOVITA,
+            "vertex_ai_anthropic" => ProviderId::VERTEX_AI_ANTHROPIC,
+            "bedrock" => ProviderId::BEDROCK,
+            "opencode_zen" => ProviderId::OPENCODE_ZEN,
             "google_ai_studio" => ProviderId::GOOGLE_AI_STUDIO,
             "modal" => ProviderId::MODAL,
+            "adal" => ProviderId::ADAL,
             // For custom providers, use Cow::Owned to avoid memory leaks
             custom => ProviderId(Cow::Owned(custom.to_string())),
         };
@@ -608,6 +615,13 @@ mod tests {
     }
 
     #[test]
+    fn test_adal_from_str() {
+        let actual = ProviderId::from_str("adal").unwrap();
+        let expected = ProviderId::ADAL;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_modal_display_name() {
         assert_eq!(ProviderId::MODAL.to_string(), "Modal");
     }
@@ -616,6 +630,17 @@ mod tests {
     fn test_modal_in_built_in_providers() {
         let built_in = ProviderId::built_in_providers();
         assert!(built_in.contains(&ProviderId::MODAL));
+    }
+
+    #[test]
+    fn test_adal_display_name() {
+        assert_eq!(ProviderId::ADAL.to_string(), "AdaL");
+    }
+
+    #[test]
+    fn test_adal_in_built_in_providers() {
+        let built_in = ProviderId::built_in_providers();
+        assert!(built_in.contains(&ProviderId::ADAL));
     }
 
     #[test]

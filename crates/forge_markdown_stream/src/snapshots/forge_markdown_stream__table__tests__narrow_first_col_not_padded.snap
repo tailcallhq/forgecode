@@ -1,0 +1,14 @@
+---
+source: crates/forge_markdown_stream/src/table.rs
+assertion_line: 499
+expression: "render_with_width(vec![vec![\"#\", \"File\", \"Description\"],\nvec![\"1\", \"plans/foo.md\",\n\"A longer description that forces the table to shrink its columns to fit the target width\"],\nvec![\"2\", \"docs/bar.md\",\n\"Another reasonably long description so the Description column stays the widest\"],],\n80)"
+---
+  ┌───┬──────────┬─────────────────────────────────────────────────────────────┐
+  │ # │ File     │ Description                                                 │
+  ├───┼──────────┼─────────────────────────────────────────────────────────────┤
+  │ 1 │ plans/fo │ A longer description that forces the table to shrink its    │
+  │   │ o.md     │ columns to fit the target width                             │
+  ├───┼──────────┼─────────────────────────────────────────────────────────────┤
+  │ 2 │ docs/bar │ Another reasonably long description so the Description      │
+  │   │ .md      │ column stays the widest                                     │
+  └───┴──────────┴─────────────────────────────────────────────────────────────┘

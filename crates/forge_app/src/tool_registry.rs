@@ -291,6 +291,8 @@ impl<S> ToolRegistry<S> {
         use crate::TemplateEngine;
 
         let handlebars = TemplateEngine::handlebar_instance();
+        let mut agents = agents;
+        agents.sort_by(|left, right| left.id.as_str().cmp(right.id.as_str()));
 
         // Build tool_names map from all available tools
         let tool_names: Map<String, Value> = ToolCatalog::iter()
@@ -709,6 +711,41 @@ mod tests {
             &template_config,
         );
         assert!(actual.iter().all(|t| t.name.as_str() != "sem_search"));
+    }
+
+    #[test]
+    fn test_task_tool_description_is_stable_across_agent_order() {
+        use fake::{Fake, Faker};
+        let env: Environment = Faker.fake();
+        let template_config = TemplateConfig::default();
+        let agents = create_test_agents();
+        let mut reversed_agents = agents.clone();
+        reversed_agents.reverse();
+
+        let fixture =
+            ToolRegistry::<()>::get_system_tools(true, &env, None, agents, &template_config);
+        let actual = ToolRegistry::<()>::get_system_tools(
+            true,
+            &env,
+            None,
+            reversed_agents,
+            &template_config,
+        );
+
+        let expected = fixture
+            .iter()
+            .find(|tool| tool.name.as_str() == "task")
+            .expect("Task tool should exist")
+            .description
+            .clone();
+        let actual = actual
+            .iter()
+            .find(|tool| tool.name.as_str() == "task")
+            .expect("Task tool should exist")
+            .description
+            .clone();
+
+        assert_eq!(actual, expected);
     }
 }
 

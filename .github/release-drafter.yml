@@ -4,7 +4,6 @@ categories:
   - title: "🚀 Features"
     labels:
       - "type: feature"
-      - "type: provider"
 
   - title: "📝 Documentation"
     labels:
@@ -14,6 +13,7 @@ categories:
     labels:
       - "type: bug"
       - "type: fix"
+      - "type: provider"
 
   - title: "🚀 Performance"
     labels:
@@ -44,7 +44,6 @@ version-resolver:
   minor:
     labels:
       - "type: feature"
-      - "type: provider"
     # Add direct commit message pattern matching for features
     commits:
       - "feat:"
@@ -58,6 +57,7 @@ version-resolver:
       - "type: bug"
       - "type: testing"
       - "type: refactor"
+      - "type: provider"
     # Add direct commit message pattern matching for patches
     commits:
       - "fix:"

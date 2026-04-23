@@ -28,8 +28,10 @@ tool_timeout_secs = 300
 top_k = 30
 top_p = 0.8
 verify_todos = true
+research_subagent = false
 currency_symbol = "$"
 currency_conversion_rate = 1.0
+subagents = true
 
 [retry]
 backoff_factor = 2
@@ -67,4 +69,4 @@ frequency = "daily"
 
 [reasoning]
 enabled = true
-effort = "high"
+effort = "medium"

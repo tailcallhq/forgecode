@@ -137,6 +137,9 @@ impl AgentExt for Agent {
                 eviction_window: workflow_compact.eviction_window.value(),
                 max_tokens: workflow_compact.max_tokens,
                 token_threshold: workflow_compact.token_threshold,
+                token_threshold_percentage: workflow_compact
+                    .token_threshold_percentage
+                    .map(|percentage| percentage.value()),
                 turn_threshold: workflow_compact.turn_threshold,
                 message_threshold: workflow_compact.message_threshold,
                 model: workflow_compact.model.as_deref().map(ModelId::new),
@@ -266,5 +269,117 @@ mod tests {
 
         // enabled must be false even though the agent said true.
         assert_eq!(actual.as_ref().and_then(|r| r.enabled), Some(false));
+    }
+
+    /// Tests the current behavior: agent compact settings take priority over
+    /// workflow config.
+    ///
+    /// CURRENT BEHAVIOR: When agent has compact settings, they override
+    /// workflow settings. This means user's .forge.toml compact settings
+    /// are ignored if agent has ANY compact config.
+    ///
+    /// Note: The apply_config comment says "Agent settings take priority over
+    /// workflow settings", which is implemented via the merge() call that
+    /// overwrites workflow values with agent values.
+    #[test]
+    fn test_compact_agent_settings_take_priority_over_workflow_config() {
+        use forge_config::Percentage;
+
+        // Workflow config with custom compact settings (from .forge.toml)
+        let workflow_compact = forge_config::Compact::default()
+            .retention_window(10_usize)
+            .eviction_window(Percentage::new(0.3).unwrap())
+            .max_tokens(5000_usize)
+            .token_threshold(80000_usize)
+            .token_threshold_percentage(0.65_f64);
+
+        let config = ForgeConfig::default().compact(workflow_compact);
+
+        // Agent with default compact config - retention_window=0 from Default
+        let agent = fixture_agent();
+
+        let actual = agent.apply_config(&config).compact;
+
+        // CURRENT BEHAVIOR: Due to merge order (workflow_compact merged with
+        // agent.compact), agent's retention_window=0 overwrites workflow's 10
+        // This is the documented behavior: "Agent settings take priority over workflow
+        // settings"
+
+        // Agent default has retention_window=0, which overwrites workflow's 10
+        assert_eq!(
+            actual.retention_window, 0,
+            "Agent's retention_window (0) takes priority over workflow's (10). \
+             This is the CURRENT behavior per apply_config comment. \
+             If user wants workflow settings to apply, agent should have no compact config set."
+        );
+
+        // Agent default has token_threshold=None, workflow's 80000 should apply
+        assert_eq!(
+            actual.token_threshold,
+            Some(80000),
+            "Workflow token_threshold applies because agent default has None"
+        );
+        assert_eq!(
+            actual.token_threshold_percentage,
+            Some(0.65),
+            "Workflow context-window percentage applies because agent default has None"
+        );
+    }
+
+    /// Tests the current behavior when agent has partial compact config:
+    /// those agent values override workflow values.
+    ///
+    /// CURRENT BEHAVIOR: If agent sets ANY compact field, that value wins over
+    /// workflow config. Only fields where agent has None will get workflow
+    /// values.
+    #[test]
+    fn test_compact_partial_agent_settings_override_workflow_values() {
+        use forge_config::Percentage;
+        use forge_domain::Compact as DomainCompact;
+
+        // Workflow config with ALL settings
+        let workflow_compact = forge_config::Compact::default()
+            .retention_window(15_usize)
+            .eviction_window(Percentage::new(0.25).unwrap())
+            .max_tokens(6000_usize)
+            .token_threshold(90000_usize)
+            .token_threshold_percentage(0.4_f64)
+            .turn_threshold(20_usize);
+
+        let config = ForgeConfig::default().compact(workflow_compact);
+
+        // Agent with PARTIAL compact config (only retention_window set to 5)
+        let agent = fixture_agent().compact(
+            DomainCompact::new()
+                .retention_window(5_usize)
+                .token_threshold_percentage(0.25_f64),
+        );
+
+        let actual = agent.apply_config(&config).compact;
+
+        // CURRENT BEHAVIOR: Agent's retention_window=5 overwrites workflow's 15
+        assert_eq!(
+            actual.retention_window, 5,
+            "Agent's retention_window (5) takes priority. \
+             This is CURRENT behavior: agent.compact.retention_window is Some(5), \
+             so merge() overwrites workflow's Some(15) with agent's Some(5)."
+        );
+
+        // Fields where agent had None get workflow values
+        assert_eq!(
+            actual.token_threshold,
+            Some(90000),
+            "Workflow token_threshold applies (agent had None)"
+        );
+        assert_eq!(
+            actual.token_threshold_percentage,
+            Some(0.25),
+            "Agent's context-window percentage takes priority over workflow's 0.4"
+        );
+        assert_eq!(
+            actual.turn_threshold,
+            Some(20),
+            "Workflow turn_threshold applies (agent had None)"
+        );
     }
 }
