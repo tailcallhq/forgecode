@@ -3457,16 +3457,6 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "mimo-v2-flash",
-        "name": "MiMo V2 Flash",
-        "description": "Xiaomi's fast and efficient model for high-throughput applications",
-        "context_length": 262100,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": false,
-        "input_modalities": ["text"]
       }
     ],
     "auth_methods": ["api_key"]
