@@ -7,8 +7,8 @@ use forge_app::domain::{
 };
 use forge_app::dto::anthropic::{
     AuthSystemMessage, CapitalizeToolNames, DropInvalidToolUse, EnforceStrictObjectSchema,
-    EventData, ListModelResponse, ReasoningTransform, RemoveOutputFormat, Request, SanitizeToolIds,
-    SetCache,
+    EventData, ListModelResponse, McpToolNames, ReasoningTransform, RemoveOutputFormat, Request,
+    SanitizeToolIds, SetCache,
 };
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider, ProviderId};
@@ -46,11 +46,16 @@ impl<H: HttpInfra> Anthropic<H> {
             .provider
             .credential
             .as_ref()
-            .map(|c| match &c.auth_details {
-                forge_domain::AuthDetails::ApiKey(key) => key.as_str(),
-                forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => api_key.as_str(),
-                forge_domain::AuthDetails::OAuth { tokens, .. } => tokens.access_token.as_str(),
-                forge_domain::AuthDetails::GoogleAdc(api_key) => api_key.as_str(),
+            .and_then(|c| match &c.auth_details {
+                forge_domain::AuthDetails::ApiKey(key) => Some(key.as_str()),
+                forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => {
+                    Some(api_key.as_str())
+                }
+                forge_domain::AuthDetails::OAuth { tokens, .. } => {
+                    Some(tokens.access_token.as_str())
+                }
+                forge_domain::AuthDetails::GoogleAdc(api_key) => Some(api_key.as_str()),
+                forge_domain::AuthDetails::AwsProfile(_) => None,
             });
 
         if let Some(api_key) = api_key {
@@ -123,6 +128,7 @@ impl<T: HttpInfra> Anthropic<T> {
 
         let pipeline = AuthSystemMessage::default()
             .when(|_| self.use_oauth)
+            .pipe(McpToolNames.when(|_| self.use_oauth))
             .pipe(CapitalizeToolNames)
             .pipe(DropInvalidToolUse)
             .pipe(SanitizeToolIds);

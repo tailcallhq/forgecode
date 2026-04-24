@@ -2958,8 +2958,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let api_key_str = if let Some(default_key) = &request.api_key {
             let key_str = default_key.as_ref();
 
-            // Skip prompting only for Google ADC marker
-            if key_str == "google_adc_marker" {
+            // Skip prompting for markers that indicate non-API-key auth
+            if key_str == "google_adc_marker" || key_str == "aws_profile_marker" {
                 key_str.to_string()
             } else {
                 // For other providers, show the existing key as default (autofill)
@@ -3198,6 +3198,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 AuthMethod::OAuthDevice(_) => "OAuth Device Flow".to_string(),
                 AuthMethod::OAuthCode(_) => "OAuth Authorization Code".to_string(),
                 AuthMethod::GoogleAdc => "Google Application Default Credentials (ADC)".to_string(),
+                AuthMethod::AwsProfile => "AWS Profile (SSO/IAM)".to_string(),
                 AuthMethod::CodexDevice(_) => "OpenAI Codex Device Flow".to_string(),
             })
             .collect();
