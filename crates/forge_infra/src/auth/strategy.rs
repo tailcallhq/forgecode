@@ -1512,10 +1512,8 @@ mod tests {
     #[tokio::test]
     async fn test_api_key_strategy_refresh_with_helper_command() {
         let strategy = ApiKeyStrategy::new(ProviderId::OPENAI, vec![]);
-        let fixture = AuthCredential::new_api_key(
-            ProviderId::OPENAI,
-            ApiKey::from("old-key".to_string()),
-        );
+        let fixture =
+            AuthCredential::new_api_key(ProviderId::OPENAI, ApiKey::from("old-key".to_string()));
         // Replace auth_details with a HelperCommand
         let fixture = AuthCredential {
             auth_details: AuthDetails::api_key_from_helper(
@@ -1539,10 +1537,8 @@ mod tests {
     #[tokio::test]
     async fn test_api_key_strategy_refresh_static_key_unchanged() {
         let strategy = ApiKeyStrategy::new(ProviderId::OPENAI, vec![]);
-        let fixture = AuthCredential::new_api_key(
-            ProviderId::OPENAI,
-            ApiKey::from("static-key".to_string()),
-        );
+        let fixture =
+            AuthCredential::new_api_key(ProviderId::OPENAI, ApiKey::from("static-key".to_string()));
 
         let actual = strategy.refresh(&fixture).await.unwrap();
 

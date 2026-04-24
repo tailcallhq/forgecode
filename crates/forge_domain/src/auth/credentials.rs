@@ -103,7 +103,8 @@ impl AuthCredential {
         }
     }
 
-    /// Creates a credential with a Google Application Default Credentials token.
+    /// Creates a credential with a Google Application Default Credentials
+    /// token.
     pub fn new_google_adc(id: ProviderId, access_token: ApiKey) -> Self {
         Self {
             id,
@@ -241,8 +242,7 @@ mod tests {
 
             #[test]
             fn serde_roundtrip() {
-                let fixture =
-                    ApiKeyProvider::StaticKey(ApiKey::from("sk-test".to_string()));
+                let fixture = ApiKeyProvider::StaticKey(ApiKey::from("sk-test".to_string()));
                 let json = serde_json::to_string(&fixture).unwrap();
                 let actual: ApiKeyProvider = serde_json::from_str(&json).unwrap();
                 assert_eq!(actual, fixture);
@@ -250,8 +250,7 @@ mod tests {
 
             #[test]
             fn serializes_as_bare_string() {
-                let fixture =
-                    ApiKeyProvider::StaticKey(ApiKey::from("sk-test".to_string()));
+                let fixture = ApiKeyProvider::StaticKey(ApiKey::from("sk-test".to_string()));
                 let actual = serde_json::to_string(&fixture).unwrap();
                 let expected = r#""sk-test""#;
                 assert_eq!(actual, expected);
@@ -429,9 +428,18 @@ mod tests {
             }];
             let actual = serde_json::to_string_pretty(&fixture).unwrap();
             // command persisted, last_key and expires_at skipped
-            assert!(actual.contains(r#""command""#), "should contain command: {actual}");
-            assert!(!actual.contains("last_key"), "should NOT contain last_key: {actual}");
-            assert!(!actual.contains("expires_at"), "should NOT contain expires_at: {actual}");
+            assert!(
+                actual.contains(r#""command""#),
+                "should contain command: {actual}"
+            );
+            assert!(
+                !actual.contains("last_key"),
+                "should NOT contain last_key: {actual}"
+            );
+            assert!(
+                !actual.contains("expires_at"),
+                "should NOT contain expires_at: {actual}"
+            );
         }
     }
 }

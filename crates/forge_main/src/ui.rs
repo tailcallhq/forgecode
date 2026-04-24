@@ -2942,12 +2942,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .collect::<anyhow::Result<HashMap<_, _>>>()?;
 
         // Skip interactive prompts for auth markers (Google ADC, AWS profile)
-        let is_auth_marker = request
-            .api_key
-            .as_ref()
-            .map_or(false, |k| {
-                k.as_ref() == "google_adc_marker" || k.as_ref() == "aws_profile_marker"
-            });
+        let is_auth_marker = request.api_key.as_ref().is_some_and(|k| {
+            k.as_ref() == "google_adc_marker" || k.as_ref() == "aws_profile_marker"
+        });
 
         if is_auth_marker {
             // Google ADC / AWS profile: skip prompting entirely
@@ -2983,12 +2980,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
             // Send with a placeholder key — the strategy will validate by
             // executing the command during complete_provider_auth
-            let response = AuthContextResponse::api_key_with_helper(
-                request.clone(),
-                "",
-                url_params,
-                command,
-            );
+            let response =
+                AuthContextResponse::api_key_with_helper(request.clone(), "", url_params, command);
             self.spinner.start(Some("Validating helper command..."))?;
             self.api
                 .complete_provider_auth(provider_id, response, Duration::from_secs(0))

@@ -27,7 +27,8 @@ pub struct ApiKeyResponse {
     pub api_key: ApiKey,
     pub url_params: HashMap<URLParam, URLParamValue>,
     /// When set, the API key was produced by this shell command and the
-    /// credential should be stored as a [`HelperCommand`](super::ApiKeyProvider::HelperCommand).
+    /// credential should be stored as a
+    /// [`HelperCommand`](super::ApiKeyProvider::HelperCommand).
     pub helper_command: Option<String>,
 }
 

@@ -158,8 +158,7 @@ mod tests {
 
         #[test]
         fn crlf_line_endings() {
-            let (key, expires_at) =
-                parse_output("sk-test-key\r\n---\r\nTTL: 3600\r\n").unwrap();
+            let (key, expires_at) = parse_output("sk-test-key\r\n---\r\nTTL: 3600\r\n").unwrap();
             assert_eq!(key.as_ref(), "sk-test-key");
             assert!(expires_at.is_some());
         }

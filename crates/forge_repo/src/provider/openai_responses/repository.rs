@@ -77,7 +77,9 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
                 .credential
                 .as_ref()
                 .and_then(|c| match &c.auth_details {
-                    forge_domain::AuthDetails::ApiKey(provider) => Some(provider.api_key().as_str()),
+                    forge_domain::AuthDetails::ApiKey(provider) => {
+                        Some(provider.api_key().as_str())
+                    }
                     forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => {
                         Some(api_key.as_str())
                     }
@@ -1161,9 +1163,9 @@ mod tests {
             url: Url::parse("https://api.openai.com/v1").unwrap(),
             credential: Some(forge_domain::AuthCredential {
                 id: ProviderId::OPENAI,
-                auth_details: forge_domain::AuthDetails::static_api_key(forge_domain::ApiKey::from(
-                    "test-key".to_string(),
-                )),
+                auth_details: forge_domain::AuthDetails::static_api_key(
+                    forge_domain::ApiKey::from("test-key".to_string()),
+                ),
                 url_params,
             }),
             auth_methods: vec![],

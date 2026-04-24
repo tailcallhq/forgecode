@@ -58,7 +58,9 @@ impl<H: HttpInfra> OpenAIProvider<H> {
                 .credential
                 .as_ref()
                 .and_then(|c| match &c.auth_details {
-                    forge_domain::AuthDetails::ApiKey(provider) => Some(provider.api_key().as_str()),
+                    forge_domain::AuthDetails::ApiKey(provider) => {
+                        Some(provider.api_key().as_str())
+                    }
                     forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => {
                         Some(api_key.as_str())
                     }

@@ -354,7 +354,10 @@ impl<
 
         // Check for helper command: direct config or {api_key_var}_HELPER env var
         let helper_command = config.api_key_helper.clone().or_else(|| {
-            let helper_var = config.api_key_vars.as_ref().map(|v| format!("{v}_HELPER"))?;
+            let helper_var = config
+                .api_key_vars
+                .as_ref()
+                .map(|v| format!("{v}_HELPER"))?;
             self.infra.get_env_var(&helper_var)
         });
 
@@ -423,8 +426,8 @@ impl<
 
         // Refresh helper-command credentials on load — the last_key is not
         // persisted so it must be obtained by executing the command.
-        if let forge_domain::AuthDetails::ApiKey(ref provider) = credential.auth_details {
-            if provider.needs_refresh(chrono::Duration::zero()) {
+        if let forge_domain::AuthDetails::ApiKey(ref provider) = credential.auth_details
+            && provider.needs_refresh(chrono::Duration::zero()) {
                 match forge_infra::api_key_helper::execute(provider).await {
                     Ok(refreshed) => {
                         credential.auth_details = forge_domain::AuthDetails::ApiKey(refreshed);
@@ -446,7 +449,6 @@ impl<
                     }
                 }
             }
-        }
 
         // Handle models - keep as templates
         let models = config.models.as_ref().map(|m| match m {
@@ -1096,7 +1098,9 @@ mod env_tests {
             .find(|c| c.id == ProviderId::OPENAI_COMPATIBLE)
             .unwrap();
         match &openai_compat_cred.auth_details {
-            AuthDetails::ApiKey(provider) => assert_eq!(provider.api_key().as_str(), "test-openai-key"),
+            AuthDetails::ApiKey(provider) => {
+                assert_eq!(provider.api_key().as_str(), "test-openai-key")
+            }
             _ => panic!("Expected API key"),
         }
 
@@ -1116,7 +1120,9 @@ mod env_tests {
             .find(|c| c.id == ProviderId::ANTHROPIC)
             .unwrap();
         match &anthropic_cred.auth_details {
-            AuthDetails::ApiKey(provider) => assert_eq!(provider.api_key().as_str(), "test-anthropic-key"),
+            AuthDetails::ApiKey(provider) => {
+                assert_eq!(provider.api_key().as_str(), "test-anthropic-key")
+            }
             _ => panic!("Expected API key"),
         }
     }
@@ -1263,7 +1269,8 @@ mod env_tests {
                 .credential
                 .as_ref()
                 .and_then(|c| match &c.auth_details {
-                    forge_domain::AuthDetails::ApiKey(provider) => Some(provider.api_key().to_string()),
+                    forge_domain::AuthDetails::ApiKey(provider) =>
+                        Some(provider.api_key().to_string()),
                     _ => None,
                 }),
             Some("test-key-123".to_string())
