@@ -1635,9 +1635,7 @@ mod tests {
         // Verify
         assert_eq!(
             result,
-            AppCommand::Suggest {
-                description: vec!["---".to_string(), "date".to_string()]
-            }
+            AppCommand::Suggest { description: vec!["---".to_string(), "date".to_string()] }
         );
     }
 
@@ -1669,9 +1667,7 @@ mod tests {
         // Verify
         assert_eq!(
             result,
-            AppCommand::Suggest {
-                description: vec!["-v".to_string(), "file.txt".to_string()]
-            }
+            AppCommand::Suggest { description: vec!["-v".to_string(), "file.txt".to_string()] }
         );
     }
 }
