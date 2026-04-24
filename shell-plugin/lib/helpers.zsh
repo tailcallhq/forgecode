@@ -57,7 +57,7 @@ function _forge_exec() {
 function _forge_exec_interactive() {
     local agent_id="${_FORGE_ACTIVE_AGENT:-forge}"
     local -a cmd
-    cmd=($_FORGE_BIN --agent "$agent_id")
+    cmd=($_FORGE_BIN --agent "$agent_id" --shell-prompt)
 
     # Expose terminal context arrays as US-separated (\x1F) env vars so that
     # the Rust TerminalContextService can read them via get_env_var.
@@ -76,6 +76,7 @@ function _forge_exec_interactive() {
     fi
 
     cmd+=("$@")
+    local -x FORGE_SHELL_PROMPT=1
     [[ -n "$_FORGE_SESSION_MODEL" ]] && local -x FORGE_SESSION__MODEL_ID="$_FORGE_SESSION_MODEL"
     [[ -n "$_FORGE_SESSION_PROVIDER" ]] && local -x FORGE_SESSION__PROVIDER_ID="$_FORGE_SESSION_PROVIDER"
     [[ -n "$_FORGE_SESSION_REASONING_EFFORT" ]] && local -x FORGE_REASONING__EFFORT="$_FORGE_SESSION_REASONING_EFFORT"

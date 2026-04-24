@@ -133,6 +133,8 @@ function _forge_action_model
 end
 
 # Action handler: Select model for shell mode
+# Persists to config via `forge config set shell` and sets session variables
+# so the current terminal session uses the new model immediately.
 function _forge_action_shell_model
     set -l input_text "$argv[1]"
     echo
@@ -145,6 +147,9 @@ function _forge_action_shell_model
         set -l provider_id (echo "$selected" | awk -F '  +' '{print $4}')
         set model_id (string replace -a ' ' '' -- $model_id)
         set provider_id (string replace -a ' ' '' -- $provider_id)
+
+        set -g _FORGE_SESSION_MODEL "$model_id"
+        set -g _FORGE_SESSION_PROVIDER "$provider_id"
 
         _forge_exec config set shell "$provider_id" "$model_id"
     end
@@ -298,6 +303,8 @@ function _forge_action_session_model
 
         set -g _FORGE_SESSION_MODEL "$model_id"
         set -g _FORGE_SESSION_PROVIDER "$provider_id"
+
+        _forge_exec config set model "$provider_id" "$model_id"
 
         _forge_log success "Session model set to $model_id (provider: $provider_id)"
     end

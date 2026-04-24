@@ -169,7 +169,8 @@ function _forge_action_model() {
 }
 
 # Action handler: Select model for shell mode.
-# Calls `forge config set shell <provider_id> <model_id>` on selection.
+# Persists to config via `forge config set shell` and sets session variables
+# so the current terminal session uses the new model immediately.
 function _forge_action_shell_model() {
     local input_text="$1"
     echo
@@ -186,6 +187,9 @@ function _forge_action_shell_model() {
 
         model_id=${model_id//[[:space:]]/}
         provider_id=${provider_id//[[:space:]]/}
+
+        _FORGE_SESSION_MODEL="$model_id"
+        _FORGE_SESSION_PROVIDER="$provider_id"
 
         _forge_exec config set shell "$provider_id" "$model_id"
     fi
@@ -373,8 +377,9 @@ function _forge_action_session_model() {
         _FORGE_SESSION_MODEL="$model_id"
         _FORGE_SESSION_PROVIDER="$provider_id"
 
+        _forge_exec config set model "$provider_id" "$model_id"
+
         _forge_log success "Session model set to \033[1m${model_id}\033[0m (provider: \033[1m${provider_id}\033[0m)"
-    fi
 }
 
 # Action handler: Reload config by resetting all session-scoped overrides.

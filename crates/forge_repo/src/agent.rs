@@ -196,10 +196,25 @@ impl<F: FileInfoInfra + EnvironmentInfra<Config = ForgeConfig> + DirectoryReader
         let config = self.infra.get_config()?;
         let agent_defs = self.load_agents().await?;
 
-        let session = config
-            .session
-            .clone()
-            .ok_or(forge_domain::Error::NoDefaultSession)?;
+        // In shell mode (FORGE_SHELL_PROMPT=1), prefer the shell model config
+        // over the session config so that the fast shell model is used.
+        let is_shell = self
+            .infra
+            .get_env_var("FORGE_SHELL_PROMPT")
+            .is_some_and(|v| v == "1");
+
+        let session = if is_shell {
+            config
+                .shell
+                .clone()
+                .or_else(|| config.session.clone())
+                .ok_or(forge_domain::Error::NoDefaultSession)?
+        } else {
+            config
+                .session
+                .clone()
+                .ok_or(forge_domain::Error::NoDefaultSession)?
+        };
 
         Ok(agent_defs
             .into_iter()
