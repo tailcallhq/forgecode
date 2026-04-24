@@ -35,6 +35,10 @@ pub enum ConfigOperation {
     ///
     /// When enabled, every shell command is automatically prefixed with `sudo`.
     SetSudo(bool),
+    /// Enable or disable system sleep/hibernate inhibition.
+    ///
+    /// When enabled, forge prevents the system from sleeping while running.
+    SetPreventSleep(bool),
 }
 
 pub const VERSION: &str = match option_env!("APP_VERSION") {

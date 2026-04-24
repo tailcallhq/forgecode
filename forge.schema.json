@@ -223,6 +223,11 @@
       "default": 0,
       "minimum": 0
     },
+    "prevent_sleep": {
+      "description": "Whether to prevent the system from sleeping or hibernating while forge\nis running.\n\nWhen set to `true`, forge spawns a platform-specific inhibitor process\n(e.g. `systemd-inhibit` on Linux, `caffeinate` on macOS) that keeps\nthe system awake for the duration of the session. Defaults to `true`.",
+      "type": "boolean",
+      "default": true
+    },
     "providers": {
       "description": "Additional provider definitions merged with the built-in provider list.\n\nEntries with an `id` matching a built-in provider override its fields;\nentries with a new `id` are appended and become available for model\nselection.",
       "type": "array",

@@ -118,6 +118,14 @@ impl ForgeInfra {
     pub fn config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
         self.config_infra.cached_config()
     }
+
+    /// Starts the system sleep/hibernate inhibition if the config has
+    /// `prevent_sleep = true`.
+    ///
+    /// Must be called once after construction from an async context.
+    pub async fn start_sleep_inhibition(&self) {
+        self.config_infra.start_sleep_inhibition().await;
+    }
 }
 
 impl EnvironmentInfra for ForgeInfra {

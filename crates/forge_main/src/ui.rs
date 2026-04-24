@@ -4836,6 +4836,15 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         .sub_title("sudo mode"),
                 )?;
             }
+            ConfigSetField::PreventSleep { enabled } => {
+                self.api
+                    .update_config(vec![ConfigOperation::SetPreventSleep(enabled)])
+                    .await?;
+                self.writeln_title(
+                    TitleFormat::action(if enabled { "enabled" } else { "disabled" }.to_string())
+                        .sub_title("sleep prevention"),
+                )?;
+            }
         }
 
         Ok(())
@@ -4913,6 +4922,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
             ConfigGetField::Sudo => {
                 self.writeln(self.config.sudo.to_string())?;
+            }
+            ConfigGetField::PreventSleep => {
+                self.writeln(self.config.prevent_sleep.to_string())?;
             }
         }
 

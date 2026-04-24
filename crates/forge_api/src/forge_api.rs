@@ -50,6 +50,13 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
     /// * `services_url` - Pre-validated URL for the gRPC workspace server
     pub fn init(cwd: PathBuf, config: ForgeConfig) -> Self {
         let infra = Arc::new(ForgeInfra::new(cwd, config));
+        let infra_clone = infra.clone();
+        // Spawn sleep inhibition in the background — the tokio runtime is
+        // already available at this point because `init` is called from
+        // within `UI::init` which itself runs inside an async context.
+        tokio::spawn(async move {
+            infra_clone.start_sleep_inhibition().await;
+        });
         let repo = Arc::new(ForgeRepo::new(infra.clone()));
         let app = Arc::new(ForgeServices::new(repo.clone()));
         ForgeAPI::new(app, repo)

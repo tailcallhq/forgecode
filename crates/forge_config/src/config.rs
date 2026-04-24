@@ -13,6 +13,12 @@ use crate::{
     HttpConfig, ModelConfig, ReasoningConfig, RetryConfig, ShellBehaviorConfig, Update,
 };
 
+/// Returns `true`. Used as a serde default for boolean fields that should be
+/// enabled unless explicitly disabled.
+const fn default_true() -> bool {
+    true
+}
+
 /// Wire protocol a provider uses for chat completions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Dummy)]
 pub enum ProviderResponseType {
@@ -314,6 +320,15 @@ pub struct ForgeConfig {
     /// by the system's `timestamp_timeout` setting).
     #[serde(default)]
     pub sudo: bool,
+
+    /// Whether to prevent the system from sleeping or hibernating while forge
+    /// is running.
+    ///
+    /// When set to `true`, forge spawns a platform-specific inhibitor process
+    /// (e.g. `systemd-inhibit` on Linux, `caffeinate` on macOS) that keeps
+    /// the system awake for the duration of the session. Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub prevent_sleep: bool,
 }
 
 impl ForgeConfig {
