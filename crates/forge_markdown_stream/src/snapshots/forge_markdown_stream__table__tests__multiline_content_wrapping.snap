@@ -1,13 +1,14 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
+assertion_line: 575
 expression: "render_with_width(vec![vec![\"Name\", \"Bio\"],\nvec![\"Alice\", \"Software engineer with 10 years of experience\"],\nvec![\"Bob\", \"Data scientist specializing in machine learning\"],], 50)"
 ---
-  ┌───────┬───────────────────────────────────────┐
-  │ Name  │ Bio                                   │
-  ├───────┼───────────────────────────────────────┤
-  │ Alice │ Software engineer with 10 years of    │
-  │       │ experience                            │
-  ├───────┼───────────────────────────────────────┤
-  │ Bob   │ Data scientist specializing in        │
-  │       │ machine learning                      │
-  └───────┴───────────────────────────────────────┘
+  ┌───────┬──────────────────────────────────────┐
+  │ Name  │ Bio                                  │
+  ├───────┼──────────────────────────────────────┤
+  │ Alice │ Software engineer with 10 years of   │
+  │       │ experience                           │
+  ├───────┼──────────────────────────────────────┤
+  │ Bob   │ Data scientist specializing in       │
+  │       │ machine learning                     │
+  └───────┴──────────────────────────────────────┘

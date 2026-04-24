@@ -13,6 +13,15 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::mcp::tool::McpExecutor;
 
+fn generate_mcp_tool_name(server_name: &ServerName, tool_name: &ToolName) -> ToolName {
+    let sanitized_server_name = ToolName::sanitized(server_name.to_string().as_str());
+    let sanitized_tool_name = tool_name.clone().into_sanitized();
+
+    ToolName::new(format!(
+        "mcp_{sanitized_server_name}_tool_{sanitized_tool_name}"
+    ))
+}
+
 #[derive(Clone)]
 pub struct ForgeMcpService<M, I, C> {
     tools: Arc<RwLock<HashMap<ToolName, ToolHolder<McpExecutor<C>>>>>,
@@ -58,12 +67,7 @@ where
         for mut tool in tools.into_iter() {
             let actual_name = tool.name.clone();
             let server = McpExecutor::new(actual_name, client.clone())?;
-
-            // Generate a unique name for the tool
-            let generated_name = ToolName::new(format!(
-                "mcp_{server_name}_tool_{}",
-                tool.name.into_sanitized()
-            ));
+            let generated_name = generate_mcp_tool_name(server_name, &tool.name);
 
             tool.name = generated_name.clone();
 
@@ -86,7 +90,8 @@ where
         config: McpServerConfig,
     ) -> anyhow::Result<()> {
         let env_vars = self.infra.get_env_vars();
-        let client = self.infra.connect(config, &env_vars).await?;
+        let environment = self.infra.get_environment();
+        let client = self.infra.connect(config, &env_vars, &environment).await?;
         let client = Arc::new(C::from(client));
         self.insert_clients(server_name, client).await?;
 
@@ -174,16 +179,26 @@ where
 
         let tools = self.tools.read().await;
 
-        let tool = tools.get(&call.name).context("Tool not found")?;
+        // Try exact match first, then fall back to legacy-format lookup for
+        // tool calls arriving in the Claude Code `mcp__{server}__{tool}` format.
+        let tool = tools
+            .get(&call.name)
+            .or_else(|| call.name.to_legacy_mcp_name().and_then(|n| tools.get(&n)))
+            .context("Tool not found")?;
 
         tool.executable.call_tool(call.arguments.parse()?).await
     }
 
-    /// Refresh the MCP cache by fetching fresh data
+    /// Refresh the MCP cache by clearing cached data.
+    /// Does NOT eagerly connect to servers - connections happen lazily
+    /// when list() or call() is invoked, avoiding interactive OAuth during
+    /// reload.
     async fn refresh_cache(&self) -> anyhow::Result<()> {
-        // Fetch fresh tools by calling list() which connects to MCPs
+        // Clear the infra cache and reset config hash to force re-init on next access
         self.infra.cache_clear().await?;
-        let _ = self.get_mcp_servers().await?;
+        *self.previous_config_hash.lock().await = Default::default();
+        self.clear_tools().await;
+        self.failed_servers.write().await.clear();
         Ok(())
     }
 }
@@ -219,5 +234,56 @@ where
 
     async fn reload_mcp(&self) -> anyhow::Result<()> {
         self.refresh_cache().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use forge_app::domain::{ServerName, ToolName};
+    use pretty_assertions::assert_eq;
+
+    use super::generate_mcp_tool_name;
+
+    #[test]
+    fn test_generate_mcp_tool_name_uses_legacy_format() {
+        let fixture = ServerName::from("hugging-face".to_string());
+        let actual = generate_mcp_tool_name(&fixture, &ToolName::new("read-channel"));
+        let expected = ToolName::new("mcp_hugging_face_tool_read_channel");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_generate_mcp_tool_name_sanitizes_server_and_tool_names() {
+        let fixture = ServerName::from("claude.ai Slack".to_string());
+        let actual = generate_mcp_tool_name(&fixture, &ToolName::new("Add comment"));
+        let expected = ToolName::new("mcp_claude_ai_slack_tool_add_comment");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_to_legacy_mcp_name_converts_claude_code_format() {
+        let actual = ToolName::new("mcp__github__create_issue").to_legacy_mcp_name();
+        let expected = Some(ToolName::new("mcp_github_tool_create_issue"));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_to_legacy_mcp_name_converts_multipart_server_name() {
+        let actual = ToolName::new("mcp__hugging_face__read_channel").to_legacy_mcp_name();
+        let expected = Some(ToolName::new("mcp_hugging_face_tool_read_channel"));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_to_legacy_mcp_name_returns_none_for_non_mcp_tools() {
+        let actual = ToolName::new("read").to_legacy_mcp_name();
+        assert_eq!(actual, None);
+    }
+
+    #[test]
+    fn test_to_legacy_mcp_name_returns_none_for_legacy_format() {
+        // Already in legacy format — should not double-convert
+        let actual = ToolName::new("mcp_github_tool_create_issue").to_legacy_mcp_name();
+        assert_eq!(actual, None);
     }
 }

@@ -4,8 +4,8 @@ use diesel::prelude::*;
 use forge_domain::{Conversation, ConversationId, ConversationRepository, WorkspaceHash};
 
 use crate::conversation::conversation_record::ConversationRecord;
-use crate::database::DatabasePool;
 use crate::database::schema::conversations;
+use crate::database::{DatabasePool, PooledSqliteConnection};
 
 pub struct ConversationRepositoryImpl {
     pool: Arc<DatabasePool>,
@@ -16,101 +16,133 @@ impl ConversationRepositoryImpl {
     pub fn new(pool: Arc<DatabasePool>, workspace_id: WorkspaceHash) -> Self {
         Self { pool, wid: workspace_id }
     }
+
+    async fn run_blocking<F, T>(&self, operation: F) -> anyhow::Result<T>
+    where
+        F: FnOnce(Arc<DatabasePool>, WorkspaceHash) -> anyhow::Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let pool = self.pool.clone();
+        let wid = self.wid;
+        tokio::task::spawn_blocking(move || operation(pool, wid))
+            .await
+            .map_err(|e| anyhow::anyhow!("Conversation repository task failed: {e}"))?
+    }
+
+    async fn run_with_connection<F, T>(&self, operation: F) -> anyhow::Result<T>
+    where
+        F: FnOnce(&mut PooledSqliteConnection, WorkspaceHash) -> anyhow::Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.run_blocking(move |pool, wid| {
+            let mut connection = pool.get_connection()?;
+            operation(&mut connection, wid)
+        })
+        .await
+    }
 }
 
 #[async_trait::async_trait]
 impl ConversationRepository for ConversationRepositoryImpl {
     async fn upsert_conversation(&self, conversation: Conversation) -> anyhow::Result<()> {
-        let mut connection = self.pool.get_connection()?;
-
-        let wid = self.wid;
-        let record = ConversationRecord::new(conversation, wid);
-        diesel::insert_into(conversations::table)
-            .values(&record)
-            .on_conflict(conversations::conversation_id)
-            .do_update()
-            .set((
-                conversations::title.eq(&record.title),
-                conversations::context.eq(&record.context),
-                conversations::updated_at.eq(record.updated_at),
-                conversations::metrics.eq(&record.metrics),
-            ))
-            .execute(&mut connection)?;
-        Ok(())
+        self.run_with_connection(move |connection, wid| {
+            let record = ConversationRecord::new(conversation, wid);
+            diesel::insert_into(conversations::table)
+                .values(&record)
+                .on_conflict(conversations::conversation_id)
+                .do_update()
+                .set((
+                    conversations::title.eq(&record.title),
+                    conversations::context.eq(&record.context),
+                    conversations::updated_at.eq(record.updated_at),
+                    conversations::metrics.eq(&record.metrics),
+                ))
+                .execute(connection)?;
+            Ok(())
+        })
+        .await
     }
 
     async fn get_conversation(
         &self,
         conversation_id: &ConversationId,
     ) -> anyhow::Result<Option<Conversation>> {
-        let mut connection = self.pool.get_connection()?;
+        let conversation_id = *conversation_id;
+        self.run_with_connection(move |connection, _wid| {
+            let record: Option<ConversationRecord> = conversations::table
+                .filter(conversations::conversation_id.eq(conversation_id.into_string()))
+                .first(connection)
+                .optional()?;
 
-        let record: Option<ConversationRecord> = conversations::table
-            .filter(conversations::conversation_id.eq(conversation_id.into_string()))
-            .first(&mut connection)
-            .optional()?;
-
-        match record {
-            Some(record) => Ok(Some(Conversation::try_from(record)?)),
-            None => Ok(None),
-        }
+            match record {
+                Some(record) => Ok(Some(Conversation::try_from(record)?)),
+                None => Ok(None),
+            }
+        })
+        .await
     }
 
     async fn get_all_conversations(
         &self,
         limit: Option<usize>,
     ) -> anyhow::Result<Option<Vec<Conversation>>> {
-        let mut connection = self.pool.get_connection()?;
+        self.run_with_connection(move |connection, wid| {
+            let workspace_id = wid.id() as i64;
+            let mut query = conversations::table
+                .filter(conversations::workspace_id.eq(&workspace_id))
+                .filter(conversations::context.is_not_null())
+                .order(conversations::updated_at.desc())
+                .into_boxed();
 
-        let workspace_id = self.wid.id() as i64;
-        let mut query = conversations::table
-            .filter(conversations::workspace_id.eq(&workspace_id))
-            .filter(conversations::context.is_not_null())
-            .order(conversations::updated_at.desc())
-            .into_boxed();
+            if let Some(limit_value) = limit {
+                query = query.limit(limit_value as i64);
+            }
 
-        if let Some(limit_value) = limit {
-            query = query.limit(limit_value as i64);
-        }
+            let records: Vec<ConversationRecord> = query.load(connection)?;
 
-        let records: Vec<ConversationRecord> = query.load(&mut connection)?;
+            if records.is_empty() {
+                return Ok(None);
+            }
 
-        if records.is_empty() {
-            return Ok(None);
-        }
-
-        let conversations: Result<Vec<Conversation>, _> =
-            records.into_iter().map(Conversation::try_from).collect();
-        Ok(Some(conversations?))
+            let conversations: Result<Vec<Conversation>, _> =
+                records.into_iter().map(Conversation::try_from).collect();
+            Ok(Some(conversations?))
+        })
+        .await
     }
 
     async fn get_last_conversation(&self) -> anyhow::Result<Option<Conversation>> {
-        let mut connection = self.pool.get_connection()?;
-        let workspace_id = self.wid.id() as i64;
-        let record: Option<ConversationRecord> = conversations::table
-            .filter(conversations::workspace_id.eq(&workspace_id))
-            .filter(conversations::context.is_not_null())
-            .order(conversations::updated_at.desc())
-            .first(&mut connection)
-            .optional()?;
-        let conversation = match record {
-            Some(record) => Some(Conversation::try_from(record)?),
-            None => None,
-        };
-        Ok(conversation)
+        self.run_with_connection(move |connection, wid| {
+            let workspace_id = wid.id() as i64;
+            let record: Option<ConversationRecord> = conversations::table
+                .filter(conversations::workspace_id.eq(&workspace_id))
+                .filter(conversations::context.is_not_null())
+                .order(conversations::updated_at.desc())
+                .first(connection)
+                .optional()?;
+            let conversation = match record {
+                Some(record) => Some(Conversation::try_from(record)?),
+                None => None,
+            };
+            Ok(conversation)
+        })
+        .await
     }
 
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> anyhow::Result<()> {
-        let mut connection = self.pool.get_connection()?;
-        let workspace_id = self.wid.id() as i64;
+        let conversation_id = *conversation_id;
+        self.run_with_connection(move |connection, wid| {
+            let workspace_id = wid.id() as i64;
 
-        // Security: Ensure users can only delete conversations within their workspace
-        diesel::delete(conversations::table)
-            .filter(conversations::workspace_id.eq(&workspace_id))
-            .filter(conversations::conversation_id.eq(conversation_id.into_string()))
-            .execute(&mut connection)?;
+            // Security: Ensure users can only delete conversations within their workspace
+            diesel::delete(conversations::table)
+                .filter(conversations::workspace_id.eq(&workspace_id))
+                .filter(conversations::conversation_id.eq(conversation_id.into_string()))
+                .execute(connection)?;
 
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 }
 
@@ -978,6 +1010,134 @@ mod tests {
             actual.values[0],
             forge_domain::ToolValue::Text("# Heading - Some bold text".to_string())
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_concurrent_operations_dont_block_runtime() -> anyhow::Result<()> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::{Duration, Instant};
+
+        // Heartbeat fires every `TICK`; we require a measurement window of at
+        // least `MIN_WINDOW` so the assertion is meaningful even when the DB
+        // workload finishes very quickly (e.g. on fast machines with the
+        // in-memory SQLite pool).
+        const TICK: Duration = Duration::from_millis(10);
+        const MIN_WINDOW: Duration = Duration::from_millis(200);
+
+        let repo = Arc::new(repository()?);
+        let heartbeat = Arc::new(AtomicUsize::new(0));
+
+        // Heartbeat task - if runtime is blocked, this won't increment.
+        let heartbeat_clone = heartbeat.clone();
+        let heartbeat_handle = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(TICK).await;
+                heartbeat_clone.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+
+        // Warm up: let the heartbeat task get scheduled and complete its first
+        // tick before we start measuring, then reset the counter so timing
+        // begins from a clean state.
+        tokio::time::sleep(TICK * 3).await;
+        heartbeat.store(0, Ordering::Relaxed);
+
+        // Spawn many concurrent DB operations.
+        let mut handles = vec![];
+        let start = Instant::now();
+
+        for i in 0..20 {
+            let repo = repo.clone();
+            let handle = tokio::spawn(async move {
+                for j in 0..10 {
+                    let conversation = Conversation::new(ConversationId::generate())
+                        .title(Some(format!("Task {} - Write {}", i, j)));
+                    repo.upsert_conversation(conversation).await?;
+                }
+                anyhow::Result::<()>::Ok(())
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all operations.
+        for handle in handles {
+            handle.await??;
+        }
+
+        // Ensure the measurement window is long enough for heartbeat math to
+        // be meaningful regardless of how fast the DB workload completed.
+        let work_elapsed = start.elapsed();
+        if work_elapsed < MIN_WINDOW {
+            tokio::time::sleep(MIN_WINDOW - work_elapsed).await;
+        }
+        let elapsed = start.elapsed();
+
+        // Stop heartbeat.
+        heartbeat_handle.abort();
+
+        // Verify runtime wasn't blocked: heartbeat should have fired at least
+        // 80% of the theoretical max for the elapsed window. The threshold is
+        // clamped to at least 1 to keep the assertion well-defined.
+        let heartbeat_count = heartbeat.load(Ordering::Relaxed);
+        let expected_heartbeats = (elapsed.as_millis() as usize) / (TICK.as_millis() as usize);
+        let threshold = (expected_heartbeats * 8 / 10).max(1);
+
+        assert!(
+            heartbeat_count >= threshold,
+            "Runtime was blocked! Expected at least {} heartbeats (~{} theoretical) in {:?}, got {}",
+            threshold,
+            expected_heartbeats,
+            elapsed,
+            heartbeat_count
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mixed_read_write_contention() -> anyhow::Result<()> {
+        let repo = Arc::new(repository()?);
+        let mut handles = vec![];
+
+        // Pre-populate some data
+        for i in 0..10 {
+            let conv =
+                Conversation::new(ConversationId::generate()).title(Some(format!("Initial {}", i)));
+            repo.upsert_conversation(conv).await?;
+        }
+
+        // Spawn writers
+        for i in 0..10 {
+            let repo = repo.clone();
+            handles.push(tokio::spawn(async move {
+                for j in 0..10 {
+                    let conv = Conversation::new(ConversationId::generate())
+                        .title(Some(format!("Writer {} - {}", i, j)));
+                    repo.upsert_conversation(conv).await?;
+                }
+                anyhow::Result::<()>::Ok(())
+            }));
+        }
+
+        // Spawn readers (interleave with writers)
+        for _ in 0..10 {
+            let repo = repo.clone();
+            handles.push(tokio::spawn(async move {
+                for _ in 0..10 {
+                    // Read all conversations
+                    let _ = repo.get_all_conversations(Some(50)).await?;
+                    tokio::task::yield_now().await;
+                }
+                anyhow::Result::<()>::Ok(())
+            }));
+        }
+
+        // All should complete without timeout
+        for handle in handles {
+            handle.await??;
+        }
+
+        Ok(())
     }
 
     #[test]

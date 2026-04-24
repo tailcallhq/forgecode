@@ -13,6 +13,7 @@ categories:
     labels:
       - "type: bug"
       - "type: fix"
+      - "type: provider"
 
   - title: "🚀 Performance"
     labels:
@@ -56,6 +57,7 @@ version-resolver:
       - "type: bug"
       - "type: testing"
       - "type: refactor"
+      - "type: provider"
     # Add direct commit message pattern matching for patches
     commits:
       - "fix:"
@@ -110,3 +112,21 @@ autolabeler:
       - /perf/i
     files:
       - "/benches/"
+
+  - label: "type: provider"
+    files:
+      - "provider.json"
+
+  - label: "os: windows"
+    title:
+      - /windows/i
+      - /win32/i
+      - /winapi/i
+      - /powershell/i
+      - /scoop/i
+      - /chocolatey/i
+      - /winget/i
+    body:
+      - /windows[ -](only|specific|terminal|path|installer|build)/i
+      - /multiline paste.*windows/i
+      - /windows.*multiline paste/i

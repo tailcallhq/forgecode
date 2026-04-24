@@ -13,6 +13,8 @@ console.workspace = true
 regex.workspace = true
 termimad.workspace = true
 syntect.workspace = true
+terminal-colorsaurus = "1.0.3"
+two-face = "0.5.1"
 
 [dev-dependencies]
 insta.workspace = true

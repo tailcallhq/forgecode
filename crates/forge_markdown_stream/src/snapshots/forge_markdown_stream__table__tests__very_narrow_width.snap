@@ -1,5 +1,5 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
 expression: "render_with_width(vec![vec![\"Column A\", \"Column B\"],\nvec![\"value1\", \"value2\"],], 25)"
 ---
   ┌──────────┬──────────┐

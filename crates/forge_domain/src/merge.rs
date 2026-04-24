@@ -29,7 +29,9 @@ pub mod vec {
         for other_agent in other {
             if let Some(&index) = base_map.get(other_agent.key()) {
                 // If the base contains an agent with the same Key, merge them
-                base[index].merge(other_agent);
+                if let Some(base_agent) = base.get_mut(index) {
+                    base_agent.merge(other_agent);
+                }
             } else {
                 // Otherwise, append the other agent to the base list
                 base.push(other_agent);

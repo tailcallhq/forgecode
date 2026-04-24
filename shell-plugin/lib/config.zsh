@@ -9,9 +9,6 @@ typeset -h _FORGE_MAX_COMMIT_DIFF="${FORGE_MAX_COMMIT_DIFF:-100000}"
 typeset -h _FORGE_DELIMITER='\s\s+'
 typeset -h _FORGE_PREVIEW_WINDOW="--preview-window=bottom:75%:wrap:border-sharp"
 
-# Detect fd command - Ubuntu/Debian use 'fdfind', others use 'fd'
-typeset -h _FORGE_FD_CMD="$(command -v fdfind 2>/dev/null || command -v fd 2>/dev/null || echo 'fd')"
-
 # Detect bat command - use bat if available, otherwise fall back to cat
 if command -v bat &>/dev/null; then
     typeset -h _FORGE_CAT_CMD="bat --color=always --style=numbers,changes --line-range=:500"
@@ -38,3 +35,15 @@ typeset -h _FORGE_SESSION_PROVIDER
 # Session-scoped reasoning effort override (set via :reasoning-effort / :re).
 # When non-empty, exported as FORGE_REASONING__EFFORT for every forge invocation.
 typeset -h _FORGE_SESSION_REASONING_EFFORT
+
+# Terminal context capture settings
+# Master switch for terminal context capture (preexec/precmd hooks)
+typeset -h _FORGE_TERM="${FORGE_TERM:-true}"
+# Maximum number of commands to keep in the ring buffer (metadata: cmd + exit code)
+typeset -h _FORGE_TERM_MAX_COMMANDS="${FORGE_TERM_MAX_COMMANDS:-5}"
+# OSC 133 semantic prompt marker emission: "auto", "on", or "off"
+typeset -h _FORGE_TERM_OSC133="${FORGE_TERM_OSC133:-auto}"
+# Ring buffer arrays for context capture
+typeset -ha _FORGE_TERM_COMMANDS=()
+typeset -ha _FORGE_TERM_EXIT_CODES=()
+typeset -ha _FORGE_TERM_TIMESTAMPS=()
