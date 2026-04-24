@@ -19,7 +19,8 @@ use forge_app::{CommitResult, ToolResolver};
 use forge_config::ForgeConfig;
 use forge_display::MarkdownFormat;
 use forge_domain::{
-    AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, Role, TitleFormat, UserCommand,
+    AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, LineNumbers, Role, TitleFormat,
+    UserCommand,
 };
 use forge_fs::ForgeFS;
 use forge_select::ForgeWidget;
@@ -4581,11 +4582,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         for result in results.iter() {
             match &result.node {
                 forge_domain::NodeData::FileChunk(chunk) => {
+                    let numbered_content = chunk
+                        .content
+                        .to_numbered_from(chunk.start_line as usize)
+                        .to_string()
+                        .lines()
+                        .map(|line| format!("  {}", line)).collect::<Vec<_>>().join("\n");
                     info = info.add_key_value(
                         "File",
                         format!(
-                            "{}:{}-{}",
-                            chunk.file_path, chunk.start_line, chunk.end_line
+                            "{}:{}-{}\n\n{}\n\n",
+                            chunk.file_path, chunk.start_line, chunk.end_line, numbered_content
                         ),
                     );
                 }
