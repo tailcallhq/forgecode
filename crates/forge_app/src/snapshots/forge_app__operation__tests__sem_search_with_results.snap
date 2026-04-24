@@ -1,0 +1,33 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<sem_search_results>
+<query_result
+  query="retry mechanism with exponential backoff"
+  use_case="where is the retrying logic written"
+  results="2"
+>
+<file
+  path="src/http/client.rs"
+><![CDATA[45:async fn request_with_retry(&self, url: &str) -> Result<Response> {
+46:    const MAX_RETRIES: usize = 3;
+47:    let mut backoff = ExponentialBackoff::default();
+48:    // Implementation...
+49:}]]>
+</file>
+<file
+  path="src/retry.rs"
+><![CDATA[10:fn retry_with_backoff(max_attempts: u32) {
+11:    let mut delay = 100;
+12:    for attempt in 0..max_attempts {
+13:        if try_operation().is_ok() {
+14:            return;
+15:        }
+16:        thread::sleep(Duration::from_millis(delay));
+17:        delay *= 2;
+18:    }
+19:}]]>
+</file>
+</query_result>
+</sem_search_results>

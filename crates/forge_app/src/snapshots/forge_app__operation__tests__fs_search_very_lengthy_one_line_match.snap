@@ -1,0 +1,14 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<search_results
+  path="/home/user/project"
+  max_bytes_allowed="1049"
+  total_lines="1"
+  display_lines="0-0"
+  pattern="search"
+  glob="*.txt"
+  reason="Results truncated due to exceeding the 1049 bytes size limit. Please use a more specific search pattern"
+><![CDATA[]]>
+</search_results>

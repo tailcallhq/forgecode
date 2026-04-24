@@ -1,0 +1,43 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<shell_output
+  command="error_command"
+  shell="/bin/bash"
+  exit_code="1"
+>
+<stderr
+  total_lines="25"
+  full_output="/tmp/stderr_content.txt"
+>
+<head
+  display_lines="1-10"
+><![CDATA[stderr line 1
+stderr line 2
+stderr line 3
+stderr line 4
+stderr line 5
+stderr line 6
+stderr line 7
+stderr line 8
+stderr line 9
+stderr line 10
+]]>
+</head>
+<tail
+  display_lines="16-25"
+><![CDATA[stderr line 16
+stderr line 17
+stderr line 18
+stderr line 19
+stderr line 20
+stderr line 21
+stderr line 22
+stderr line 23
+stderr line 24
+stderr line 25
+]]>
+</tail>
+</stderr>
+</shell_output>

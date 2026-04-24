@@ -1,0 +1,27 @@
+---
+source: crates/forge_domain/src/context.rs
+expression: actual
+---
+messages:
+  - tool:
+      name: multi_image_tool
+      call_id: call1
+      output:
+        is_error: false
+        values:
+          - text: First text
+          - text: "[The image with ID 0 will be sent as an attachment in the next message]"
+          - text: Second text
+          - text: "[The image with ID 1 will be sent as an attachment in the next message]"
+  - text:
+      role: User
+      content: "[Here is the image attachment for ID 0]"
+  - image:
+      url: "data:image/png;base64,test123"
+      mime_type: image/png
+  - text:
+      role: User
+      content: "[Here is the image attachment for ID 1]"
+  - image:
+      url: "data:image/jpeg;base64,test456"
+      mime_type: image/jpeg

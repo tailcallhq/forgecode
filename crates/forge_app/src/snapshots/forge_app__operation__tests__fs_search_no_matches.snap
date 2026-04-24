@@ -1,0 +1,9 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<search_results
+  path="/home/user/empty_project"
+  pattern="nonexistent"
+>
+</search_results>

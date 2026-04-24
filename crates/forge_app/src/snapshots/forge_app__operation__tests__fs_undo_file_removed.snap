@@ -1,0 +1,12 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<file_undo
+  path="/home/user/deleted_file.txt"
+  status="removed"
+  total_lines="3"
+><![CDATA[Original file content
+That was deleted
+During undo]]>
+</file_undo>

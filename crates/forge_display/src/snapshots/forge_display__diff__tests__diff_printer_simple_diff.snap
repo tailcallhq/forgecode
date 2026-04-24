@@ -1,0 +1,10 @@
+---
+source: crates/forge_display/src/diff.rs
+expression: clean_diff
+---
+1 1 | line 1
+2   |-line 2
+  2 |+modified line
+3 3 | line 3
+4 4 | line 5
+5 5 | line 6

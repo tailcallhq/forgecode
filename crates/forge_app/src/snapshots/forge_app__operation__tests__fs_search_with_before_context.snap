@@ -1,0 +1,15 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<search_results
+  path="/home/user/project"
+  max_bytes_allowed="256000"
+  total_lines="1"
+  display_lines="1-1"
+  pattern="ERROR"
+><![CDATA[log.txt-line 47: INFO startup
+log.txt-line 48: DEBUG processing
+log.txt-line 49: WARN slow operation
+log.txt:50:ERROR: Something went wrong]]>
+</search_results>

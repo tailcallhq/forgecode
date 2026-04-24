@@ -1,0 +1,10 @@
+---
+source: crates/forge_app/src/dto/openai/request.rs
+expression: router_message
+---
+{
+  "role": "tool",
+  "content": "{\n               \"user\": \"John\",\n               \"age\": 30,\n               \"address\": [{\"city\": \"New York\"}, {\"city\": \"San Francisco\"}]\n            }",
+  "name": "test_tool",
+  "tool_call_id": "123"
+}

@@ -1,0 +1,8 @@
+---
+source: crates/forge_app/src/fmt/todo_fmt.rs
+expression: actual
+---
+
+  󰄵 Task 1
+  󰄗 Task 2
+  󰄱 Task 3

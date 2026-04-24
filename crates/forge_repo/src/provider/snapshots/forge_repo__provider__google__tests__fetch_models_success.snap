@@ -1,0 +1,26 @@
+---
+source: crates/forge_repo/src/provider/google.rs
+expression: actual
+---
+[
+  {
+    "id": "gemini-1.5-pro",
+    "name": "Gemini 1.5 Pro",
+    "description": "Mid-size multimodal model that supports up to 1 million tokens",
+    "context_length": 2000000,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": true,
+    "supports_reasoning": true,
+    "input_modalities": []
+  },
+  {
+    "id": "gemini-1.5-flash",
+    "name": "Gemini 1.5 Flash",
+    "description": "Fast and versatile multimodal model for scaling across diverse tasks",
+    "context_length": 2000000,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": true,
+    "supports_reasoning": true,
+    "input_modalities": []
+  }
+]

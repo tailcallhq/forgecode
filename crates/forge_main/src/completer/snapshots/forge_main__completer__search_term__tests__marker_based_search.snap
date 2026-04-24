@@ -1,0 +1,188 @@
+---
+source: crates/forge_main/src/completer/search_term.rs
+expression: results
+---
+[
+    TermSpec {
+        input: "@[abc @def ghi@",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            1,
+        ),
+        pos: 1,
+    },
+    TermSpec {
+        input: "@a[bc @def ghi@",
+        output: Some(
+            "a",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            2,
+        ),
+        pos: 2,
+    },
+    TermSpec {
+        input: "@ab[c @def ghi@",
+        output: Some(
+            "ab",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            3,
+        ),
+        pos: 3,
+    },
+    TermSpec {
+        input: "@abc[ @def ghi@",
+        output: Some(
+            "abc",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            4,
+        ),
+        pos: 4,
+    },
+    TermSpec {
+        input: "@abc [@def ghi@",
+        output: Some(
+            "abc ",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            5,
+        ),
+        pos: 5,
+    },
+    TermSpec {
+        input: "@abc @[def ghi@",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            6,
+        ),
+        span_end: Some(
+            6,
+        ),
+        pos: 6,
+    },
+    TermSpec {
+        input: "@abc @d[ef ghi@",
+        output: Some(
+            "d",
+        ),
+        span_start: Some(
+            6,
+        ),
+        span_end: Some(
+            7,
+        ),
+        pos: 7,
+    },
+    TermSpec {
+        input: "@abc @de[f ghi@",
+        output: Some(
+            "de",
+        ),
+        span_start: Some(
+            6,
+        ),
+        span_end: Some(
+            8,
+        ),
+        pos: 8,
+    },
+    TermSpec {
+        input: "@abc @def[ ghi@",
+        output: Some(
+            "def",
+        ),
+        span_start: Some(
+            6,
+        ),
+        span_end: Some(
+            9,
+        ),
+        pos: 9,
+    },
+    TermSpec {
+        input: "@abc @def [ghi@",
+        output: Some(
+            "def ",
+        ),
+        span_start: Some(
+            6,
+        ),
+        span_end: Some(
+            10,
+        ),
+        pos: 10,
+    },
+    TermSpec {
+        input: "@abc @def g[hi@",
+        output: Some(
+            "def g",
+        ),
+        span_start: Some(
+            6,
+        ),
+        span_end: Some(
+            11,
+        ),
+        pos: 11,
+    },
+    TermSpec {
+        input: "@abc @def gh[i@",
+        output: Some(
+            "def gh",
+        ),
+        span_start: Some(
+            6,
+        ),
+        span_end: Some(
+            12,
+        ),
+        pos: 12,
+    },
+    TermSpec {
+        input: "@abc @def ghi[@",
+        output: Some(
+            "def ghi",
+        ),
+        span_start: Some(
+            6,
+        ),
+        span_end: Some(
+            13,
+        ),
+        pos: 13,
+    },
+    TermSpec {
+        input: "@abc @def ghi@[",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            14,
+        ),
+        span_end: Some(
+            14,
+        ),
+        pos: 14,
+    },
+]

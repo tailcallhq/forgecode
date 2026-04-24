@@ -1,0 +1,33 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<shell_output
+  command="boundary_command"
+  shell="/bin/bash"
+  exit_code="0"
+>
+<stdout
+  total_lines="20"
+><![CDATA[stdout line 1
+stdout line 2
+stdout line 3
+stdout line 4
+stdout line 5
+stdout line 6
+stdout line 7
+stdout line 8
+stdout line 9
+stdout line 10
+stdout line 11
+stdout line 12
+stdout line 13
+stdout line 14
+stdout line 15
+stdout line 16
+stdout line 17
+stdout line 18
+stdout line 19
+stdout line 20]]>
+</stdout>
+</shell_output>

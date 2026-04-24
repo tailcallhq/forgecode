@@ -1,0 +1,16 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<http_response
+  url="https://example.com"
+  status_code="200"
+  start_char="0"
+  end_char="55"
+  total_chars="55"
+  content_type="text/plain"
+>
+<body><![CDATA[# Example Website
+
+This is some content from a website.]]></body>
+</http_response>

@@ -1,0 +1,66 @@
+---
+source: crates/forge_repo/src/provider/google.rs
+expression: request
+---
+{
+  "systemInstruction": {
+    "parts": [
+      {
+        "text": "You're expert at math, so you should resolve all user queries."
+      }
+    ]
+  },
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "what's 2 + 2 ?"
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "text": "here is the system call."
+        },
+        {
+          "function_call": {
+            "name": "math",
+            "args": {
+              "expression": "2 + 2"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "function_response": {
+            "name": "math",
+            "response": {
+              "is_error": false,
+              "values": [
+                {
+                  "text": "{\"result\":4}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "generationConfig": {},
+  "toolConfig": {
+    "functionCallingConfig": {
+      "mode": "ANY",
+      "allowedFunctionNames": [
+        "math"
+      ]
+    }
+  }
+}

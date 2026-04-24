@@ -1,0 +1,12 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<file
+  path="/home/user/test.txt"
+  display_lines="2-3"
+  total_lines="5"
+><![CDATA[2:Line 1
+3:Line 2
+4:Line 3]]>
+</file>

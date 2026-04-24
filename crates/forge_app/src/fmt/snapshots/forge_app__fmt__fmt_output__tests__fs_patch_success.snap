@@ -1,0 +1,9 @@
+---
+source: crates/forge_app/src/fmt/fmt_output.rs
+expression: actual
+---
+1   |-Hello world
+2   |-This is a test
+  1 |+Hello universe
+  2 |+This is a test
+  3 |+New line

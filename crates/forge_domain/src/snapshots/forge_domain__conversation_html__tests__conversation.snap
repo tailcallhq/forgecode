@@ -1,0 +1,6 @@
+---
+source: crates/forge_domain/src/conversation_html.rs
+expression: html_bytes
+extension: html
+snapshot_kind: binary
+---

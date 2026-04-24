@@ -1,0 +1,18 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<shell_output
+  command="simple_command"
+  shell="/bin/bash"
+  exit_code="0"
+>
+<stdout
+  total_lines="1"
+><![CDATA[single stdout line]]>
+</stdout>
+<stderr
+  total_lines="1"
+><![CDATA[single stderr line]]>
+</stderr>
+</shell_output>

@@ -1,0 +1,513 @@
+---
+source: crates/forge_app/src/tool_registry.rs
+expression: "all_descriptions.join(\"\\n---\\n\\n\")"
+---
+### read
+
+Reads a file from the local filesystem. You can access any file directly by using this tool. Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+
+Usage:
+- The file_path parameter must be an absolute path, not a relative path
+- By default, it reads up to 2000 lines starting from the beginning of the file
+- You can optionally specify a line start_line and end_line (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
+- Any lines longer than 2000 characters will be truncated
+- Results are returned using rg "" -n format, with line numbers starting at 1
+- Jupyter notebooks (.ipynb files) are read as plain JSON text - you can parse the cell structure, outputs, and embedded content directly from the JSON
+- This tool can only read files, not directories. To read a directory, use an ls command via the `shell` tool.
+- You can call multiple tools in a single response. It is always better to speculatively read multiple potentially useful files in parallel.
+
+---
+
+### write
+
+Writes a file to the local filesystem.
+
+Usage:
+- This tool will overwrite the existing file if there is one at the provided path.
+- If this is an existing file, you MUST use the read tool first to read the file's contents and use this tool with 'overwrite' as true . This tool will fail if you did not read the file first or don't set overwrite parameter to true.
+- ALWAYS prefer patch on existing files in the codebase. NEVER write new files unless explicitly required.
+- NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
+- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.
+
+---
+
+### fs_search
+
+A powerful search tool built on ripgrep
+
+Usage:
+- ALWAYS use `fs_search` for search tasks. NEVER invoke `grep` or `rg` as a Bash command. The `fs_search` tool has been optimized for correct permissions and access.
+- Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+")
+- Filter files with glob parameter (e.g., "*.js", "**/*.tsx") or type parameter (e.g., "js", "py", "rust")
+- Output modes: "content" shows matching lines, "files_with_matches" shows only file paths (default), "count" shows match counts
+- Use Task tool for open-ended searches requiring multiple rounds
+- Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use `interface\\{\\}` to find `interface{}` in Go code)
+- Multiline matching: By default patterns match within single lines only. For cross-line patterns like `struct \\{[\\s\\S]*?field`, use `multiline: true`
+
+---
+
+### sem_search
+
+AI-powered semantic code search. YOUR DEFAULT TOOL for code discovery and exploration when searching within /home/user/project. Use this when you need to find code locations, understand implementations, discover patterns, or explore unfamiliar code - it works with natural language about behavior and concepts, not just keyword matching.
+
+**WHEN TO USE sem_search:**
+- Finding implementation of specific features or algorithms
+- Understanding how a system works across multiple files
+- Discovering architectural patterns and design approaches
+- Locating test examples or fixtures
+- Finding where specific technologies/libraries are used
+- Exploring unfamiliar codebases to learn structure
+- Finding documentation files (README, guides, API docs)
+
+**WHEN NOT TO USE (use fs_search instead):**
+- Searching for exact strings, TODOs, or specific function names
+- Finding all occurrences of a variable or identifier
+- Searching in specific file paths or with regex patterns
+- When you know the exact text to search for
+
+IMPORTANT: Only searches within /home/user/project and subdirectories. For paths outside this scope, use fs_search with path parameter.
+
+**TIPS FOR SUCCESS:**
+- Use 2-3 varied queries to capture different aspects (e.g., "OAuth token refresh", "JWT expiry handling", "authentication middleware")
+- Balance specificity (focused results) with generality (don't miss relevant code)
+- Avoid overly broad queries like "authentication" or "tools" - be specific about what aspect you need
+- Keep queries targeted - too many broad queries can cause timeouts
+- **Match your intent**: If seeking documentation, use doc-focused keywords ("setup guide", "configuration README"); if seeking code, use implementation terms ("token refresh logic", "error handling implementation")
+
+Returns the topK most relevant file:line locations with code context. Each query is ranked independently, then reranked by relevance to your stated intent.
+
+---
+
+### remove
+
+Request to remove a file at the specified path. Use when you need to delete an existing file. The path must be absolute. This operation can be undone using the `undo` tool.
+
+---
+
+### patch
+
+Performs exact string replacements in files.
+Usage:
+- You must use your `read` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file. 
+- When editing text from `read` tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: 'line_number:'. Everything after that line_number: is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
+- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
+- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.
+- The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`. 
+- Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.
+
+---
+
+### multi_patch
+
+This is a tool for making multiple edits to a single file in one operation. It is built on top of the patch tool and allows you to perform multiple find-and-replace operations efficiently. Prefer this tool over the patch tool when you need to make multiple edits to the same file.
+
+Before using this tool:
+
+1. Use the Read tool to understand the file's contents and context
+2. Verify the directory path is correct
+
+To make multiple file edits, provide the following:
+1. file_path: The absolute path to the file to modify (must be absolute, not relative)
+2. edits: An array of edit operations to perform, where each edit contains:
+   - oldString: The text to replace (must match the file contents exactly, including all whitespace and indentation)
+   - newString: The edited text to replace the oldString
+   - replaceAll: Replace all occurrences of oldString. This parameter is optional and defaults to false.
+
+IMPORTANT:
+- All edits are applied in sequence, in the order they are provided
+- Each edit operates on the result of the previous edit
+- All edits must be valid for the operation to succeed - if any edit fails, none will be applied
+- This tool is ideal when you need to make several changes to different parts of the same file
+
+CRITICAL REQUIREMENTS:
+1. All edits follow the same requirements as the single Edit tool
+2. The edits are atomic - either all succeed or none are applied
+3. Plan your edits carefully to avoid conflicts between sequential operations
+
+WARNING:
+- The tool will fail if edits.oldString doesn't match the file contents exactly (including whitespace)
+- The tool will fail if edits.oldString and edits.newString are the same
+- Since edits are applied in sequence, ensure that earlier edits don't affect the text that later edits are trying to find
+
+When making edits:
+- Ensure all edits result in idiomatic, correct code
+- Do not leave the code in a broken state
+- Always use absolute file paths (starting with /)
+- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.
+- Use replaceAll for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.
+
+If you want to create a new file, use:
+- A new file path, including dir name if needed
+- First edit: empty oldString and the new file's contents as newString
+- Subsequent edits: normal edit operations on the created content
+
+---
+
+### undo
+
+Reverts all file changes made during the most recent user prompt. Use this tool when you need to undo the last set of file operations (creates, modifications, or deletions) or when a revert is requested by the user. This restores every file that was changed back to its state before the last prompt.
+
+---
+
+### shell
+
+Executes shell commands. The `cwd` parameter sets the working directory for command execution. If not specified, defaults to `/home/user/project`.
+
+CRITICAL: Do NOT use `cd` commands in the command string. This is FORBIDDEN. Always use the `cwd` parameter to set the working directory instead. Any use of `cd` in the command is redundant, incorrect, and violates the tool contract.
+
+IMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.
+
+Before executing the command, please follow these steps:
+
+1. Directory Verification:
+   - If the command will create new directories or files, first use `shell` with `ls` to verify the parent directory exists and is the correct location
+   - For example, before running "mkdir foo/bar", first use `ls foo` to check that "foo" exists and is the intended parent directory
+
+2. Command Execution:
+   - Always quote file paths that contain spaces with double quotes (e.g., python "path with spaces/script.py")
+   - Examples of proper quoting:
+     - mkdir "/Users/name/My Documents" (correct)
+     - mkdir /Users/name/My Documents (incorrect - will fail)
+     - python "/path/with spaces/script.py" (correct)
+     - python /path/with spaces/script.py (incorrect - will fail)
+   - After ensuring proper quoting, execute the command.
+   - Capture the output of the command.
+
+Usage notes:
+  - The command argument is required.
+  - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.
+  - If the output exceeds 200 prefix lines or 200 suffix lines, or if a line exceeds 2000 characters, it will be truncated and the full output will be written to a temporary file. You can use read with start_line/end_line to read specific sections or fs_search to search the full content. Because of this, you should NOT use `head`, `tail`, or other truncation commands to limit output - just run the command directly.
+  - Do not use shell with the `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or when these commands are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:
+    - File search: Use `fs_search` (NOT find or ls)
+    - Content search: Use `fs_search` with regex (NOT grep or rg)
+    - Read files: Use `read` (NOT cat/head/tail)
+    - Edit files: Use `patch`(NOT sed/awk)
+    - Write files: Use `write` (NOT echo >/cat <<EOF)
+    - Communication: Output text directly (NOT echo/printf)
+  - When issuing multiple commands:
+    - If the commands are independent and can run in parallel, make multiple `shell` tool calls in a single message. For example, if you need to run "git status" and "git diff", send a single message with two `shell` tool calls in parallel.
+    - If the commands depend on each other and must run sequentially, use a single `shell` call with '&&' to chain them together (e.g., `git add . && git commit -m "message" && git push`). For instance, if one operation must complete before another starts (like mkdir before cp, write before shell for git operations, or git add before git commit), run these operations sequentially instead.
+    - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail
+    - DO NOT use newlines to separate commands (newlines are ok in quoted strings)
+  - DO NOT use `cd <directory> && <command>`. Use the `cwd` parameter to change directories instead.
+
+Good examples:
+  - With explicit cwd: cwd="/foo/bar" with command: pytest tests
+
+Bad example:
+  cd /foo/bar && pytest tests
+
+Returns complete output including stdout, stderr, and exit code for diagnostic purposes.
+
+---
+
+### fetch
+
+Retrieves content from URLs as markdown or raw text. Enables access to current online information including websites, APIs and documentation. Use for obtaining up-to-date information beyond training data, verifying facts, or retrieving specific online content. Handles HTTP/HTTPS and converts HTML to readable markdown by default. Cannot access private/restricted resources requiring authentication. Respects robots.txt and may be blocked by anti-scraping measures. For large pages, returns the first 40,000 characters and stores the complete content in a temporary file for subsequent access.
+
+IMPORTANT: This tool only handles text-based content (HTML, JSON, XML, plain text, etc.). It will reject binary file downloads (.tar.gz, .zip, .bin, .deb, images, audio, video, etc.) with an error. To download binary files, use the `shell` tool with `curl -fLo <output_file> <url>` instead.
+
+---
+
+### followup
+
+Use this tool when you encounter ambiguities, need clarification, or require more details to proceed effectively. Use this tool judiciously to maintain a balance between gathering necessary information and avoiding excessive back-and-forth.
+
+---
+
+### plan
+
+Creates a new plan file with the specified name, version, and content. Use this tool to create structured project plans, task breakdowns, or implementation strategies that can be tracked and referenced throughout development sessions.
+
+---
+
+### skill
+
+Fetches detailed information about a specific skill. Use this tool to load skill content and instructions when you need to understand how to perform a specialized task. Skills provide domain-specific knowledge, workflows, and best practices. Only invoke skills that are listed in the available skills section. Do not invoke a skill that is already active.
+
+---
+
+### todo_write
+
+Use this tool to create and manage a structured task list for your current coding session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user.
+It also helps the user understand the progress of the task and overall progress of their requests.
+
+## How It Works
+
+Each call sends only the items that changed — you do not need to repeat the whole list.
+
+Each item has two required fields:
+- `content`: The task description. This is the **unique key** — the server matches on content to decide whether to add or update.
+- `status`: One of `pending`, `in_progress`, `completed`, or `cancelled`.
+
+**Rules:**
+- Item with this `content` does **not** exist yet → **added** as a new task.
+- Item with this `content` already exists → its `status` is **updated**.
+- `status: cancelled` → the item is **removed** from the list entirely.
+- Items you do not mention are **left unchanged**.
+
+IDs are managed internally by the system and are never exposed to you.
+
+## When to Use This Tool
+Use this tool proactively in these scenarios:
+
+1. Complex multi-step tasks - When a task requires 3 or more distinct steps or actions
+2. Non-trivial and complex tasks - Tasks that require careful planning or multiple operations
+3. User explicitly requests todo list - When the user directly asks you to use the todo list
+4. User provides multiple tasks - When users provide a list of things to be done (numbered or comma-separated)
+5. After receiving new instructions - Immediately capture user requirements as todos
+6. When you start working on a task - Mark it as in_progress BEFORE beginning work. Ideally you should only have one todo as in_progress at a time
+7. After completing a task - Mark it as completed and add any new follow-up tasks discovered during implementation
+
+## When NOT to Use This Tool
+
+Skip using this tool when:
+1. There is only a single, straightforward task
+2. The task is trivial and tracking it provides no organizational benefit
+3. The task can be completed in less than 3 trivial steps
+4. The task is purely conversational or informational
+
+NOTE that you should not use this tool if there is only one trivial task to do. In this case you are better off just doing the task directly.
+
+## Examples of When to Use the Todo List
+
+<example>
+User: I want to add a dark mode toggle to the application settings. Make sure you run the tests and build when you're done!
+Assistant: I'll help add a dark mode toggle to your application settings. Let me create a todo list to track this implementation.
+*Creates todo list with the following items:*
+1. Creating dark mode toggle component in Settings page
+2. Adding dark mode state management (context/store)
+3. Implementing CSS-in-JS styles for dark theme
+4. Updating existing components to support theme switching
+5. Running tests and build process, addressing any failures or errors that occur
+*Begins working on the first task*
+
+<reasoning>
+The assistant used the todo list because:
+1. Adding dark mode is a multi-step feature requiring UI, state management, and styling changes
+2. The user explicitly requested tests and build be run afterward
+3. The assistant inferred that tests and build need to pass by adding "Ensure tests and build succeed" as the final task
+</reasoning>
+</example>
+
+<example>
+User: Help me rename the function getCwd to getCurrentWorkingDirectory across my project
+Assistant: Let me first search through your codebase to find all occurrences of 'getCwd'.
+*Uses grep or search tools to locate all instances of getCwd in the codebase*
+Assistant: I've found 15 instances of 'getCwd' across 8 different files. Let me create a todo list to track these changes.
+*Creates todo list with specific items for each file that needs updating*
+
+<reasoning>
+The assistant used the todo list because:
+1. First, the assistant searched to understand the scope of the task
+2. Upon finding multiple occurrences across different files, it determined this was a complex task with multiple steps
+3. The todo list helps ensure every instance is tracked and updated systematically
+4. This approach prevents missing any occurrences and maintains code consistency
+</reasoning>
+</example>
+
+
+<example>
+User: I need to implement these features for my e-commerce site: user registration, product catalog, shopping cart, and checkout flow.
+Assistant: I'll help implement these features. First, let's add all the features to the todo list.
+*Creates a todo list breaking down each feature into specific tasks based on the project architecture*
+Assistant: Let's start with user registration. This will involve creating database models, API endpoints, and frontend forms that integrate with your existing authentication system.
+
+<reasoning>
+The assistant used the todo list because:
+1. The user provided multiple complex features to implement in a comma separated list
+2. The todo list helps organize these large features into manageable tasks
+3. This approach allows for tracking progress across the entire implementation
+</reasoning>
+</example>
+
+<example>
+User: Can you help optimize my React application? It's rendering slowly and has performance issues.</user>
+Assistant: I'll help optimize your React application. First, let me examine your codebase to identify potential performance bottlenecks.
+*Reviews component structure, render patterns, state management, and data fetching*
+Assistant: After analyzing your codebase, I've identified several performance issues. Let me create a todo list to track our optimization efforts.
+*Creates todo list with items like: 1) Implementing memoization for expensive calculations in ProductList, 2) Adding virtualization for long lists in Dashboard, 3) Optimizing image loading in Gallery component, 4) Fixing state update loops in ShoppingCart, 5) Reviewing bundle size and implementing code splitting*
+Let's start by implementing memoization for the expensive calculations in your ProductList component.</assistant>
+
+<reasoning>
+The assistant used the todo list because:
+1. First, the assistant examined the codebase to identify specific performance issues
+2. Based on this analysis, it identified multiple optimization opportunities
+3. Performance optimization is a non-trivial task requiring multiple steps
+4. The todo list helps methodically track improvements across different components
+5. This systematic approach ensures all performance bottlenecks are addressed
+</reasoning>
+</example>
+
+## Examples of When NOT to Use the Todo List
+
+<example>
+User: How do I print 'Hello World' in Python?
+Assistant: In Python, you can print "Hello World" with this simple code:
+
+python
+print("Hello World")
+
+This will output the text "Hello World" to the console when executed.</assistant>
+
+<reasoning>
+The assistant did not use the todo list because this is a single, trivial task that can be completed in one step. There's no need to track multiple tasks or steps for such a straightforward request.
+</reasoning>
+</example>
+
+<example>
+User: What does the git status command do?
+Assistant: The git status command shows the current state of your working directory and staging area. It displays which changes have been staged, which haven't, and which files aren't being tracked by Git. This is a fundamental command for understanding the current state of your repository before making commits.
+
+<reasoning>
+The assistant did not use the todo list because this is an informational request with no actual coding task to complete. The user is simply asking for an explanation, not for the assistant to perform multiple steps or tasks.
+</reasoning>
+</example>
+
+<example>
+User: Can you add a comment to the calculateTotal function to explain what it does?
+Assistant: Sure, let me add a comment to the calculateTotal function to explain what it does.
+* Uses the patch tool to add a comment to the calculateTotal function *
+
+<reasoning>
+The assistant did not use the todo list because this is a single, straightforward task confined to one location in the code. Adding a comment doesn't require tracking multiple steps or systematic organization.
+</reasoning>
+</example>
+
+<example>
+User: Run npm install for me and tell me what happens.
+Assistant: I'll run the npm install command for you.
+
+*Executes: npm install*
+
+The command completed successfully. Here's the output:
+[Output of npm install command]
+
+All dependencies have been installed according to your package.json file.
+
+<reasoning>
+The assistant did not use the todo list because this is a single command execution with immediate results. There are no multiple steps to track or organize, making the todo list unnecessary for this straightforward task.
+</reasoning>
+</example>
+
+## Task States and Management
+
+1. **Task States**: Use these states to track progress:
+   - `pending`: Task not yet started
+   - `in_progress`: Currently working on (limit to ONE task at a time)
+   - `completed`: Task finished successfully
+   - `cancelled`: Task is no longer relevant — this removes it from the list
+
+2. **Task Management**:
+   - Only send the items that changed — do not repeat unchanged items
+   - Mark tasks `in_progress` BEFORE beginning work
+   - Mark tasks `completed` IMMEDIATELY after finishing (don't batch completions)
+   - Exactly ONE task must be `in_progress` at any time
+   - Use `cancelled` to remove tasks that are no longer relevant
+   - Complete current tasks before starting new ones
+
+3. **Task Completion Requirements**:
+   - ONLY mark a task as `completed` when you have FULLY accomplished it
+   - If you encounter errors, blockers, or cannot finish, keep the task as `in_progress`
+   - When blocked, create a new task describing what needs to be resolved
+   - Never mark a task as `completed` if:
+     - Tests are failing
+     - Implementation is partial
+     - You encountered unresolved errors
+     - You couldn't find necessary files or dependencies
+
+4. **Task Breakdown**:
+   - Create specific, actionable items
+   - Break complex tasks into smaller, manageable steps
+   - Use clear, descriptive task names
+
+When in doubt, use this tool. Being proactive with task management demonstrates attentiveness and ensures you complete all requirements successfully.
+
+---
+
+### todo_read
+
+Retrieves the current todo list for this coding session. Use this tool to check existing todos before making updates, or to review the current state of tasks at any point during the session.
+
+## When to Use This Tool
+
+- Before calling `todo_write`, to understand which tasks already exist and avoid duplicates
+- When you need to know what tasks are pending, in progress, or completed
+- To resume work after a break and understand the current state of tasks
+- When the user asks about the current task list or progress
+
+## Output
+
+Returns all current todos with their IDs, content, and status (`pending`, `in_progress`, `completed`). If no todos exist yet, returns an empty list.
+
+---
+
+### task
+
+Launch a new agent to handle complex, multi-step tasks autonomously. 
+
+The task tool launches specialized agents (subprocesses) that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.
+
+Available agent types and the tools they have access to:
+- **debug**: Specialized in debugging issues
+  - Tools: read, shell, fs_search, sem_search, fetch
+- **sage**: Specialized in researching codebases
+  - Tools: read, fs_search, sem_search, fetch
+
+When using the task tool, you must specify a agent_id parameter to select which agent type to use.
+
+When NOT to use the task tool:
+- If you want to read a specific file path, use the read or fs_search tool instead of the task tool, to find the match more quickly
+- If you are searching for a specific class definition like "class Foo", use the fs_search tool instead, to find the match more quickly
+- If you are searching for code within a specific file or set of 2-3 files, use the read tool instead of the task tool, to find the match more quickly
+- Other tasks that are not related to the agent descriptions above
+
+
+Usage notes:
+- Always include a short description (3-5 words) summarizing what the agent will do
+- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses
+- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.
+- Agents can be resumed using the \`session_id\` parameter by passing the agent ID from a previous invocation. When resumed, the agent continues with its full previous context preserved. When NOT resuming, each invocation starts fresh and you should provide a detailed task description with all necessary context.
+- When the agent is done, it will return a single message back to you along with its agent ID. You can use this ID to resume the agent later if needed for follow-up work.
+- Provide clear, detailed prompts so the agent can work autonomously and return exactly the information you need.
+- Agents with "access to current context" can see the full conversation history before the tool call. When using these agents, you can write concise prompts that reference earlier context (e.g., "investigate the error discussed above") instead of repeating information. The agent will receive all prior messages and understand the context.
+- The agent's outputs should generally be trusted
+- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent
+- If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
+- If the user specifies that they want you to run agents "in parallel", you MUST send a single message with multiple task tool use content blocks. For example, if you need to launch both a build-validator agent and a test-runner agent in parallel, send a single message with both tool calls.
+
+Example usage:
+
+<example_agent_descriptions>
+"test-runner": use this agent after you are done writing code to run tests
+"greeting-responder": use this agent when to respond to user greetings with a friendly joke
+</example_agent_description>
+
+<example>
+user: "Please write a function that checks if a number is prime"
+assistant: Sure let me write a function that checks if a number is prime
+assistant: First let me use the write tool to write a function that checks if a number is prime
+assistant: I'm going to use the write tool to write the following code:
+<code>
+function isPrime(n) {
+  if (n <= 1) return false
+  for (let i = 2; i * i <= n; i++) {
+    if (n % i === 0) return false
+  }
+  return true
+}
+</code>
+<commentary>
+Since a significant piece of code was written and the task was completed, now use the test-runner agent to run the tests
+</commentary>
+assistant: Now let me use the test-runner agent to run the tests
+assistant: Uses the task tool to launch the test-runner agent
+</example>
+
+<example>
+user: "Hello"
+<commentary>
+Since the user is greeting, use the greeting-responder agent to respond with a friendly joke
+</commentary>
+assistant: "I'm going to use the task tool to launch the greeting-responder agent"
+</example>

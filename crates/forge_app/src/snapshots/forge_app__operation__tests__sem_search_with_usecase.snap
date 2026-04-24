@@ -1,0 +1,18 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<sem_search_results>
+<query_result
+  query="authentication logic"
+  use_case="need to add similar auth to my endpoint"
+  results="1"
+>
+<file
+  path="src/auth.rs"
+><![CDATA[10:fn authenticate_user(token: &str) -> Result<User> {
+11:    verify_jwt(token)
+12:}]]>
+</file>
+</query_result>
+</sem_search_results>

@@ -1,0 +1,14 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<search_results
+  path="/home/user/project"
+  max_bytes_allowed="256000"
+  total_lines="3"
+  display_lines="1-3"
+  pattern="test"
+><![CDATA[file1.rs:5
+file2.rs:3
+file3.rs:12]]>
+</search_results>

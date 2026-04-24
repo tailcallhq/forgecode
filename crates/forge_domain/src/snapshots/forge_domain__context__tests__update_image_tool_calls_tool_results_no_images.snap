@@ -1,0 +1,22 @@
+---
+source: crates/forge_domain/src/context.rs
+expression: actual
+---
+messages:
+  - text:
+      role: System
+      content: System message
+  - tool:
+      name: text_tool
+      call_id: call1
+      output:
+        is_error: false
+        values:
+          - text: Text output
+  - tool:
+      name: empty_tool
+      call_id: call2
+      output:
+        is_error: false
+        values:
+          - empty

@@ -1,0 +1,11 @@
+---
+source: crates/forge_repo/src/provider/google.rs
+expression: "normalize_ports(format!(\"{:#?}\", actual.unwrap_err()))"
+---
+Error {
+    context: "Failed to fetch the models",
+    source: Error {
+        context: "400 GET http://127.0.0.1:<port>/models",
+        source: "{\"error\":{\"code\":400,\"message\":\"Invalid API key\",\"status\":\"PERMISSION_DENIED\"}}",
+    },
+}

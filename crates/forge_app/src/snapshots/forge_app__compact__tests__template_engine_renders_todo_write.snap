@@ -1,0 +1,25 @@
+---
+source: crates/forge_app/src/compact.rs
+expression: actual
+---
+Use the following summary frames as the authoritative reference for all coding suggestions and decisions. Do not re-explain or revisit it unless I ask. Additional summary frames will be added as the conversation progresses.
+
+## Summary
+
+### 1. User
+
+````
+Create a task plan
+````
+
+### 2. Assistant
+
+**Task Plan:**
+- [DONE] ~~Implement user authentication~~
+- [ADD] Add database migrations
+- [CANCELLED] ~~Write documentation~~
+
+
+---
+
+Proceed with implementation based on this context.

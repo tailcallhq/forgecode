@@ -1,0 +1,32 @@
+---
+source: crates/forge_repo/src/provider/anthropic.rs
+expression: actual
+---
+[
+  {
+    "id": "claude-3-5-sonnet-20241022",
+    "name": "Claude 3.5 Sonnet (New)",
+    "description": null,
+    "context_length": 200000,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": null,
+    "supports_reasoning": null,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  },
+  {
+    "id": "claude-3-5-haiku-20241022",
+    "name": "Claude 3.5 Haiku",
+    "description": null,
+    "context_length": 200000,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": null,
+    "supports_reasoning": null,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  }
+]

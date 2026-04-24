@@ -1,0 +1,14 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<search_results
+  path="/home/user/project"
+  max_bytes_allowed="256000"
+  total_lines="1"
+  display_lines="1-1"
+  pattern="TODO"
+><![CDATA[src/main.rs:15:// TODO: Implement this feature
+src/main.rs-fn main() {
+src/main.rs-    println!("Hello");]]>
+</search_results>

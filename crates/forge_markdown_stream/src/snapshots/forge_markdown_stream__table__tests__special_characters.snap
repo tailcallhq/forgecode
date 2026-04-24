@@ -1,0 +1,15 @@
+---
+source: crates/forge_markdown_stream/src/table.rs
+expression: "render(vec![vec![\"Symbol\", \"Meaning\"], vec![\"<\", \"less than\"],\nvec![\">\", \"greater than\"], vec![\"&\", \"ampersand\"], vec![\"\\\"\", \"quote\"],])"
+---
+  ┌────────┬──────────────┐
+  │ Symbol │ Meaning      │
+  ├────────┼──────────────┤
+  │ <      │ less than    │
+  ├────────┼──────────────┤
+  │ >      │ greater than │
+  ├────────┼──────────────┤
+  │ &      │ ampersand    │
+  ├────────┼──────────────┤
+  │ "      │ quote        │
+  └────────┴──────────────┘

@@ -1,0 +1,135 @@
+---
+source: crates/forge_display/src/grep.rs
+expression: suite
+---
+
+[Basic single file with two matches]
+[RAW]
+file.txt:1:first match
+file.txt:2:second match
+[FMT]
+file.txt
+1: first match
+2: second match
+
+
+
+[Multiple files with various matches]
+[RAW]
+file1.txt:1:match in file1
+file2.txt:1:first match in file2
+file2.txt:2:second match in file2
+file3.txt:1:match in file3
+[FMT]
+file1.txt
+1: match in file1
+
+file2.txt
+1: first match in file2
+2: second match in file2
+
+file3.txt
+1: match in file3
+
+
+
+[File with varying line number widths]
+[RAW]
+file.txt:1:first line
+file.txt:5:fifth line
+file.txt:10:tenth line
+file.txt:100:hundredth line
+[FMT]
+file.txt
+  1: first line
+  5: fifth line
+ 10: tenth line
+100: hundredth line
+
+
+
+[Mix of valid and invalid input lines]
+[RAW]
+file.txt:1:valid match
+malformed line without separator
+file.txt:2:another valid match
+[FMT]
+file.txt
+1: valid match
+2: another valid match
+
+
+
+[Empty input vector]
+[RAW]
+
+[FMT]
+
+
+
+[Input with special characters and formatting]
+[RAW]
+path/to/file.txt:1:contains 🦀 rust
+path/to/file.txt:2:has	tabs	and	spaces
+path/to/file.txt:3:contains
+newlines
+[FMT]
+path/to/file.txt
+1: contains 🦀 rust
+2: hastabsandspaces
+3: contains
+newlines
+
+
+
+[Multiple files with same line numbers]
+[RAW]
+test1.rs:10:fn test1()
+test2.rs:10:fn test2()
+test3.rs:10:fn test3()
+[FMT]
+test1.rs
+10: fn test1()
+
+test2.rs
+10: fn test2()
+
+test3.rs
+10: fn test3()
+
+
+
+[Content with full-width unicode characters]
+[RAW]
+test.txt:1:Contains 你好 characters
+test.txt:2:More UTF-8 ありがとう here
+[FMT]
+test.txt
+1: Contains 你好 characters
+2: More UTF-8 ありがとう here
+
+
+
+[Without regex - Basic single file with two matches]
+[RAW]
+file.txt:1:first match
+file.txt:2:second match
+[FMT]
+file.txt
+1: first match
+2: second match
+
+
+
+[Without regex - Multiple files with various patterns]
+[RAW]
+file1.txt:1:regex pattern in file1
+file2.txt:1:another pattern in file2
+file2.txt:2:different pattern in file2
+[FMT]
+file1.txt
+1: regex pattern in file1
+
+file2.txt
+1: another pattern in file2
+2: different pattern in file2

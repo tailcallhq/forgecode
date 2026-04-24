@@ -1,0 +1,240 @@
+---
+source: crates/forge_main/src/completer/search_term.rs
+expression: results
+---
+[
+    TermSpec {
+        input: "@[hello @世界 test@中文",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            1,
+        ),
+        pos: 1,
+    },
+    TermSpec {
+        input: "@h[ello @世界 test@中文",
+        output: Some(
+            "h",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            2,
+        ),
+        pos: 2,
+    },
+    TermSpec {
+        input: "@he[llo @世界 test@中文",
+        output: Some(
+            "he",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            3,
+        ),
+        pos: 3,
+    },
+    TermSpec {
+        input: "@hel[lo @世界 test@中文",
+        output: Some(
+            "hel",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            4,
+        ),
+        pos: 4,
+    },
+    TermSpec {
+        input: "@hell[o @世界 test@中文",
+        output: Some(
+            "hell",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            5,
+        ),
+        pos: 5,
+    },
+    TermSpec {
+        input: "@hello[ @世界 test@中文",
+        output: Some(
+            "hello",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            6,
+        ),
+        pos: 6,
+    },
+    TermSpec {
+        input: "@hello [@世界 test@中文",
+        output: Some(
+            "hello ",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            7,
+        ),
+        pos: 7,
+    },
+    TermSpec {
+        input: "@hello @[世界 test@中文",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            8,
+        ),
+        span_end: Some(
+            8,
+        ),
+        pos: 8,
+    },
+    TermSpec {
+        input: "@hello @世[界 test@中文",
+        output: Some(
+            "世",
+        ),
+        span_start: Some(
+            8,
+        ),
+        span_end: Some(
+            11,
+        ),
+        pos: 11,
+    },
+    TermSpec {
+        input: "@hello @世界[ test@中文",
+        output: Some(
+            "世界",
+        ),
+        span_start: Some(
+            8,
+        ),
+        span_end: Some(
+            14,
+        ),
+        pos: 14,
+    },
+    TermSpec {
+        input: "@hello @世界 [test@中文",
+        output: Some(
+            "世界 ",
+        ),
+        span_start: Some(
+            8,
+        ),
+        span_end: Some(
+            15,
+        ),
+        pos: 15,
+    },
+    TermSpec {
+        input: "@hello @世界 t[est@中文",
+        output: Some(
+            "世界 t",
+        ),
+        span_start: Some(
+            8,
+        ),
+        span_end: Some(
+            16,
+        ),
+        pos: 16,
+    },
+    TermSpec {
+        input: "@hello @世界 te[st@中文",
+        output: Some(
+            "世界 te",
+        ),
+        span_start: Some(
+            8,
+        ),
+        span_end: Some(
+            17,
+        ),
+        pos: 17,
+    },
+    TermSpec {
+        input: "@hello @世界 tes[t@中文",
+        output: Some(
+            "世界 tes",
+        ),
+        span_start: Some(
+            8,
+        ),
+        span_end: Some(
+            18,
+        ),
+        pos: 18,
+    },
+    TermSpec {
+        input: "@hello @世界 test[@中文",
+        output: Some(
+            "世界 test",
+        ),
+        span_start: Some(
+            8,
+        ),
+        span_end: Some(
+            19,
+        ),
+        pos: 19,
+    },
+    TermSpec {
+        input: "@hello @世界 test@[中文",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            20,
+        ),
+        span_end: Some(
+            20,
+        ),
+        pos: 20,
+    },
+    TermSpec {
+        input: "@hello @世界 test@中[文",
+        output: Some(
+            "中",
+        ),
+        span_start: Some(
+            20,
+        ),
+        span_end: Some(
+            23,
+        ),
+        pos: 23,
+    },
+    TermSpec {
+        input: "@hello @世界 test@中文[",
+        output: Some(
+            "中文",
+        ),
+        span_start: Some(
+            20,
+        ),
+        span_end: Some(
+            26,
+        ),
+        pos: 26,
+    },
+]

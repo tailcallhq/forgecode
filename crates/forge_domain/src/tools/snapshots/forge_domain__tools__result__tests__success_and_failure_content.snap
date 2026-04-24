@@ -1,0 +1,17 @@
+---
+source: crates/forge_domain/src/tools/result.rs
+expression: failure.output.as_str().unwrap()
+---
+<tool_call_error>
+<cause><![CDATA[error 3
+
+Caused by:
+    0: error 2
+    1: error 1]]></cause>
+<reflection>You must now deeply reflect on the error above:
+1. Pinpoint exactly what was wrong with the tool call — was it the wrong tool, incorrect or missing parameters, or malformed structure?
+2. Explain why that mistake happened. Did you misunderstand the tool's schema? Miss a required field? Misread the context?
+3. Make the correct tool call as it should have been made.
+
+Do NOT skip this reflection.</reflection>
+</tool_call_error>

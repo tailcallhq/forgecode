@@ -1,0 +1,162 @@
+---
+source: crates/forge_main/src/completer/search_term.rs
+expression: results
+---
+[
+    TermSpec {
+        input: "@[🚀 @🌟 emoji@",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            1,
+        ),
+        pos: 1,
+    },
+    TermSpec {
+        input: "@🚀[ @🌟 emoji@",
+        output: Some(
+            "🚀",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            5,
+        ),
+        pos: 5,
+    },
+    TermSpec {
+        input: "@🚀 [@🌟 emoji@",
+        output: Some(
+            "🚀 ",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            6,
+        ),
+        pos: 6,
+    },
+    TermSpec {
+        input: "@🚀 @[🌟 emoji@",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            7,
+        ),
+        span_end: Some(
+            7,
+        ),
+        pos: 7,
+    },
+    TermSpec {
+        input: "@🚀 @🌟[ emoji@",
+        output: Some(
+            "🌟",
+        ),
+        span_start: Some(
+            7,
+        ),
+        span_end: Some(
+            11,
+        ),
+        pos: 11,
+    },
+    TermSpec {
+        input: "@🚀 @🌟 [emoji@",
+        output: Some(
+            "🌟 ",
+        ),
+        span_start: Some(
+            7,
+        ),
+        span_end: Some(
+            12,
+        ),
+        pos: 12,
+    },
+    TermSpec {
+        input: "@🚀 @🌟 e[moji@",
+        output: Some(
+            "🌟 e",
+        ),
+        span_start: Some(
+            7,
+        ),
+        span_end: Some(
+            13,
+        ),
+        pos: 13,
+    },
+    TermSpec {
+        input: "@🚀 @🌟 em[oji@",
+        output: Some(
+            "🌟 em",
+        ),
+        span_start: Some(
+            7,
+        ),
+        span_end: Some(
+            14,
+        ),
+        pos: 14,
+    },
+    TermSpec {
+        input: "@🚀 @🌟 emo[ji@",
+        output: Some(
+            "🌟 emo",
+        ),
+        span_start: Some(
+            7,
+        ),
+        span_end: Some(
+            15,
+        ),
+        pos: 15,
+    },
+    TermSpec {
+        input: "@🚀 @🌟 emoj[i@",
+        output: Some(
+            "🌟 emoj",
+        ),
+        span_start: Some(
+            7,
+        ),
+        span_end: Some(
+            16,
+        ),
+        pos: 16,
+    },
+    TermSpec {
+        input: "@🚀 @🌟 emoji[@",
+        output: Some(
+            "🌟 emoji",
+        ),
+        span_start: Some(
+            7,
+        ),
+        span_end: Some(
+            17,
+        ),
+        pos: 17,
+    },
+    TermSpec {
+        input: "@🚀 @🌟 emoji@[",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            18,
+        ),
+        span_end: Some(
+            18,
+        ),
+        pos: 18,
+    },
+]

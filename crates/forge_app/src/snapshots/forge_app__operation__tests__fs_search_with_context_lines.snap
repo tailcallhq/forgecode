@@ -1,0 +1,16 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<search_results
+  path="/home/user/project"
+  max_bytes_allowed="256000"
+  total_lines="1"
+  display_lines="1-1"
+  pattern="MATCH"
+><![CDATA[test.txt-line 8 before context
+test.txt-line 9 before context
+test.txt:10:This is the MATCH line
+test.txt-line 11 after context
+test.txt-line 12 after context]]>
+</search_results>

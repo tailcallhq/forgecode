@@ -1,0 +1,30 @@
+---
+source: crates/forge_repo/src/provider/openai.rs
+expression: actual
+---
+[
+  {
+    "id": "model-1",
+    "name": "Test Model 1",
+    "description": "A test model",
+    "context_length": 4096,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": true,
+    "supports_reasoning": false,
+    "input_modalities": [
+      "text"
+    ]
+  },
+  {
+    "id": "model-2",
+    "name": "Test Model 2",
+    "description": "Another test model",
+    "context_length": 8192,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": false,
+    "supports_reasoning": false,
+    "input_modalities": [
+      "text"
+    ]
+  }
+]

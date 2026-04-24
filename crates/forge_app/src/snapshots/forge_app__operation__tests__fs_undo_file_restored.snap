@@ -1,0 +1,13 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<file_undo
+  path="/home/user/restored_file.txt"
+  status="restored"
+><![CDATA[1   |-Original content
+2   |-Before changes
+  1 |+Modified content
+  2 |+After restoration
+]]>
+</file_undo>

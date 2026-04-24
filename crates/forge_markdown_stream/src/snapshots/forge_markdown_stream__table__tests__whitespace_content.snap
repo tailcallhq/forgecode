@@ -1,0 +1,9 @@
+---
+source: crates/forge_markdown_stream/src/table.rs
+expression: "render(vec![vec![\"Header\", \"Value\"], vec![\"  spaces  \", \"   \"],])"
+---
+  ┌────────────┬───────┐
+  │ Header     │ Value │
+  ├────────────┼───────┤
+  │   spaces   │       │
+  └────────────┴───────┘

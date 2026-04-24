@@ -1,0 +1,9 @@
+---
+source: crates/forge_markdown_stream/src/table.rs
+expression: "render(vec![vec![\"**Bold Header**\", \"`Code Header`\"],\nvec![\"data1\", \"data2\"],])"
+---
+  ┌────────────────────┬──────────────────────────┐
+  │ <b>Bold Header</b> │ <code>Code Header</code> │
+  ├────────────────────┼──────────────────────────┤
+  │ data1              │ data2                    │
+  └────────────────────┴──────────────────────────┘

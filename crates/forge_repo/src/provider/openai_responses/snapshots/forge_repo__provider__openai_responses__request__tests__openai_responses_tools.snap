@@ -1,0 +1,44 @@
+---
+source: crates/forge_repo/src/provider/openai_responses/request.rs
+expression: actual.tools
+---
+[
+  {
+    "type": "function",
+    "name": "shell",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "alpha": {
+          "type": "string"
+        },
+        "output_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "content",
+                "count"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Output mode"
+        },
+        "zebra": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "alpha",
+        "output_mode",
+        "zebra"
+      ],
+      "type": "object"
+    },
+    "strict": true,
+    "description": "Run a shell command"
+  }
+]

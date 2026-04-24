@@ -1,0 +1,12 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<file_overwritten
+  path="/home/user/existing_file.txt"
+  total_lines="1"
+>
+<file_diff><![CDATA[1   |-Old content
+  1 |+New content for the file
+]]></file_diff>
+</file_overwritten>

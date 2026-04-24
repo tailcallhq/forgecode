@@ -1,0 +1,110 @@
+---
+source: crates/forge_main/src/completer/search_term.rs
+expression: results
+---
+[
+    TermSpec {
+        input: "@[中 文 @测试",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            1,
+        ),
+        pos: 1,
+    },
+    TermSpec {
+        input: "@中[ 文 @测试",
+        output: Some(
+            "中",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            4,
+        ),
+        pos: 4,
+    },
+    TermSpec {
+        input: "@中 [文 @测试",
+        output: Some(
+            "中 ",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            5,
+        ),
+        pos: 5,
+    },
+    TermSpec {
+        input: "@中 文[ @测试",
+        output: Some(
+            "中 文",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            8,
+        ),
+        pos: 8,
+    },
+    TermSpec {
+        input: "@中 文 [@测试",
+        output: Some(
+            "中 文 ",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            9,
+        ),
+        pos: 9,
+    },
+    TermSpec {
+        input: "@中 文 @[测试",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            10,
+        ),
+        span_end: Some(
+            10,
+        ),
+        pos: 10,
+    },
+    TermSpec {
+        input: "@中 文 @测[试",
+        output: Some(
+            "测",
+        ),
+        span_start: Some(
+            10,
+        ),
+        span_end: Some(
+            13,
+        ),
+        pos: 13,
+    },
+    TermSpec {
+        input: "@中 文 @测试[",
+        output: Some(
+            "测试",
+        ),
+        span_start: Some(
+            10,
+        ),
+        span_end: Some(
+            16,
+        ),
+        pos: 16,
+    },
+]

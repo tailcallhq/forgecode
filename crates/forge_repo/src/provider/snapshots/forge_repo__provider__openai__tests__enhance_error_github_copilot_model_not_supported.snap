@@ -1,0 +1,5 @@
+---
+source: crates/forge_repo/src/provider/openai.rs
+expression: error_string
+---
+This model may not be enabled for your GitHub Copilot subscription. Visit https://github.com/settings/copilot/features to check which models are available to you.: 400 Bad Request Reason: {"error":{"message":"The requested model is not supported.","code":"model_not_supported"}}

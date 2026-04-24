@@ -1,0 +1,15 @@
+---
+source: crates/forge_domain/src/transformer/transform_tool_calls.rs
+expression: snapshot
+---
+transformation: TransformToolCalls
+before:
+  messages:
+    - tool:
+        name: empty_tool
+        call_id: call_empty
+        output:
+          is_error: false
+          values:
+            - empty
+after: {}

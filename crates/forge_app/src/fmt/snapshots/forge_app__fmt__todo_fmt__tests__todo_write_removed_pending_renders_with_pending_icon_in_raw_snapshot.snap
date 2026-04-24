@@ -1,0 +1,6 @@
+---
+source: crates/forge_app/src/fmt/todo_fmt.rs
+expression: raw
+---
+
+  [31m󰄱 [9mPending task[0m[0m

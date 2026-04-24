@@ -1,0 +1,26 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<sem_search_results>
+<query_result
+  query="database operations"
+  use_case="finding all database query implementations"
+  results="3"
+>
+<file
+  path="src/database.rs"
+><![CDATA[10:fn get_user(id: u32) -> Result<User> {
+11:    db.query("SELECT * FROM users WHERE id = ?", &[id])
+12:}
+...
+50:fn update_user(id: u32, name: &str) -> Result<()> {
+51:    db.execute("UPDATE users SET name = ? WHERE id = ?", &[name, id])
+52:}
+...
+100:fn delete_user(id: u32) -> Result<()> {
+101:    db.execute("DELETE FROM users WHERE id = ?", &[id])
+102:}]]>
+</file>
+</query_result>
+</sem_search_results>

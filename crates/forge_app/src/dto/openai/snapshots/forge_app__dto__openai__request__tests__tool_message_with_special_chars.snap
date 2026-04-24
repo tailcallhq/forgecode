@@ -1,0 +1,10 @@
+---
+source: crates/forge_app/src/dto/openai/request.rs
+expression: router_message
+---
+{
+  "role": "tool",
+  "content": "{\n                \"html\": \"<div class=\\\"container\\\"><p>Hello <World></p></div>\",\n                \"elements\": [\"<span>\", \"<br/>\", \"<hr>\"],\n                \"attributes\": {\n                    \"style\": \"color: blue; font-size: 12px;\",\n                    \"data-test\": \"<test>&value</test>\"\n                }\n            }",
+  "name": "html_tool",
+  "tool_call_id": "456"
+}

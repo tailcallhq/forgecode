@@ -1,0 +1,76 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<shell_output
+  command="complex_command"
+  shell="/bin/bash"
+  exit_code="0"
+>
+<stdout
+  total_lines="25"
+  full_output="/tmp/stdout_content.txt"
+>
+<head
+  display_lines="1-10"
+><![CDATA[stdout line 1
+stdout line 2
+stdout line 3
+stdout line 4
+stdout line 5
+stdout line 6
+stdout line 7
+stdout line 8
+stdout line 9
+stdout line 10
+]]>
+</head>
+<tail
+  display_lines="16-25"
+><![CDATA[stdout line 16
+stdout line 17
+stdout line 18
+stdout line 19
+stdout line 20
+stdout line 21
+stdout line 22
+stdout line 23
+stdout line 24
+stdout line 25
+]]>
+</tail>
+</stdout>
+<stderr
+  total_lines="30"
+  full_output="/tmp/stderr_content.txt"
+>
+<head
+  display_lines="1-10"
+><![CDATA[stderr line 1
+stderr line 2
+stderr line 3
+stderr line 4
+stderr line 5
+stderr line 6
+stderr line 7
+stderr line 8
+stderr line 9
+stderr line 10
+]]>
+</head>
+<tail
+  display_lines="21-30"
+><![CDATA[stderr line 21
+stderr line 22
+stderr line 23
+stderr line 24
+stderr line 25
+stderr line 26
+stderr line 27
+stderr line 28
+stderr line 29
+stderr line 30
+]]>
+</tail>
+</stderr>
+</shell_output>

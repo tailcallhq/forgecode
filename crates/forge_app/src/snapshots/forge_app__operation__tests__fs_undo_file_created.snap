@@ -1,0 +1,12 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<file_undo
+  path="/home/user/new_file.txt"
+  status="created"
+  total_lines="3"
+><![CDATA[New file content
+Line 2
+Line 3]]>
+</file_undo>

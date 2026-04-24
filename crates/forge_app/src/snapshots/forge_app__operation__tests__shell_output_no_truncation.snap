@@ -1,0 +1,15 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<shell_output
+  command="echo hello"
+  shell="/bin/bash"
+  exit_code="0"
+>
+<stdout
+  total_lines="2"
+><![CDATA[hello
+world]]>
+</stdout>
+</shell_output>

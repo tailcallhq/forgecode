@@ -1,0 +1,11 @@
+---
+source: crates/forge_app/src/changed_files.rs
+expression: message
+---
+<information>
+<critical>The following files have been modified externally. Please re-read them if its relevant for the task.</critical>
+<files>
+<file>/test/file1.txt</file>
+<file>/test/file2.txt</file>
+</files>
+</information>

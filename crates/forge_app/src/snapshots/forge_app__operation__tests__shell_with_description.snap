@@ -1,0 +1,16 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<shell_output
+  command="git status"
+  shell="/bin/bash"
+  description="Shows working tree status"
+  exit_code="0"
+>
+<stdout
+  total_lines="2"
+><![CDATA[On branch main
+nothing to commit, working tree clean]]>
+</stdout>
+</shell_output>

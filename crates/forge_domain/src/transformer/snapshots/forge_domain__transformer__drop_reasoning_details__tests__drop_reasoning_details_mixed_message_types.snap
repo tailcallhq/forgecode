@@ -1,0 +1,55 @@
+---
+source: crates/forge_domain/src/transformer/drop_reasoning_details.rs
+expression: snapshot
+---
+transformation: DropReasoningDetails_mixed_messages
+before:
+  messages:
+    - text:
+        role: System
+        content: System message
+    - text:
+        role: User
+        content: User message with reasoning
+        reasoning_details:
+          - text: Complex reasoning process
+            signature: ~
+            data: ~
+            id: ~
+            format: ~
+            index: ~
+            type_of: ~
+    - text:
+        role: User
+        content: User message without reasoning
+    - text:
+        role: Assistant
+        content: Assistant response
+    - tool:
+        name: test_tool
+        call_id: call_123
+        output:
+          is_error: false
+          values:
+            - text: Tool result
+after:
+  messages:
+    - text:
+        role: System
+        content: System message
+    - text:
+        role: User
+        content: User message with reasoning
+    - text:
+        role: User
+        content: User message without reasoning
+    - text:
+        role: Assistant
+        content: Assistant response
+    - tool:
+        name: test_tool
+        call_id: call_123
+        output:
+          is_error: false
+          values:
+            - text: Tool result

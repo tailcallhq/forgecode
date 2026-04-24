@@ -1,0 +1,11 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<file_undo
+  path="/home/user/test.txt"
+  status="restored"
+><![CDATA[1   |-ABC
+  1 |+PQR
+]]>
+</file_undo>

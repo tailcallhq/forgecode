@@ -1,0 +1,28 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<search_results
+  path="/home/user/project"
+  max_bytes_allowed="256000"
+  total_lines="50"
+  display_lines="11-25"
+  pattern="search"
+  glob="*.txt"
+  reason="Results truncated due to exceeding the 15 lines limit. Please use a more specific search pattern"
+><![CDATA[foo.txt:11:Match line 11: Test
+foo.txt:12:Match line 12: Test
+foo.txt:13:Match line 13: Test
+foo.txt:14:Match line 14: Test
+foo.txt:15:Match line 15: Test
+foo.txt:16:Match line 16: Test
+foo.txt:17:Match line 17: Test
+foo.txt:18:Match line 18: Test
+foo.txt:19:Match line 19: Test
+foo.txt:20:Match line 20: Test
+foo.txt:21:Match line 21: Test
+foo.txt:22:Match line 22: Test
+foo.txt:23:Match line 23: Test
+foo.txt:24:Match line 24: Test
+foo.txt:25:Match line 25: Test]]>
+</search_results>

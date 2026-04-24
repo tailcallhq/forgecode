@@ -1,0 +1,10 @@
+---
+source: crates/forge_app/src/dto/openai/request.rs
+expression: router_message
+---
+{
+  "role": "tool",
+  "content": "{ \"code\": \"fn main<T>(gt: T) {let b = &gt; }\"}",
+  "name": "rust_tool",
+  "tool_call_id": "456"
+}

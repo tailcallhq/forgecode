@@ -1,0 +1,37 @@
+---
+source: crates/forge_domain/src/transformer/set_model.rs
+expression: snapshot
+---
+transformation: SetModel(gpt-4)_user_and_assistant
+before:
+  messages:
+    - text:
+        role: User
+        content: User message
+    - text:
+        role: Assistant
+        content: Assistant message
+    - text:
+        role: System
+        content: System message
+    - text:
+        role: User
+        content: Another user message
+after:
+  messages:
+    - text:
+        role: User
+        content: User message
+        model: gpt-4
+    - text:
+        role: Assistant
+        content: Assistant message
+        model: gpt-4
+    - text:
+        role: System
+        content: System message
+        model: gpt-4
+    - text:
+        role: User
+        content: Another user message
+        model: gpt-4

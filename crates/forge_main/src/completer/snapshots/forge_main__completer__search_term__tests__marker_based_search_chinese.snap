@@ -1,0 +1,149 @@
+---
+source: crates/forge_main/src/completer/search_term.rs
+expression: results
+---
+[
+    TermSpec {
+        input: "@[你好 @世界 测试@",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            1,
+        ),
+        pos: 1,
+    },
+    TermSpec {
+        input: "@你[好 @世界 测试@",
+        output: Some(
+            "你",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            4,
+        ),
+        pos: 4,
+    },
+    TermSpec {
+        input: "@你好[ @世界 测试@",
+        output: Some(
+            "你好",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            7,
+        ),
+        pos: 7,
+    },
+    TermSpec {
+        input: "@你好 [@世界 测试@",
+        output: Some(
+            "你好 ",
+        ),
+        span_start: Some(
+            1,
+        ),
+        span_end: Some(
+            8,
+        ),
+        pos: 8,
+    },
+    TermSpec {
+        input: "@你好 @[世界 测试@",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            9,
+        ),
+        span_end: Some(
+            9,
+        ),
+        pos: 9,
+    },
+    TermSpec {
+        input: "@你好 @世[界 测试@",
+        output: Some(
+            "世",
+        ),
+        span_start: Some(
+            9,
+        ),
+        span_end: Some(
+            12,
+        ),
+        pos: 12,
+    },
+    TermSpec {
+        input: "@你好 @世界[ 测试@",
+        output: Some(
+            "世界",
+        ),
+        span_start: Some(
+            9,
+        ),
+        span_end: Some(
+            15,
+        ),
+        pos: 15,
+    },
+    TermSpec {
+        input: "@你好 @世界 [测试@",
+        output: Some(
+            "世界 ",
+        ),
+        span_start: Some(
+            9,
+        ),
+        span_end: Some(
+            16,
+        ),
+        pos: 16,
+    },
+    TermSpec {
+        input: "@你好 @世界 测[试@",
+        output: Some(
+            "世界 测",
+        ),
+        span_start: Some(
+            9,
+        ),
+        span_end: Some(
+            19,
+        ),
+        pos: 19,
+    },
+    TermSpec {
+        input: "@你好 @世界 测试[@",
+        output: Some(
+            "世界 测试",
+        ),
+        span_start: Some(
+            9,
+        ),
+        span_end: Some(
+            22,
+        ),
+        pos: 22,
+    },
+    TermSpec {
+        input: "@你好 @世界 测试@[",
+        output: Some(
+            "",
+        ),
+        span_start: Some(
+            23,
+        ),
+        span_end: Some(
+            23,
+        ),
+        pos: 23,
+    },
+]

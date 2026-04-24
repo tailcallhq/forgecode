@@ -1,0 +1,11 @@
+---
+source: crates/forge_markdown_stream/src/table.rs
+expression: "render(vec![vec![\"Function\", \"Description\"],\nvec![\"`render()`\", \"Renders the output\"],\nvec![\"`parse()`\", \"Parses input data\"],])"
+---
+  ┌───────────────────────┬────────────────────┐
+  │ Function              │ Description        │
+  ├───────────────────────┼────────────────────┤
+  │ <code>render()</code> │ Renders the output │
+  ├───────────────────────┼────────────────────┤
+  │ <code>parse()</code>  │ Parses input data  │
+  └───────────────────────┴────────────────────┘

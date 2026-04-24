@@ -1,0 +1,13 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<search_results
+  path="/home/user/project"
+  max_bytes_allowed="256000"
+  total_lines="2"
+  display_lines="1-2"
+  pattern="function"
+><![CDATA[app.js:function doSomething() {
+utils.js:function helper() {]]>
+</search_results>

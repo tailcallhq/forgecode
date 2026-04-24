@@ -1,0 +1,10 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<file
+  path="/home/user/test.txt"
+  display_lines="1-1"
+  total_lines="1"
+><![CDATA[1:struct Foo<T>{ name: T }]]>
+</file>

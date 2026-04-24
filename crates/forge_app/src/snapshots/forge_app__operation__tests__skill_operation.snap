@@ -1,0 +1,12 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<skill_details>
+<command
+  location="/home/user/.forge/skills/test-skill"
+><![CDATA[This is a test skill command with instructions]]>
+</command>
+<resource>/home/user/.forge/skills/test-skill/resource1.txt</resource>
+<resource>/home/user/.forge/skills/test-skill/resource2.md</resource>
+</skill_details>

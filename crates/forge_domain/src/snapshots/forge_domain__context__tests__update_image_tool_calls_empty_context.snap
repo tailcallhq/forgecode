@@ -1,0 +1,5 @@
+---
+source: crates/forge_domain/src/context.rs
+expression: actual
+---
+{}

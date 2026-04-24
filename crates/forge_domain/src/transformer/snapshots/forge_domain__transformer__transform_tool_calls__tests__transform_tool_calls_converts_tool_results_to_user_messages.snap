@@ -1,0 +1,30 @@
+---
+source: crates/forge_domain/src/transformer/transform_tool_calls.rs
+expression: snapshot
+---
+transformation: TransformToolCalls
+before:
+  messages:
+    - tool:
+        name: mixed_tool
+        call_id: call_456
+        output:
+          is_error: false
+          values:
+            - text: First text output
+            - image:
+                url: "data:image/png;base64,test_image_data"
+                mime_type: image/png
+            - text: Second text output
+            - empty
+after:
+  messages:
+    - text:
+        role: User
+        content: First text output
+    - image:
+        url: "data:image/png;base64,test_image_data"
+        mime_type: image/png
+    - text:
+        role: User
+        content: Second text output

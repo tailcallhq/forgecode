@@ -1,0 +1,10 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<shell_output
+  command="silent_command"
+  shell="/bin/bash"
+  exit_code="0"
+>
+</shell_output>

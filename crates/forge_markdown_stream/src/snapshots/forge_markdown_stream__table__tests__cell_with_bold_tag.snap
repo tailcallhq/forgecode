@@ -1,0 +1,9 @@
+---
+source: crates/forge_markdown_stream/src/table.rs
+expression: "render(vec![vec![\"Feature\", \"Status\"], vec![\"**Important**\", \"Done\"],])"
+---
+  ┌──────────────────┬────────┐
+  │ Feature          │ Status │
+  ├──────────────────┼────────┤
+  │ <b>Important</b> │ Done   │
+  └──────────────────┴────────┘

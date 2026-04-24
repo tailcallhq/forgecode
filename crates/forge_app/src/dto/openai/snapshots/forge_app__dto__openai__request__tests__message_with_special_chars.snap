@@ -1,0 +1,8 @@
+---
+source: crates/forge_app/src/dto/openai/request.rs
+expression: router_message
+---
+{
+  "role": "user",
+  "content": "Here's some XML content:\n<task>\n    <id>123</id>\n    <description>Test <special> characters</description>\n    <data key=\"value\">\n        <item>1</item>\n        <item>2</item>\n    </data>\n</task>"
+}

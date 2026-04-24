@@ -1,0 +1,9 @@
+---
+source: crates/forge_markdown_stream/src/table.rs
+expression: "render(vec![vec![\"Resource\", \"URL\"],\nvec![\"Documentation\", \"[docs](https://example.com)\"],])"
+---
+  ┌───────────────┬────────────────────────────────────────┐
+  │ Resource      │ URL                                    │
+  ├───────────────┼────────────────────────────────────────┤
+  │ Documentation │ <a href="https://example.com">docs</a> │
+  └───────────────┴────────────────────────────────────────┘

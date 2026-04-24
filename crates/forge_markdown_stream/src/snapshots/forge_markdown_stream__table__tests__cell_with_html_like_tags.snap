@@ -1,0 +1,11 @@
+---
+source: crates/forge_markdown_stream/src/table.rs
+expression: "render(vec![vec![\"HTML\", \"Content\"], vec![\"<div>\", \"element\"],\nvec![\"<span class='x'>\", \"styled\"],])"
+---
+  ┌──────────────────┬─────────┐
+  │ HTML             │ Content │
+  ├──────────────────┼─────────┤
+  │ <div>            │ element │
+  ├──────────────────┼─────────┤
+  │ <span class='x'> │ styled  │
+  └──────────────────┴─────────┘

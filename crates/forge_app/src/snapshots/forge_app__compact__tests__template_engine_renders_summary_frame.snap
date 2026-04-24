@@ -1,0 +1,60 @@
+---
+source: crates/forge_app/src/compact.rs
+expression: actual
+---
+Use the following summary frames as the authoritative reference for all coding suggestions and decisions. Do not re-explain or revisit it unless I ask. Additional summary frames will be added as the conversation progresses.
+
+## Summary
+
+### 1. User
+
+````
+Please read the config file
+````
+
+### 2. Assistant
+
+**Read:** `config.toml`
+
+### 3. User
+
+````
+Now update the version number
+````
+
+### 4. Assistant
+
+**Update:** `Cargo.toml`
+
+### 5. User
+
+````
+Search for TODO comments
+````
+
+### 6. Assistant
+
+**Search:** `TODO`
+
+### 7. Assistant
+
+**Semantic Search:**
+- `Find authentication implementation`
+
+### 8. Assistant
+
+**Execute:** 
+```
+cargo test
+```
+
+### 9. User
+
+````
+Great! Everything looks good.
+````
+
+
+---
+
+Proceed with implementation based on this context.

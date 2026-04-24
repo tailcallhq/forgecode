@@ -1,0 +1,9 @@
+---
+source: crates/forge_markdown_stream/src/table.rs
+expression: "render(vec![vec![\"Complex\", \"Content\"],\nvec![\"***bold italic***\", \"~~strikethrough~~\"],])"
+---
+  ┌───────────────────────────┬──────────────────────┐
+  │ Complex                   │ Content              │
+  ├───────────────────────────┼──────────────────────┤
+  │ <b><i>bold italic</i></b> │ <s>strikethrough</s> │
+  └───────────────────────────┴──────────────────────┘

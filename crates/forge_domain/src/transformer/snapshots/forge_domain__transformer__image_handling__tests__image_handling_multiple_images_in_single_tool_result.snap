@@ -1,0 +1,47 @@
+---
+source: crates/forge_domain/src/transformer/image_handling.rs
+expression: snapshot
+---
+transformation: ImageHandling
+before:
+  messages:
+    - tool:
+        name: multi_image_tool
+        call_id: call_multi
+        output:
+          is_error: false
+          values:
+            - text: Before images
+            - image:
+                url: "data:image/png;base64,image1_data"
+                mime_type: image/png
+            - text: Between images
+            - image:
+                url: "data:image/jpeg;base64,image2_data"
+                mime_type: image/jpeg
+            - text: After images
+after:
+  messages:
+    - tool:
+        name: multi_image_tool
+        call_id: call_multi
+        output:
+          is_error: false
+          values:
+            - text: Before images
+            - text: "[The image with ID 0 will be sent as an attachment in the next message]"
+            - text: Between images
+            - text: "[The image with ID 1 will be sent as an attachment in the next message]"
+            - text: After images
+    - text:
+        role: User
+        content: "[Here is the image attachment for ID 0]"
+    - image:
+        url: "data:image/png;base64,image1_data"
+        mime_type: image/png
+    - text:
+        role: User
+        content: "[Here is the image attachment for ID 1]"
+    - image:
+        url: "data:image/jpeg;base64,image2_data"
+        mime_type: image/jpeg

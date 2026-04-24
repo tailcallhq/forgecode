@@ -1,0 +1,25 @@
+---
+source: crates/forge_domain/src/transformer/drop_reasoning_details.rs
+expression: snapshot
+---
+transformation: DropReasoningDetails_preserve_fields
+before:
+  messages:
+    - text:
+        role: Assistant
+        content: Assistant message
+        model: gpt-4
+        reasoning_details:
+          - text: Important reasoning
+            signature: ~
+            data: ~
+            id: ~
+            format: ~
+            index: ~
+            type_of: ~
+after:
+  messages:
+    - text:
+        role: Assistant
+        content: Assistant message
+        model: gpt-4

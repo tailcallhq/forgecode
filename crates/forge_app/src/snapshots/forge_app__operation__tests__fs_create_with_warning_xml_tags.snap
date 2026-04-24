@@ -1,0 +1,28 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<file_created
+  path="/home/user/file_with_warning.txt"
+  total_lines="1"
+>
+<warning>
+<message>Syntax validation failed</message>
+<file
+  path="/home/user/file_with_warning.txt"
+>
+</file>
+<details>The file was written successfully but contains 2 syntax error(s)</details>
+<error
+  line="10"
+  column="5"
+><![CDATA[Syntax error on line 10]]>
+</error>
+<error
+  line="20"
+  column="15"
+><![CDATA[Missing semicolon]]>
+</error>
+<suggestion>Review and fix the syntax issues</suggestion>
+</warning>
+</file_created>
