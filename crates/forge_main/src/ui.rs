@@ -579,9 +579,15 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         server.set_disable(false);
                         self.api.write_mcp_config(&scope, &scope_config).await?;
                         self.api.reload_mcp().await?;
-                        self.writeln_title(TitleFormat::info(format!("Enabled MCP server: {}", args.name)))?;
+                        self.writeln_title(TitleFormat::info(format!(
+                            "Enabled MCP server: {}",
+                            args.name
+                        )))?;
                     } else {
-                        self.writeln_title(TitleFormat::error(format!("Server '{}' not found", args.name)))?;
+                        self.writeln_title(TitleFormat::error(format!(
+                            "Server '{}' not found",
+                            args.name
+                        )))?;
                     }
                 }
                 McpCommand::Disable(args) => {
@@ -596,9 +602,15 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         server.set_disable(true);
                         self.api.write_mcp_config(&scope, &scope_config).await?;
                         self.api.reload_mcp().await?;
-                        self.writeln_title(TitleFormat::info(format!("Disabled MCP server: {}", args.name)))?;
+                        self.writeln_title(TitleFormat::info(format!(
+                            "Disabled MCP server: {}",
+                            args.name
+                        )))?;
                     } else {
-                        self.writeln_title(TitleFormat::error(format!("Server '{}' not found", args.name)))?;
+                        self.writeln_title(TitleFormat::error(format!(
+                            "Server '{}' not found",
+                            args.name
+                        )))?;
                     }
                 }
             },
