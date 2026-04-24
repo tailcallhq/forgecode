@@ -19,7 +19,7 @@ anyhow = "1.0.102"
 async-recursion = "1.1.1"
 async-stream = "0.3"
 async-trait = "0.1.89"
-aws-config = { version = "1.8.13", features = ["behavior-version-latest"], default-features = false }
+aws-config = { version = "1.8.13", features = ["behavior-version-latest", "sso"], default-features = false }
 aws-sdk-bedrockruntime = { version = "1.129.0", features = ["behavior-version-latest"], default-features = false }
 aws-credential-types = "1.2.14"
 aws-smithy-types = "1.4.3"
@@ -136,7 +136,7 @@ num-format = "0.4"
 humantime = "2.1.0"
 dashmap = "7.0.0-rc2"
 async-openai = { version = "0.34.0", default-features = false, features = ["response-types"] } # Using only types, not the API client - reduces dependencies
-gix = "0.81"
+gix = "0.82"
 google-cloud-auth = "1.8.0" # Google Cloud authentication with automatic token refresh
 
 # Internal crates
