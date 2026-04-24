@@ -1,3 +1,4 @@
+use std::process::Stdio;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -17,53 +18,77 @@ fn helper_timeout() -> Duration {
         .unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
 }
 
+/// Kills the entire process group rooted at `pid`.
+#[cfg(unix)]
+fn kill_process_group(pid: u32) {
+    unsafe {
+        libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+    }
+}
+
 /// Executes an [`ApiKeyProvider`] to obtain a fresh key.
 ///
 /// - `StaticKey` — returns the provider unchanged (no-op).
 /// - `HelperCommand` — runs the shell command via `sh -c`, parses stdout, and
 ///   returns an updated provider with the new key and optional expiry.  The
-///   command is killed if it exceeds the configured timeout.
+///   child is placed in its own process group so that the entire tree
+///   (including grandchildren) is killed on timeout.
 pub async fn execute(provider: &ApiKeyProvider) -> anyhow::Result<ApiKeyProvider> {
     match provider {
         ApiKeyProvider::StaticKey(_) => Ok(provider.clone()),
         ApiKeyProvider::HelperCommand { command, .. } => {
             let timeout = helper_timeout();
 
-            let output = tokio::time::timeout(
-                timeout,
-                tokio::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(command)
-                    .kill_on_drop(true)
-                    .output(),
-            )
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "Auth helper timed out after {}s (command: {command:.40})",
-                    timeout.as_secs()
-                )
-            })?
-            .map_err(|e| {
+            let mut cmd = tokio::process::Command::new("sh");
+            cmd.arg("-c")
+                .arg(command)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+
+            #[cfg(unix)]
+            cmd.process_group(0);
+
+            let child = cmd.spawn().map_err(|e| {
                 anyhow::anyhow!("Failed to execute auth helper (command: {command:.40}): {e}")
             })?;
 
-            if !output.status.success() {
-                anyhow::bail!(
-                    "Auth helper exited with status {} (command: {command:.40})",
-                    output.status
-                );
+            let pid = child.id();
+
+            match tokio::time::timeout(timeout, child.wait_with_output()).await {
+                Ok(Ok(output)) => {
+                    if !output.status.success() {
+                        anyhow::bail!(
+                            "Auth helper exited with status {} (command: {command:.40})",
+                            output.status
+                        );
+                    }
+
+                    let stdout = String::from_utf8(output.stdout).map_err(|e| {
+                        anyhow::anyhow!("Auth helper output is not valid UTF-8: {e}")
+                    })?;
+
+                    let (key, expires_at) = parse_output(&stdout)?;
+                    Ok(ApiKeyProvider::HelperCommand {
+                        command: command.clone(),
+                        last_key: key,
+                        expires_at,
+                    })
+                }
+                Ok(Err(e)) => Err(anyhow::anyhow!(
+                    "Failed to execute auth helper (command: {command:.40}): {e}"
+                )),
+                Err(_) => {
+                    #[cfg(unix)]
+                    if let Some(pid) = pid {
+                        kill_process_group(pid);
+                    }
+                    anyhow::bail!(
+                        "Auth helper timed out after {}s (command: {command:.40})",
+                        timeout.as_secs()
+                    );
+                }
             }
-
-            let stdout = String::from_utf8(output.stdout)
-                .map_err(|e| anyhow::anyhow!("Auth helper output is not valid UTF-8: {e}"))?;
-
-            let (key, expires_at) = parse_output(&stdout)?;
-            Ok(ApiKeyProvider::HelperCommand {
-                command: command.clone(),
-                last_key: key,
-                expires_at,
-            })
         }
     }
 }
@@ -203,6 +228,42 @@ mod tests {
                 expires_at: None,
             };
             assert!(execute(&provider).await.is_err());
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn timeout_kills_entire_process_group() {
+            let pid_file =
+                std::env::temp_dir().join(format!("forge_test_pgkill_{}", std::process::id()));
+
+            let command = format!(
+                "(echo $$ > {}; sleep 300) & sleep 300",
+                pid_file.display()
+            );
+
+            unsafe { std::env::set_var("FORGE_API_KEY_HELPER_TIMEOUT", "1") };
+
+            let provider = ApiKeyProvider::HelperCommand {
+                command,
+                last_key: ApiKey::from("old".to_string()),
+                expires_at: None,
+            };
+
+            let result = execute(&provider).await;
+
+            unsafe { std::env::remove_var("FORGE_API_KEY_HELPER_TIMEOUT") };
+
+            assert!(result.unwrap_err().to_string().contains("timed out"));
+
+            tokio::time::sleep(Duration::from_millis(200)).await;
+
+            let pid_str = std::fs::read_to_string(&pid_file).unwrap();
+            let grandchild_pid: libc::pid_t = pid_str.trim().parse().unwrap();
+
+            let alive = unsafe { libc::kill(grandchild_pid, 0) };
+            assert_eq!(alive, -1, "Grandchild process should have been killed");
+
+            std::fs::remove_file(&pid_file).ok();
         }
     }
 }

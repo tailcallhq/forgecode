@@ -2349,6 +2349,7 @@ dependencies = [
  "glob",
  "google-cloud-auth",
  "http 1.4.0",
+ "libc",
  "libsqlite3-sys",
  "oauth2",
  "open",
