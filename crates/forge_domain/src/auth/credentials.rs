@@ -17,13 +17,13 @@ pub enum ApiKeyProvider {
     /// A static, user-supplied API key.
     StaticKey(ApiKey),
     /// A shell command executed via `sh -c` whose trimmed stdout is used as the
-    /// API key.  Only the `command` is persisted; `last_key` and `expires_at`
-    /// are populated at runtime by executing the command.
+    /// API key.  The `last_key` and `expires_at` are cached on disk so the
+    /// command only re-executes when the key expires (or on first use).
     HelperCommand {
         command: String,
-        #[serde(skip, default)]
+        #[serde(default)]
         last_key: ApiKey,
-        #[serde(skip, default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         expires_at: Option<DateTime<Utc>>,
     },
 }
@@ -282,15 +282,28 @@ mod tests {
             }
 
             #[test]
-            fn serializes_only_command() {
+            fn serializes_command_and_last_key() {
                 let fixture = ApiKeyProvider::HelperCommand {
                     command: "vault read -field=token".to_string(),
                     last_key: ApiKey::from("resolved".to_string()),
                     expires_at: None,
                 };
                 let actual = serde_json::to_string(&fixture).unwrap();
-                let expected = r#"{"command":"vault read -field=token"}"#;
+                let expected =
+                    r#"{"command":"vault read -field=token","last_key":"resolved"}"#;
                 assert_eq!(actual, expected);
+            }
+
+            #[test]
+            fn round_trips_with_cached_key() {
+                let fixture = ApiKeyProvider::HelperCommand {
+                    command: "vault read -field=token".to_string(),
+                    last_key: ApiKey::from("cached-key".to_string()),
+                    expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
+                };
+                let json = serde_json::to_string(&fixture).unwrap();
+                let actual: ApiKeyProvider = serde_json::from_str(&json).unwrap();
+                assert_eq!(actual, fixture);
             }
 
             #[test]
