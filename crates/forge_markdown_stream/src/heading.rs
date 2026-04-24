@@ -1,9 +1,8 @@
 //! Heading rendering with theme-based styling.
 
-use streamdown_render::simple_wrap;
-
 use crate::inline::render_inline_content;
 use crate::style::{HeadingStyler, InlineStyler};
+use crate::utils::simple_wrap_preserving_spaces;
 
 /// Render a heading with appropriate styling.
 pub fn render_heading<S: InlineStyler + HeadingStyler>(
@@ -30,7 +29,7 @@ pub fn render_heading<S: InlineStyler + HeadingStyler>(
     // chars, etc.)
     let prefix_display_width = level as usize + 1;
     let content_width = width.saturating_sub(prefix_display_width);
-    let lines = simple_wrap(&rendered_content, content_width);
+    let lines = simple_wrap_preserving_spaces(&rendered_content, content_width);
     let mut result = Vec::new();
 
     for line in lines {
@@ -220,6 +219,29 @@ mod tests {
         <dim><h3>###</h3></dim> <h3>section</h3>
         <dim><h3>###</h3></dim> <h3>title that</h3>
         <dim><h3>###</h3></dim> <h3>wraps</h3>
+        ");
+    }
+
+    #[test]
+    fn test_h3_wrapping_preserves_korean_word_spaces() {
+        let actual = render_with_width(3, "한글 공백 보존 확인", 12);
+
+        insta::assert_snapshot!(actual, @r"
+          <dim><h3>###</h3></dim> <h3>한글</h3>
+          <dim><h3>###</h3></dim> <h3>공백</h3>
+          <dim><h3>###</h3></dim> <h3>보존</h3>
+          <dim><h3>###</h3></dim> <h3>확인</h3>
+        ");
+    }
+
+    #[test]
+    fn test_h3_wrapping_splits_long_tokens() {
+        let actual = render_with_width(3, "supercalifragilistic", 12);
+
+        insta::assert_snapshot!(actual, @r"
+          <dim><h3>###</h3></dim> <h3>supercal</h3>
+          <dim><h3>###</h3></dim> <h3>ifragili</h3>
+          <dim><h3>###</h3></dim> <h3>stic</h3>
         ");
     }
 
