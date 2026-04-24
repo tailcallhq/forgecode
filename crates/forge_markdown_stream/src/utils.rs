@@ -27,7 +27,7 @@ static THEME_MODE: OnceLock<ThemeMode> = OnceLock::new();
 /// Falls back to dark mode if the terminal does not respond within the timeout.
 pub fn detect_theme_mode() -> ThemeMode {
     *THEME_MODE.get_or_init(|| {
-        use terminal_colorsaurus::{theme_mode, QueryOptions, ThemeMode as ColorsaurusThemeMode};
+        use terminal_colorsaurus::{QueryOptions, ThemeMode as ColorsaurusThemeMode, theme_mode};
 
         let mut opts = QueryOptions::default();
         opts.timeout = THEME_DETECT_TIMEOUT;
