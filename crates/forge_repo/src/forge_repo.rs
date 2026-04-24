@@ -643,7 +643,8 @@ impl<F: GrpcInfra + Send + Sync> TextPatchRepository for ForgeRepo<F> {
         });
 
         let channel = self.infra.channel()?;
-        let mut client = crate::proto_generated::forge_service_client::ForgeServiceClient::new(channel);
+        let mut client =
+            crate::proto_generated::forge_service_client::ForgeServiceClient::new(channel);
         let response = client.build_text_patch(request).await?.into_inner();
 
         Ok(TextPatchBlock { patch: response.patch, patched_text: response.patched_text })

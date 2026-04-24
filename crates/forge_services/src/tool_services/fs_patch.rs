@@ -377,12 +377,12 @@ impl<F> ForgeFsPatch<F> {
 
 #[async_trait::async_trait]
 impl<
-        F: FileWriterInfra
-            + SnapshotRepository
-            + ValidationRepository
-            + FuzzySearchRepository
-            + TextPatchRepository,
-    > FsPatchService for ForgeFsPatch<F>
+    F: FileWriterInfra
+        + SnapshotRepository
+        + ValidationRepository
+        + FuzzySearchRepository
+        + TextPatchRepository,
+> FsPatchService for ForgeFsPatch<F>
 {
     async fn patch(
         &self,
@@ -424,15 +424,9 @@ impl<
                     Range::normalize_search_line_endings(&current_content, &content);
                 let patch = self
                     .infra
-                    .build_text_patch(
-                        &current_content,
-                        &normalized_search,
-                        &normalized_content,
-                    )
+                    .build_text_patch(&current_content, &normalized_search, &normalized_content)
                     .await
-                    .map_err(|error| Error::PatchBuild {
-                        message: error.to_string(),
-                    })?;
+                    .map_err(|error| Error::PatchBuild { message: error.to_string() })?;
                 patch.patched_text
             }
             Err(e) => return Err(e.into()),
