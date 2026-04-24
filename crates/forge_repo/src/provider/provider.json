@@ -2075,7 +2075,7 @@
         "input_modalities": ["text", "image"]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": ["api_key", "aws_profile"]
   },
   {
     "id": "vertex_ai_anthropic",

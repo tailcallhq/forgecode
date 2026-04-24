@@ -3,6 +3,7 @@ use std::str::FromStr;
 use forge_domain::{DefaultTransformation, Provider, ProviderId, Transformer};
 use url::Url;
 
+use super::default_reasoning_content::DefaultReasoningContent;
 use super::drop_tool_call::DropToolCalls;
 use super::github_copilot_reasoning::GitHubCopilotReasoning;
 use super::make_cerebras_compat::MakeCerebrasCompat;
@@ -70,6 +71,9 @@ impl Transformer for ProviderPipeline<'_> {
                 || when_model("kimi")(request)
         });
 
+        let default_reasoning_content =
+            DefaultReasoningContent.when(move |_| is_deepseek_provider(provider));
+
         let cerebras_compat = MakeCerebrasCompat.when(move |_| provider.id == ProviderId::CEREBRAS);
 
         let xai_compat = MakeXaiCompat.when(move |_| provider.id == ProviderId::XAI);
@@ -94,6 +98,7 @@ impl Transformer for ProviderPipeline<'_> {
             .pipe(open_ai_compat)
             .pipe(github_copilot_reasoning)
             .pipe(reasoning_content)
+            .pipe(default_reasoning_content)
             .pipe(cerebras_compat)
             .pipe(xai_compat)
             .pipe(trim_tool_call_ids)
@@ -875,6 +880,29 @@ mod tests {
         let message = actual.messages.unwrap().into_iter().next().unwrap();
         assert_eq!(message.reasoning_content, Some("thinking...".to_string()));
         assert!(message.reasoning_details.is_none());
+    }
+
+    #[test]
+    fn test_deepseek_provider_falls_back_to_empty_reasoning_content_when_none() {
+        let provider = deepseek("deepseek");
+        let fixture = Request::default().messages(vec![crate::dto::openai::Message {
+            role: crate::dto::openai::Role::Assistant,
+            content: Some(crate::dto::openai::MessageContent::Text("test".to_string())),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning_details: None,
+            reasoning_text: None,
+            reasoning_opaque: None,
+            reasoning_content: None,
+            extra_content: None,
+        }]);
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        let message = actual.messages.unwrap().into_iter().next().unwrap();
+        assert_eq!(message.reasoning_content, Some(String::new()));
     }
 
     #[test]
