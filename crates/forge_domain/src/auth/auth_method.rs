@@ -13,6 +13,8 @@ pub enum AuthMethod {
     OAuthCode(OAuthConfig),
     #[serde(rename = "google_adc")]
     GoogleAdc,
+    #[serde(rename = "aws_profile")]
+    AwsProfile,
     #[serde(rename = "codex_device")]
     CodexDevice(OAuthConfig),
 }
@@ -40,7 +42,7 @@ impl AuthMethod {
             Self::OAuthDevice(config) | Self::OAuthCode(config) | Self::CodexDevice(config) => {
                 Some(config)
             }
-            Self::ApiKey | Self::GoogleAdc => None,
+            Self::ApiKey | Self::GoogleAdc | Self::AwsProfile => None,
         }
     }
 }
