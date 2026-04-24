@@ -575,6 +575,16 @@
     "url": "https://api.anthropic.com/v1/messages",
     "models": [
       {
+        "id": "claude-opus-4-7",
+        "name": "Claude Opus 4.7",
+        "description": "Most intelligent model for building agents and coding",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-sonnet-4-6",
         "name": "Claude Sonnet 4.6",
         "description": "Most balanced model for building agents and coding",
@@ -996,6 +1006,16 @@
         "supports_parallel_tool_calls": false,
         "supports_reasoning": false,
         "input_modalities": ["text"]
+      },
+      {
+        "id": "glm-5v-turbo",
+        "name": "GLM-5V Turbo",
+        "description": "Vision-capable model with attachment support, reasoning, and tool calling capabilities",
+        "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key"]
@@ -2023,6 +2043,36 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "us.anthropic.claude-opus-4-7",
+        "name": "Claude Opus 4.7 (US)",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "global.anthropic.claude-opus-4-7",
+        "name": "Claude Opus 4.7 (Global)",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "eu.anthropic.claude-opus-4-7",
+        "name": "Claude Opus 4.7 (EU)",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key"]
@@ -2039,6 +2089,16 @@
         "name": "Claude Sonnet 4.6",
         "description": "Most balanced Claude model with excellent performance and speed",
         "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "claude-opus-4-7",
+        "name": "Claude Opus 4.7",
+        "description": "Most capable Claude model with enhanced reasoning and analysis capabilities",
+        "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -2347,6 +2407,16 @@
     "url": "https://chatgpt.com/backend-api/codex/responses",
     "models": [
       {
+        "id": "gpt-5.5",
+        "name": "GPT-5.5",
+        "description": "Latest frontier model for complex professional work",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "gpt-5.4-mini",
         "name": "GPT-5.4 Mini",
         "description": "Strongest mini model yet for coding, computer use, and subagents",
@@ -2370,7 +2440,7 @@
         "id": "gpt-5.3-codex-spark",
         "name": "GPT-5.3 Codex Spark",
         "description": "Text-only research preview model optimized for near-instant, real-time coding iteration.",
-        "context_length": 272000,
+        "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -2601,7 +2671,7 @@
         "id": "gpt-5.3-codex-spark",
         "name": "GPT 5.3 Codex Spark",
         "description": "Latest GPT-5.3 Codex Spark model for agentic coding",
-        "context_length": 272000,
+        "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -2818,6 +2888,26 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "qwen3.6-plus",
+        "name": "Qwen3.6 Plus",
+        "description": "Advanced reasoning model with enhanced capabilities",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k2.6",
+        "name": "Kimi K2.6",
+        "description": "Moonshot AI Kimi K2.6 model with multimodal input, reasoning, and tool calling capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key"]
@@ -2898,6 +2988,26 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text"]
+      },
+      {
+        "id": "qwen3.6-plus",
+        "name": "Qwen3.6 Plus",
+        "description": "Advanced reasoning model with enhanced capabilities",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k2.6",
+        "name": "Kimi K2.6",
+        "description": "Moonshot AI Kimi K2.6 model with multimodal input, reasoning, and tool calling capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key"]
@@ -3080,10 +3190,30 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "accounts/fireworks/routers/kimi-k2p6",
+        "name": "Kimi K2.6 (Firepass)",
+        "description": "Kimi K2.6 model",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "accounts/fireworks/models/kimi-k2p5",
         "name": "Kimi K2.5",
         "description": "Kimi K2.5 model",
         "context_length": 256000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "accounts/fireworks/models/kimi-k2p6",
+        "name": "Kimi K2.6",
+        "description": "Kimi K2.6 model",
+        "context_length": 262144,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -3228,6 +3358,15 @@
         "input_modalities": ["text"]
       }
     ],
+    "auth_methods": ["api_key"]
+  },
+  {
+    "id": "adal",
+    "api_key_vars": "ADAL_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.sylph.ai/v1/chat/completions",
+    "models": "https://api.sylph.ai/v1/models",
     "auth_methods": ["api_key"]
   }
 ]

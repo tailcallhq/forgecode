@@ -5,10 +5,10 @@ pub struct ReasoningTransform;
 impl Transformer for ReasoningTransform {
     type Value = Context;
     fn transform(&mut self, mut context: Self::Value) -> Self::Value {
-        if let Some(reasoning) = context.reasoning.as_ref()
-            && reasoning.enabled.unwrap_or(false)
-        {
-            // if reasoning is enabled then we've to drop top_k and top_p
+        // Must stay in lockstep with the Anthropic request builder, which gates
+        // on the same predicate — otherwise `thinking`/`output_config` ship
+        // alongside sampling params that Anthropic rejects.
+        if context.is_reasoning_supported() {
             context.top_k = None;
             context.top_p = None;
         }
@@ -84,5 +84,52 @@ mod tests {
         let expected = fixture;
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_enabled_none_with_effort_still_strips_top_k_and_top_p() {
+        // `enabled: None` + effort is treated as reasoning-on (domain rule).
+        let fixture = create_context_fixture().reasoning(ReasoningConfig {
+            enabled: None,
+            max_tokens: None,
+            effort: Some(forge_domain::Effort::High),
+            exclude: None,
+        });
+        let mut transformer = ReasoningTransform;
+        let actual = transformer.transform(fixture);
+
+        assert_eq!(actual.top_k, None);
+        assert_eq!(actual.top_p, None);
+    }
+
+    #[test]
+    fn test_enabled_none_with_positive_max_tokens_still_strips_top_k_and_top_p() {
+        let fixture = create_context_fixture().reasoning(ReasoningConfig {
+            enabled: None,
+            max_tokens: Some(8000),
+            effort: None,
+            exclude: None,
+        });
+        let mut transformer = ReasoningTransform;
+        let actual = transformer.transform(fixture);
+
+        assert_eq!(actual.top_k, None);
+        assert_eq!(actual.top_p, None);
+    }
+
+    #[test]
+    fn test_enabled_none_with_zero_max_tokens_preserves_top_k_and_top_p() {
+        // Matches `is_reasoning_supported`: max_tokens == 0 is treated as off.
+        let fixture = create_context_fixture().reasoning(ReasoningConfig {
+            enabled: None,
+            max_tokens: Some(0),
+            effort: None,
+            exclude: None,
+        });
+        let mut transformer = ReasoningTransform;
+        let actual = transformer.transform(fixture.clone());
+
+        assert_eq!(actual.top_k, fixture.top_k);
+        assert_eq!(actual.top_p, fixture.top_p);
     }
 }

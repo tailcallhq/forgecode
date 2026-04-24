@@ -27,6 +27,7 @@ aws-smithy-runtime-api = "1.11.3"
 aws-smithy-async = { version = "1.2.11", features = ["rt-tokio"] }
 aws-smithy-runtime = { version = "1.10", features = ["connector-hyper-0-14-x", "tls-rustls"] }
 base64 = "0.22.1"
+bstr = "1.12.1"
 bytes = "1.11.1"
 chrono = { version = "0.4.44", features = ["serde"] }
 clap = { version = "4.6.0", features = ["derive"] }
@@ -59,11 +60,11 @@ machineid-rs = "1.2.4"
 mockito = "1.7.2"
 nom = "8.0.0"
 nu-ansi-term = "0.50.1"
-posthog-rs = { git = "https://github.com/PostHog/posthog-rs.git", rev = "fe1bfe0ea613c85c460f1768e75ca83cb70a8afd" }
+posthog-rs = { git = "https://github.com/PostHog/posthog-rs.git", rev = "83cf3d2c3b6edab8600276d06b76c73e59af8ebd" }
 pretty_assertions = "1.4.1"
 proc-macro2 = "1.0"
 quote = "1.0"
-reedline = "0.46.0"
+reedline = "0.47.0"
 rustyline = "18.0.0"
 regex = "1.12.3"
 reqwest = { version = "0.12.23", features = [
