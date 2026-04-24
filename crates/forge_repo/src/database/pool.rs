@@ -98,13 +98,15 @@ impl DatabasePool {
                 drop(pool);
                 self.recreate_pool()?;
                 let pool = self.pool.lock().expect("DatabasePool mutex poisoned");
-                pool.get()
-                    .map_err(|e| anyhow::anyhow!("Failed to get connection after pool recreation: {e}"))
+                pool.get().map_err(|e| {
+                    anyhow::anyhow!("Failed to get connection after pool recreation: {e}")
+                })
             }
         }
     }
 
-    /// Recreates the connection pool from scratch using the stored configuration.
+    /// Recreates the connection pool from scratch using the stored
+    /// configuration.
     ///
     /// This is used as a last-resort recovery mechanism when all retry attempts
     /// have failed, typically due to stale or corrupted connections after long
@@ -248,10 +250,7 @@ impl DatabasePool {
         })?;
 
         debug!(database_path = %config.database_path.display(), "created connection pool");
-        Ok(Self {
-            pool: Mutex::new(pool),
-            config: config.clone(),
-        })
+        Ok(Self { pool: Mutex::new(pool), config: config.clone() })
     }
 }
 
@@ -355,7 +354,8 @@ mod tests {
 
         // Verify the recreated pool works by running a query
         let mut conn = pool.get_connection()?;
-        let result: Result<i32, _> = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1")).first(&mut *conn);
+        let result: Result<i32, _> =
+            diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1")).first(&mut *conn);
         assert!(result.is_ok(), "Pool should be usable after recreation");
         Ok(())
     }
