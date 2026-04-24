@@ -53,7 +53,13 @@ impl<F: FileReaderInfra + FileWriterInfra + FileRemoverInfra + SnapshotMetadataR
         for (file_path, snap_file_path) in &file_snapshots {
             if snap_file_path.is_empty() {
                 // New file created during prompt: delete it on undo.
-                self.infra.remove(Path::new(file_path)).await?;
+                // Tolerate NotFound — if the file was already manually deleted,
+                // the desired end state is already achieved.
+                if let Err(err) = self.infra.remove(Path::new(file_path)).await {
+                    if !is_not_found(&err) {
+                        return Err(err);
+                    }
+                }
                 deleted_files.push(file_path.clone());
             } else {
                 // Existing file modified: restore from snapshot.
@@ -78,6 +84,15 @@ impl<F: FileReaderInfra + FileWriterInfra + FileRemoverInfra + SnapshotMetadataR
             deleted_files,
         })
     }
+}
+
+/// Checks whether an error is caused by a file-not-found condition.
+/// This handles both `std::io::ErrorKind::NotFound` directly and when it's
+/// wrapped inside an `anyhow::Error`.
+fn is_not_found(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<std::io::Error>()
+        .map(|e| e.kind() == std::io::ErrorKind::NotFound)
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -123,12 +138,22 @@ mod tests {
             file_path: &str,
             snap_file_path: &str,
             snap_content: &str,
+            file_exists: bool,
         ) {
             if !snap_file_path.is_empty() {
                 self.files
                     .lock()
                     .unwrap()
                     .insert(snap_file_path.to_string(), snap_content.to_string());
+            }
+
+            // For new files, optionally add the file to the mock filesystem
+            // so the remove() call can find it.
+            if file_exists {
+                self.files
+                    .lock()
+                    .unwrap()
+                    .insert(file_path.to_string(), "current content".to_string());
             }
 
             self.conversation_snapshots
@@ -210,6 +235,11 @@ mod tests {
     impl FileRemoverInfra for MockUndoInfra {
         async fn remove(&self, path: &Path) -> anyhow::Result<()> {
             let path_str = path.to_str().unwrap().to_string();
+            if !self.files.lock().unwrap().contains_key(&path_str) {
+                return Err(anyhow::anyhow!(std::io::Error::from(
+                    std::io::ErrorKind::NotFound
+                )));
+            }
             self.files.lock().unwrap().remove(&path_str);
             self.removed.lock().unwrap().push(path_str);
             Ok(())
@@ -267,6 +297,7 @@ mod tests {
             "/home/user/test.txt",
             "/tmp/snaps/test.txt.snap",
             "original content",
+            false,
         );
 
         let service = ForgePromptUndo::new(Arc::new(fixture));
@@ -291,6 +322,7 @@ mod tests {
             "/home/user/file1.txt",
             "/tmp/snaps/file1.txt.snap",
             "content1",
+            false,
         );
         fixture.add_snapshot(
             conversation_id,
@@ -298,6 +330,7 @@ mod tests {
             "/home/user/file2.rs",
             "/tmp/snaps/file2.rs.snap",
             "content2",
+            false,
         );
 
         let service = ForgePromptUndo::new(Arc::new(fixture));
@@ -336,6 +369,7 @@ mod tests {
             "/home/user/test.txt",
             "/tmp/snaps/test.txt.snap",
             "original content",
+            false,
         );
 
         let service = ForgePromptUndo::new(Arc::new(fixture));
@@ -353,13 +387,15 @@ mod tests {
         let user_input_id = UserInputId::new();
 
         let fixture = MockUndoInfra::new();
-        // New file has empty snap_file_path (no prior content to back up)
+        // New file has empty snap_file_path (no prior content to back up).
+        // file_exists=true simulates the file still being on disk.
         fixture.add_snapshot(
             conversation_id,
             &user_input_id.to_string(),
             "/home/user/new_file.txt",
             "",
             "",
+            true,
         );
 
         let service = ForgePromptUndo::new(Arc::new(fixture));
@@ -379,6 +415,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_undo_last_prompt_deletes_already_manually_deleted_new_file() {
+        let conversation_id = ConversationId::generate();
+        let user_input_id = UserInputId::new();
+
+        let fixture = MockUndoInfra::new();
+        // New file was already manually deleted (file_exists=false).
+        // The undo should succeed silently — the desired end state is already
+        // achieved.
+        fixture.add_snapshot(
+            conversation_id,
+            &user_input_id.to_string(),
+            "/home/user/new_file.txt",
+            "",
+            "",
+            false, // file already manually deleted
+        );
+
+        let service = ForgePromptUndo::new(Arc::new(fixture));
+        let actual = service.undo_last_prompt(conversation_id).await.unwrap();
+
+        let expected = PromptUndoOutput {
+            restored_files: vec![],
+            deleted_files: vec!["/home/user/new_file.txt".to_string()],
+        };
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
     async fn test_undo_last_prompt_restores_and_deletes_mixed() {
         let conversation_id = ConversationId::generate();
         let user_input_id = UserInputId::new();
@@ -391,6 +455,7 @@ mod tests {
             "/home/user/existing.txt",
             "/tmp/snaps/existing.txt.snap",
             "original content",
+            false,
         );
         // New file created: empty snap_file_path
         fixture.add_snapshot(
@@ -399,6 +464,7 @@ mod tests {
             "/home/user/brand_new.rs",
             "",
             "",
+            true,
         );
 
         let service = ForgePromptUndo::new(Arc::new(fixture));
