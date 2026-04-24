@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use forge_app::{AuthStrategy, OAuthHttpProvider, StrategyFactory};
 use forge_domain::{
-    ApiKey, ApiKeyRequest, AuthContextRequest, AuthContextResponse, AuthCredential, AuthDetails,
-    CodeRequest, DeviceCodeRequest, OAuthConfig, OAuthTokenResponse, OAuthTokens, ProviderId,
-    URLParam, URLParamSpec,
+    ApiKey, ApiKeyProvider, ApiKeyRequest, AuthContextRequest, AuthContextResponse,
+    AuthCredential, AuthDetails, CodeRequest, DeviceCodeRequest, OAuthConfig, OAuthTokenResponse,
+    OAuthTokens, ProviderId, URLParam, URLParamSpec,
 };
 use google_cloud_auth::credentials::Builder;
 use oauth2::basic::BasicClient;
@@ -67,8 +67,9 @@ impl AuthStrategy for ApiKeyStrategy {
     }
 
     async fn refresh(&self, credential: &AuthCredential) -> anyhow::Result<AuthCredential> {
-        // Check if credential has a helper command provider that needs refreshing
-        if let AuthDetails::ApiKey(provider) = &credential.auth_details {
+        if let AuthDetails::ApiKey(provider @ ApiKeyProvider::HelperCommand { .. }) =
+            &credential.auth_details
+        {
             let refreshed_provider = crate::auth::api_key_helper::execute(provider).await?;
             return Ok(AuthCredential {
                 id: credential.id.clone(),
