@@ -1,3 +1,4 @@
+mod default_reasoning_content;
 mod drop_tool_call;
 mod github_copilot_reasoning;
 mod make_cerebras_compat;
