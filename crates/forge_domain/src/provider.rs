@@ -73,6 +73,7 @@ impl ProviderId {
     pub const OPENCODE_GO: ProviderId = ProviderId(Cow::Borrowed("opencode_go"));
     pub const FIREWORKS_AI: ProviderId = ProviderId(Cow::Borrowed("fireworks-ai"));
     pub const NOVITA: ProviderId = ProviderId(Cow::Borrowed("novita"));
+    pub const VIVGRID: ProviderId = ProviderId(Cow::Borrowed("vivgrid"));
     pub const GOOGLE_AI_STUDIO: ProviderId = ProviderId(Cow::Borrowed("google_ai_studio"));
     pub const MODAL: ProviderId = ProviderId(Cow::Borrowed("modal"));
     pub const ADAL: ProviderId = ProviderId(Cow::Borrowed("adal"));
@@ -109,6 +110,7 @@ impl ProviderId {
             ProviderId::OPENCODE_GO,
             ProviderId::FIREWORKS_AI,
             ProviderId::NOVITA,
+            ProviderId::VIVGRID,
             ProviderId::GOOGLE_AI_STUDIO,
             ProviderId::MODAL,
             ProviderId::ADAL,
@@ -139,6 +141,7 @@ impl ProviderId {
             "opencode_go" => "OpenCode Go".to_string(),
             "fireworks-ai" => "FireworksAI".to_string(),
             "novita" => "Novita".to_string(),
+            "vivgrid" => "Vivgrid".to_string(),
             "google_ai_studio" => "GoogleAIStudio".to_string(),
             "modal" => "Modal".to_string(),
             "adal" => "AdaL".to_string(),
@@ -190,6 +193,7 @@ impl std::str::FromStr for ProviderId {
             "vertex_ai_anthropic" => ProviderId::VERTEX_AI_ANTHROPIC,
             "bedrock" => ProviderId::BEDROCK,
             "opencode_zen" => ProviderId::OPENCODE_ZEN,
+            "vivgrid" => ProviderId::VIVGRID,
             "google_ai_studio" => ProviderId::GOOGLE_AI_STUDIO,
             "modal" => ProviderId::MODAL,
             "adal" => ProviderId::ADAL,
@@ -564,6 +568,7 @@ mod tests {
         assert_eq!(ProviderId::IO_INTELLIGENCE.to_string(), "IOIntelligence");
         assert_eq!(ProviderId::CODEX.to_string(), "Codex");
         assert_eq!(ProviderId::FIREWORKS_AI.to_string(), "FireworksAI");
+        assert_eq!(ProviderId::VIVGRID.to_string(), "Vivgrid");
         assert_eq!(ProviderId::OPENCODE_ZEN.to_string(), "OpenCode Zen");
         assert_eq!(ProviderId::OPENCODE_GO.to_string(), "OpenCode Go");
         assert_eq!(ProviderId::GOOGLE_AI_STUDIO.to_string(), "GoogleAIStudio");
@@ -584,6 +589,13 @@ mod tests {
     }
 
     #[test]
+    fn test_vivgrid_from_str() {
+        let actual = ProviderId::from_str("vivgrid").unwrap();
+        let expected = ProviderId::VIVGRID;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_opencode_go_from_str() {
         let actual = ProviderId::from_str("opencode_go").unwrap();
         let expected = ProviderId::OPENCODE_GO;
@@ -596,6 +608,7 @@ mod tests {
         assert!(built_in.contains(&ProviderId::CODEX));
         assert!(built_in.contains(&ProviderId::OPENAI_RESPONSES_COMPATIBLE));
         assert!(built_in.contains(&ProviderId::FIREWORKS_AI));
+        assert!(built_in.contains(&ProviderId::VIVGRID));
         assert!(built_in.contains(&ProviderId::OPENCODE_GO));
         assert!(built_in.contains(&ProviderId::GOOGLE_AI_STUDIO));
     }
