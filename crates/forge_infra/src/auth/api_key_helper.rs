@@ -6,16 +6,19 @@ use forge_domain::{ApiKey, ApiKeyProvider};
 
 /// Default timeout for helper command execution.
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
+const MAX_TIMEOUT_SECS: u64 = 300;
 
 /// Returns the configured helper command timeout, read from the
 /// `FORGE_API_KEY_HELPER_TIMEOUT` environment variable.  Falls back to
 /// [`DEFAULT_TIMEOUT_SECS`] when the variable is absent or unparseable.
+/// Capped at [`MAX_TIMEOUT_SECS`].
 fn helper_timeout() -> Duration {
-    std::env::var("FORGE_API_KEY_HELPER_TIMEOUT")
+    let secs = std::env::var("FORGE_API_KEY_HELPER_TIMEOUT")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
-        .map(Duration::from_secs)
-        .unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+        .unwrap_or(DEFAULT_TIMEOUT_SECS)
+        .min(MAX_TIMEOUT_SECS);
+    Duration::from_secs(secs)
 }
 
 /// Kills the entire process group rooted at `pid`.
