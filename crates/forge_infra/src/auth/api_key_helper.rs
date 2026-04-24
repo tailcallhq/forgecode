@@ -40,15 +40,17 @@ pub async fn execute(provider: &ApiKeyProvider) -> anyhow::Result<ApiKeyProvider
             .await
             .map_err(|_| {
                 anyhow::anyhow!(
-                    "Auth helper '{command}' timed out after {}s",
+                    "Auth helper timed out after {}s (command: {command:.40})",
                     timeout.as_secs()
                 )
             })?
-            .map_err(|e| anyhow::anyhow!("Failed to execute auth helper '{command}': {e}"))?;
+            .map_err(|e| {
+                anyhow::anyhow!("Failed to execute auth helper (command: {command:.40}): {e}")
+            })?;
 
             if !output.status.success() {
                 anyhow::bail!(
-                    "Auth helper '{command}' exited with status {}",
+                    "Auth helper exited with status {} (command: {command:.40})",
                     output.status
                 );
             }
@@ -90,7 +92,10 @@ fn parse_output(raw: &str) -> anyhow::Result<(ApiKey, Option<DateTime<Utc>>)> {
                 .trim()
                 .parse()
                 .map_err(|e| anyhow::anyhow!("Invalid TTL value: {e}"))?;
-            Some(Utc::now() + chrono::Duration::seconds(ttl as i64))
+            let duration = chrono::Duration::seconds(
+                i64::try_from(ttl).map_err(|_| anyhow::anyhow!("TTL value too large: {ttl}"))?,
+            );
+            Some(Utc::now() + duration)
         } else if let Some(ts) = meta.strip_prefix("Expires:") {
             let timestamp: i64 = ts
                 .trim()
