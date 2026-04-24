@@ -427,28 +427,29 @@ impl<
         // Refresh helper-command credentials on load — the last_key is not
         // persisted so it must be obtained by executing the command.
         if let forge_domain::AuthDetails::ApiKey(ref provider) = credential.auth_details
-            && provider.needs_refresh(chrono::Duration::zero()) {
-                match forge_infra::api_key_helper::execute(provider).await {
-                    Ok(refreshed) => {
-                        credential.auth_details = forge_domain::AuthDetails::ApiKey(refreshed);
-                        tracing::info!(
-                            provider = %config.id,
-                            "Successfully refreshed API key from helper command"
-                        );
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            provider = %config.id,
-                            error = %e,
-                            "Failed to refresh API key from helper command"
-                        );
-                        return Err(e.context(format!(
-                            "Failed to execute API key helper for provider {}",
-                            config.id
-                        )));
-                    }
+            && provider.needs_refresh(chrono::Duration::zero())
+        {
+            match forge_infra::api_key_helper::execute(provider).await {
+                Ok(refreshed) => {
+                    credential.auth_details = forge_domain::AuthDetails::ApiKey(refreshed);
+                    tracing::info!(
+                        provider = %config.id,
+                        "Successfully refreshed API key from helper command"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        provider = %config.id,
+                        error = %e,
+                        "Failed to refresh API key from helper command"
+                    );
+                    return Err(e.context(format!(
+                        "Failed to execute API key helper for provider {}",
+                        config.id
+                    )));
                 }
             }
+        }
 
         // Handle models - keep as templates
         let models = config.models.as_ref().map(|m| match m {
