@@ -5,7 +5,6 @@ use url::Url;
 
 use super::drop_tool_call::DropToolCalls;
 use super::github_copilot_reasoning::GitHubCopilotReasoning;
-use super::reasoning_content::ReasoningContent;
 use super::make_cerebras_compat::MakeCerebrasCompat;
 use super::make_openai_compat::MakeOpenAiCompat;
 use super::make_xai_compat::MakeXaiCompat;
@@ -13,6 +12,7 @@ use super::minimax::SetMinimaxParams;
 use super::normalize_tool_schema::{
     EnforceStrictResponseFormatSchema, EnforceStrictToolSchema, NormalizeToolSchema,
 };
+use super::reasoning_content::ReasoningContent;
 use super::set_cache::SetCache;
 use super::set_reasoning_effort::SetReasoningEffort;
 use super::strip_thought_signature::StripThoughtSignature;

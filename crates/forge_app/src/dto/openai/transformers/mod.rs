@@ -1,12 +1,12 @@
 mod drop_tool_call;
 mod github_copilot_reasoning;
-mod reasoning_content;
 mod make_cerebras_compat;
 mod make_openai_compat;
 mod make_xai_compat;
 mod minimax;
 mod normalize_tool_schema;
 mod pipeline;
+mod reasoning_content;
 mod set_cache;
 mod set_reasoning_effort;
 mod strip_thought_signature;
