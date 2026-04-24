@@ -32,6 +32,17 @@ const VERSION: &str = match option_env!("APP_VERSION") {
 
 type RmcpClient = RunningService<RoleClient, InitializeRequestParam>;
 
+#[cfg(unix)]
+fn configure_stdio_mcp_process(command: &mut Command) {
+    // Keep stdio MCP servers out of Forge's foreground process group so a
+    // terminal Ctrl+C is handled by Forge instead of being delivered directly
+    // to the MCP server process.
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_stdio_mcp_process(_command: &mut Command) {}
+
 #[derive(Clone)]
 pub struct ForgeMcpClient {
     client: Arc<RwLock<Option<Arc<RmcpClient>>>>,
@@ -153,6 +164,7 @@ impl ForgeMcpClient {
                 }
 
                 cmd.args(&stdio.args).kill_on_drop(true);
+                configure_stdio_mcp_process(&mut cmd);
 
                 // Use builder pattern to capture stderr
                 let (transport, stderr) = TokioChildProcess::builder(cmd)
