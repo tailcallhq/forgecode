@@ -30,6 +30,9 @@ static LOAD_DOT_ENV: LazyLock<()> = LazyLock::new(|| {
     }
 });
 
+/// Caches base-path resolution for the process lifetime.
+static BASE_PATH: LazyLock<PathBuf> = LazyLock::new(ConfigReader::resolve_base_path);
+
 /// Merges [`ForgeConfig`] from layered sources using a builder pattern.
 #[derive(Default)]
 pub struct ConfigReader {
@@ -58,6 +61,10 @@ impl ConfigReader {
     ///    existing directory without disruption.
     /// 3. `~/.forge` as the default path.
     pub fn base_path() -> PathBuf {
+        BASE_PATH.clone()
+    }
+
+    fn resolve_base_path() -> PathBuf {
         if let Ok(path) = std::env::var("FORGE_CONFIG") {
             return PathBuf::from(path);
         }
@@ -199,7 +206,7 @@ mod tests {
     #[test]
     fn test_base_path_uses_forge_config_env_var() {
         let _guard = EnvGuard::set(&[("FORGE_CONFIG", "/custom/forge/dir")]);
-        let actual = ConfigReader::base_path();
+        let actual = ConfigReader::resolve_base_path();
         let expected = PathBuf::from("/custom/forge/dir");
         assert_eq!(actual, expected);
     }
@@ -210,7 +217,7 @@ mod tests {
         // cannot race with test_base_path_uses_forge_config_env_var.
         let _guard = EnvGuard::set_and_remove(&[], &["FORGE_CONFIG"]);
 
-        let actual = ConfigReader::base_path();
+        let actual = ConfigReader::resolve_base_path();
         // Without FORGE_CONFIG set the path must be either "forge" (legacy,
         // preferred when ~/forge exists) or ".forge" (default new path).
         let name = actual.file_name().unwrap();

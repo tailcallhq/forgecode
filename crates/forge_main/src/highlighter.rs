@@ -26,10 +26,12 @@ impl Highlighter for ForgeHighlighter {
             let end = line.find(|c: char| c.is_whitespace()).unwrap_or(line.len());
             styled.push((
                 Style::new().bold().fg(Color::Yellow),
-                line[..end].to_string(),
+                line.get(..end).unwrap_or(line).to_string(),
             ));
-            if end < line.len() {
-                highlight_mentions(&line[end..], &mut styled);
+            if end < line.len()
+                && let Some(args) = line.get(end..)
+            {
+                highlight_mentions(args, &mut styled);
             }
             return styled;
         }
@@ -69,18 +71,26 @@ fn highlight_mentions(line: &str, styled: &mut StyledText) {
             }
             Some(start) => {
                 // Emit any plain text before the `@[`.
-                if start > 0 {
-                    styled.push((Style::new(), remaining[..start].to_string()));
+                if start > 0
+                    && let Some(before) = remaining.get(..start)
+                {
+                    styled.push((Style::new(), before.to_string()));
                 }
 
                 // `after_open` starts at `@[`.
-                let after_open = &remaining[start..];
+                let after_open = match remaining.get(start..) {
+                    Some(s) => s,
+                    None => {
+                        styled.push((Style::new(), remaining.to_string()));
+                        break;
+                    }
+                };
 
                 // Look for a `]` that is not immediately after `@[`.
-                // The ZSH pattern `[^]]#` matches zero-or-more non-`]` chars,
+                // The ZSH pattern `[^]#` matches zero-or-more non-`]` chars,
                 // so `@[]` (empty brackets) also qualifies.
                 // We search for `]` starting from position 2 (after `@[`).
-                match after_open[2..].find(']') {
+                match after_open.get(2..).and_then(|s| s.find(']')) {
                     None => {
                         // No closing `]` — emit `@[` and the rest as plain text
                         // to match ZSH behaviour (unterminated tag = no highlight).
@@ -91,9 +101,12 @@ fn highlight_mentions(line: &str, styled: &mut StyledText) {
                         // Absolute position of `]` within `after_open`.
                         let close = 2 + rel_close;
                         // Emit `@[...]` in cyan bold (inclusive of both brackets).
-                        let mention = &after_open[..=close];
+                        let mention = after_open.get(..=close).unwrap_or(after_open);
                         styled.push((Style::new().bold().fg(Color::Cyan), mention.to_string()));
-                        remaining = &after_open[close + 1..];
+                        match after_open.get(close + 1..) {
+                            Some(rest) => remaining = rest,
+                            None => break,
+                        }
                     }
                 }
             }

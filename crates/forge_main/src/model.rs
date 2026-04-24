@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use forge_api::{AgentInfo, Model, Template};
 use forge_domain::UserCommand;
@@ -308,6 +309,11 @@ impl ForgeCommandManager {
             .strip_prefix('/')
             .or_else(|| first.strip_prefix(':'))
             .unwrap_or(first);
+        let command_prefix = first
+            .chars()
+            .next()
+            .filter(|c| *c == '/' || *c == ':')
+            .unwrap_or(':');
         let rest: Vec<&str> = tokens.collect();
 
         // Build argv: [bare_command, arg1, arg2, …]
@@ -372,8 +378,17 @@ impl ForgeCommandManager {
                     )));
                 }
 
-                // Surface a clean error from Clap (strips ANSI + binary name noise).
-                Err(anyhow::anyhow!("{}", clap_err.render().to_string().trim()))
+                // Surface user-friendly errors for unknown commands.
+                if clap_err.kind() == ErrorKind::InvalidSubcommand {
+                    return Err(anyhow::anyhow!(
+                        "Unknown command '{command_prefix}{command_name}'. Run '{command_prefix}help' to list available commands."
+                    ));
+                }
+
+                // Surface a clean error from Clap (strips ANSI + internal parser name).
+                let rendered = clap_err.render().to_string();
+                let cleaned = rendered.replace("forge_cmd", "forge");
+                Err(anyhow::anyhow!("{}", cleaned.trim()))
             }
         }
     }
@@ -466,7 +481,7 @@ pub enum AppCommand {
     #[command(alias = "s")]
     Suggest {
         /// Natural language description of the shell command
-        #[arg(trailing_var_arg = true, num_args = 0..)]
+        #[arg(trailing_var_arg = true, num_args = 0.., allow_hyphen_values = true)]
         description: Vec<String>,
     },
 
@@ -742,6 +757,18 @@ impl AppCommand {
                 | AppCommand::Shell(_)
                 | AppCommand::AgentSwitch(_)
                 | AppCommand::Rename { .. }
+        )
+    }
+
+    /// Returns true for variants that are pure agent-switch shorthands whose
+    /// canonical name matches a built-in agent (forge, muse, sage).  These
+    /// commands are already emitted as AGENT rows by the agent-info loop in
+    /// `on_show_commands`, so they must be excluded from the COMMAND loop to
+    /// avoid duplicate entries in `list commands --porcelain`.
+    pub fn is_agent_switch(&self) -> bool {
+        matches!(
+            self,
+            AppCommand::Forge | AppCommand::Muse | AppCommand::Sage
         )
     }
 }
@@ -1471,6 +1498,24 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_invalid_command_with_colon_returns_helpful_error() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse(":celar").unwrap_err().to_string();
+        let expected =
+            "Unknown command ':celar'. Run ':help' to list available commands.".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_invalid_command_with_slash_returns_helpful_error() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/celar").unwrap_err().to_string();
+        let expected =
+            "Unknown command '/celar'. Run '/help' to list available commands.".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_parse_tool_command() {
         // Setup
         let fixture = ForgeCommandManager::default();
@@ -1577,5 +1622,52 @@ mod tests {
     fn test_rename_command_name() {
         let cmd = AppCommand::Rename { name: vec!["test".to_string()] };
         assert_eq!(cmd.name(), "rename");
+    }
+
+    #[test]
+    fn test_parse_suggest_with_dash_prefixed_tokens() {
+        // Setup
+        let cmd_manager = ForgeCommandManager::default();
+
+        // Execute
+        let result = cmd_manager.parse(":suggest --- date").unwrap();
+
+        // Verify
+        assert_eq!(
+            result,
+            AppCommand::Suggest { description: vec!["---".to_string(), "date".to_string()] }
+        );
+    }
+
+    #[test]
+    fn test_parse_suggest_with_double_dash_flags() {
+        // Setup
+        let cmd_manager = ForgeCommandManager::default();
+
+        // Execute
+        let result = cmd_manager.parse(":suggest --date tomorrow").unwrap();
+
+        // Verify
+        assert_eq!(
+            result,
+            AppCommand::Suggest {
+                description: vec!["--date".to_string(), "tomorrow".to_string()]
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_suggest_with_single_dash() {
+        // Setup
+        let cmd_manager = ForgeCommandManager::default();
+
+        // Execute
+        let result = cmd_manager.parse(":suggest -v file.txt").unwrap();
+
+        // Verify
+        assert_eq!(
+            result,
+            AppCommand::Suggest { description: vec!["-v".to_string(), "file.txt".to_string()] }
+        );
     }
 }

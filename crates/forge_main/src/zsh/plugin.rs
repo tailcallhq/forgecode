@@ -322,7 +322,7 @@ pub fn setup_zsh_integration(
             // No markers - add them at the end
             // Add blank line before markers if file is not empty and doesn't end with blank
             // line
-            if !lines.is_empty() && !lines[lines.len() - 1].trim().is_empty() {
+            if lines.last().is_some_and(|l| !l.trim().is_empty()) {
                 lines.push(String::new());
             }
 

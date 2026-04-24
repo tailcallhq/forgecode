@@ -38,7 +38,13 @@ impl CodeHighlighter {
             ThemeMode::Dark => "base16-ocean.dark",
             ThemeMode::Light => "InspiredGitHub",
         };
-        let theme = &self.theme_set.themes[theme_name];
+        let theme = self.theme_set.themes.get(theme_name).unwrap_or_else(|| {
+            // Fallback to base16-ocean.dark if theme not found
+            self.theme_set
+                .themes
+                .get("base16-ocean.dark")
+                .expect("Default theme should exist")
+        });
         let mut highlighter = HighlightLines::new(syntax, theme);
 
         match highlighter.highlight_line(line, &self.syntax_set) {

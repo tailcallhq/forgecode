@@ -157,6 +157,9 @@ function forge-accept-line() {
         retry|r)
             _forge_action_retry
         ;;
+        help)
+            _forge_action_help
+        ;;
         agent|a)
             _forge_action_agent "$input_text"
         ;;

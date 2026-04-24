@@ -177,8 +177,17 @@ impl From<Signal> for ReadResult {
                     ReadResult::Success(trimmed.to_string())
                 }
             }
+            Signal::ExternalBreak(buffer) => {
+                let trimmed = buffer.trim();
+                if trimmed.is_empty() {
+                    ReadResult::Empty
+                } else {
+                    ReadResult::Success(trimmed.to_string())
+                }
+            }
             Signal::CtrlC => ReadResult::Continue,
             Signal::CtrlD => ReadResult::Exit,
+            _ => ReadResult::Continue,
         }
     }
 }

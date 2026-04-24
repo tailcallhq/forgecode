@@ -2,6 +2,7 @@ use std::cmp;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use bstr::ByteSlice;
 use forge_domain::FileInfo;
 
 use crate::error::Error;
@@ -50,7 +51,7 @@ impl crate::ForgeFS {
         let content = tokio::fs::read(path_ref)
             .await
             .with_context(|| format!("Failed to read file content from {}", path_ref.display()))?;
-        let content = String::from_utf8_lossy(&content);
+        let content = content.to_str_lossy();
 
         // Hash the full file content so callers get a stable, whole-file hash
         // that matches what the external-change detector reads back from disk.
@@ -90,7 +91,10 @@ impl crate::ForgeFS {
         let result_content = if start_pos == 0 && end_pos == total_lines - 1 {
             content.to_string() // Return full content if requesting entire file
         } else {
-            lines[start_pos as usize..=end_pos as usize].join("\n")
+            lines
+                .get(start_pos as usize..=end_pos as usize)
+                .map(|slice| slice.join("\n"))
+                .unwrap_or_default()
         };
 
         Ok((result_content, info))

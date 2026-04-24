@@ -61,6 +61,12 @@ function _forge_action_retry() {
     _forge_handle_conversation_command "retry"
 }
 
+# Action handler: Show available commands (mirrors :help in the REPL)
+function _forge_action_help() {
+    echo
+    $_FORGE_BIN list command
+}
+
 # Helper function to handle conversation commands that require an active conversation
 function _forge_handle_conversation_command() {
     local subcommand="$1"
