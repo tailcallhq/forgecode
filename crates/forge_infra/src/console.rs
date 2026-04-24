@@ -72,6 +72,8 @@ mod tests {
     use std::io::Cursor;
     use std::thread;
 
+    use bstr::ByteSlice;
+
     use super::*;
 
     #[test]
@@ -112,7 +114,7 @@ mod tests {
         assert!(
             valid_orderings.contains(&actual),
             "Output was interleaved: {:?}",
-            String::from_utf8_lossy(&actual)
+            actual.as_slice().to_str_lossy()
         );
     }
 
