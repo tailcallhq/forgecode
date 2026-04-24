@@ -127,7 +127,15 @@ pub trait API: Sync + Send {
     /// Retrieves the provider configuration for the specified agent
     async fn get_agent_provider(&self, agent_id: AgentId) -> anyhow::Result<Provider<Url>>;
 
-    /// Retrieves the provider configuration for the default agent
+    /// Gets the current session configuration (provider and model pair).
+    ///
+    /// Returns `None` when no session has been configured yet, allowing callers
+    /// to distinguish between "not configured" and an actual error.
+    async fn get_session_config(&self) -> Option<forge_domain::ModelConfig>;
+
+    /// Retrieves the provider configuration for the default agent.
+    ///
+    /// Delegates to [`Self::get_session_config`] and resolves the provider.
     async fn get_default_provider(&self) -> anyhow::Result<Provider<Url>>;
 
     /// Applies one or more configuration mutations atomically.
@@ -152,9 +160,6 @@ pub trait API: Sync + Send {
 
     /// Gets the model for the specified agent
     async fn get_agent_model(&self, agent_id: AgentId) -> Option<ModelId>;
-
-    /// Gets the default model
-    async fn get_default_model(&self) -> Option<ModelId>;
 
     /// Gets the commit configuration (provider and model for commit message
     /// generation).

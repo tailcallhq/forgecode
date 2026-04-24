@@ -17,13 +17,22 @@ use crate::provider::bedrock_sanitize_ids::SanitizeToolIds;
 use crate::provider::retry::into_retry;
 use crate::provider::{FromDomain, IntoDomain};
 
-/// Provider implementation for Amazon Bedrock using Bearer token authentication
+/// Authentication mode for the Bedrock provider
+enum BedrockAuthMode {
+    BearerToken(String),
+    AwsProfile(String),
+}
+
+/// Provider implementation for Amazon Bedrock
 ///
-/// This provider uses the AWS SDK with Bearer token authentication instead of
-/// AWS SigV4 signing, allowing it to work with Bedrock Access Gateway.
+/// Supports two authentication modes:
+/// - Bearer token: For use with Bedrock Access Gateway (via API key)
+/// - AWS Profile: For use with AWS SSO or IAM credentials configured in
+///   ~/.aws/config
 struct BedrockProvider {
     provider: Provider<Url>,
     region: String,
+    auth_mode: BedrockAuthMode,
     client: OnceCell<Client>,
 }
 
@@ -40,11 +49,17 @@ impl BedrockProvider {
             .as_ref()
             .context("Bedrock requires credentials")?;
 
-        // Validate API key (bearer token)
-        match &credential.auth_details {
-            AuthDetails::ApiKey(key) if !key.is_empty() => {}
-            _ => anyhow::bail!("Bearer token is required in API key field"),
-        }
+        let auth_mode = match &credential.auth_details {
+            AuthDetails::ApiKey(key) if !key.is_empty() => {
+                BedrockAuthMode::BearerToken(key.as_ref().to_string())
+            }
+            AuthDetails::AwsProfile(profile) if !profile.is_empty() => {
+                BedrockAuthMode::AwsProfile(profile.as_ref().to_string())
+            }
+            _ => anyhow::bail!(
+                "Bedrock requires either a bearer token (API key) or an AWS profile name"
+            ),
+        };
 
         // Extract region from URL params
         let region_param: forge_domain::URLParam = "AWS_REGION".to_string().into();
@@ -54,7 +69,7 @@ impl BedrockProvider {
             .map(|v| v.to_string())
             .unwrap_or_else(|| "us-east-1".to_string());
 
-        Ok(Self { provider, region, client: OnceCell::new() })
+        Ok(Self { provider, region, auth_mode, client: OnceCell::new() })
     }
 
     /// Initializes and returns the AWS Bedrock client
@@ -70,28 +85,27 @@ impl BedrockProvider {
     async fn init(&self) -> Result<&Client> {
         self.client
             .get_or_try_init(|| async {
-                // Get the bearer token from provider credentials
-                let bearer_token = self
-                    .provider
-                    .credential
-                    .as_ref()
-                    .and_then(|c| match &c.auth_details {
-                        AuthDetails::ApiKey(key) if !key.is_empty() => {
-                            Some(key.as_ref().to_string())
-                        }
-                        _ => None,
-                    })
-                    .context("Bearer token is required in API key field")?;
-
-                // Configure AWS SDK client with Bearer token authentication
-                let config = aws_sdk_bedrockruntime::Config::builder()
-                    .region(aws_sdk_bedrockruntime::config::Region::new(
-                        self.region.clone(),
-                    ))
-                    .bearer_token(Token::new(bearer_token, None))
-                    .build();
-
-                Ok(aws_sdk_bedrockruntime::Client::from_conf(config))
+                match &self.auth_mode {
+                    BedrockAuthMode::BearerToken(token) => {
+                        let config = aws_sdk_bedrockruntime::Config::builder()
+                            .region(aws_sdk_bedrockruntime::config::Region::new(
+                                self.region.clone(),
+                            ))
+                            .bearer_token(Token::new(token.clone(), None))
+                            .build();
+                        Ok(aws_sdk_bedrockruntime::Client::from_conf(config))
+                    }
+                    BedrockAuthMode::AwsProfile(profile) => {
+                        let sdk_config = aws_config::from_env()
+                            .profile_name(profile)
+                            .region(aws_sdk_bedrockruntime::config::Region::new(
+                                self.region.clone(),
+                            ))
+                            .load()
+                            .await;
+                        Ok(aws_sdk_bedrockruntime::Client::new(&sdk_config))
+                    }
+                }
             })
             .await
     }
@@ -439,6 +453,20 @@ impl FromDomain<forge_domain::Context>
         use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamInput;
         use aws_sdk_bedrockruntime::types::{InferenceConfiguration, Message, SystemContentBlock};
 
+        // Capture reasoning-related flags before `context.messages` / other fields
+        // are consumed below. `ModelSpecificReasoning` runs earlier in the pipeline
+        // and has already normalized `reasoning` per model family, so here we just
+        // branch on the shape it produced:
+        // - `max_tokens.is_some()` -> legacy `thinking.enabled` budget shape
+        // - otherwise              -> `thinking.adaptive` (Opus 4.7 / 4.6 / Sonnet 4.6)
+        let reasoning_on = context.is_reasoning_supported();
+        let emits_legacy_thinking = reasoning_on
+            && context
+                .reasoning
+                .as_ref()
+                .and_then(|r| r.max_tokens)
+                .is_some();
+
         // Convert system messages
         let system: Vec<SystemContentBlock> = context
             .messages
@@ -522,18 +550,17 @@ impl FromDomain<forge_domain::Context>
         };
 
         // Convert inference configuration
-        // When extended thinking is enabled, top_p must be >= 0.95 or unset
-        let has_thinking = context
-            .reasoning
-            .as_ref()
-            .and_then(|r| r.enabled)
-            .unwrap_or(false);
-        let adjusted_top_p = if has_thinking {
-            // If thinking is enabled and top_p is set, ensure it's at least 0.95
+        // When `thinking.enabled` (legacy budget shape) is being emitted below,
+        // Anthropic-on-Bedrock requires `top_p >= 0.95` or unset. `thinking.adaptive`
+        // (Opus 4.7 / Opus 4.6 / Sonnet 4.6) has no such constraint, and
+        // `ModelSpecificReasoning` already strips `top_p` entirely for Opus 4.7.
+        let adjusted_top_p = if emits_legacy_thinking {
+            // If legacy thinking is emitted and top_p is set, ensure it's at least 0.95
             context.top_p.map(|p| {
                 let value = p.value();
                 if value < 0.95 {
-                    forge_domain::TopP::new(0.95).unwrap()
+                    // SAFETY: 0.95 is a valid TopP value (between 0.0 and 1.0)
+                    forge_domain::TopP::new(0.95).expect("0.95 is valid TopP")
                 } else {
                     p
                 }
@@ -558,29 +585,59 @@ impl FromDomain<forge_domain::Context>
             None
         };
 
-        // Convert reasoning configuration to additional model request fields
-        // For Claude models with extended thinking support
-        // Based on AWS Bedrock docs: additionalModelRequestFields for Claude extended
-        // thinking https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages.html
+        // Convert reasoning configuration to `additional_model_request_fields`
+        // for Anthropic-on-Bedrock. Two thinking shapes are emitted based on
+        // `reasoning.max_tokens`, which `ModelSpecificReasoning` has already
+        // normalized per family:
+        //
+        //   - `max_tokens: Some(N)` → `{type: "enabled", budget_tokens: N}` (Opus 4.5
+        //     and older; budget is backfilled to 10k when absent.)
+        //   - `max_tokens: None`    → `{type: "adaptive", display: ...}` (Opus 4.7
+        //     rejects the legacy shape with 400; Opus 4.6 / Sonnet 4.6 accept adaptive
+        //     natively.)
+        //
+        // When present, `reasoning.effort` is emitted as `output_config.effort`
+        // for families that support it (`ModelSpecificReasoning` drops effort
+        // on LegacyNoEffort, so the Option is already correctly shaped here).
+        //
+        // AWS Bedrock passes `additional_model_request_fields` through verbatim
+        // to Anthropic for Claude models. See
+        // https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages.html
         let additional_model_fields = if let Some(reasoning_config) = &context.reasoning {
-            if reasoning_config.enabled.unwrap_or(false) {
+            if !reasoning_on {
+                None
+            } else {
                 let mut thinking_config = std::collections::HashMap::new();
-                thinking_config.insert(
-                    "type".to_string(),
-                    aws_smithy_types::Document::String("enabled".to_string()),
-                );
-
-                // Set budget_tokens (REQUIRED when thinking is enabled)
-                // The budget_tokens parameter determines the maximum number of tokens
-                // Claude is allowed to use for its internal reasoning process
-                // Default to 4000 if not specified (AWS recommendation for good quality)
-                let budget_tokens = reasoning_config.max_tokens.unwrap_or(4000);
-                thinking_config.insert(
-                    "budget_tokens".to_string(),
-                    aws_smithy_types::Document::Number(aws_smithy_types::Number::PosInt(
-                        budget_tokens as u64,
-                    )),
-                );
+                if let Some(budget) = reasoning_config.max_tokens {
+                    thinking_config.insert(
+                        "type".to_string(),
+                        aws_smithy_types::Document::String("enabled".to_string()),
+                    );
+                    thinking_config.insert(
+                        "budget_tokens".to_string(),
+                        aws_smithy_types::Document::Number(aws_smithy_types::Number::PosInt(
+                            budget as u64,
+                        )),
+                    );
+                } else {
+                    thinking_config.insert(
+                        "type".to_string(),
+                        aws_smithy_types::Document::String("adaptive".to_string()),
+                    );
+                    // Opus 4.7 changed the default to `omitted`; preserve the
+                    // caller's `exclude` preference so `exclude: true` stays
+                    // `omitted` and every other case surfaces `summarized`
+                    // (matching the legacy pre-4.7 visible-thinking behavior).
+                    let display = if reasoning_config.exclude == Some(true) {
+                        "omitted"
+                    } else {
+                        "summarized"
+                    };
+                    thinking_config.insert(
+                        "display".to_string(),
+                        aws_smithy_types::Document::String(display.to_string()),
+                    );
+                }
 
                 let mut fields = std::collections::HashMap::new();
                 fields.insert(
@@ -588,9 +645,29 @@ impl FromDomain<forge_domain::Context>
                     aws_smithy_types::Document::Object(thinking_config),
                 );
 
+                if let Some(effort) = reasoning_config.effort.as_ref() {
+                    let effort_str = match effort {
+                        forge_domain::Effort::None => None,
+                        forge_domain::Effort::Minimal | forge_domain::Effort::Low => Some("low"),
+                        forge_domain::Effort::Medium => Some("medium"),
+                        forge_domain::Effort::High => Some("high"),
+                        forge_domain::Effort::XHigh => Some("xhigh"),
+                        forge_domain::Effort::Max => Some("max"),
+                    };
+                    if let Some(effort_str) = effort_str {
+                        let mut output_config = std::collections::HashMap::new();
+                        output_config.insert(
+                            "effort".to_string(),
+                            aws_smithy_types::Document::String(effort_str.to_string()),
+                        );
+                        fields.insert(
+                            "output_config".to_string(),
+                            aws_smithy_types::Document::Object(output_config),
+                        );
+                    }
+                }
+
                 Some(aws_smithy_types::Document::Object(fields))
-            } else {
-                None
             }
         } else {
             None
@@ -1007,6 +1084,7 @@ mod tests {
     fn bedrock_provider_fixture(region: &str) -> BedrockProvider {
         BedrockProvider {
             provider: provider_fixture("test-token", Some(region)),
+            auth_mode: BedrockAuthMode::BearerToken("test-token".to_string()),
             client: OnceCell::new(),
             region: region.to_string(),
         }
@@ -1038,7 +1116,7 @@ mod tests {
         assert!(actual.is_err());
         assert_eq!(
             actual.err().unwrap().to_string(),
-            "Bearer token is required in API key field"
+            "Bedrock requires either a bearer token (API key) or an AWS profile name"
         );
     }
 
@@ -1282,6 +1360,7 @@ mod tests {
 
         let bedrock = BedrockProvider {
             provider: fixture_provider,
+            auth_mode: BedrockAuthMode::BearerToken("token".to_string()),
             client: OnceCell::new(),
             region: "us-east-1".to_string(),
         };
@@ -1296,6 +1375,7 @@ mod tests {
         let fixture = provider_fixture("token", None);
         let bedrock = BedrockProvider {
             provider: fixture,
+            auth_mode: BedrockAuthMode::BearerToken("token".to_string()),
             client: OnceCell::new(),
             region: "us-east-1".to_string(),
         };
@@ -1788,6 +1868,184 @@ mod tests {
         assert!(actual.additional_model_request_fields().is_some());
     }
 
+    /// Opus 4.7 / Opus 4.6 / Sonnet 4.6 path: `ModelSpecificReasoning` strips
+    /// `max_tokens`, so Bedrock emits `thinking.adaptive` with the legacy
+    /// `display: summarized` default (visible thinking).
+    #[test]
+    fn test_from_domain_context_emits_adaptive_thinking_when_max_tokens_absent() {
+        use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamInput;
+        use forge_domain::{Context, ReasoningConfig};
+
+        let fixture = Context {
+            conversation_id: None,
+            initiator: None,
+            messages: vec![],
+            tools: vec![],
+            tool_choice: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
+            reasoning: Some(ReasoningConfig {
+                effort: None,
+                max_tokens: None, // normalized away by ModelSpecificReasoning for 4.7/4.6
+                exclude: None,
+                enabled: Some(true),
+            }),
+            stream: None,
+            response_format: None,
+        };
+
+        let actual = ConverseStreamInput::from_domain(fixture).unwrap();
+        let fields = actual
+            .additional_model_request_fields()
+            .expect("adaptive thinking should emit additional_model_request_fields");
+
+        let thinking = match fields {
+            aws_smithy_types::Document::Object(m) => m.get("thinking").expect("thinking present"),
+            _ => panic!("expected object"),
+        };
+        let thinking_map = match thinking {
+            aws_smithy_types::Document::Object(m) => m,
+            _ => panic!("expected thinking object"),
+        };
+        assert_eq!(
+            thinking_map.get("type"),
+            Some(&aws_smithy_types::Document::String("adaptive".to_string()))
+        );
+        assert_eq!(
+            thinking_map.get("display"),
+            Some(&aws_smithy_types::Document::String(
+                "summarized".to_string()
+            ))
+        );
+        assert!(
+            thinking_map.get("budget_tokens").is_none(),
+            "adaptive must not carry budget_tokens"
+        );
+    }
+
+    /// `exclude: true` preference maps to `display: omitted` on the adaptive
+    /// shape.
+    #[test]
+    fn test_from_domain_context_adaptive_thinking_respects_exclude() {
+        use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamInput;
+        use forge_domain::{Context, ReasoningConfig};
+
+        let fixture = Context {
+            conversation_id: None,
+            initiator: None,
+            messages: vec![],
+            tools: vec![],
+            tool_choice: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
+            reasoning: Some(ReasoningConfig {
+                effort: None,
+                max_tokens: None,
+                exclude: Some(true),
+                enabled: Some(true),
+            }),
+            stream: None,
+            response_format: None,
+        };
+
+        let actual = ConverseStreamInput::from_domain(fixture).unwrap();
+        let fields = actual.additional_model_request_fields().unwrap();
+        let thinking = match fields {
+            aws_smithy_types::Document::Object(m) => m.get("thinking").unwrap(),
+            _ => panic!("expected object"),
+        };
+        let thinking_map = match thinking {
+            aws_smithy_types::Document::Object(m) => m,
+            _ => panic!("expected thinking object"),
+        };
+        assert_eq!(
+            thinking_map.get("display"),
+            Some(&aws_smithy_types::Document::String("omitted".to_string()))
+        );
+    }
+
+    /// Adaptive thinking must NOT trigger the legacy `top_p >= 0.95` clamp —
+    /// that constraint only applies to `thinking.enabled` (budget shape).
+    #[test]
+    fn test_from_domain_context_adaptive_thinking_does_not_clamp_top_p() {
+        use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamInput;
+        use forge_domain::{Context, ReasoningConfig, TopP};
+
+        let fixture = Context {
+            conversation_id: None,
+            initiator: None,
+            messages: vec![],
+            tools: vec![],
+            tool_choice: None,
+            temperature: None,
+            top_p: Some(TopP::new(0.5).unwrap()),
+            top_k: None,
+            max_tokens: None,
+            reasoning: Some(ReasoningConfig {
+                effort: None,
+                max_tokens: None,
+                exclude: None,
+                enabled: Some(true),
+            }),
+            stream: None,
+            response_format: None,
+        };
+
+        let actual = ConverseStreamInput::from_domain(fixture).unwrap();
+        let top_p = actual.inference_config().unwrap().top_p().unwrap();
+        assert!(
+            (top_p - 0.5).abs() < f32::EPSILON,
+            "adaptive thinking must leave top_p untouched, got {top_p}"
+        );
+    }
+
+    /// When `reasoning.effort` survives normalization (i.e. 4.5+/4.6+/4.7
+    /// families), it must be emitted as `output_config.effort`.
+    #[test]
+    fn test_from_domain_context_emits_output_config_effort() {
+        use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamInput;
+        use forge_domain::{Context, Effort, ReasoningConfig};
+
+        let fixture = Context {
+            conversation_id: None,
+            initiator: None,
+            messages: vec![],
+            tools: vec![],
+            tool_choice: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
+            reasoning: Some(ReasoningConfig {
+                effort: Some(Effort::High),
+                max_tokens: None,
+                exclude: None,
+                enabled: Some(true),
+            }),
+            stream: None,
+            response_format: None,
+        };
+
+        let actual = ConverseStreamInput::from_domain(fixture).unwrap();
+        let fields = actual.additional_model_request_fields().unwrap();
+        let output_config = match fields {
+            aws_smithy_types::Document::Object(m) => m.get("output_config").unwrap(),
+            _ => panic!("expected object"),
+        };
+        let output_map = match output_config {
+            aws_smithy_types::Document::Object(m) => m,
+            _ => panic!("expected output_config object"),
+        };
+        assert_eq!(
+            output_map.get("effort"),
+            Some(&aws_smithy_types::Document::String("high".to_string()))
+        );
+    }
+
     #[test]
     fn test_json_value_to_document_empty_object() {
         let fixture = serde_json::json!({});
@@ -1812,5 +2070,103 @@ mod tests {
             }
             _ => panic!("Expected array document"),
         }
+    }
+
+    fn aws_profile_fixture(profile: &str, region: Option<&str>) -> Provider<Url> {
+        use forge_domain::{
+            ApiKey, AuthCredential, AuthDetails, ProviderId, ProviderResponse, ProviderType,
+            URLParam, URLParamValue,
+        };
+
+        let mut url_params = std::collections::HashMap::new();
+        if let Some(r) = region {
+            url_params.insert(
+                URLParam::from("AWS_REGION".to_string()),
+                URLParamValue::from(r.to_string()),
+            );
+        }
+        url_params.insert(
+            URLParam::from("AWS_PROFILE".to_string()),
+            URLParamValue::from(profile.to_string()),
+        );
+
+        Provider {
+            id: ProviderId::from("bedrock".to_string()),
+            provider_type: ProviderType::Llm,
+            response: Some(ProviderResponse::Bedrock),
+            url: Url::parse("https://bedrock-runtime.us-east-1.amazonaws.com").unwrap(),
+            models: None,
+            auth_methods: vec![],
+            url_params: vec![],
+            credential: Some(AuthCredential {
+                id: ProviderId::from("bedrock".to_string()),
+                auth_details: AuthDetails::AwsProfile(ApiKey::from(profile.to_string())),
+                url_params,
+            }),
+            custom_headers: None,
+        }
+    }
+
+    #[test]
+    fn test_new_with_aws_profile_credentials() {
+        let provider = aws_profile_fixture("my-profile", Some("us-west-2"));
+        let bedrock = BedrockProvider::new(provider).unwrap();
+        assert_eq!(bedrock.region, "us-west-2");
+        assert!(
+            matches!(bedrock.auth_mode, BedrockAuthMode::AwsProfile(ref p) if p == "my-profile")
+        );
+    }
+
+    #[test]
+    fn test_new_with_empty_aws_profile_fails() {
+        let provider = aws_profile_fixture("", Some("us-east-1"));
+        let result = BedrockProvider::new(provider);
+        assert!(result.is_err());
+    }
+
+    /// Integration test: validates real SSO profile can create a client and
+    /// call Bedrock. Run with: cargo test -p forge_repo
+    /// test_real_sso_profile -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn test_real_sso_profile_converse() {
+        let provider = aws_profile_fixture("core-test-bedrock", Some("us-east-1"));
+        let bedrock = BedrockProvider::new(provider).unwrap();
+        let client = bedrock
+            .init()
+            .await
+            .expect("Failed to init client with SSO profile");
+
+        // Make a minimal converse_stream call
+        let result = client
+            .converse_stream()
+            .model_id("us.anthropic.claude-haiku-4-5-20251001-v1:0")
+            .messages(
+                aws_sdk_bedrockruntime::types::Message::builder()
+                    .role(aws_sdk_bedrockruntime::types::ConversationRole::User)
+                    .content(aws_sdk_bedrockruntime::types::ContentBlock::Text(
+                        "Say 'hello' and nothing else.".to_string(),
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .send()
+            .await;
+
+        assert!(result.is_ok(), "converse_stream failed: {:?}", result.err());
+
+        // Consume stream to verify it works
+        let mut event_stream = result.unwrap().stream;
+        let mut got_text = false;
+        while let Ok(Some(event)) = event_stream.recv().await {
+            if let aws_sdk_bedrockruntime::types::ConverseStreamOutput::ContentBlockDelta(delta) =
+                event
+                && let Some(aws_sdk_bedrockruntime::types::ContentBlockDelta::Text(_)) =
+                    delta.delta()
+            {
+                got_text = true;
+            }
+        }
+        assert!(got_text, "Expected text content in stream response");
     }
 }

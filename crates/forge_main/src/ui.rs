@@ -37,6 +37,7 @@ use crate::cli::{
 use crate::conversation_selector::ConversationSelector;
 use crate::display_constants::{CommandType, headers, markers, status};
 use crate::editor::ReadLineError;
+use crate::error::UIError;
 use crate::info::Info;
 use crate::input::Console;
 use crate::model::{AppCommand, ForgeCommandManager};
@@ -145,7 +146,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn get_agent_model(&self, agent_id: Option<AgentId>) -> Option<ModelId> {
         match agent_id {
             Some(agent_id) => self.api.get_agent_model(agent_id).await,
-            None => self.api.get_default_model().await,
+            None => self.api.get_session_config().await.map(|c| c.model),
         }
     }
 
@@ -1320,56 +1321,63 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     /// Lists all the commands
     async fn on_show_commands(&mut self, porcelain: bool) -> anyhow::Result<()> {
-        let mut info = Info::new();
-
-        // Generate built-in commands directly from the SlashCommand enum so
-        // the list always stays in sync with what the REPL actually supports.
-        // Internal/meta variants (Message, Custom, Shell, AgentSwitch, Rename)
-        // are excluded via is_internal().
-        for cmd in AppCommand::iter().filter(|c| !c.is_internal()) {
-            info = info
-                .add_title(cmd.name())
-                .add_key_value("type", CommandType::Command)
-                .add_key_value("description", cmd.usage());
-        }
-
-        // Add agent aliases
-        info = info
-            .add_title("ask")
-            .add_key_value("type", CommandType::Agent)
-            .add_key_value(
-                "description",
-                "Research and investigation agent [alias for: sage]",
-            )
-            .add_title("plan")
-            .add_key_value("type", CommandType::Agent)
-            .add_key_value(
-                "description",
-                "Planning and strategy agent [alias for: muse]",
-            );
-
-        // Fetch agent infos and add them to the commands list.
-        // Uses get_agent_infos() so no provider/model is required for listing.
-        let agent_infos = self.api.get_agent_infos().await?;
-        for agent_info in agent_infos {
-            let title = agent_info
-                .title
-                .map(|title| title.lines().collect::<Vec<_>>().join(" "));
-            info = info
-                .add_title(agent_info.id.to_string())
-                .add_key_value("type", CommandType::Agent)
-                .add_key_value("description", title);
-        }
-
+        // Fetch custom commands once — used by both the porcelain and plain paths.
         let custom_commands = self.api.get_commands().await?;
-        for command in custom_commands {
-            info = info
-                .add_title(command.name.clone())
-                .add_key_value("type", CommandType::Custom)
-                .add_key_value("description", command.description.clone());
-        }
 
         if porcelain {
+            // Build the full info with type/description columns for porcelain
+            // (used by the shell plugin for tab completion).
+            let mut info = Info::new();
+
+            // Generate built-in commands directly from the SlashCommand enum so
+            // the list always stays in sync with what the REPL actually supports.
+            // Internal/meta variants (Message, Custom, Shell, AgentSwitch, Rename)
+            // are excluded via is_internal().
+            // Agent-switch shorthands (forge, muse, sage) are excluded via
+            // is_agent_switch() because they are already emitted as AGENT rows
+            // by the agent-info loop below, and must not appear twice.
+            for cmd in AppCommand::iter().filter(|c| !c.is_internal() && !c.is_agent_switch()) {
+                info = info
+                    .add_title(cmd.name())
+                    .add_key_value("type", CommandType::Command)
+                    .add_key_value("description", cmd.usage());
+            }
+
+            // Add agent aliases
+            info = info
+                .add_title("ask")
+                .add_key_value("type", CommandType::Agent)
+                .add_key_value(
+                    "description",
+                    "Research and investigation agent [alias for: sage]",
+                )
+                .add_title("plan")
+                .add_key_value("type", CommandType::Agent)
+                .add_key_value(
+                    "description",
+                    "Planning and strategy agent [alias for: muse]",
+                );
+
+            // Fetch agent infos and add them to the commands list.
+            // Uses get_agent_infos() so no provider/model is required for listing.
+            let agent_infos = self.api.get_agent_infos().await?;
+            for agent_info in agent_infos {
+                let title = agent_info
+                    .title
+                    .map(|title| title.lines().collect::<Vec<_>>().join(" "));
+                info = info
+                    .add_title(agent_info.id.to_string())
+                    .add_key_value("type", CommandType::Agent)
+                    .add_key_value("description", title);
+            }
+
+            for command in custom_commands {
+                info = info
+                    .add_title(command.name.clone())
+                    .add_key_value("type", CommandType::Custom)
+                    .add_key_value("description", command.description.clone());
+            }
+
             // Original order from Info: [$ID, type, description]
             // So the original order is fine! But $ID should become COMMAND
             let porcelain = Porcelain::from(&info)
@@ -1385,6 +1393,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 });
             self.writeln(porcelain)?;
         } else {
+            // Non-porcelain: render in the same flat format as :help in the REPL.
+            let command_manager = ForgeCommandManager::default();
+            command_manager.register_all(custom_commands);
+            let info = Info::from(&command_manager);
             self.writeln(info)?;
         }
 
@@ -2082,9 +2094,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 let mut display_agents = Vec::new();
                 // Header row (non-selectable via header_lines=1)
+                let Some(header) = all_lines.first() else {
+                    return Err(UIError::MissingHeaderLine.into());
+                };
                 display_agents.push(Agent {
                     id: AgentId::new("__header__".to_string()),
-                    label: all_lines[0].to_string(),
+                    label: header.to_string(),
                 });
                 // Data rows
                 for line in all_lines.iter().skip(1) {
@@ -2711,7 +2726,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         provider_filter: Option<ProviderId>,
     ) -> Result<Option<(ModelId, ProviderId)>> {
         // Check if provider is set otherwise first ask to select a provider
-        if provider_filter.is_none() && self.api.get_default_provider().await.is_err() {
+        if provider_filter.is_none() && self.api.get_session_config().await.is_none() {
             if !self.on_provider_selection().await? {
                 return Ok(None);
             }
@@ -2719,7 +2734,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             // Provider activation may have already completed model selection.
             // If it did not, continue below and show the full cross-provider
             // model list.
-            if self.api.get_default_model().await.is_some() {
+            if self.api.get_session_config().await.is_some() {
                 return Ok(None);
             }
         }
@@ -2835,10 +2850,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let mut rows: Vec<ModelRow> = Vec::with_capacity(all_lines.len());
         // Header row (non-selectable via header_lines=1)
+        let Some(header) = all_lines.first() else {
+            return Err(UIError::MissingHeaderLine.into());
+        };
         rows.push(ModelRow {
             model_id: None,
             provider_id: None,
-            display: all_lines[0].to_string(),
+            display: header.to_string(),
         });
         // Data rows
         for (i, line) in all_lines.iter().skip(1).enumerate() {
@@ -2929,8 +2947,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let api_key_str = if let Some(default_key) = &request.api_key {
             let key_str = default_key.as_ref();
 
-            // Skip prompting only for Google ADC marker
-            if key_str == "google_adc_marker" {
+            // Skip prompting for markers that indicate non-API-key auth
+            if key_str == "google_adc_marker" || key_str == "aws_profile_marker" {
                 key_str.to_string()
             } else {
                 // For other providers, show the existing key as default (autofill)
@@ -3143,12 +3161,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         use colored::Colorize;
 
         if auth_methods.is_empty() {
-            anyhow::bail!("No authentication methods available for provider {provider_id}");
+            return Err(UIError::NoAuthMethodsAvailable { provider: provider_id.clone() }.into());
         }
 
         // If only one auth method, use it directly
         if auth_methods.len() == 1 {
-            return Ok(Some(auth_methods[0].clone()));
+            let Some(method) = auth_methods.first() else {
+                return Err(
+                    UIError::NoAuthMethodsAvailable { provider: provider_id.clone() }.into(),
+                );
+            };
+            return Ok(Some(method.clone()));
         }
 
         // Multiple auth methods - ask user to choose
@@ -3164,6 +3187,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 AuthMethod::OAuthDevice(_) => "OAuth Device Flow".to_string(),
                 AuthMethod::OAuthCode(_) => "OAuth Authorization Code".to_string(),
                 AuthMethod::GoogleAdc => "Google Application Default Credentials (ADC)".to_string(),
+                AuthMethod::AwsProfile => "AWS Profile (SSO/IAM)".to_string(),
                 AuthMethod::CodexDevice(_) => "OpenAI Codex Device Flow".to_string(),
             })
             .collect();
@@ -3174,11 +3198,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         {
             Some(selected_name) => {
                 // Find the corresponding auth method
-                let index = method_names
-                    .iter()
-                    .position(|name| name == &selected_name)
-                    .expect("Selected method should exist");
-                Ok(Some(auth_methods[index].clone()))
+                let Some(index) = method_names.iter().position(|name| name == &selected_name)
+                else {
+                    return Err(UIError::AuthMethodNotFound.into());
+                };
+                let Some(method) = auth_methods.get(index) else {
+                    return Err(UIError::AuthMethodNotFound.into());
+                };
+                Ok(Some(method.clone()))
             }
             None => Ok(None),
         }
@@ -3330,7 +3357,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let mut rows: Vec<ProviderRow> = Vec::with_capacity(all_lines.len());
         // Header row (non-selectable via header_lines=1)
-        rows.push(ProviderRow { provider: None, display: all_lines[0].to_string() });
+        let Some(header) = all_lines.first() else {
+            return Err(UIError::MissingHeaderLine.into());
+        };
+        rows.push(ProviderRow { provider: None, display: header.to_string() });
         // Data rows
         for (i, line) in all_lines.iter().skip(1).enumerate() {
             rows.push(ProviderRow { provider: sorted.get(i).cloned(), display: line.to_string() });
@@ -3424,7 +3454,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.activate_provider(any_provider).await?;
         // Check if provider was actually saved — if user cancelled model selection
         // inside activate_provider, nothing was written
-        Ok(self.api.get_default_provider().await.is_ok())
+        Ok(self.api.get_session_config().await.is_some())
     }
 
     /// Activates a provider by configuring it if needed, setting it as default,
@@ -3493,7 +3523,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
 
         // Check if the current model is available for the new provider
-        let current_model = self.api.get_default_model().await;
+        let current_model = self.api.get_session_config().await.map(|c| c.model);
         let (needs_model_selection, compatible_model) = match current_model {
             None => (true, None),
             Some(current_model) => {
@@ -3642,7 +3672,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // Validate provider is configured before loading agents
         // If provider is set in config but not configured (no credentials), prompt user
         // to login
-        if self.api.get_default_provider().await.is_err() && !self.on_provider_selection().await? {
+        if self.api.get_session_config().await.is_none() && !self.on_provider_selection().await? {
             return Ok(());
         }
 
@@ -4274,9 +4304,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             ConfigGetField::Model => {
                 let model = self
                     .api
-                    .get_default_model()
+                    .get_session_config()
                     .await
-                    .map(|m| m.as_str().to_string());
+                    .map(|c| c.model.as_str().to_string());
                 match model {
                     Some(v) => self.writeln(v.to_string())?,
                     None => self.writeln("Model: Not set")?,
@@ -4285,10 +4315,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             ConfigGetField::Provider => {
                 let provider = self
                     .api
-                    .get_default_provider()
+                    .get_session_config()
                     .await
-                    .ok()
-                    .map(|p| p.id.to_string());
+                    .map(|c| c.provider.to_string());
                 match provider {
                     Some(v) => self.writeln(v.to_string())?,
                     None => self.writeln("Provider: Not set")?,
@@ -4335,13 +4364,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .and_then(|str| ConversationId::from_str(str.as_str()).ok());
 
         // Make IO calls in parallel
-        let (model_id, conversation) = tokio::join!(self.api.get_default_model(), async {
-            if let Some(cid) = cid {
-                self.api.conversation(&cid).await.ok().flatten()
-            } else {
-                None
-            }
-        });
+        let (model_id, conversation, reasoning_effort) = tokio::join!(
+            async { self.api.get_session_config().await.map(|c| c.model) },
+            async {
+                if let Some(cid) = cid {
+                    self.api.conversation(&cid).await.ok().flatten()
+                } else {
+                    None
+                }
+            },
+            async { self.api.get_reasoning_effort().await.ok().flatten() }
+        );
 
         // Calculate total cost including related conversations
         let cost = if let Some(ref conv) = conversation {
@@ -4361,6 +4394,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .map(|val| val == "1")
             .unwrap_or(true); // Default to true
 
+        // Read terminal width from COLUMNS (propagated by the zsh shell plugin)
+        // so the rprompt can pick a compact or full-length reasoning effort
+        // label. Missing or unparseable values fall back to the full-length
+        // form in the renderer.
+        let terminal_width = std::env::var("COLUMNS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok());
+
         let rprompt = ZshRPrompt::from_config(&self.config)
             .agent(
                 std::env::var("_FORGE_ACTIVE_AGENT")
@@ -4371,6 +4412,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .model(model_id)
             .token_count(conversation.and_then(|conversation| conversation.token_count()))
             .cost(cost)
+            .reasoning_effort(reasoning_effort)
+            .terminal_width(terminal_width)
             .use_nerd_font(use_nerd_font);
 
         Some(rprompt.to_string())
