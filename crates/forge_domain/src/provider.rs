@@ -592,6 +592,10 @@ mod tests {
     fn test_vivgrid_from_str() {
         let actual = ProviderId::from_str("vivgrid").unwrap();
         let expected = ProviderId::VIVGRID;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_opencode_go_from_str() {
         let actual = ProviderId::from_str("opencode_go").unwrap();
         let expected = ProviderId::OPENCODE_GO;
