@@ -69,8 +69,8 @@ impl Console {
     /// 2. Clamp the stored effort to the supported set (or clear it).
     /// 3. Read user input (Ctrl+T may cycle the effort in the editor).
     /// 4. Persist the (possibly changed) effort back to the API.
-    /// 5. If Ctrl+Q cycled the agent, sync the new agent to the API and
-    ///    continue the loop so the prompt re-renders with the updated agent.
+    /// 5. If Ctrl+Q cycled the agent, sync the new agent to the API before
+    ///    processing the input returned by the same Enter keypress.
     pub async fn prompt<A: API>(
         &self,
         prompt: &mut ForgePrompt,
@@ -83,7 +83,10 @@ impl Console {
 
             self.sync_effort_to_api(api).await;
 
-            // If Ctrl+Q cycled the agent, sync to API and re-render.
+            // If Ctrl+Q cycled the agent, sync to API before handling the
+            // input from this prompt. Do not continue here: when the user
+            // switches mode and submits text in one prompt, that text must be
+            // handled under the newly selected agent instead of being dropped.
             let cycled_agent = {
                 let state = self.agent_state.lock().unwrap();
                 state.current.clone()
@@ -91,7 +94,6 @@ impl Console {
             if cycled_agent != prompt.agent_id {
                 api.set_active_agent(cycled_agent.clone()).await?;
                 prompt.agent_id = cycled_agent;
-                continue;
             }
 
             match user_input {
@@ -128,17 +130,12 @@ impl Console {
 
         // Only update when the API call succeeds; transient failures must not
         // wipe out the previously resolved supported list and current effort.
-        if let Some(supported) = api
-            .get_models()
-            .await
-            .ok()
-            .and_then(|models| {
-                models
-                    .into_iter()
-                    .find(|m| m.id == model)
-                    .map(|m| m.reasoning_efforts())
-            })
-        {
+        if let Some(supported) = api.get_models().await.ok().and_then(|models| {
+            models
+                .into_iter()
+                .find(|m| m.id == model)
+                .map(|m| m.reasoning_efforts())
+        }) {
             let api_effort = api.get_reasoning_effort().await.ok().flatten();
 
             let mut state = self.effort_state.lock().unwrap();
