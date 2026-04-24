@@ -73,8 +73,12 @@ function _forge_pick_model
     set -l current_provider "$argv[4]"
     set -l provider_field "$argv[5]"
 
-    set -l output
-    set output ($_FORGE_BIN list models --porcelain 2>/dev/null)
+    set -l raw_output (env CLICOLOR_FORCE=0 NO_COLOR=1 TERM=dumb $_FORGE_BIN list models --porcelain </dev/null 2>/dev/null | string collect)
+    set -l output (printf '%s\n' "$raw_output" | string replace -a \r \n | awk 'BEGIN { seen = 0 } /^ID[[:space:]]+MODEL[[:space:]]+PROVIDER/ { seen = 1 } seen { print }' | string collect)
+
+    if test -z "$output"; and test -n "$raw_output"
+        set output "$raw_output"
+    end
 
     if test -z "$output"
         return 1
@@ -96,7 +100,7 @@ function _forge_pick_model
         set fzf_args $fzf_args --bind="start:pos($index)"
     end
 
-    echo "$output" | _forge_fzf --header-lines=1 $fzf_args
+    printf '%s\n' "$output" | _forge_fzf --header-lines=1 $fzf_args
 end
 
 # Action handler: Select model (across all configured providers)
@@ -131,24 +135,18 @@ end
 # Action handler: Select model for shell mode
 function _forge_action_shell_model
     set -l input_text "$argv[1]"
-    begin
-        echo
-        set -l shell_output current_shell_model current_shell_provider
-        set shell_output (_forge_exec config get shell 2>/dev/null)
-        set current_shell_provider (echo "$shell_output" | head -n 1)
-        set current_shell_model (echo "$shell_output" | tail -n 1)
+    echo
 
-        set -l selected
-        set selected (_forge_pick_model "Shell Model ❯ " "$current_shell_model" "$input_text" "$current_shell_provider" 4)
+    set -l selected
+    set selected (_forge_pick_model "Shell Model ❯ " "" "$input_text")
 
-        if test -n "$selected"
-            set -l model_id (echo "$selected" | awk -F '  +' '{print $1}')
-            set -l provider_id (echo "$selected" | awk -F '  +' '{print $4}')
-            set model_id (string replace -a ' ' '' -- $model_id)
-            set provider_id (string replace -a ' ' '' -- $provider_id)
+    if test -n "$selected"
+        set -l model_id (echo "$selected" | awk -F '  +' '{print $1}')
+        set -l provider_id (echo "$selected" | awk -F '  +' '{print $4}')
+        set model_id (string replace -a ' ' '' -- $model_id)
+        set provider_id (string replace -a ' ' '' -- $provider_id)
 
-            _forge_exec config set shell "$provider_id" "$model_id"
-        end
+        _forge_exec config set shell "$provider_id" "$model_id"
     end
 end
 

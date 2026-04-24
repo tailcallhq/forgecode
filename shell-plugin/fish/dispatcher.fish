@@ -158,7 +158,7 @@ function __forge_accept_line
         case config-model cm
             _forge_action_model "$input_text"
         case model m
-            _forge_action_session_model "$input_text"
+            _forge_action_shell_model "$input_text"
         case config-reload cr model-reset mr
             _forge_action_config_reload
         case reasoning-effort re

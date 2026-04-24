@@ -94,8 +94,13 @@ function _forge_pick_model() {
     local current_provider="${4:-}"
     local provider_field="${5:-}"
 
-    local output
-    output=$($_FORGE_BIN list models --porcelain 2>/dev/null)
+    local raw_output output
+    raw_output=$(CLICOLOR_FORCE=0 NO_COLOR=1 TERM=dumb $_FORGE_BIN list models --porcelain </dev/null 2>/dev/null)
+    output=$(printf '%s\n' "$raw_output" | tr '\r' '\n' | awk 'BEGIN { seen = 0 } /^ID[[:space:]]+MODEL[[:space:]]+PROVIDER/ { seen = 1 } seen { print }')
+
+    if [[ -z "$output" && -n "$raw_output" ]]; then
+        output="$raw_output"
+    fi
 
     if [[ -z "$output" ]]; then
         return 1
@@ -123,7 +128,7 @@ function _forge_pick_model() {
         fzf_args+=(--bind="start:pos($index)")
     fi
 
-    echo "$output" | _forge_fzf --header-lines=1 "${fzf_args[@]}"
+    printf '%s\n' "$output" | _forge_fzf --header-lines=1 "${fzf_args[@]}"
 }
 
 # Action handler: Select model (across all configured providers)
@@ -161,6 +166,29 @@ function _forge_action_model() {
             _forge_exec config set model "$provider_id" "$model_id"
         fi
     )
+}
+
+# Action handler: Select model for shell mode.
+# Calls `forge config set shell <provider_id> <model_id>` on selection.
+function _forge_action_shell_model() {
+    local input_text="$1"
+    echo
+
+    local selected
+    selected=$(_forge_pick_model "Shell Model ❯ " "" "$input_text")
+
+    if [[ -n "$selected" ]]; then
+        # Field 1 = model_id (raw), field 4 = provider_id (raw)
+        local model_id provider_id
+        # Extract fields separately to handle display names with spaces
+        model_id=$(echo "$selected" | awk -F '  +' '{print $1}')
+        provider_id=$(echo "$selected" | awk -F '  +' '{print $4}')
+
+        model_id=${model_id//[[:space:]]/}
+        provider_id=${provider_id//[[:space:]]/}
+
+        _forge_exec config set shell "$provider_id" "$model_id"
+    fi
 }
 
 # Action handler: Select model for commit message generation

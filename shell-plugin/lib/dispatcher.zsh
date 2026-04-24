@@ -189,8 +189,11 @@ function forge-accept-line() {
         config-model|cm)
             _forge_action_model "$input_text"
         ;;
+        config-shell-model|cshm)
+            _forge_action_shell_model "$input_text"
+        ;;
         model|m)
-            _forge_action_session_model "$input_text"
+            _forge_action_shell_model "$input_text"
         ;;
         config-reload|cr|model-reset|mr)
             _forge_action_config_reload
