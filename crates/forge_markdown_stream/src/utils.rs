@@ -27,7 +27,7 @@ static THEME_MODE: OnceLock<ThemeMode> = OnceLock::new();
 /// Falls back to dark mode if the terminal does not respond within the timeout.
 pub fn detect_theme_mode() -> ThemeMode {
     *THEME_MODE.get_or_init(|| {
-        use terminal_colorsaurus::{QueryOptions, ThemeMode as ColorsaurusThemeMode, theme_mode};
+        use terminal_colorsaurus::{theme_mode, QueryOptions, ThemeMode as ColorsaurusThemeMode};
 
         let mut opts = QueryOptions::default();
         opts.timeout = THEME_DETECT_TIMEOUT;
@@ -39,9 +39,9 @@ pub fn detect_theme_mode() -> ThemeMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct WrapChunk {
-    content: String,
-    is_whitespace: bool,
+enum WrapAtom<'a> {
+    Escape(&'a str),
+    Grapheme(&'a str),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,12 +55,6 @@ struct WrapLayout<'a> {
     next_width: usize,
     first_prefix: &'a str,
     next_prefix: &'a str,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum WrapAtom {
-    Escape(String),
-    Grapheme(String),
 }
 
 /// Wraps ANSI-styled text while preserving explicit whitespace between words.
@@ -155,7 +149,7 @@ fn append_wrapped_word(
     current_width: &mut usize,
     layout: WrapLayout<'_>,
 ) {
-    let mut remainder = word.to_string();
+    let mut remainder = word;
 
     while !remainder.is_empty() {
         let line_width = visible_length(current_line);
@@ -168,22 +162,19 @@ fn append_wrapped_word(
             available = (*current_width).max(1);
         }
 
-        if visible_length(&remainder) <= available {
-            current_line.push_str(&remainder);
-            apply_style_transition(current_style, &remainder);
+        if visible_length(remainder) <= available {
+            current_line.push_str(remainder);
+            apply_style_transition(current_style, remainder);
             break;
         }
 
-        let prefix = take_prefix_fitting(&remainder, available)
-            .or_else(|| take_prefix_fitting(&remainder, 1))
-            .unwrap_or_else(|| remainder.clone());
+        let prefix = take_prefix_fitting(remainder, available)
+            .or_else(|| take_prefix_fitting(remainder, 1))
+            .unwrap_or(remainder);
 
-        current_line.push_str(&prefix);
-        apply_style_transition(current_style, &prefix);
-        remainder = remainder
-            .strip_prefix(prefix.as_str())
-            .unwrap_or_default()
-            .to_string();
+        current_line.push_str(prefix);
+        apply_style_transition(current_style, prefix);
+        remainder = remainder.strip_prefix(prefix).unwrap_or_default();
 
         if !remainder.is_empty() {
             push_wrapped_line(lines, current_line, layout.first_prefix, layout.next_prefix);
@@ -193,100 +184,81 @@ fn append_wrapped_word(
     }
 }
 
-fn take_prefix_fitting(text: &str, max_width: usize) -> Option<String> {
+fn take_prefix_fitting(text: &str, max_width: usize) -> Option<&str> {
     if text.is_empty() {
         return None;
     }
 
     let mut width = 0;
-    let mut result = String::new();
+    let mut prefix_end = 0;
     let mut consumed_visible = false;
 
     for atom in parse_atoms(text) {
         match atom {
-            WrapAtom::Escape(sequence) => result.push_str(&sequence),
+            WrapAtom::Escape(sequence) => prefix_end += sequence.len(),
             WrapAtom::Grapheme(grapheme) => {
-                let grapheme_width = UnicodeWidthStr::width(grapheme.as_str());
+                let grapheme_width = UnicodeWidthStr::width(grapheme);
                 if consumed_visible && width + grapheme_width > max_width {
                     break;
                 }
                 if !consumed_visible && grapheme_width > max_width {
-                    result.push_str(&grapheme);
+                    prefix_end += grapheme.len();
                     break;
                 }
 
-                result.push_str(&grapheme);
+                prefix_end += grapheme.len();
                 width += grapheme_width;
                 consumed_visible = true;
             }
         }
     }
 
-    if result.is_empty() {
-        None
-    } else {
-        Some(result)
-    }
+    (prefix_end > 0).then(|| text.get(..prefix_end)).flatten()
 }
 
 fn wrap_segments(text: &str) -> Vec<WrapSegment> {
-    let chunks = wrap_chunks(text);
     let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut current_is_whitespace = None;
     let mut separator = String::new();
 
-    for chunk in chunks {
-        if chunk.is_whitespace {
-            separator.push_str(&chunk.content);
-        } else {
-            segments.push(WrapSegment {
-                separator: std::mem::take(&mut separator),
-                word: chunk.content,
-            });
+    for atom in parse_atoms(text) {
+        match atom {
+            WrapAtom::Escape(sequence) => current.push_str(sequence),
+            WrapAtom::Grapheme(grapheme) => {
+                let is_whitespace = grapheme.chars().all(char::is_whitespace);
+                match current_is_whitespace {
+                    Some(kind) if kind != is_whitespace => {
+                        if kind {
+                            separator.push_str(&current);
+                            current.clear();
+                        } else {
+                            segments.push(WrapSegment {
+                                separator: std::mem::take(&mut separator),
+                                word: std::mem::take(&mut current),
+                            });
+                        }
+                        current_is_whitespace = Some(is_whitespace);
+                    }
+                    None => current_is_whitespace = Some(is_whitespace),
+                    _ => {}
+                }
+
+                current.push_str(grapheme);
+            }
         }
+    }
+
+    match (current_is_whitespace, current.is_empty()) {
+        (Some(true), false) => separator.push_str(&current),
+        (Some(false), false) => segments.push(WrapSegment { separator, word: current }),
+        _ => {}
     }
 
     segments
 }
 
-fn wrap_chunks(text: &str) -> Vec<WrapChunk> {
-    let mut chunks = Vec::new();
-    let mut current = String::new();
-    let mut current_is_whitespace = None;
-
-    for atom in parse_atoms(text) {
-        match atom {
-            WrapAtom::Escape(sequence) => current.push_str(&sequence),
-            WrapAtom::Grapheme(grapheme) => {
-                let is_whitespace = grapheme.chars().all(char::is_whitespace);
-                match current_is_whitespace {
-                    Some(kind) if kind != is_whitespace => {
-                        chunks.push(WrapChunk {
-                            content: std::mem::take(&mut current),
-                            is_whitespace: kind,
-                        });
-                        current_is_whitespace = Some(is_whitespace);
-                    }
-                    None => {
-                        current_is_whitespace = Some(is_whitespace);
-                    }
-                    _ => {}
-                }
-
-                current.push_str(&grapheme);
-            }
-        }
-    }
-
-    if let Some(is_whitespace) = current_is_whitespace
-        && !current.is_empty()
-    {
-        chunks.push(WrapChunk { content: current, is_whitespace });
-    }
-
-    chunks
-}
-
-fn parse_atoms(text: &str) -> Vec<WrapAtom> {
+fn parse_atoms(text: &str) -> Vec<WrapAtom<'_>> {
     let mut atoms = Vec::new();
     let bytes = text.as_bytes();
     let mut index = 0;
@@ -297,19 +269,15 @@ fn parse_atoms(text: &str) -> Vec<WrapAtom> {
         };
 
         if *current_byte != 0x1b {
-            let next_escape = bytes
+            let next_escape = text
                 .get(index..)
-                .and_then(|remainder| {
-                    remainder
-                        .iter()
-                        .position(|byte| *byte == 0x1b)
-                        .map(|offset| index + offset)
-                })
-                .unwrap_or(bytes.len());
+                .and_then(|s| s.find('\x1b'))
+                .map(|offset| index + offset)
+                .unwrap_or(text.len());
 
-            if let Some(segment) = text.get(index..next_escape) {
-                for grapheme in segment.graphemes(true) {
-                    atoms.push(WrapAtom::Grapheme(grapheme.to_string()));
+            if let Some(slice) = text.get(index..next_escape) {
+                for grapheme in slice.graphemes(true) {
+                    atoms.push(WrapAtom::Grapheme(grapheme));
                 }
             }
 
@@ -325,7 +293,7 @@ fn parse_atoms(text: &str) -> Vec<WrapAtom> {
         };
 
         if let Some(sequence) = text.get(index..end) {
-            atoms.push(WrapAtom::Escape(sequence.to_string()));
+            atoms.push(WrapAtom::Escape(sequence));
         }
 
         index = end;
