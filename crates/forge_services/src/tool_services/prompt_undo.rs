@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use forge_app::{FileReaderInfra, FileWriterInfra, PromptUndoOutput, PromptUndoService};
+use forge_app::{FileReaderInfra, FileRemoverInfra, FileWriterInfra, PromptUndoOutput, PromptUndoService};
 use forge_domain::{ConversationId, SnapshotMetadataRepository, UserInputId};
 
 /// Restores all files that were changed during the most recent user prompt in a
@@ -20,7 +20,7 @@ impl<F> ForgePromptUndo<F> {
 }
 
 #[async_trait::async_trait]
-impl<F: FileReaderInfra + FileWriterInfra + SnapshotMetadataRepository> PromptUndoService
+impl<F: FileReaderInfra + FileWriterInfra + FileRemoverInfra + SnapshotMetadataRepository> PromptUndoService
     for ForgePromptUndo<F>
 {
     async fn undo_last_prompt(
@@ -47,17 +47,25 @@ impl<F: FileReaderInfra + FileWriterInfra + SnapshotMetadataRepository> PromptUn
             .find_snapshots_by_user_input_id(user_input_id)
             .await?;
 
-        // Step 4: Restore each file from its snapshot.
+        // Step 4: Restore or delete each file based on its snapshot type.
         let mut restored_files = Vec::with_capacity(file_snapshots.len());
+        let mut deleted_files = Vec::new();
         for (file_path, snap_file_path) in &file_snapshots {
-            let snap_path = Path::new(snap_file_path);
-            let original_path = Path::new(file_path);
+            if snap_file_path.is_empty() {
+                // New file created during prompt: delete it on undo.
+                self.infra.remove(Path::new(file_path)).await?;
+                deleted_files.push(file_path.clone());
+            } else {
+                // Existing file modified: restore from snapshot.
+                let snap_path = Path::new(snap_file_path);
+                let original_path = Path::new(file_path);
 
-            let content = self.infra.read_utf8(snap_path).await?;
-            self.infra
-                .write(original_path, Bytes::from(content))
-                .await?;
-            restored_files.push(file_path.clone());
+                let content = self.infra.read_utf8(snap_path).await?;
+                self.infra
+                    .write(original_path, Bytes::from(content))
+                    .await?;
+                restored_files.push(file_path.clone());
+            }
         }
 
         // Step 5: Mark those snapshot rows as undone.
@@ -65,7 +73,10 @@ impl<F: FileReaderInfra + FileWriterInfra + SnapshotMetadataRepository> PromptUn
             .mark_snapshots_undone(user_input_id)
             .await?;
 
-        Ok(PromptUndoOutput { restored_files })
+        Ok(PromptUndoOutput {
+            restored_files,
+            deleted_files,
+        })
     }
 }
 
@@ -76,7 +87,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use bytes::Bytes;
-    use forge_app::{FileReaderInfra, FileWriterInfra, PromptUndoOutput, PromptUndoService};
+    use forge_app::{
+        FileReaderInfra, FileRemoverInfra, FileWriterInfra, PromptUndoOutput, PromptUndoService,
+    };
     use forge_domain::{ConversationId, FileInfo, SnapshotMetadataRepository, UserInputId};
     use pretty_assertions::assert_eq;
 
@@ -89,6 +102,7 @@ mod tests {
         conversation_snapshots: Mutex<Vec<(String, String, String)>>,
         user_input_snapshots: Mutex<HashMap<String, Vec<(String, String)>>>,
         undone: Mutex<Vec<String>>,
+        removed: Mutex<Vec<String>>,
     }
 
     impl MockUndoInfra {
@@ -98,6 +112,7 @@ mod tests {
                 conversation_snapshots: Mutex::new(Vec::new()),
                 user_input_snapshots: Mutex::new(HashMap::new()),
                 undone: Mutex::new(Vec::new()),
+                removed: Mutex::new(Vec::new()),
             }
         }
 
@@ -109,10 +124,12 @@ mod tests {
             snap_file_path: &str,
             snap_content: &str,
         ) {
-            self.files
-                .lock()
-                .unwrap()
-                .insert(snap_file_path.to_string(), snap_content.to_string());
+            if !snap_file_path.is_empty() {
+                self.files
+                    .lock()
+                    .unwrap()
+                    .insert(snap_file_path.to_string(), snap_content.to_string());
+            }
 
             self.conversation_snapshots
                 .lock()
@@ -190,6 +207,16 @@ mod tests {
     }
 
     #[async_trait::async_trait]
+    impl FileRemoverInfra for MockUndoInfra {
+        async fn remove(&self, path: &Path) -> anyhow::Result<()> {
+            let path_str = path.to_str().unwrap().to_string();
+            self.files.lock().unwrap().remove(&path_str);
+            self.removed.lock().unwrap().push(path_str);
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
     impl SnapshotMetadataRepository for MockUndoInfra {
         async fn insert_snapshot_metadata(
             &self,
@@ -247,6 +274,7 @@ mod tests {
 
         let expected = PromptUndoOutput {
             restored_files: vec!["/home/user/test.txt".to_string()],
+            deleted_files: vec![],
         };
         assert_eq!(actual, expected);
     }
@@ -280,6 +308,7 @@ mod tests {
                 "/home/user/file1.txt".to_string(),
                 "/home/user/file2.rs".to_string(),
             ],
+            deleted_files: vec![],
         };
         assert_eq!(actual, expected);
     }
@@ -316,5 +345,69 @@ mod tests {
         let undone = infra.undone.lock().unwrap();
         assert_eq!(undone.len(), 1);
         assert_eq!(undone[0], user_input_id.to_string());
+    }
+
+    #[tokio::test]
+    async fn test_undo_last_prompt_deletes_new_file() {
+        let conversation_id = ConversationId::generate();
+        let user_input_id = UserInputId::new();
+
+        let fixture = MockUndoInfra::new();
+        // New file has empty snap_file_path (no prior content to back up)
+        fixture.add_snapshot(
+            conversation_id,
+            &user_input_id.to_string(),
+            "/home/user/new_file.txt",
+            "",
+            "",
+        );
+
+        let service = ForgePromptUndo::new(Arc::new(fixture));
+        let actual = service.undo_last_prompt(conversation_id).await.unwrap();
+
+        let expected = PromptUndoOutput {
+            restored_files: vec![],
+            deleted_files: vec!["/home/user/new_file.txt".to_string()],
+        };
+        assert_eq!(actual, expected);
+
+        // Verify the file was removed
+        let infra = service.infra.as_ref();
+        let removed = infra.removed.lock().unwrap();
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0], "/home/user/new_file.txt");
+    }
+
+    #[tokio::test]
+    async fn test_undo_last_prompt_restores_and_deletes_mixed() {
+        let conversation_id = ConversationId::generate();
+        let user_input_id = UserInputId::new();
+
+        let fixture = MockUndoInfra::new();
+        // Existing file modified: has a snapshot
+        fixture.add_snapshot(
+            conversation_id,
+            &user_input_id.to_string(),
+            "/home/user/existing.txt",
+            "/tmp/snaps/existing.txt.snap",
+            "original content",
+        );
+        // New file created: empty snap_file_path
+        fixture.add_snapshot(
+            conversation_id,
+            &user_input_id.to_string(),
+            "/home/user/brand_new.rs",
+            "",
+            "",
+        );
+
+        let service = ForgePromptUndo::new(Arc::new(fixture));
+        let actual = service.undo_last_prompt(conversation_id).await.unwrap();
+
+        let expected = PromptUndoOutput {
+            restored_files: vec!["/home/user/existing.txt".to_string()],
+            deleted_files: vec!["/home/user/brand_new.rs".to_string()],
+        };
+        assert_eq!(actual, expected);
     }
 }

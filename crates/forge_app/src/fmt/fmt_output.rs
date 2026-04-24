@@ -358,6 +358,7 @@ mod tests {
         let fixture = ToolOperation::FsUndo {
             output: PromptUndoOutput {
                 restored_files: vec!["/home/user/project/test.txt".to_string()],
+                deleted_files: vec![],
             },
         };
         let env = fixture_environment();

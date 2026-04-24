@@ -505,22 +505,52 @@ impl ToolOperation {
                 forge_domain::ToolOutput::text(elm)
             }
             ToolOperation::FsUndo { output } => {
-                let files_count = output.restored_files.len();
-                let files_list = output.restored_files.join(", ");
+                let restored_count = output.restored_files.len();
+                let deleted_count = output.deleted_files.len();
+                let restored_list = output.restored_files.join(", ");
+                let deleted_list = output.deleted_files.join(", ");
 
-                if output.restored_files.is_empty() {
+                if restored_count == 0 && deleted_count == 0 {
                     let elm = Element::new("prompt_undo")
                         .attr("status", "no_changes")
                         .text("No file changes found for the last prompt.");
                     forge_domain::ToolOutput::text(elm)
                 } else {
-                    let elm = Element::new("prompt_undo")
-                        .attr("status", "restored")
-                        .attr("files_count", files_count)
-                        .text(format!(
+                    let mut attrs = Vec::new();
+                    if restored_count > 0 {
+                        attrs.push(("restored_count", restored_count.to_string()));
+                    }
+                    if deleted_count > 0 {
+                        attrs.push(("deleted_count", deleted_count.to_string()));
+                    }
+
+                    let status = if deleted_count > 0 && restored_count > 0 {
+                        "mixed"
+                    } else if deleted_count > 0 {
+                        "deleted"
+                    } else {
+                        "restored"
+                    };
+
+                    let mut elm = Element::new("prompt_undo").attr("status", status);
+                    for (key, value) in &attrs {
+                        elm = elm.attr(key, value);
+                    }
+
+                    let mut text_parts = Vec::new();
+                    if restored_count > 0 {
+                        text_parts.push(format!(
                             "Restored {} file(s) to their state before the last prompt: {}",
-                            files_count, files_list
+                            restored_count, restored_list
                         ));
+                    }
+                    if deleted_count > 0 {
+                        text_parts.push(format!(
+                            "Deleted {} new file(s) created during the last prompt: {}",
+                            deleted_count, deleted_list
+                        ));
+                    }
+                    elm = elm.text(text_parts.join(". "));
                     forge_domain::ToolOutput::text(elm)
                 }
             }
@@ -2152,7 +2182,10 @@ mod tests {
     #[test]
     fn test_prompt_undo_no_changes() {
         let fixture = ToolOperation::FsUndo {
-            output: PromptUndoOutput { restored_files: vec![] },
+            output: PromptUndoOutput {
+                restored_files: vec![],
+                deleted_files: vec![],
+            },
         };
 
         let env = fixture_environment();
@@ -2174,6 +2207,7 @@ mod tests {
         let fixture = ToolOperation::FsUndo {
             output: PromptUndoOutput {
                 restored_files: vec!["/home/user/test.txt".to_string()],
+                deleted_files: vec![],
             },
         };
 
@@ -2200,6 +2234,7 @@ mod tests {
                     "/home/user/file2.rs".to_string(),
                     "/home/user/file3.toml".to_string(),
                 ],
+                deleted_files: vec![],
             },
         };
 

@@ -148,6 +148,10 @@ pub struct FsUndoOutput {
 pub struct PromptUndoOutput {
     /// List of file paths that were restored from their snapshots.
     pub restored_files: Vec<String>,
+
+    /// List of new file paths that were deleted (files created during the
+    /// prompt that had no prior content to restore).
+    pub deleted_files: Vec<String>,
 }
 
 /// Output from todo_write tool execution

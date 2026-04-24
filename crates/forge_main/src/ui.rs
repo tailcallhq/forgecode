@@ -4519,16 +4519,27 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let output = self.api.undo_last_prompt(conversation_id).await?;
 
-        if output.restored_files.is_empty() {
+        if output.restored_files.is_empty() && output.deleted_files.is_empty() {
             self.writeln_title(TitleFormat::info(
                 "No file changes found for the last prompt.",
             ))?;
         } else {
-            let files_count = output.restored_files.len();
-            let files_list = output.restored_files.join(", ");
-            self.writeln_title(TitleFormat::info(format!(
-                "Restored {files_count} file(s) to their state before the last prompt: {files_list}"
-            )))?;
+            let mut parts = Vec::new();
+            if !output.restored_files.is_empty() {
+                let restored_count = output.restored_files.len();
+                let restored_list = output.restored_files.join(", ");
+                parts.push(format!(
+                    "Restored {restored_count} file(s) to their state before the last prompt: {restored_list}"
+                ));
+            }
+            if !output.deleted_files.is_empty() {
+                let deleted_count = output.deleted_files.len();
+                let deleted_list = output.deleted_files.join(", ");
+                parts.push(format!(
+                    "Deleted {deleted_count} new file(s) created during the last prompt: {deleted_list}"
+                ));
+            }
+            self.writeln_title(TitleFormat::info(parts.join(". ")))?;
         }
 
         Ok(())
