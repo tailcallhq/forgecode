@@ -3419,6 +3419,26 @@
     "url": "https://{{#if CLUSTER}}{{CLUSTER}}{{else}}token-plan-sgp.xiaomimimo.com{{/if}}/v1/chat/completions",
     "models": [
       {
+        "id": "mimo-v2.5-pro",
+        "name": "MiMo V2.5 Pro",
+        "description": "Xiaomi's latest flagship foundation model with enhanced reasoning and agent capabilities",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "mimo-v2.5",
+        "name": "MiMo V2.5",
+        "description": "Xiaomi's balanced V2.5 model for general-purpose tasks",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
         "id": "mimo-v2-pro",
         "name": "MiMo V2 Pro",
         "description": "Xiaomi's flagship foundation model with 1T+ parameters and 1M context length",
@@ -3439,12 +3459,13 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "mimo-v2-tts",
-        "name": "MiMo V2 TTS",
-        "description": "Xiaomi's text-to-speech model",
-        "context_length": 8192,
-        "tools_supported": false,
-        "supports_parallel_tool_calls": false,
+        "id": "mimo-v2-flash",
+        "name": "MiMo V2 Flash",
+        "description": "Xiaomi's fast and efficient model for high-throughput applications",
+        "context_length": 262100,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": false,
         "input_modalities": ["text"]
       }
     ],
