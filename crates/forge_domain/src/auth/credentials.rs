@@ -289,8 +289,7 @@ mod tests {
                     expires_at: None,
                 };
                 let actual = serde_json::to_string(&fixture).unwrap();
-                let expected =
-                    r#"{"command":"vault read -field=token","last_key":"resolved"}"#;
+                let expected = r#"{"command":"vault read -field=token","last_key":"resolved"}"#;
                 assert_eq!(actual, expected);
             }
 
@@ -442,16 +441,25 @@ mod tests {
             let actual = serde_json::to_string_pretty(&fixture).unwrap();
             // command persisted, last_key and expires_at skipped
             assert!(
+                
                 actual.contains(r#""command""#),
+               
                 "should contain command: {actual}"
+            
             );
             assert!(
-                !actual.contains("last_key"),
+                !
+                actual.contains("last_key"),
+               
                 "should NOT contain last_key: {actual}"
+            
             );
             assert!(
+                
                 !actual.contains("expires_at"),
+               
                 "should NOT contain expires_at: {actual}"
+            
             );
         }
     }
