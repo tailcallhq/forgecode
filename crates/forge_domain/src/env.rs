@@ -16,9 +16,9 @@ use crate::{Effort, ModelConfig};
 pub enum ConfigOperation {
     /// Set the active session provider and model atomically.
     ///
-    /// When the provider differs from the current session provider the entire
-    /// session (provider + model) is replaced atomically. When they match only
-    /// the model field is updated.
+    /// This operation also writes the selected provider/model as the global
+    /// default. Runtime infrastructure preserves any already-cached session
+    /// model unless this operation explicitly provides the new session value.
     SetSessionConfig(ModelConfig),
     /// Set the shell mode provider and model configuration.
     SetShellConfig(ModelConfig),

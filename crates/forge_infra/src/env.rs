@@ -226,6 +226,9 @@ impl EnvironmentInfra for ForgeEnvironmentInfra {
     }
 
     async fn update_environment(&self, ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
+        let mut session_override = None;
+        let cached_session = self.cached_config().ok().and_then(|config| config.session);
+
         // Load the global config (with defaults applied) for the update round-trip
         let mut fc = ConfigReader::default()
             .read_defaults()
@@ -235,25 +238,35 @@ impl EnvironmentInfra for ForgeEnvironmentInfra {
         debug!(config = ?fc, ?ops, "applying app config operations");
 
         for op in ops {
-            if let ConfigOperation::SetSudo(enabled) = op {
-                self.sudo.store(enabled, Ordering::Relaxed);
-                self.refresh_keepalive(enabled).await;
-                // Sudo is session-scoped: update the in-memory flag only,
-                // do NOT persist to disk.
-                continue;
+            match op {
+                ConfigOperation::SetSessionConfig(mc) => {
+                    session_override = Some(ModelConfig {
+                        provider_id: mc.provider.as_ref().to_string(),
+                        model_id: mc.model.to_string(),
+                    });
+                    apply_config_op(&mut fc, ConfigOperation::SetSessionConfig(mc));
+                }
+                ConfigOperation::SetSudo(enabled) => {
+                    self.sudo.store(enabled, Ordering::Relaxed);
+                    self.refresh_keepalive(enabled).await;
+                    // Sudo is session-scoped: update the in-memory flag only,
+                    // do NOT persist to disk.
+                }
+                ConfigOperation::SetPreventSleep(enabled) => {
+                    self.refresh_sleep_inhibition(enabled).await;
+                    // Persist prevent_sleep to disk (not session-scoped).
+                    apply_config_op(&mut fc, ConfigOperation::SetPreventSleep(enabled));
+                }
+                other => apply_config_op(&mut fc, other),
             }
-            if let ConfigOperation::SetPreventSleep(enabled) = op {
-                self.refresh_sleep_inhibition(enabled).await;
-                // Persist prevent_sleep to disk (not session-scoped).
-            }
-            apply_config_op(&mut fc, op);
         }
 
         fc.write()?;
         debug!(config = ?fc, "written .forge.toml");
 
-        // Reset cache so next get_config() re-reads the updated values from disk
-        *self.cache.lock().expect("cache mutex poisoned") = None;
+        fc.session = session_override.or(cached_session).or(fc.session);
+        fc.sudo = self.sudo.load(Ordering::Relaxed);
+        *self.cache.lock().expect("cache mutex poisoned") = Some(fc);
 
         Ok(())
     }

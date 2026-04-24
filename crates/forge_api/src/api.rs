@@ -165,7 +165,7 @@ pub trait API: Sync + Send {
     /// generation).
     async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
 
-    /// Gets the shell configuration (provider and model for shell mode).
+    /// Gets the shell configuration, falling back to the active session model when unset.
     async fn get_shell_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
 
     /// Gets the suggest configuration (provider and model for command

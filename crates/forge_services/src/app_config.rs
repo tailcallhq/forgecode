@@ -42,7 +42,7 @@ impl<F: ProviderRepository + EnvironmentInfra<Config = forge_config::ForgeConfig
 
     async fn get_shell_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>> {
         let config = self.infra.get_config()?;
-        Ok(config.shell.clone().map(|mc| ModelConfig {
+        Ok(config.shell.or(config.session).map(|mc| ModelConfig {
             provider: ProviderId::from(mc.provider_id),
             model: ModelId::new(mc.model_id),
         }))
@@ -395,6 +395,53 @@ mod tests {
         let expected = Some(DomainModelConfig::new(
             ProviderId::ANTHROPIC,
             ModelId::new("claude-3"),
+        ));
+
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_shell_config_falls_back_to_session_config() -> anyhow::Result<()> {
+        let fixture = MockInfra::new();
+        let service = ForgeAppConfigService::new(Arc::new(fixture.clone()));
+
+        service
+            .update_config(vec![ConfigOperation::SetSessionConfig(
+                DomainModelConfig::new(ProviderId::ANTHROPIC, ModelId::new("claude-3")),
+            )])
+            .await?;
+        let actual = service.get_shell_config().await?;
+        let expected = Some(DomainModelConfig::new(
+            ProviderId::ANTHROPIC,
+            ModelId::new("claude-3"),
+        ));
+
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_shell_config_prefers_explicit_shell_config() -> anyhow::Result<()> {
+        let fixture = MockInfra::new();
+        let service = ForgeAppConfigService::new(Arc::new(fixture.clone()));
+
+        service
+            .update_config(vec![
+                ConfigOperation::SetSessionConfig(DomainModelConfig::new(
+                    ProviderId::ANTHROPIC,
+                    ModelId::new("claude-3"),
+                )),
+                ConfigOperation::SetShellConfig(DomainModelConfig::new(
+                    ProviderId::OPENAI,
+                    ModelId::new("gpt-4"),
+                )),
+            ])
+            .await?;
+        let actual = service.get_shell_config().await?;
+        let expected = Some(DomainModelConfig::new(
+            ProviderId::OPENAI,
+            ModelId::new("gpt-4"),
         ));
 
         assert_eq!(actual, expected);
