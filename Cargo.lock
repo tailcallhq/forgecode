@@ -1657,9 +1657,9 @@ checksum = "abd57806937c9cc163efc8ea3910e00a62e2aeb0b8119f1793a978088f8f6b04"
 
 [[package]]
 name = "diesel"
-version = "2.3.7"
+version = "2.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4ae09a41a4b89f94ec1e053623da8340d996bc32c6517d325a9daad9b239358"
+checksum = "78df0e4e8c596662edb07fbfbb7f23769cca35049827df5f909084d956b6aeaf"
 dependencies = [
  "chrono",
  "diesel_derives",
@@ -4464,7 +4464,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
