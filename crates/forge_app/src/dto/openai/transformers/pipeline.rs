@@ -1,15 +1,19 @@
+use std::str::FromStr;
+
 use forge_domain::{DefaultTransformation, Provider, ProviderId, Transformer};
 use url::Url;
 
+use super::default_reasoning_content::DefaultReasoningContent;
 use super::drop_tool_call::DropToolCalls;
 use super::github_copilot_reasoning::GitHubCopilotReasoning;
-use super::kimi_k2_reasoning::KimiK2Reasoning;
 use super::make_cerebras_compat::MakeCerebrasCompat;
 use super::make_openai_compat::MakeOpenAiCompat;
+use super::make_xai_compat::MakeXaiCompat;
 use super::minimax::SetMinimaxParams;
 use super::normalize_tool_schema::{
     EnforceStrictResponseFormatSchema, EnforceStrictToolSchema, NormalizeToolSchema,
 };
+use super::reasoning_content::ReasoningContent;
 use super::set_cache::SetCache;
 use super::set_reasoning_effort::SetReasoningEffort;
 use super::strip_thought_signature::StripThoughtSignature;
@@ -61,18 +65,30 @@ impl Transformer for ProviderPipeline<'_> {
         let github_copilot_reasoning =
             GitHubCopilotReasoning.when(move |_| provider.id == ProviderId::GITHUB_COPILOT);
 
-        let kimi_k2_reasoning = KimiK2Reasoning.when(move |request: &Request| {
-            provider.id == ProviderId::FIREWORKS_AI || when_model("kimi")(request)
+        let reasoning_content = ReasoningContent.when(move |request: &Request| {
+            provider.id == ProviderId::FIREWORKS_AI
+                || is_deepseek_provider(provider)
+                || when_model("kimi")(request)
         });
+
+        let default_reasoning_content =
+            DefaultReasoningContent.when(move |_| is_deepseek_provider(provider));
 
         let cerebras_compat = MakeCerebrasCompat.when(move |_| provider.id == ProviderId::CEREBRAS);
 
+        let xai_compat = MakeXaiCompat.when(move |_| provider.id == ProviderId::XAI);
+
         let trim_tool_call_ids = TrimToolCallIds.when(move |_| provider.id == ProviderId::OPENAI);
 
+        let kimi_coding = ProviderId::from_str("kimi_coding").unwrap();
         let strict_schema = EnforceStrictToolSchema
             .pipe(EnforceStrictResponseFormatSchema)
             .when(move |_| {
-                provider.id == ProviderId::FIREWORKS_AI || provider.id == ProviderId::OPENCODE_ZEN
+                provider.id == ProviderId::FIREWORKS_AI
+                    || provider.id == ProviderId::OPENCODE_ZEN
+                    || provider.id == ProviderId::OPENCODE_GO
+                    || provider.id == ProviderId::XAI
+                    || provider.id == kimi_coding
             });
 
         let mut combined = zai_thinking
@@ -81,8 +97,10 @@ impl Transformer for ProviderPipeline<'_> {
             .pipe(set_reasoning_effort)
             .pipe(open_ai_compat)
             .pipe(github_copilot_reasoning)
-            .pipe(kimi_k2_reasoning)
+            .pipe(reasoning_content)
+            .pipe(default_reasoning_content)
             .pipe(cerebras_compat)
+            .pipe(xai_compat)
             .pipe(trim_tool_call_ids)
             .pipe(strict_schema)
             .pipe(NormalizeToolSchema);
@@ -93,6 +111,12 @@ impl Transformer for ProviderPipeline<'_> {
 /// Checks if provider is a z.ai provider (zai or zai_coding)
 fn is_zai_provider(provider: &Provider<Url>) -> bool {
     provider.id == ProviderId::ZAI || provider.id == ProviderId::ZAI_CODING
+}
+
+/// Checks if provider is DeepSeek, which requires reasoning to be replayed as
+/// a flat reasoning_content field.
+fn is_deepseek_provider(provider: &Provider<Url>) -> bool {
+    provider.id.as_ref() == "deepseek"
 }
 
 /// Checks if the request model is a gemini-3 model (which supports thought
@@ -286,6 +310,22 @@ mod tests {
             credential: make_credential(ProviderId::FIREWORKS_AI, key),
             custom_headers: None,
             models: Some(ModelSource::Hardcoded(vec![])),
+        }
+    }
+
+    fn deepseek(key: &str) -> Provider<Url> {
+        Provider {
+            id: ProviderId::from_str("deepseek").unwrap(),
+            provider_type: Default::default(),
+            response: Some(ProviderResponse::OpenAI),
+            url: Url::parse("https://api.deepseek.com/chat/completions").unwrap(),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            credential: make_credential(ProviderId::from_str("deepseek").unwrap(), key),
+            custom_headers: None,
+            models: Some(ModelSource::Url(
+                Url::parse("https://api.deepseek.com/models").unwrap(),
+            )),
         }
     }
 
@@ -808,6 +848,61 @@ mod tests {
         let message = actual.messages.unwrap().into_iter().next().unwrap();
         assert_eq!(message.reasoning_content, Some("thinking...".to_string()));
         assert!(message.reasoning_details.is_none());
+    }
+
+    #[test]
+    fn test_deepseek_provider_converts_reasoning_details_to_reasoning_content() {
+        let provider = deepseek("deepseek");
+        let fixture = Request::default().messages(vec![crate::dto::openai::Message {
+            role: crate::dto::openai::Role::Assistant,
+            content: Some(crate::dto::openai::MessageContent::Text("test".to_string())),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning_details: Some(vec![crate::dto::openai::ReasoningDetail {
+                r#type: "reasoning.text".to_string(),
+                text: Some("thinking...".to_string()),
+                signature: None,
+                data: None,
+                id: None,
+                format: None,
+                index: None,
+            }]),
+            reasoning_text: None,
+            reasoning_opaque: None,
+            reasoning_content: None,
+            extra_content: None,
+        }]);
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        let message = actual.messages.unwrap().into_iter().next().unwrap();
+        assert_eq!(message.reasoning_content, Some("thinking...".to_string()));
+        assert!(message.reasoning_details.is_none());
+    }
+
+    #[test]
+    fn test_deepseek_provider_falls_back_to_empty_reasoning_content_when_none() {
+        let provider = deepseek("deepseek");
+        let fixture = Request::default().messages(vec![crate::dto::openai::Message {
+            role: crate::dto::openai::Role::Assistant,
+            content: Some(crate::dto::openai::MessageContent::Text("test".to_string())),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning_details: None,
+            reasoning_text: None,
+            reasoning_opaque: None,
+            reasoning_content: None,
+            extra_content: None,
+        }]);
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        let message = actual.messages.unwrap().into_iter().next().unwrap();
+        assert_eq!(message.reasoning_content, Some(String::new()));
     }
 
     #[test]

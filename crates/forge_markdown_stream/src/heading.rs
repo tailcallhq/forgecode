@@ -1,9 +1,8 @@
 //! Heading rendering with theme-based styling.
 
-use streamdown_render::simple_wrap;
-
 use crate::inline::render_inline_content;
 use crate::style::{HeadingStyler, InlineStyler};
+use crate::utils::simple_wrap_preserving_spaces;
 
 /// Render a heading with appropriate styling.
 pub fn render_heading<S: InlineStyler + HeadingStyler>(
@@ -30,7 +29,7 @@ pub fn render_heading<S: InlineStyler + HeadingStyler>(
     // chars, etc.)
     let prefix_display_width = level as usize + 1;
     let content_width = width.saturating_sub(prefix_display_width);
-    let lines = simple_wrap(&rendered_content, content_width);
+    let lines = simple_wrap_preserving_spaces(&rendered_content, content_width);
     let mut result = Vec::new();
 
     for line in lines {
@@ -113,12 +112,18 @@ mod tests {
 
     #[test]
     fn test_h1_simple() {
-        insta::assert_snapshot!(render(1, "Hello World"), @"<dim><h1>#</h1></dim> <h1>HELLO WORLD</h1>");
+        insta::assert_snapshot!(render(1, "Hello World"), @"
+
+        <dim><h1>#</h1></dim> <h1>HELLO WORLD</h1>
+        ");
     }
 
     #[test]
     fn test_h2_simple() {
-        insta::assert_snapshot!(render(2, "Chapter One"), @"<dim><h2>##</h2></dim> <h2>Chapter One</h2>");
+        insta::assert_snapshot!(render(2, "Chapter One"), @"
+
+        <dim><h2>##</h2></dim> <h2>Chapter One</h2>
+        ");
     }
 
     #[test]
@@ -143,12 +148,18 @@ mod tests {
 
     #[test]
     fn test_h1_with_inline_bold() {
-        insta::assert_snapshot!(render(1, "Hello **bold** world"), @"<dim><h1>#</h1></dim> <h1>HELLO <b>BOLD</b> WORLD</h1>");
+        insta::assert_snapshot!(render(1, "Hello **bold** world"), @"
+
+        <dim><h1>#</h1></dim> <h1>HELLO <b>BOLD</b> WORLD</h1>
+        ");
     }
 
     #[test]
     fn test_h2_with_inline_italic() {
-        insta::assert_snapshot!(render(2, "Hello *italic* text"), @"<dim><h2>##</h2></dim> <h2>Hello <i>italic</i> text</h2>");
+        insta::assert_snapshot!(render(2, "Hello *italic* text"), @"
+
+        <dim><h2>##</h2></dim> <h2>Hello <i>italic</i> text</h2>
+        ");
     }
 
     #[test]
@@ -165,24 +176,34 @@ mod tests {
 
     #[test]
     fn test_empty_content() {
-        insta::assert_snapshot!(render(1, ""), @"<dim><h1>#</h1></dim> <h1></h1>");
+        insta::assert_snapshot!(render(1, ""), @"
+
+        <dim><h1>#</h1></dim> <h1></h1>
+        ");
     }
 
     #[test]
     fn test_custom_margin() {
-        insta::assert_snapshot!(render_with_margin(1, "Title", "    "), @"<dim><h1>#</h1></dim> <h1>TITLE</h1>");
+        insta::assert_snapshot!(render_with_margin(1, "Title", "    "), @"
+
+        <dim><h1>#</h1></dim> <h1>TITLE</h1>
+        ");
         insta::assert_snapshot!(render_with_margin(3, "Section", ">>> "), @">>> <dim><h3>###</h3></dim> <h3>Section</h3>");
     }
 
     #[test]
     fn test_no_margin() {
-        insta::assert_snapshot!(render_with_margin(1, "Title", ""), @"<dim><h1>#</h1></dim> <h1>TITLE</h1>");
+        insta::assert_snapshot!(render_with_margin(1, "Title", ""), @"
+
+        <dim><h1>#</h1></dim> <h1>TITLE</h1>
+        ");
         insta::assert_snapshot!(render_with_margin(3, "Section", ""), @"<dim><h3>###</h3></dim> <h3>Section</h3>");
     }
 
     #[test]
     fn test_wrapping_narrow_width() {
-        insta::assert_snapshot!(render_with_width(1, "This is a very long heading that should wrap", 20), @r"
+        insta::assert_snapshot!(render_with_width(1, "This is a very long heading that should wrap", 20), @"
+
         <dim><h1>#</h1></dim> <h1>THIS IS A VERY</h1>
 
         <dim><h1>#</h1></dim> <h1>LONG HEADING THAT</h1>
@@ -193,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_h3_wrapping() {
-        insta::assert_snapshot!(render_with_width(3, "A long section title that wraps", 15), @r"
+        insta::assert_snapshot!(render_with_width(3, "A long section title that wraps", 15), @"
         <dim><h3>###</h3></dim> <h3>A long</h3>
         <dim><h3>###</h3></dim> <h3>section</h3>
         <dim><h3>###</h3></dim> <h3>title that</h3>
@@ -202,8 +223,34 @@ mod tests {
     }
 
     #[test]
+    fn test_h3_wrapping_preserves_korean_word_spaces() {
+        let actual = render_with_width(3, "한글 공백 보존 확인", 12);
+
+        insta::assert_snapshot!(actual, @r"
+          <dim><h3>###</h3></dim> <h3>한글</h3>
+          <dim><h3>###</h3></dim> <h3>공백</h3>
+          <dim><h3>###</h3></dim> <h3>보존</h3>
+          <dim><h3>###</h3></dim> <h3>확인</h3>
+        ");
+    }
+
+    #[test]
+    fn test_h3_wrapping_splits_long_tokens() {
+        let actual = render_with_width(3, "supercalifragilistic", 12);
+
+        insta::assert_snapshot!(actual, @r"
+          <dim><h3>###</h3></dim> <h3>supercal</h3>
+          <dim><h3>###</h3></dim> <h3>ifragili</h3>
+          <dim><h3>###</h3></dim> <h3>stic</h3>
+        ");
+    }
+
+    #[test]
     fn test_special_characters() {
-        insta::assert_snapshot!(render(2, "Hello & Goodbye < World >"), @"<dim><h2>##</h2></dim> <h2>Hello & Goodbye < World ></h2>");
+        insta::assert_snapshot!(render(2, "Hello & Goodbye < World >"), @"
+
+        <dim><h2>##</h2></dim> <h2>Hello & Goodbye < World ></h2>
+        ");
     }
 
     #[test]
@@ -213,7 +260,10 @@ mod tests {
 
     #[test]
     fn test_mixed_inline_styles() {
-        insta::assert_snapshot!(render(2, "**Bold** and *italic* and `code`"), @"<dim><h2>##</h2></dim> <h2><b>Bold</b> and <i>italic</i> and <code>code</code></h2>");
+        insta::assert_snapshot!(render(2, "**Bold** and *italic* and `code`"), @"
+
+        <dim><h2>##</h2></dim> <h2><b>Bold</b> and <i>italic</i> and <code>code</code></h2>
+        ");
     }
 
     #[test]

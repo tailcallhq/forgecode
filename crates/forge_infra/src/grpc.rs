@@ -10,7 +10,7 @@ use url::Url;
 /// on first access.
 #[derive(Clone)]
 pub struct ForgeGrpcClient {
-    server_url: Arc<Url>,
+    server_url: String,
     channel: Arc<Mutex<Option<Channel>>>,
 }
 
@@ -19,22 +19,19 @@ impl ForgeGrpcClient {
     ///
     /// # Arguments
     /// * `server_url` - The URL of the gRPC server
-    pub fn new(server_url: Url) -> Self {
-        Self {
-            server_url: Arc::new(server_url),
-            channel: Arc::new(Mutex::new(None)),
-        }
+    pub fn new(server_url: String) -> Self {
+        Self { server_url, channel: Arc::new(Mutex::new(None)) }
     }
 
     /// Returns a clone of the underlying gRPC channel
     ///
     /// Channels are cheap to clone and can be shared across multiple clients.
     /// The channel is created on first call and cached for subsequent calls.
-    pub fn channel(&self) -> Channel {
+    pub fn channel(&self) -> anyhow::Result<Channel> {
         let mut guard = self.channel.lock().unwrap();
 
         if let Some(channel) = guard.as_ref() {
-            return channel.clone();
+            return Ok(channel.clone());
         }
 
         let mut channel = Channel::from_shared(self.server_url.to_string())
@@ -42,7 +39,7 @@ impl ForgeGrpcClient {
             .concurrency_limit(256);
 
         // Enable TLS for https URLs (webpki-roots is faster than native-roots)
-        if self.server_url.scheme().contains("https") {
+        if Url::parse(&self.server_url)?.scheme().contains("https") {
             let tls_config = tonic::transport::ClientTlsConfig::new().with_webpki_roots();
             channel = channel
                 .tls_config(tls_config)
@@ -51,7 +48,7 @@ impl ForgeGrpcClient {
 
         let new_channel = channel.connect_lazy();
         *guard = Some(new_channel.clone());
-        new_channel
+        Ok(new_channel)
     }
 
     /// Hydrates the gRPC channel by forcing its initialization

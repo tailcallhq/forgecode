@@ -12,7 +12,6 @@ expression: actual.tools
         "end_line": {
           "anyOf": [
             {
-              "format": "int32",
               "type": "integer"
             },
             {
@@ -33,7 +32,6 @@ expression: actual.tools
         "start_line": {
           "anyOf": [
             {
-              "format": "int32",
               "type": "integer"
             },
             {
@@ -94,7 +92,6 @@ expression: actual.tools
         "-A": {
           "anyOf": [
             {
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
@@ -107,7 +104,6 @@ expression: actual.tools
         "-B": {
           "anyOf": [
             {
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
@@ -120,7 +116,6 @@ expression: actual.tools
         "-C": {
           "anyOf": [
             {
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
@@ -166,7 +161,6 @@ expression: actual.tools
         "head_limit": {
           "anyOf": [
             {
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
@@ -190,7 +184,6 @@ expression: actual.tools
         "offset": {
           "anyOf": [
             {
-              "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
@@ -358,6 +351,56 @@ expression: actual.tools
     },
     "strict": true,
     "description": "Performs exact string replacements in files.\nUsage:\n- You must use your `{{tool_names.read}}` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file. \n- When editing text from `{{tool_names.read}}` tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: 'line_number:'. Everything after that line_number: is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.\n- The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`. \n- Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance."
+  },
+  {
+    "type": "function",
+    "name": "multi_patch",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "edits": {
+          "description": "Array of edit operations to perform sequentially on the file",
+          "items": {
+            "additionalProperties": false,
+            "description": "A single edit operation in a multi-patch",
+            "properties": {
+              "new_string": {
+                "description": "The text to replace it with (must be different from old_string)",
+                "type": "string"
+              },
+              "old_string": {
+                "description": "The text to replace",
+                "type": "string"
+              },
+              "replace_all": {
+                "default": false,
+                "description": "Replace all occurrences of old_string (default false)",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "new_string",
+              "old_string",
+              "replace_all"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "file_path": {
+          "description": "The absolute path to the file to modify",
+          "type": "string"
+        }
+      },
+      "required": [
+        "edits",
+        "file_path"
+      ],
+      "title": "FSMultiPatch",
+      "type": "object"
+    },
+    "strict": true,
+    "description": "This is a tool for making multiple edits to a single file in one operation. It is built on top of the {{tool_names.patch}} tool and allows you to perform multiple find-and-replace operations efficiently. Prefer this tool over the {{tool_names.patch}} tool when you need to make multiple edits to the same file.\n\nBefore using this tool:\n\n1. Use the Read tool to understand the file's contents and context\n2. Verify the directory path is correct\n\nTo make multiple file edits, provide the following:\n1. file_path: The absolute path to the file to modify (must be absolute, not relative)\n2. edits: An array of edit operations to perform, where each edit contains:\n   - oldString: The text to replace (must match the file contents exactly, including all whitespace and indentation)\n   - newString: The edited text to replace the oldString\n   - replaceAll: Replace all occurrences of oldString. This parameter is optional and defaults to false.\n\nIMPORTANT:\n- All edits are applied in sequence, in the order they are provided\n- Each edit operates on the result of the previous edit\n- All edits must be valid for the operation to succeed - if any edit fails, none will be applied\n- This tool is ideal when you need to make several changes to different parts of the same file\n\nCRITICAL REQUIREMENTS:\n1. All edits follow the same requirements as the single Edit tool\n2. The edits are atomic - either all succeed or none are applied\n3. Plan your edits carefully to avoid conflicts between sequential operations\n\nWARNING:\n- The tool will fail if edits.oldString doesn't match the file contents exactly (including whitespace)\n- The tool will fail if edits.oldString and edits.newString are the same\n- Since edits are applied in sequence, ensure that earlier edits don't affect the text that later edits are trying to find\n\nWhen making edits:\n- Ensure all edits result in idiomatic, correct code\n- Do not leave the code in a broken state\n- Always use absolute file paths (starting with /)\n- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.\n- Use replaceAll for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.\n\nIf you want to create a new file, use:\n- A new file path, including dir name if needed\n- First edit: empty oldString and the new file's contents as newString\n- Subsequent edits: normal edit operations on the created content"
   },
   {
     "type": "function",
@@ -675,5 +718,46 @@ expression: actual.tools
     },
     "strict": true,
     "description": "Retrieves the current todo list for this coding session. Use this tool to check existing todos before making updates, or to review the current state of tasks at any point during the session.\n\n## When to Use This Tool\n\n- Before calling `todo_write`, to understand which tasks already exist and avoid duplicates\n- When you need to know what tasks are pending, in progress, or completed\n- To resume work after a break and understand the current state of tasks\n- When the user asks about the current task list or progress\n\n## Output\n\nReturns all current todos with their IDs, content, and status (`pending`, `in_progress`, `completed`). If no todos exist yet, returns an empty list."
+  },
+  {
+    "type": "function",
+    "name": "task",
+    "parameters": {
+      "additionalProperties": false,
+      "description": "Input structure for the Task tool - delegates work to specialized agents",
+      "properties": {
+        "agent_id": {
+          "description": "The ID of the specialized agent to delegate to (e.g., \"forge\", \"muse\",\n\"sage\")",
+          "type": "string"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional session ID to continue an existing agent session. If not\nprovided, a new stateless session will be created. Use this to\nmaintain context across multiple task invocations with the same\nagent."
+        },
+        "tasks": {
+          "description": "A list of clear and detailed descriptions of the tasks to be performed\nby the agent in parallel. Provide sufficient context and specific\nrequirements to enable the agent to understand and execute the work\naccurately.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "agent_id",
+        "session_id",
+        "tasks"
+      ],
+      "title": "TaskInput",
+      "type": "object"
+    },
+    "strict": true,
+    "description": "Launch a new agent to handle complex, multi-step tasks autonomously. \n\nThe {{tool_names.task}} tool launches specialized agents (subprocesses) that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.\n\nAvailable agent types and the tools they have access to:\n{{#each agents}}\n- **{{id}}**{{#if description}}: {{description}}{{/if}}{{#if tools}}\n  - Tools: {{#each tools}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}{{/if}}\n{{/each}}\n\nWhen using the {{tool_names.task}} tool, you must specify a agent_id parameter to select which agent type to use.\n\nWhen NOT to use the {{tool_names.task}} tool:\n- If you want to read a specific file path, use the {{tool_names.read}} or {{tool_names.fs_search}} tool instead of the {{tool_names.task}} tool, to find the match more quickly\n- If you are searching for a specific class definition like \"class Foo\", use the {{tool_names.fs_search}} tool instead, to find the match more quickly\n- If you are searching for code within a specific file or set of 2-3 files, use the {{tool_names.read}} tool instead of the {{tool_names.task}} tool, to find the match more quickly\n- Other tasks that are not related to the agent descriptions above\n\n\nUsage notes:\n- Always include a short description (3-5 words) summarizing what the agent will do\n- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses\n- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.\n- Agents can be resumed using the \\`session_id\\` parameter by passing the agent ID from a previous invocation. When resumed, the agent continues with its full previous context preserved. When NOT resuming, each invocation starts fresh and you should provide a detailed task description with all necessary context.\n- When the agent is done, it will return a single message back to you along with its agent ID. You can use this ID to resume the agent later if needed for follow-up work.\n- Provide clear, detailed prompts so the agent can work autonomously and return exactly the information you need.\n- Agents with \"access to current context\" can see the full conversation history before the tool call. When using these agents, you can write concise prompts that reference earlier context (e.g., \"investigate the error discussed above\") instead of repeating information. The agent will receive all prior messages and understand the context.\n- The agent's outputs should generally be trusted\n- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent\n- If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.\n- If the user specifies that they want you to run agents \"in parallel\", you MUST send a single message with multiple {{tool_names.task}} tool use content blocks. For example, if you need to launch both a build-validator agent and a test-runner agent in parallel, send a single message with both tool calls.\n\nExample usage:\n\n<example_agent_descriptions>\n\"test-runner\": use this agent after you are done writing code to run tests\n\"greeting-responder\": use this agent when to respond to user greetings with a friendly joke\n</example_agent_description>\n\n<example>\nuser: \"Please write a function that checks if a number is prime\"\nassistant: Sure let me write a function that checks if a number is prime\nassistant: First let me use the {{tool_names.write}} tool to write a function that checks if a number is prime\nassistant: I'm going to use the {{tool_names.write}} tool to write the following code:\n<code>\nfunction isPrime(n) {\n  if (n <= 1) return false\n  for (let i = 2; i * i <= n; i++) {\n    if (n % i === 0) return false\n  }\n  return true\n}\n</code>\n<commentary>\nSince a significant piece of code was written and the task was completed, now use the test-runner agent to run the tests\n</commentary>\nassistant: Now let me use the test-runner agent to run the tests\nassistant: Uses the {{tool_names.task}} tool to launch the test-runner agent\n</example>\n\n<example>\nuser: \"Hello\"\n<commentary>\nSince the user is greeting, use the greeting-responder agent to respond with a friendly joke\n</commentary>\nassistant: \"I'm going to use the {{tool_names.task}} tool to launch the greeting-responder agent\"\n</example>"
   }
 ]

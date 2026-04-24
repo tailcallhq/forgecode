@@ -1,7 +1,9 @@
+use std::borrow::Cow;
 use std::io;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
+use bstr::ByteSlice;
 use colored::Colorize;
 use forge_domain::ConsoleWriter;
 use forge_markdown_stream::StreamdownRenderer;
@@ -198,11 +200,11 @@ impl<P: ConsoleWriter> io::Write for StreamDirectWriter<P> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.pause_spinner();
 
-        let content = match std::str::from_utf8(buf) {
-            Ok(s) => s.to_string(),
-            Err(_) => String::from_utf8_lossy(buf).into_owned(),
+        let content = match buf.to_str() {
+            Ok(content) => Cow::Borrowed(content),
+            Err(_) => buf.to_str_lossy(),
         };
-        let styled = self.style.apply(content);
+        let styled = self.style.apply(content.into_owned());
         self.printer.write(styled.as_bytes())?;
         self.printer.flush()?;
 

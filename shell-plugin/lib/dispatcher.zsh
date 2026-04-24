@@ -148,9 +148,6 @@ function forge-accept-line() {
         info|i)
             _forge_action_info
         ;;
-        env|e)
-            _forge_action_env
-        ;;
         dump|d)
             _forge_action_dump "$input_text"
         ;;
@@ -160,14 +157,14 @@ function forge-accept-line() {
         retry|r)
             _forge_action_retry
         ;;
+        help)
+            _forge_action_help
+        ;;
         agent|a)
             _forge_action_agent "$input_text"
         ;;
         conversation|c)
             _forge_action_conversation "$input_text"
-        ;;
-        config-provider|provider|p)
-            _forge_action_provider "$input_text"
         ;;
         config-model|cm)
             _forge_action_model "$input_text"
@@ -193,7 +190,7 @@ function forge-accept-line() {
         tools|t)
             _forge_action_tools
         ;;
-        config)
+        config|env|e)
             _forge_action_config
         ;;
         config-edit|ce)
@@ -244,17 +241,11 @@ function forge-accept-line() {
         workspace-info|sync-info)
             _forge_action_sync_info
         ;;
-        provider-login|login)
+        provider-login|login|provider)
             _forge_action_login "$input_text"
         ;;
         logout)
             _forge_action_logout "$input_text"
-        ;;
-        doctor)
-            _forge_action_doctor
-        ;;
-        keyboard-shortcuts|kb)
-            _forge_action_keyboard
         ;;
         *)
             _forge_action_default "$user_action" "$input_text"

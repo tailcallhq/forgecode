@@ -228,10 +228,22 @@
     "aliases": ["ci:benchmark"]
   },
   {
+    "name": "type: provider",
+    "color": "0075ca",
+    "description": "Updates provider.json configuration.",
+    "aliases": ["provider", "update: provider"]
+  },
+  {
     "name": "ci: test-jit",
     "color": "F9D0C4",
     "description": "Run all integration tests for the JIT optimized engine",
     "aliases": ["ci:test-jit"]
+  },
+  {
+    "name": "os: windows",
+    "color": "0078d4",
+    "description": "Windows-specific issue or feature.",
+    "aliases": ["windows", "win32", "platform: windows"]
   },
   {
     "name": "onlydust-wave",
@@ -315,5 +327,23 @@
     "color": "F9C74F",
     "description": "This bounty has been completed and the reward paid out.",
     "aliases": ["bounty:rewarded", "bounty:earned"]
+  },
+  {
+    "name": "severity: low",
+    "color": "FFEB3B",
+    "description": "Minor impact; does not significantly affect functionality.",
+    "aliases": ["severity:low"]
+  },
+  {
+    "name": "severity: high",
+    "color": "FF9800",
+    "description": "Significant impact; core functionality is impaired.",
+    "aliases": ["severity:high"]
+  },
+  {
+    "name": "severity: critical",
+    "color": "B71C1C",
+    "description": "Severe impact; system is unusable or data is at risk.",
+    "aliases": ["severity:critical", "critical"]
   }
 ]

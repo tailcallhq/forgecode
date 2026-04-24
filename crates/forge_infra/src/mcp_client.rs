@@ -5,9 +5,13 @@ use std::str::FromStr;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use backon::{ExponentialBuilder, Retryable};
+use bstr::ByteSlice;
 use forge_app::McpClientInfra;
-use forge_domain::{Image, McpHttpServer, McpServerConfig, ToolDefinition, ToolName, ToolOutput};
-use http::{HeaderName, HeaderValue, header};
+use forge_domain::{
+    Environment, Image, McpHttpServer, McpServerConfig, ToolDefinition, ToolName, ToolOutput,
+};
+use reqwest::Client;
+use reqwest::header::{HeaderName, HeaderValue};
 use rmcp::model::{CallToolRequestParam, ClientInfo, Implementation, InitializeRequestParam};
 use rmcp::service::RunningService;
 use rmcp::transport::sse_client::SseClientConfig;
@@ -31,17 +35,60 @@ type RmcpClient = RunningService<RoleClient, InitializeRequestParam>;
 #[derive(Clone)]
 pub struct ForgeMcpClient {
     client: Arc<RwLock<Option<Arc<RmcpClient>>>>,
+    http_client: Arc<Client>,
     config: McpServerConfig,
     env_vars: BTreeMap<String, String>,
+    environment: Environment,
     resolved_config: Arc<OnceLock<anyhow::Result<McpServerConfig>>>,
 }
 
 impl ForgeMcpClient {
-    pub fn new(config: McpServerConfig, env_vars: &BTreeMap<String, String>) -> Self {
+    /// Build a reqwest client with default headers from the MCP server config.
+    fn build_http_client(http: &McpHttpServer) -> anyhow::Result<Client> {
+        let mut header_map = reqwest::header::HeaderMap::new();
+        for (key, value) in &http.headers {
+            if let Ok(name) = HeaderName::from_str(key)
+                && let Ok(val) = HeaderValue::from_str(value)
+            {
+                header_map.insert(name, val);
+            }
+        }
+
+        Ok(Client::builder().default_headers(header_map).build()?)
+    }
+
+    pub fn new(
+        config: McpServerConfig,
+        env_vars: &BTreeMap<String, String>,
+        environment: Environment,
+    ) -> Self {
+        // Try to resolve config early so we can extract headers for the HTTP client.
+        // If resolution fails, fall back to a plain client (headers will be missing
+        // but the error will surface when create_connection is called).
+        let resolved = resolve_http_templates(
+            match &config {
+                McpServerConfig::Http(http) => http.clone(),
+                McpServerConfig::Stdio(_) => McpHttpServer {
+                    url: String::new(),
+                    headers: BTreeMap::new(),
+                    timeout: None,
+                    disable: false,
+                    oauth: forge_domain::McpOAuthSetting::default(),
+                },
+            },
+            env_vars,
+        );
+
+        let http_client = resolved
+            .and_then(|http| Self::build_http_client(&http))
+            .unwrap_or_default();
+
         Self {
             client: Default::default(),
+            http_client: Arc::new(http_client),
             config,
             env_vars: env_vars.clone(),
+            environment,
             resolved_config: Arc::new(OnceLock::new()),
         }
     }
@@ -122,43 +169,338 @@ impl ForgeMcpClient {
                         }
                     });
                 }
-                self.client_info().serve(transport).await?
+                Arc::new(self.client_info().serve(transport).await?)
             }
             McpServerConfig::Http(http) => {
-                // Try HTTP first, fall back to SSE if it fails
-                let client = self.reqwest_client(http)?;
-                let transport = StreamableHttpClientTransport::with_client(
-                    client.clone(),
-                    StreamableHttpClientTransportConfig::with_uri(http.url.clone()),
-                );
-                match self.client_info().serve(transport).await {
-                    Ok(client) => client,
-                    Err(_e) => {
-                        let transport = SseClientTransport::start_with_client(
-                            client,
-                            SseClientConfig {
-                                sse_endpoint: http.url.clone().into(),
-                                ..Default::default()
-                            },
-                        )
-                        .await?;
-                        self.client_info().serve(transport).await?
+                // Check if OAuth is explicitly disabled
+                if http.is_oauth_disabled() {
+                    // OAuth explicitly disabled - only try standard connection
+                    Arc::new(self.create_standard_http_connection(http).await?)
+                } else if let Some(oauth_config) = http.oauth_config() {
+                    // OAuth explicitly configured - use it directly
+                    // Do NOT allow interactive auth during normal connection
+                    self.create_oauth_connection(http, oauth_config, false)
+                        .await?
+                } else {
+                    // Auto-detect: try standard first, fall back to OAuth on auth errors
+                    match self.create_standard_http_connection(http).await {
+                        Ok(client) => Arc::new(client),
+                        Err(e) => {
+                            let error_str = e.to_string().to_lowercase();
+                            if error_str.contains("401")
+                                || error_str.contains("unauthorized")
+                                || error_str.contains("authentication required")
+                                || error_str.contains("auth required")
+                                || error_str.contains("oauth")
+                            {
+                                tracing::info!(
+                                    "Standard connection failed with auth error for: {}, trying stored credentials",
+                                    http.url
+                                );
+                                // Try OAuth with stored credentials (non-interactive)
+                                // If stored credentials exist, use them; otherwise error
+                                let default_config = forge_domain::McpOAuthConfig::default();
+                                self.create_oauth_connection(http, &default_config, false)
+                                    .await?
+                            } else {
+                                return Err(e);
+                            }
+                        }
                     }
                 }
             }
         };
 
-        Ok(Arc::new(client))
+        Ok(client)
     }
 
-    fn reqwest_client(&self, config: &McpHttpServer) -> anyhow::Result<reqwest::Client> {
-        let mut headers = header::HeaderMap::new();
-        for (key, value) in config.headers.iter() {
-            headers.insert(HeaderName::from_str(key)?, HeaderValue::from_str(value)?);
+    /// Create a standard HTTP connection without OAuth
+    async fn create_standard_http_connection(
+        &self,
+        http: &McpHttpServer,
+    ) -> anyhow::Result<RmcpClient> {
+        // Try HTTP first, fall back to SSE if it fails
+        let client = self.reqwest_client();
+        let transport = StreamableHttpClientTransport::with_client(
+            client.as_ref().clone(),
+            StreamableHttpClientTransportConfig::with_uri(http.url.clone()),
+        );
+        match self.client_info().serve(transport).await {
+            Ok(client) => Ok(client),
+            Err(_e) => {
+                let transport = SseClientTransport::start_with_client(
+                    client.as_ref().clone(),
+                    SseClientConfig { sse_endpoint: http.url.clone().into(), ..Default::default() },
+                )
+                .await?;
+                Ok(self.client_info().serve(transport).await?)
+            }
+        }
+    }
+
+    /// Create an OAuth-enabled connection using rmcp's OAuth support.
+    ///
+    /// Uses rmcp's `AuthorizationManager` and `OAuthState` state machine which
+    /// properly handle:
+    /// 1. OAuth metadata discovery via RFC 8414
+    /// 2. Dynamic client registration via RFC 7591
+    /// 3. PKCE challenge/verifier generation and validation
+    /// 4. CSRF state parameter generation and validation
+    /// 5. Authorization code exchange for tokens
+    /// 6. Token refresh via refresh_token grant
+    /// 7. Token persistence via `CredentialStore` trait
+    ///
+    /// # Arguments
+    /// * `allow_interactive` - If true, will open browser for user
+    ///   authentication if no stored credentials exist. If false, returns an
+    ///   error instead.
+    async fn create_oauth_connection(
+        &self,
+        http: &McpHttpServer,
+        oauth_config: &forge_domain::McpOAuthConfig,
+        allow_interactive: bool,
+    ) -> anyhow::Result<Arc<RmcpClient>> {
+        use rmcp::transport::auth::{AuthorizationManager, OAuthState};
+
+        use crate::auth::McpTokenStorage;
+
+        let credential_store = McpTokenStorage::new(http.url.clone(), self.environment.clone());
+
+        // First, try to use cached credentials with auto-refresh
+        let mut auth_manager = AuthorizationManager::new(&http.url)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to create OAuth manager: {}", e))?;
+
+        auth_manager.set_credential_store(credential_store);
+
+        // Try to load and use stored credentials (with automatic token refresh)
+        match auth_manager.initialize_from_store().await {
+            Ok(true) => {
+                // Stored credentials loaded. Try to get a valid access token
+                // (this auto-refreshes if expired and refresh_token is available)
+                match auth_manager.get_access_token().await {
+                    Ok(token) => {
+                        tracing::debug!("Using stored/refreshed OAuth token for: {}", http.url);
+                        return self.connect_with_token(http, &token).await;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Stored token invalid for {}: {}, re-authenticating",
+                            http.url,
+                            e
+                        );
+                    }
+                }
+            }
+            Ok(false) => {
+                tracing::info!("No stored credentials for: {}", http.url);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load stored credentials for {}: {}", http.url, e);
+            }
         }
 
-        let client = reqwest::Client::builder().default_headers(headers);
-        Ok(client.build()?)
+        // No valid cached credentials
+        if !allow_interactive {
+            // Interactive auth not allowed - return error with instructions
+            return Err(anyhow::anyhow!(
+                "MCP server '{}' requires authentication. Run 'mcp login <name>' to authenticate.",
+                http.url
+            ));
+        }
+
+        // Interactive auth allowed - start full OAuth authorization flow
+        // Create a fresh OAuthState to run the browser-based flow
+        let mut oauth_state = OAuthState::new(&http.url, None)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to initialize OAuth state: {}", e))?;
+
+        let redirect_uri = oauth_config
+            .redirect_uri
+            .clone()
+            .unwrap_or_else(|| "http://127.0.0.1:8765/callback".to_string());
+
+        let scopes: Vec<&str> = oauth_config.scopes.iter().map(|s| s.as_str()).collect();
+
+        // start_authorization discovers metadata, registers client, generates PKCE +
+        // CSRF state
+        oauth_state
+            .start_authorization(&scopes, &redirect_uri, Some("Forge"))
+            .await
+            .map_err(|e| anyhow::anyhow!("OAuth authorization flow failed: {}", e))?;
+
+        // Get the authorization URL (includes PKCE challenge and CSRF state)
+        let auth_url = oauth_state
+            .get_authorization_url()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get authorization URL: {}", e))?;
+
+        tracing::info!("Starting OAuth authentication for MCP server: {}", http.url);
+
+        // Parse redirect URI to get port for callback server
+        let redirect_url: url::Url = redirect_uri
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Invalid redirect URI: {}", e))?;
+        let port = redirect_url.port().unwrap_or(8765);
+
+        // Start local callback server, open browser, wait for redirect
+        let (code, state) = self.run_oauth_callback_server(port, &auth_url).await?;
+
+        // Exchange authorization code for tokens (validates CSRF state internally)
+        // rmcp's OAuthState handles PKCE verifier inclusion in the token request
+        oauth_state
+            .handle_callback(&code, &state)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to exchange authorization code: {}", e))?;
+
+        // Get the access token from the completed OAuth flow
+        let access_token = oauth_state
+            .get_access_token()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get access token after OAuth: {}", e))?;
+
+        // Save credentials for future use via our persistent store
+        let credentials = oauth_state
+            .get_credentials()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get credentials: {}", e))?;
+
+        {
+            use rmcp::transport::auth::CredentialStore;
+            let save_store = McpTokenStorage::new(http.url.clone(), self.environment.clone());
+            let stored = rmcp::transport::auth::StoredCredentials {
+                client_id: credentials.0,
+                token_response: credentials.1,
+            };
+            save_store
+                .save(stored)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to save credentials: {}", e))?;
+        }
+
+        tracing::info!(
+            "OAuth authentication successful for MCP server: {}",
+            http.url
+        );
+
+        self.connect_with_token(http, &access_token).await
+    }
+
+    /// Connect to an MCP server using a bearer token.
+    ///
+    /// Uses StreamableHTTP transport only - does NOT fall back to SSE
+    /// since SSE transport doesn't support auth headers in the same way.
+    /// Auth errors are transport-independent so falling back to SSE
+    /// with the same auth issue would be pointless.
+    async fn connect_with_token(
+        &self,
+        http: &McpHttpServer,
+        token: &str,
+    ) -> anyhow::Result<Arc<RmcpClient>> {
+        let client = self.reqwest_client();
+        let transport = StreamableHttpClientTransport::with_client(
+            client.as_ref().clone(),
+            StreamableHttpClientTransportConfig::with_uri(http.url.clone()).auth_header(token),
+        );
+
+        Ok(Arc::new(self.client_info().serve(transport).await?))
+    }
+
+    /// Runs a local HTTP server to receive the OAuth callback, opens the
+    /// browser, and returns the authorization code and state.
+    async fn run_oauth_callback_server(
+        &self,
+        port: u16,
+        auth_url: &str,
+    ) -> anyhow::Result<(String, String)> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to start OAuth callback server on port {}: {}. \
+                 Is another process using this port?",
+                    port,
+                    e
+                )
+            })?;
+
+        tracing::info!("OAuth callback server listening on port {}", port);
+
+        // Open browser
+        if let Err(e) = open::that(auth_url) {
+            tracing::warn!(
+                "Failed to open browser: {}. Please open this URL manually:\n{}",
+                e,
+                auth_url
+            );
+            eprintln!(
+                "\nPlease open this URL in your browser to authenticate:\n{}\n",
+                auth_url
+            );
+        } else {
+            eprintln!("\nOpening browser for OAuth authentication...\n");
+        }
+
+        // Wait for callback with timeout
+        let timeout = tokio::time::Duration::from_secs(300); // 5 minutes
+        let (mut stream, _addr) = tokio::time::timeout(timeout, listener.accept())
+            .await
+            .map_err(|_| anyhow::anyhow!("OAuth callback timed out after 5 minutes"))?
+            .map_err(|e| anyhow::anyhow!("Failed to accept OAuth callback: {}", e))?;
+
+        // Read the HTTP request
+        let mut buf = vec![0u8; 4096];
+        let n = stream.read(&mut buf).await?;
+        let request = buf.get(..n).unwrap_or(&[]).to_str_lossy();
+        let first_line = request.lines().next().unwrap_or("");
+        let path = first_line.split_whitespace().nth(1).unwrap_or("/");
+
+        // Parse query parameters
+        let query_start = path.find('?').unwrap_or(path.len());
+        let query_string = path.get(query_start..).unwrap_or("");
+        let params: std::collections::HashMap<String, String> =
+            url::form_urlencoded::parse(query_string.trim_start_matches('?').as_bytes())
+                .into_owned()
+                .collect();
+
+        let code = params
+            .get("code")
+            .ok_or_else(|| {
+                let error = params.get("error").map(|e| e.as_str()).unwrap_or("unknown");
+                let desc = params
+                    .get("error_description")
+                    .map(|d| d.as_str())
+                    .unwrap_or("No description");
+                anyhow::anyhow!("OAuth error: {} - {}", error, desc)
+            })?
+            .clone();
+
+        let state = params
+            .get("state")
+            .ok_or_else(|| anyhow::anyhow!("Missing state parameter in OAuth callback"))?
+            .clone();
+
+        // Send styled success response with auto-close
+        let response_body = r#"<!doctype html><html><head><title>Forge - Authorization Successful</title><meta charset="utf-8"></head><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#111827;color:#f9fafb;"><div style="text-align:center;padding:2rem;"><h1 style="margin-bottom:0.75rem;">Authorization Successful</h1><p style="color:#d1d5db;">You can close this window and return to Forge.</p></div><script>setTimeout(()=>window.close(),2000)</script></body></html>"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            response_body.len(),
+            response_body
+        );
+        let _ = stream.write_all(response.as_bytes()).await;
+
+        Ok((code, state))
+    }
+
+    fn reqwest_client(&self) -> Arc<Client> {
+        // Reuse the cached HTTP client (with pre-configured default headers)
+        // to prevent file descriptor leaks. Each reqwest::Client manages its
+        // own connection pool, so creating new clients for each connection
+        // leads to "Too many open files" errors.
+        self.http_client.clone()
     }
 
     async fn list(&self) -> anyhow::Result<Vec<ToolDefinition>> {
@@ -285,6 +627,184 @@ fn resolve_http_templates(
     Ok(http)
 }
 
+/// Trigger OAuth authentication for a specific MCP server URL.
+///
+/// Runs the full OAuth flow: metadata discovery, dynamic registration,
+/// browser-based authorization, and token persistence.
+///
+/// # Arguments
+/// * `server_url` - The URL of the MCP server to authenticate with
+/// * `env` - The environment for file system paths
+pub async fn mcp_auth(server_url: &str, env: &Environment) -> anyhow::Result<()> {
+    use rmcp::transport::auth::{CredentialStore, OAuthState};
+
+    use crate::auth::McpTokenStorage;
+
+    // Start fresh OAuth flow via OAuthState
+    let mut oauth_state = OAuthState::new(server_url, None)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to initialize OAuth state: {}", e))?;
+
+    let redirect_uri = "http://127.0.0.1:8765/callback";
+
+    oauth_state
+        .start_authorization(&[], redirect_uri, Some("Forge"))
+        .await
+        .map_err(|e| anyhow::anyhow!("OAuth authorization flow failed: {}", e))?;
+
+    let auth_url = oauth_state
+        .get_authorization_url()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get authorization URL: {}", e))?;
+
+    // Start callback server and open browser
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:8765")
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to start OAuth callback server: {}", e))?;
+
+    if let Err(e) = open::that(&auth_url) {
+        tracing::warn!("Failed to open browser: {}", e);
+        eprintln!(
+            "\nPlease open this URL in your browser to authenticate:\n{}\n",
+            auth_url
+        );
+    } else {
+        eprintln!("\nOpening browser for OAuth authentication...\n");
+    }
+
+    let timeout = tokio::time::Duration::from_secs(300);
+    let (mut stream, _) = tokio::time::timeout(timeout, listener.accept())
+        .await
+        .map_err(|_| anyhow::anyhow!("OAuth callback timed out after 5 minutes"))?
+        .map_err(|e| anyhow::anyhow!("Failed to accept OAuth callback: {}", e))?;
+
+    // Read HTTP request and parse callback params
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut buf = vec![0u8; 4096];
+    let n = stream.read(&mut buf).await?;
+    let request = buf.get(..n).unwrap_or(&[]).to_str_lossy();
+    let first_line = request.lines().next().unwrap_or("");
+    let path = first_line.split_whitespace().nth(1).unwrap_or("/");
+    let query_start = path.find('?').unwrap_or(path.len());
+    let params: std::collections::HashMap<String, String> = url::form_urlencoded::parse(
+        path.get(query_start..)
+            .unwrap_or("")
+            .trim_start_matches('?')
+            .as_bytes(),
+    )
+    .into_owned()
+    .collect();
+
+    let code = params
+        .get("code")
+        .ok_or_else(|| {
+            let error = params.get("error").map(|e| e.as_str()).unwrap_or("unknown");
+            let desc = params
+                .get("error_description")
+                .map(|d| d.as_str())
+                .unwrap_or("No description");
+            anyhow::anyhow!("OAuth error: {} - {}", error, desc)
+        })?
+        .clone();
+
+    let state = params
+        .get("state")
+        .ok_or_else(|| anyhow::anyhow!("Missing state parameter in OAuth callback"))?
+        .clone();
+
+    // Send styled response
+    let body = r#"<!doctype html><html><head><title>Forge - Authorization Successful</title></head><body style="font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#111827;color:#f9fafb;"><div style="text-align:center;"><h1>Authorization Successful</h1><p style="color:#d1d5db;">You can close this window and return to Forge.</p></div><script>setTimeout(()=>window.close(),2000)</script></body></html>"#;
+    let resp = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let _ = stream.write_all(resp.as_bytes()).await;
+
+    // Exchange code for tokens
+    oauth_state
+        .handle_callback(&code, &state)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to exchange authorization code: {}", e))?;
+
+    // Save credentials
+    let credentials = oauth_state
+        .get_credentials()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get credentials: {}", e))?;
+
+    let save_store = McpTokenStorage::new(server_url.to_string(), env.clone());
+    let stored = rmcp::transport::auth::StoredCredentials {
+        client_id: credentials.0,
+        token_response: credentials.1,
+    };
+    save_store
+        .save(stored)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to save credentials: {}", e))?;
+
+    Ok(())
+}
+
+/// Remove stored OAuth credentials for a specific MCP server.
+///
+/// # Arguments
+/// * `server_url` - The URL of the MCP server to remove credentials for
+/// * `env` - The environment for file system paths
+pub async fn mcp_logout(server_url: &str, env: &Environment) -> anyhow::Result<()> {
+    use crate::auth::McpTokenStorage;
+    let storage = McpTokenStorage::new(server_url.to_string(), env.clone());
+    storage.remove_credentials().await
+}
+
+/// Remove all stored MCP OAuth credentials.
+///
+/// # Arguments
+/// * `env` - The environment for file system paths
+pub async fn mcp_logout_all(env: &Environment) -> anyhow::Result<()> {
+    use crate::auth::McpCredentialStore;
+    let path = McpCredentialStore::credential_path(env);
+    if path.exists() {
+        tokio::fs::remove_file(&path).await?;
+    }
+    Ok(())
+}
+
+/// Get the auth status for a specific MCP server.
+///
+/// Returns one of: "authenticated", "expired", "not_authenticated"
+///
+/// # Arguments
+/// * `server_url` - The URL of the MCP server
+/// * `env` - The environment for file system paths
+pub async fn mcp_auth_status(server_url: &str, env: &Environment) -> String {
+    use crate::auth::McpTokenStorage;
+    let storage = McpTokenStorage::new(server_url.to_string(), env.clone());
+    match storage.load_credentials().await {
+        Ok(Some(entry)) => {
+            if let Some(expires_at) = entry.tokens.expires_at {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                if expires_at <= now {
+                    if entry.tokens.refresh_token.is_some() {
+                        "expired (has refresh token)".to_string()
+                    } else {
+                        "expired".to_string()
+                    }
+                } else {
+                    "authenticated".to_string()
+                }
+            } else {
+                "authenticated".to_string()
+            }
+        }
+        Ok(None) => "not authenticated".to_string(),
+        Err(_) => "unknown (error reading credentials)".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
@@ -310,6 +830,7 @@ mod tests {
             ]),
             timeout: None,
             disable: false,
+            oauth: Default::default(),
         };
 
         let resolved = resolve_http_templates(http, &env_vars).unwrap();
@@ -340,6 +861,7 @@ mod tests {
             )]),
             timeout: None,
             disable: false,
+            oauth: Default::default(),
         };
 
         let resolved = resolve_http_templates(http, &env_vars).unwrap();
@@ -360,6 +882,7 @@ mod tests {
             headers: BTreeMap::from([("Auth".to_string(), "{{env.TOKEN}}".to_string())]),
             timeout: None,
             disable: true,
+            oauth: Default::default(),
         };
 
         let resolved = resolve_http_templates(http, &env_vars).unwrap();

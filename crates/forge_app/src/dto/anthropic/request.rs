@@ -60,27 +60,41 @@ impl SystemMessage {
     }
 }
 
-#[derive(Serialize, Default, Debug, PartialEq, Eq)]
-pub struct Thinking {
-    pub r#type: ThinkingType,
-    pub budget_tokens: u64,
+/// Anthropic's `thinking` request field. Opus 4.7 rejects the `Enabled` shape
+/// and the orchestrator applies model-specific reasoning normalization before
+/// request conversion.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Thinking {
+    Enabled {
+        budget_tokens: u64,
+    },
+    Adaptive {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        display: Option<ThinkingDisplay>,
+    },
+    Disabled,
 }
 
-/// Effort level for Anthropic's `output_config` API.
-///
-/// Only the variants officially supported by Anthropic's `output_config.effort`
-/// field. Mutually exclusive with the `thinking` object.
+/// On Opus 4.7 adaptive thinking content is omitted from responses unless
+/// `Summarized` is requested explicitly.
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ThinkingDisplay {
+    Summarized,
+    Omitted,
+}
+
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputEffort {
     Low,
     Medium,
     High,
+    XHigh,
     Max,
 }
 
-/// Output configuration for newer Anthropic models that support effort-based
-/// reasoning (e.g. `claude-opus-4-6`).  Mutually exclusive with `thinking`.
 #[derive(Serialize, Debug, PartialEq, Eq)]
 pub struct OutputConfig {
     pub effort: OutputEffort,
@@ -91,14 +105,6 @@ pub struct OutputConfig {
 pub enum OutputFormat {
     #[serde(rename = "json_schema")]
     JsonSchema { schema: schemars::Schema },
-}
-
-#[derive(Serialize, Default, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum ThinkingType {
-    #[default]
-    Enabled,
-    Disabled,
 }
 
 impl TryFrom<forge_domain::Context> for Request {
@@ -119,55 +125,40 @@ impl TryFrom<forge_domain::Context> for Request {
             })
             .collect::<Vec<_>>();
 
-        // Route reasoning config to the correct Anthropic serialization.
-        // All paths require enabled == Some(true); without it nothing is emitted.
-        //
-        // • enabled + max_tokens → thinking object (older models, e.g.
-        // claude-3-7-sonnet).   An explicit reasoning budget unambiguously
-        // selects the extended-thinking API.   effort (which may arrive from
-        // embedded defaults) is ignored in this branch.
-        //
-        // • enabled + effort, no max_tokens → output_config.effort (newer models, e.g.
-        //   claude-opus-4-6).  No token budget means the caller chose the effort-based
-        // API.
-        //
-        // • enabled only (no effort, no max_tokens) → thinking with a default budget.
-        let (thinking, output_config) = if let Some(reasoning) = request.reasoning {
-            if reasoning.enabled == Some(true) {
-                if let Some(budget) = reasoning.max_tokens {
-                    // Explicit budget → thinking object regardless of effort.
-                    (
-                        Some(Thinking {
-                            r#type: ThinkingType::Enabled,
-                            budget_tokens: budget as u64,
-                        }),
-                        None,
-                    )
-                } else if let Some(effort) = reasoning.effort {
-                    // Effort without budget → newer output_config API.
-                    let output_effort = match effort {
-                        forge_domain::Effort::Low => OutputEffort::Low,
-                        forge_domain::Effort::High => OutputEffort::High,
-                        forge_domain::Effort::Max => OutputEffort::Max,
-                        // Map unsupported variants to the nearest Anthropic-valid effort.
-                        forge_domain::Effort::None | forge_domain::Effort::Minimal => {
-                            OutputEffort::Low
-                        }
-                        forge_domain::Effort::Medium => OutputEffort::Medium,
-                        forge_domain::Effort::XHigh => OutputEffort::Max,
-                    };
-                    (None, Some(OutputConfig { effort: output_effort }))
-                } else {
-                    // Enabled-only → thinking with default budget.
-                    (
-                        Some(Thinking { r#type: ThinkingType::Enabled, budget_tokens: 10000 }),
-                        None,
-                    )
-                }
+        // Gate on the domain rule so inherited configs with `enabled: None` but
+        // a positive effort / `max_tokens` still emit reasoning on the wire.
+        let reasoning_on = request.is_reasoning_supported();
+        let (thinking, output_config) = if reasoning_on && let Some(reasoning) = request.reasoning {
+            // Adaptive thinking on 4.7 hides reasoning content by default; opting
+            // into reasoning should surface it unless the caller set `exclude`.
+            let adaptive_display = if reasoning.exclude == Some(true) {
+                Some(ThinkingDisplay::Omitted)
             } else {
-                // enabled=false or enabled=None → no reasoning emitted.
-                (None, None)
-            }
+                Some(ThinkingDisplay::Summarized)
+            };
+
+            let thinking = if let Some(budget) = reasoning.max_tokens {
+                Thinking::Enabled { budget_tokens: budget as u64 }
+            } else {
+                Thinking::Adaptive { display: adaptive_display }
+            };
+
+            // `Effort::None` is an explicit opt-out; `is_reasoning_supported`
+            // already filters it, but guard here so it can never become a stray
+            // `output_config.effort`.
+            let output_config = reasoning.effort.and_then(|effort| {
+                let output_effort = match effort {
+                    forge_domain::Effort::None => return None,
+                    forge_domain::Effort::Minimal | forge_domain::Effort::Low => OutputEffort::Low,
+                    forge_domain::Effort::Medium => OutputEffort::Medium,
+                    forge_domain::Effort::High => OutputEffort::High,
+                    forge_domain::Effort::XHigh => OutputEffort::XHigh,
+                    forge_domain::Effort::Max => OutputEffort::Max,
+                };
+                Some(OutputConfig { effort: output_effort })
+            });
+
+            (Some(thinking), output_config)
         } else {
             (None, None)
         };
@@ -308,9 +299,9 @@ impl Message {
                         | Content::ToolResult { .. } => Some(idx),
                         _ => None,
                     })
+            && let Some(content) = self.content.get_mut(last_cacheable_idx)
         {
-            self.content[last_cacheable_idx] =
-                std::mem::take(&mut self.content[last_cacheable_idx]).cached(true);
+            *content = std::mem::take(content).cached(true);
         }
 
         self
@@ -540,26 +531,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_thinking_type_serializes_to_enabled() {
-        let thinking_type = ThinkingType::Enabled;
-        let actual = serde_json::to_string(&thinking_type).unwrap();
-        let expected = r#""enabled""#;
-
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_thinking_type_serializes_to_disabled() {
-        let thinking_type = ThinkingType::Disabled;
-        let actual = serde_json::to_string(&thinking_type).unwrap();
-        let expected = r#""disabled""#;
-
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_thinking_struct_serializes_correctly() {
-        let thinking = Thinking { r#type: ThinkingType::Enabled, budget_tokens: 5000 };
+    fn test_thinking_enabled_serializes_with_budget() {
+        let thinking = Thinking::Enabled { budget_tokens: 5000 };
         let actual = serde_json::to_value(&thinking).unwrap();
         let expected = serde_json::json!({
             "type": "enabled",
@@ -570,7 +543,37 @@ mod tests {
     }
 
     #[test]
-    fn test_reasoning_enabled_with_max_tokens_creates_thinking() {
+    fn test_thinking_adaptive_serializes_without_display_when_none() {
+        let thinking = Thinking::Adaptive { display: None };
+        let actual = serde_json::to_value(&thinking).unwrap();
+        let expected = serde_json::json!({"type": "adaptive"});
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_thinking_adaptive_serializes_with_summarized_display() {
+        let thinking = Thinking::Adaptive { display: Some(ThinkingDisplay::Summarized) };
+        let actual = serde_json::to_value(&thinking).unwrap();
+        let expected = serde_json::json!({
+            "type": "adaptive",
+            "display": "summarized"
+        });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_thinking_disabled_serializes() {
+        let thinking = Thinking::Disabled;
+        let actual = serde_json::to_value(&thinking).unwrap();
+        let expected = serde_json::json!({"type": "disabled"});
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_reasoning_enabled_with_max_tokens_creates_enabled_thinking() {
         let fixture = Context::default().reasoning(ReasoningConfig {
             enabled: Some(true),
             max_tokens: Some(8000),
@@ -582,15 +585,14 @@ mod tests {
 
         assert_eq!(
             actual.thinking,
-            Some(Thinking { r#type: ThinkingType::Enabled, budget_tokens: 8000 })
+            Some(Thinking::Enabled { budget_tokens: 8000 })
         );
         assert_eq!(actual.output_config, None);
     }
 
     #[test]
-    fn test_reasoning_max_tokens_takes_priority_over_effort() {
-        // When both max_tokens and effort are set, max_tokens triggers the thinking
-        // path because an explicit budget means the caller wants the older API.
+    fn test_reasoning_max_tokens_and_effort_emit_both() {
+        // Effort and budget are independent knobs — neither should hide the other.
         let fixture = Context::default().reasoning(ReasoningConfig {
             effort: Some(forge_domain::Effort::Low),
             enabled: Some(true),
@@ -602,14 +604,34 @@ mod tests {
 
         assert_eq!(
             actual.thinking,
-            Some(Thinking { r#type: ThinkingType::Enabled, budget_tokens: 8000 })
+            Some(Thinking::Enabled { budget_tokens: 8000 })
+        );
+        assert_eq!(
+            actual.output_config,
+            Some(OutputConfig { effort: OutputEffort::Low })
+        );
+    }
+
+    #[test]
+    fn test_reasoning_max_tokens_alone_emits_enabled_only() {
+        let fixture = Context::default().reasoning(ReasoningConfig {
+            effort: None,
+            enabled: Some(true),
+            max_tokens: Some(8000),
+            exclude: None,
+        });
+
+        let actual = Request::try_from(fixture).unwrap();
+
+        assert_eq!(
+            actual.thinking,
+            Some(Thinking::Enabled { budget_tokens: 8000 })
         );
         assert_eq!(actual.output_config, None);
     }
 
     #[test]
-    fn test_reasoning_effort_without_budget_creates_output_config() {
-        // Effort with no max_tokens routes to output_config (newer model path).
+    fn test_reasoning_effort_without_budget_creates_output_config_and_adaptive() {
         let fixture = Context::default().reasoning(ReasoningConfig {
             effort: Some(forge_domain::Effort::Low),
             enabled: Some(true),
@@ -623,11 +645,48 @@ mod tests {
             actual.output_config,
             Some(OutputConfig { effort: OutputEffort::Low })
         );
-        assert_eq!(actual.thinking, None);
+        assert_eq!(
+            actual.thinking,
+            Some(Thinking::Adaptive { display: Some(ThinkingDisplay::Summarized) })
+        );
     }
 
     #[test]
-    fn test_reasoning_enabled_without_max_tokens_uses_default_budget() {
+    fn test_reasoning_effort_with_exclude_emits_adaptive_omitted() {
+        let fixture = Context::default().reasoning(ReasoningConfig {
+            effort: Some(forge_domain::Effort::High),
+            enabled: Some(true),
+            max_tokens: None,
+            exclude: Some(true),
+        });
+
+        let actual = Request::try_from(fixture).unwrap();
+
+        assert_eq!(
+            actual.thinking,
+            Some(Thinking::Adaptive { display: Some(ThinkingDisplay::Omitted) })
+        );
+    }
+
+    #[test]
+    fn test_reasoning_xhigh_effort_maps_to_xhigh() {
+        let fixture = Context::default().reasoning(ReasoningConfig {
+            effort: Some(forge_domain::Effort::XHigh),
+            enabled: Some(true),
+            max_tokens: None,
+            exclude: None,
+        });
+
+        let actual = Request::try_from(fixture).unwrap();
+
+        assert_eq!(
+            actual.output_config,
+            Some(OutputConfig { effort: OutputEffort::XHigh })
+        );
+    }
+
+    #[test]
+    fn test_reasoning_enabled_without_budget_or_effort_defaults_to_adaptive_summarized() {
         let fixture = Context::default().reasoning(ReasoningConfig {
             enabled: Some(true),
             max_tokens: None,
@@ -639,7 +698,24 @@ mod tests {
 
         assert_eq!(
             actual.thinking,
-            Some(Thinking { r#type: ThinkingType::Enabled, budget_tokens: 10000 })
+            Some(Thinking::Adaptive { display: Some(ThinkingDisplay::Summarized) })
+        );
+    }
+
+    #[test]
+    fn test_reasoning_enabled_with_exclude_uses_omitted_display() {
+        let fixture = Context::default().reasoning(ReasoningConfig {
+            enabled: Some(true),
+            max_tokens: None,
+            effort: None,
+            exclude: Some(true),
+        });
+
+        let actual = Request::try_from(fixture).unwrap();
+
+        assert_eq!(
+            actual.thinking,
+            Some(Thinking::Adaptive { display: Some(ThinkingDisplay::Omitted) })
         );
     }
 
@@ -658,7 +734,10 @@ mod tests {
     }
 
     #[test]
-    fn test_reasoning_enabled_none_does_not_create_thinking() {
+    fn test_reasoning_enabled_none_with_max_tokens_still_emits_thinking() {
+        // Matches the domain's `is_reasoning_supported` rule: enabled: None with a
+        // positive budget counts as on, so inherited/merged configs don't silently
+        // disable reasoning on the wire.
         let fixture = Context::default().reasoning(ReasoningConfig {
             enabled: None,
             max_tokens: Some(8000),
@@ -668,7 +747,94 @@ mod tests {
 
         let actual = Request::try_from(fixture).unwrap();
 
+        assert_eq!(
+            actual.thinking,
+            Some(Thinking::Enabled { budget_tokens: 8000 })
+        );
+    }
+
+    #[test]
+    fn test_reasoning_enabled_none_with_effort_still_emits_output_config() {
+        let fixture = Context::default().reasoning(ReasoningConfig {
+            enabled: None,
+            max_tokens: None,
+            effort: Some(forge_domain::Effort::High),
+            exclude: None,
+        });
+
+        let actual = Request::try_from(fixture).unwrap();
+
+        assert_eq!(
+            actual.output_config,
+            Some(OutputConfig { effort: OutputEffort::High })
+        );
+        assert_eq!(
+            actual.thinking,
+            Some(Thinking::Adaptive { display: Some(ThinkingDisplay::Summarized) })
+        );
+    }
+
+    #[test]
+    fn test_reasoning_enabled_none_with_zero_max_tokens_does_not_emit() {
+        // Matches `is_reasoning_supported`: max_tokens > 0 is required.
+        let fixture = Context::default().reasoning(ReasoningConfig {
+            enabled: None,
+            max_tokens: Some(0),
+            effort: None,
+            exclude: None,
+        });
+
+        let actual = Request::try_from(fixture).unwrap();
+
         assert_eq!(actual.thinking, None);
+        assert_eq!(actual.output_config, None);
+    }
+
+    #[test]
+    fn test_reasoning_effort_none_does_not_emit_anything() {
+        // Effort::None is an explicit opt-out — no thinking, no output_config.
+        let fixture = Context::default().reasoning(ReasoningConfig {
+            enabled: None,
+            max_tokens: None,
+            effort: Some(forge_domain::Effort::None),
+            exclude: None,
+        });
+
+        let actual = Request::try_from(fixture).unwrap();
+
+        assert_eq!(actual.thinking, None);
+        assert_eq!(actual.output_config, None);
+    }
+
+    #[test]
+    fn test_reasoning_effort_none_overrides_enabled_and_max_tokens() {
+        let fixture = Context::default().reasoning(ReasoningConfig {
+            enabled: Some(true),
+            max_tokens: Some(8000),
+            effort: Some(forge_domain::Effort::None),
+            exclude: None,
+        });
+
+        let actual = Request::try_from(fixture).unwrap();
+
+        assert_eq!(actual.thinking, None);
+        assert_eq!(actual.output_config, None);
+    }
+
+    #[test]
+    fn test_reasoning_enabled_false_overrides_effort() {
+        // Explicit opt-out beats inferred enablement.
+        let fixture = Context::default().reasoning(ReasoningConfig {
+            enabled: Some(false),
+            max_tokens: None,
+            effort: Some(forge_domain::Effort::High),
+            exclude: None,
+        });
+
+        let actual = Request::try_from(fixture).unwrap();
+
+        assert_eq!(actual.thinking, None);
+        assert_eq!(actual.output_config, None);
     }
 
     #[test]
