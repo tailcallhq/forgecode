@@ -49,6 +49,11 @@ impl<P: ConsoleWriter> SharedSpinner<P> {
         self.0.lock().unwrap_or_else(|e| e.into_inner()).reset()
     }
 
+    /// Returns the elapsed time tracked by the shared spinner.
+    pub fn elapsed(&self) -> std::time::Duration {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).elapsed()
+    }
+
     /// Writes a line to stdout, suspending the spinner if active.
     pub fn write_ln(&self, message: impl ToString) -> Result<()> {
         self.0

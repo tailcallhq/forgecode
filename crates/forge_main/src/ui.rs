@@ -24,7 +24,7 @@ use forge_domain::{
 };
 use forge_fs::ForgeFS;
 use forge_select::ForgeWidget;
-use forge_spinner::SpinnerManager;
+use forge_spinner::{SpinnerManager, format_elapsed_time};
 use forge_tracker::ToolCallPayload;
 use forge_walker::Walker;
 use futures::future;
@@ -4480,10 +4480,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 if !self.shell_quiet_mode()
                     && let Some(conversation_id) = self.state.conversation_id
                 {
+                    let elapsed = format_elapsed_time(self.spinner.elapsed());
                     let sub = format!(
-                        "{} | {} · {}",
+                        "{} | {} · {} · {}",
                         conversation_id.into_string(),
-                        provider, model
+                        provider,
+                        model,
+                        elapsed,
                     );
                     self.writeln_title(TitleFormat::debug("Finished").sub_title(sub))?;
                 }

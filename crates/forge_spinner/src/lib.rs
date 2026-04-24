@@ -26,7 +26,7 @@ const TICKS: &[&str; 10] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 /// - Less than 1 minute: "01s", "02s", etc.
 /// - Less than 1 hour: "1:01m", "1:59m", etc.
 /// - 1 hour or more: "1:01h", "2:30h", etc.
-fn format_elapsed_time(duration: Duration) -> String {
+pub fn format_elapsed_time(duration: Duration) -> String {
     let total_seconds = duration.as_secs();
     if total_seconds < 60 {
         format!("{:02}s", total_seconds)
@@ -165,6 +165,13 @@ impl<P: ConsoleWriter> SpinnerManager<P> {
         self.accumulated_elapsed = Duration::ZERO;
         self.word_index = None;
         self.message = None;
+    }
+
+    /// Returns the current accumulated elapsed time.
+    pub fn elapsed(&self) -> Duration {
+        self.spinner
+            .as_ref()
+            .map_or(self.accumulated_elapsed, ProgressBar::elapsed)
     }
 
     /// Writes a line to stdout, suspending the spinner if active.
