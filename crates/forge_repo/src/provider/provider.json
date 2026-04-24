@@ -2075,7 +2075,7 @@
         "input_modalities": ["text", "image"]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": ["api_key", "aws_profile"]
   },
   {
     "id": "vertex_ai_anthropic",
@@ -2406,6 +2406,16 @@
     "response_type": "OpenAI",
     "url": "https://chatgpt.com/backend-api/codex/responses",
     "models": [
+      {
+        "id": "gpt-5.5",
+        "name": "GPT-5.5",
+        "description": "Latest frontier model for complex professional work",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
       {
         "id": "gpt-5.4-mini",
         "name": "GPT-5.4 Mini",

@@ -119,6 +119,7 @@ pub enum TopLevelCommand {
     /// Suggest shell commands from natural language.
     Suggest {
         /// Natural language description of the desired command.
+        #[arg(allow_hyphen_values = true)]
         prompt: String,
     },
 
@@ -1695,6 +1696,39 @@ mod tests {
     fn test_prompt_with_double_hyphen() {
         let fixture = Cli::parse_from(["forge", "-p", "--something"]);
         assert_eq!(fixture.prompt, Some("--something".to_string()));
+    }
+
+    #[test]
+    fn test_suggest_with_dash_prefixed_prompt() {
+        let fixture = Cli::parse_from(["forge", "suggest", "--- date"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Suggest { prompt }) => prompt,
+            _ => panic!("Expected suggest subcommand"),
+        };
+        let expected = "--- date".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_suggest_with_double_dash_prompt() {
+        let fixture = Cli::parse_from(["forge", "suggest", "--date tomorrow"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Suggest { prompt }) => prompt,
+            _ => panic!("Expected suggest subcommand"),
+        };
+        let expected = "--date tomorrow".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_suggest_with_single_dash_prompt() {
+        let fixture = Cli::parse_from(["forge", "suggest", "-v file.txt"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Suggest { prompt }) => prompt,
+            _ => panic!("Expected suggest subcommand"),
+        };
+        let expected = "-v file.txt".to_string();
+        assert_eq!(actual, expected);
     }
 
     #[test]

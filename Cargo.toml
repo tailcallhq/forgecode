@@ -19,7 +19,7 @@ anyhow = "1.0.102"
 async-recursion = "1.1.1"
 async-stream = "0.3"
 async-trait = "0.1.89"
-aws-config = { version = "1.8.13", features = ["behavior-version-latest"], default-features = false }
+aws-config = { version = "1.8.13", features = ["behavior-version-latest", "sso"], default-features = false }
 aws-sdk-bedrockruntime = { version = "1.129.0", features = ["behavior-version-latest"], default-features = false }
 aws-credential-types = "1.2.14"
 aws-smithy-types = "1.4.3"
@@ -60,7 +60,7 @@ machineid-rs = "1.2.4"
 mockito = "1.7.2"
 nom = "8.0.0"
 nu-ansi-term = "0.50.1"
-posthog-rs = { git = "https://github.com/PostHog/posthog-rs.git", rev = "83cf3d2c3b6edab8600276d06b76c73e59af8ebd" }
+posthog-rs = "0.5.3"
 pretty_assertions = "1.4.1"
 proc-macro2 = "1.0"
 quote = "1.0"
