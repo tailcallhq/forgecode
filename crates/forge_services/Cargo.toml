@@ -41,6 +41,7 @@ serde_yml.workspace = true
 gray_matter.workspace = true
 merge.workspace = true
 strip-ansi-escapes.workspace = true
+bstr.workspace = true
 forge_app.workspace = true
 url.workspace = true
 reqwest-eventsource.workspace = true
