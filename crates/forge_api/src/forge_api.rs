@@ -25,8 +25,8 @@ use crate::API;
 pub struct ForgeAPI<S, F> {
     services: Arc<S>,
     infra: Arc<F>,
-    /// Hook paths verified at startup, then cached for the session.
-    cached_hooks: tokio::sync::OnceCell<Vec<PathBuf>>,
+    /// Hook paths verified at startup, cached for the entire session.
+    cached_hooks: Vec<PathBuf>,
 }
 
 impl<A, F> ForgeAPI<A, F> {
@@ -34,7 +34,7 @@ impl<A, F> ForgeAPI<A, F> {
         Self {
             services,
             infra,
-            cached_hooks: tokio::sync::OnceCell::new(),
+            cached_hooks: Vec::new(),
         }
     }
 
@@ -59,7 +59,10 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
         let infra = Arc::new(ForgeInfra::new(cwd, config));
         let repo = Arc::new(ForgeRepo::new(infra.clone()));
         let app = Arc::new(ForgeServices::new(repo.clone()));
-        ForgeAPI::new(app, repo)
+        let mut api = ForgeAPI::new(app, repo);
+        api.cached_hooks = forge_app::load_and_verify_hooks("toolcall-start")
+            .unwrap_or_default();
+        api
     }
 
     pub async fn get_skills_internal(&self) -> Result<Vec<Skill>> {
@@ -70,7 +73,7 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
 
 #[async_trait::async_trait]
 impl<
-    A: Services + EnvironmentInfra<Config = forge_config::ForgeConfig> + forge_app::UserInfra,
+    A: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>,
     F: CommandInfra
         + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + SkillRepository
@@ -151,14 +154,8 @@ impl<
             .get_active_agent_id()
             .await?
             .unwrap_or_default();
-        // cached_hooks is pre-populated by verify_hooks() at startup.
-        // If somehow not yet populated (e.g. non-interactive use), fall back
-        // to empty hooks.
-        let cached_hooks = self
-            .cached_hooks
-            .get()
-            .cloned()
-            .unwrap_or_default();
+        // cached_hooks is populated during init() — zero disk I/O at runtime.
+        let cached_hooks = self.cached_hooks.clone();
         self.app().chat(agent_id, chat, cached_hooks).await
     }
 
@@ -438,14 +435,6 @@ impl<
             .await
             .ok_or_else(|| forge_domain::Error::NoDefaultSession)?;
         self.services.get_provider(model_config.provider).await
-    }
-
-    async fn verify_hooks(&self) -> Result<()> {
-        let hooks = forge_app::load_and_verify_hooks("toolcall-start", self.services.clone())
-            .await
-            .unwrap_or_default();
-        let _ = self.cached_hooks.set(hooks);
-        Ok(())
     }
 
     async fn mcp_auth(&self, server_url: &str) -> Result<()> {

@@ -388,10 +388,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.trace_user();
         self.hydrate_caches();
 
-        // Verify external hooks before entering the interactive loop.
-        // This may prompt the user to trust/deny/ignore untrusted hooks.
-        self.api.verify_hooks().await?;
-
         self.init_conversation().await?;
 
         // Check for dispatch flag first
@@ -1172,7 +1168,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                             HookTrustStatus::Untrusted => "untrusted".yellow().to_string(),
                             HookTrustStatus::Tampered { .. } => "TAMPERED".red().bold().to_string(),
                             HookTrustStatus::Missing => "missing".dimmed().to_string(),
-                            HookTrustStatus::Ignored => "ignored".dimmed().to_string(),
                         };
 
                         info = info
@@ -1203,7 +1198,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 let mut trust_store = TrustStore::load()?;
                 trust_store.trust(&path, &full_path)?;
-                trust_store.unignore(&path);
                 trust_store.save()?;
 
                 let hash = compute_file_hash(&full_path)?;
@@ -1226,7 +1220,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 // Remove from trust store regardless
                 let mut trust_store = TrustStore::load()?;
                 trust_store.untrust(&path);
-                trust_store.unignore(&path);
                 trust_store.save()?;
 
                 self.writeln_title(TitleFormat::info(format!(

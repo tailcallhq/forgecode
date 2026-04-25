@@ -263,11 +263,4 @@ pub trait API: Sync + Send {
 
     /// Check the OAuth authentication status of an MCP server
     async fn mcp_auth_status(&self, server_url: &str) -> Result<String>;
-
-    /// Verify and load external hooks. Called once at startup before the
-    /// interactive loop begins. The default implementation is a no-op so that
-    /// API implementations without hook support are not affected.
-    async fn verify_hooks(&self) -> Result<()> {
-        Ok(())
-    }
 }

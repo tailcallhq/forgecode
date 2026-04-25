@@ -7,43 +7,21 @@
 //! runtime.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::hooks::external::discover_hooks;
 use crate::hooks::trust::{HookTrustStatus, TrustStore, relative_hook_path};
-use crate::infra::UserInfra;
-
-/// Options presented to the user when an untrusted hook is discovered.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    strum_macros::EnumIter,
-    strum_macros::EnumString,
-    strum_macros::Display,
-)]
-pub enum TrustPromptChoice {
-    Trust,
-    Delete,
-    Ignore,
-}
 
 /// Discovers hooks for the given event, verifies trust, and returns only
 /// the paths of hooks that are safe to execute.
 ///
 /// For each discovered hook:
 /// - **Trusted** (hash matches) → included in result
-/// - **Untrusted** (unknown script) → interactive prompt (Trust/Delete/Ignore)
-/// - **Tampered** (hash mismatch) → high-danger warning, NOT loaded, removed
-///   from trust store
+/// - **Untrusted** (unknown script) → skipped with guidance printed
+/// - **Tampered** (hash mismatch) → high-danger warning, NOT loaded
 /// - **Missing** → skipped
 ///
-/// In non-interactive mode (piped stdin / no TTY), untrusted hooks are silently
-/// skipped.
-pub async fn load_and_verify_hooks<U: UserInfra>(
-    event_name: &str,
-    user_infra: Arc<U>,
-) -> anyhow::Result<Vec<PathBuf>> {
+/// No interactive prompts — users manage trust via `forge hook trust/delete`.
+pub fn load_and_verify_hooks(event_name: &str) -> anyhow::Result<Vec<PathBuf>> {
     let all_hooks = discover_hooks(event_name);
     if all_hooks.is_empty() {
         return Ok(Vec::new());
@@ -51,11 +29,9 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
 
     let mut trust_store = TrustStore::load()?;
     let mut trusted_hooks = Vec::new();
-    let mut store_dirty = false;
-    let mut count_ignored = 0usize;
+    let mut count_untrusted = 0usize;
     let mut count_tampered = 0usize;
-
-    let is_tty = is_stdin_tty();
+    let mut store_dirty = false;
 
     for hook_path in &all_hooks {
         let Some(relative) = relative_hook_path(hook_path) else {
@@ -74,54 +50,11 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
                 trusted_hooks.push(hook_path.clone());
             }
             HookTrustStatus::Untrusted => {
-                if !is_tty {
-                    tracing::warn!(
-                        hook = %relative,
-                        "Untrusted hook skipped (non-interactive mode)"
-                    );
-                    continue;
-                }
-
+                count_untrusted += 1;
                 tracing::warn!(
                     hook = %relative,
-                    "Untrusted hook discovered"
+                    "Untrusted hook skipped"
                 );
-
-                let preview = read_script_preview(hook_path, 5);
-                let prompt = format!(
-                    "Untrusted hook detected!\n\n  \
-                     Event: {event_name}\n  \
-                     Script: {relative}\n  \
-                     Path: {}\n\
-                     {preview}\
-                     \nDo you trust this hook?",
-                    hook_path.display(),
-                );
-
-                let choice = user_infra
-                    .select_one_enum::<TrustPromptChoice>(&prompt)
-                    .await?;
-
-                match choice {
-                    Some(TrustPromptChoice::Trust) => {
-                        trust_store.trust(&relative, hook_path)?;
-                        trust_store.unignore(&relative);
-                        store_dirty = true;
-                        trusted_hooks.push(hook_path.clone());
-                        tracing::info!(hook = %relative, "Hook trusted by user");
-                    }
-                    Some(TrustPromptChoice::Delete) => {
-                        let _ = std::fs::remove_file(hook_path);
-                        trust_store.unignore(&relative);
-                        store_dirty = true;
-                        tracing::info!(hook = %relative, "Hook deleted by user");
-                    }
-                    Some(TrustPromptChoice::Ignore) | None => {
-                        trust_store.ignore(&relative);
-                        store_dirty = true;
-                        tracing::info!(hook = %relative, "Hook ignored by user");
-                    }
-                }
             }
             HookTrustStatus::Tampered { expected, actual } => {
                 count_tampered += 1;
@@ -152,23 +85,8 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
                 );
                 eprintln!();
 
-                // Remove from trust store and add to ignored set so it
-                // doesn't keep warning on every startup.
                 trust_store.untrust(&relative);
-                trust_store.ignore(&relative);
                 store_dirty = true;
-            }
-            HookTrustStatus::Ignored => {
-                count_ignored += 1;
-                tracing::info!(
-                    hook = %relative,
-                    "Hook ignored (previously dismissed). \
-                     Use `forge hook trust` to enable, or `forge hook delete` to remove."
-                );
-                eprintln!(
-                    "  Skipping ignored hook: {} (use `forge hook trust` to enable)",
-                    relative
-                );
             }
             HookTrustStatus::Missing => {
                 // File was discovered but disappeared — skip
@@ -181,90 +99,25 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
     }
 
     // Print a startup summary when there are hooks to report.
-    if !trusted_hooks.is_empty() || count_ignored > 0 || count_tampered > 0 {
+    if !trusted_hooks.is_empty() || count_untrusted > 0 || count_tampered > 0 {
         let mut parts = Vec::new();
         if !trusted_hooks.is_empty() {
             parts.push(format!("{} loaded", trusted_hooks.len()));
         }
-        if count_ignored > 0 {
-            parts.push(format!("{} ignored", count_ignored));
+        if count_untrusted > 0 {
+            parts.push(format!("{} untrusted", count_untrusted));
         }
         if count_tampered > 0 {
             parts.push(format!("{} tampered", count_tampered));
         }
         eprintln!("  Hooks: {}", parts.join(", "));
+
+        if count_untrusted > 0 {
+            eprintln!(
+                "  Use `forge hook trust <path>` to trust, or `forge hook delete <path>` to remove."
+            );
+        }
     }
 
     Ok(trusted_hooks)
-}
-
-/// Reads the first `n` lines of a script file for preview display.
-/// Returns a formatted string with the preview, or empty string on failure.
-fn read_script_preview(path: &std::path::Path, n: usize) -> String {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return String::new();
-    };
-    let lines: Vec<&str> = content.lines().take(n).collect();
-    if lines.is_empty() {
-        return String::new();
-    }
-    let preview = lines.join("\n    ");
-    format!("  Preview:\n    {preview}\n")
-}
-
-/// Checks whether stdin is connected to a TTY (interactive terminal).
-fn is_stdin_tty() -> bool {
-    use std::io::IsTerminal;
-    std::io::stdin().is_terminal()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    fn test_trust_prompt_choice_display() {
-        let actual = format!(
-            "{}, {}, {}",
-            TrustPromptChoice::Trust,
-            TrustPromptChoice::Delete,
-            TrustPromptChoice::Ignore
-        );
-        let expected = "Trust, Delete, Ignore";
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_is_stdin_tty_returns_bool() {
-        // Just verify it doesn't panic
-        let _ = is_stdin_tty();
-    }
-
-    #[test]
-    fn test_read_script_preview_shows_first_lines() {
-        let temp = tempfile::TempDir::new().unwrap();
-        let path = temp.path().join("hook.sh");
-        std::fs::write(&path, "#!/bin/bash\necho hello\necho world\nline4\nline5\nline6\n").unwrap();
-
-        let actual = read_script_preview(&path, 5);
-        let expected = "  Preview:\n    #!/bin/bash\n    echo hello\n    echo world\n    line4\n    line5\n";
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_read_script_preview_empty_file() {
-        let temp = tempfile::TempDir::new().unwrap();
-        let path = temp.path().join("hook.sh");
-        std::fs::write(&path, "").unwrap();
-
-        let actual = read_script_preview(&path, 5);
-        assert_eq!(actual, "");
-    }
-
-    #[test]
-    fn test_read_script_preview_missing_file() {
-        let actual = read_script_preview(std::path::Path::new("/nonexistent/hook.sh"), 5);
-        assert_eq!(actual, "");
-    }
 }
