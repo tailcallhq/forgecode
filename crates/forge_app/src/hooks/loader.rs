@@ -15,36 +15,44 @@ use crate::hooks::trust::{HookTrustStatus, TrustStore, relative_hook_path};
 /// for the caller to display at the appropriate time.
 #[derive(Debug, Default)]
 pub struct HookSummary {
-    /// Number of hooks that passed verification and will be loaded.
-    pub loaded: usize,
-    /// Number of hooks with no trust record (skipped).
-    pub untrusted: usize,
-    /// Number of hooks whose hash no longer matches (tampered, skipped).
+    /// Names of hooks that passed verification and will be loaded.
+    pub loaded: Vec<String>,
+    /// Names of hooks with no trust record (skipped).
+    pub untrusted: Vec<String>,
+    /// Tampered hook details (pre-formatted warning messages).
     pub tampered: Vec<String>,
 }
 
 impl std::fmt::Display for HookSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.loaded == 0 && self.untrusted == 0 && self.tampered.is_empty() {
+        if self.loaded.is_empty() && self.untrusted.is_empty() && self.tampered.is_empty() {
             return Ok(());
         }
 
         let mut parts = Vec::new();
-        if self.loaded > 0 {
-            parts.push(format!("{} loaded", self.loaded));
+        if !self.loaded.is_empty() {
+            parts.push(format!(
+                "{} loaded ({})",
+                self.loaded.len(),
+                truncate_list(&self.loaded, 3)
+            ));
         }
-        if self.untrusted > 0 {
-            parts.push(format!("{} untrusted", self.untrusted));
+        if !self.untrusted.is_empty() {
+            parts.push(format!(
+                "{} untrusted ({})",
+                self.untrusted.len(),
+                truncate_list(&self.untrusted, 3)
+            ));
         }
         if !self.tampered.is_empty() {
             parts.push(format!("{} tampered", self.tampered.len()));
         }
         writeln!(f, "  Hooks: {}", parts.join(", "))?;
 
-        if self.untrusted > 0 {
+        if !self.untrusted.is_empty() {
             writeln!(
                 f,
-                "  Use `forge hook trust <path>` to trust, or `forge hook delete <path>` to remove."
+                "  Use `forge hook trust <name>` to trust, or `forge hook delete <name>` to remove."
             )?;
         }
 
@@ -53,6 +61,17 @@ impl std::fmt::Display for HookSummary {
         }
 
         Ok(())
+    }
+}
+
+/// Joins names with ", ", truncating to `max` items and appending "..." if
+/// there are more.
+fn truncate_list(names: &[String], max: usize) -> String {
+    if names.len() <= max {
+        names.join(", ")
+    } else {
+        let displayed: String = names.iter().take(max).map(|n| n.as_str()).collect::<Vec<_>>().join(", ");
+        format!("{displayed}, ...")
     }
 }
 
@@ -74,7 +93,7 @@ pub fn load_and_verify_hooks(event_name: &str) -> anyhow::Result<(Vec<PathBuf>, 
 
     let mut trust_store = TrustStore::load()?;
     let mut trusted_hooks = Vec::new();
-    let mut count_untrusted = 0usize;
+    let mut untrusted_names = Vec::new();
     let mut tampered_messages = Vec::new();
     let mut store_dirty = false;
 
@@ -95,7 +114,7 @@ pub fn load_and_verify_hooks(event_name: &str) -> anyhow::Result<(Vec<PathBuf>, 
                 trusted_hooks.push(hook_path.clone());
             }
             HookTrustStatus::Untrusted => {
-                count_untrusted += 1;
+                untrusted_names.push(hook_name(hook_path));
                 tracing::warn!(
                     hook = %relative,
                     "Untrusted hook skipped"
@@ -142,11 +161,20 @@ pub fn load_and_verify_hooks(event_name: &str) -> anyhow::Result<(Vec<PathBuf>, 
         trust_store.save()?;
     }
 
+    let loaded_names: Vec<String> = trusted_hooks.iter().map(|p| hook_name(p)).collect();
+
     let summary = HookSummary {
-        loaded: trusted_hooks.len(),
-        untrusted: count_untrusted,
+        loaded: loaded_names,
+        untrusted: untrusted_names,
         tampered: tampered_messages,
     };
 
     Ok((trusted_hooks, summary))
+}
+
+/// Extracts the file name from a hook path for display.
+fn hook_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.display().to_string())
 }
