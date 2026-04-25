@@ -125,10 +125,16 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .handle(&toolcall_start_event, &mut self.conversation)
                 .await?;
 
+            // Run the interceptor to potentially modify the tool call
+            let mut intercepted_tool_call = (*tool_call).clone();
+            self.hook
+                .intercept_tool_call(&mut intercepted_tool_call, &self.agent, &self.agent.model)
+                .await?;
+
             // Execute the tool
             let tool_result = self
                 .services
-                .call(&self.agent, tool_context, (*tool_call).clone())
+                .call(&self.agent, tool_context, intercepted_tool_call)
                 .await;
 
             // Fire the ToolcallEnd lifecycle event (fires on both success and failure)

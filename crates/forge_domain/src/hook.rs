@@ -120,7 +120,9 @@ pub enum LifecycleEvent {
 /// Trait for handling lifecycle events
 ///
 /// Implementations of this trait can be used to react to different
-/// stages of conversation processing.
+/// stages of conversation processing. Event data is immutable;
+/// use [`ToolCallInterceptor`] if you need to modify tool calls before
+/// execution.
 #[async_trait]
 pub trait EventHandle<T: Send + Sync>: Send + Sync {
     /// Handles a lifecycle event and potentially modifies the conversation
@@ -182,6 +184,7 @@ pub struct Hook {
     on_response: Box<dyn EventHandle<EventData<ResponsePayload>>>,
     on_toolcall_start: Box<dyn EventHandle<EventData<ToolcallStartPayload>>>,
     on_toolcall_end: Box<dyn EventHandle<EventData<ToolcallEndPayload>>>,
+    interceptor: Box<dyn ToolCallInterceptor>,
 }
 
 impl Default for Hook {
@@ -193,6 +196,7 @@ impl Default for Hook {
             on_response: Box::new(NoOpHandler),
             on_toolcall_start: Box::new(NoOpHandler),
             on_toolcall_end: Box::new(NoOpHandler),
+            interceptor: Box::new(NoOpInterceptor),
         }
     }
 }
@@ -214,6 +218,7 @@ impl Hook {
         on_response: impl Into<Box<dyn EventHandle<EventData<ResponsePayload>>>>,
         on_toolcall_start: impl Into<Box<dyn EventHandle<EventData<ToolcallStartPayload>>>>,
         on_toolcall_end: impl Into<Box<dyn EventHandle<EventData<ToolcallEndPayload>>>>,
+        interceptor: impl Into<Box<dyn ToolCallInterceptor>>,
     ) -> Self {
         Self {
             on_start: on_start.into(),
@@ -222,6 +227,7 @@ impl Hook {
             on_response: on_response.into(),
             on_toolcall_start: on_toolcall_start.into(),
             on_toolcall_end: on_toolcall_end.into(),
+            interceptor: interceptor.into(),
         }
     }
 }
@@ -295,6 +301,15 @@ impl Hook {
         self.on_toolcall_end = Box::new(handler);
         self
     }
+
+    /// Sets the tool call interceptor
+    ///
+    /// # Arguments
+    /// * `interceptor` - Interceptor for tool call modification (automatically boxed)
+    pub fn interceptor(mut self, interceptor: impl ToolCallInterceptor + 'static) -> Self {
+        self.interceptor = Box::new(interceptor);
+        self
+    }
 }
 
 impl Hook {
@@ -317,6 +332,7 @@ impl Hook {
             on_response: self.on_response.and(other.on_response),
             on_toolcall_start: self.on_toolcall_start.and(other.on_toolcall_start),
             on_toolcall_end: self.on_toolcall_end.and(other.on_toolcall_end),
+            interceptor: self.interceptor,
         }
     }
 }
@@ -344,6 +360,65 @@ impl EventHandle<LifecycleEvent> for Hook {
     }
 }
 
+impl Hook {
+    /// Runs the tool call interceptor on the given tool call
+    ///
+    /// # Arguments
+    /// * `tool_call` - The tool call to intercept (mutable)
+    /// * `agent` - The agent that triggered the tool call
+    /// * `model_id` - The model ID being used
+    ///
+    /// # Errors
+    /// Returns an error if the interception fails
+    pub async fn intercept_tool_call(
+        &self,
+        tool_call: &mut ToolCallFull,
+        agent: &Agent,
+        model_id: &ModelId,
+    ) -> anyhow::Result<()> {
+        self.interceptor.intercept(tool_call, agent, model_id).await
+    }
+}
+
+/// Trait for intercepting and potentially modifying tool calls before execution.
+///
+/// Unlike [`EventHandle`], which only observes events, interceptors can
+/// modify the tool call (e.g. rewrite arguments via an external script).
+#[async_trait]
+pub trait ToolCallInterceptor: Send + Sync {
+    /// Intercepts a tool call before it is executed.
+    ///
+    /// # Arguments
+    /// * `tool_call` - The tool call to potentially modify
+    /// * `agent` - The agent that triggered the tool call
+    /// * `model_id` - The model ID being used
+    ///
+    /// # Errors
+    /// Returns an error if the interception fails
+    async fn intercept(
+        &self,
+        tool_call: &mut ToolCallFull,
+        agent: &Agent,
+        model_id: &ModelId,
+    ) -> anyhow::Result<()>;
+}
+
+/// A no-op interceptor that does nothing
+#[derive(Debug, Default)]
+pub struct NoOpInterceptor;
+
+#[async_trait]
+impl ToolCallInterceptor for NoOpInterceptor {
+    async fn intercept(
+        &self,
+        _tool_call: &mut ToolCallFull,
+        _agent: &Agent,
+        _model_id: &ModelId,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
 /// A handler that combines two event handlers with sequential execution
 ///
 /// Runs the first handler, then runs the second handler.
@@ -357,7 +432,7 @@ impl<T: Send + Sync> EventHandle<T> for CombinedHandler<T> {
     async fn handle(&self, event: &T, conversation: &mut Conversation) -> anyhow::Result<()> {
         // Run the first handler
         self.0.handle(event, conversation).await?;
-        // Run the second handler with the cloned event
+        // Run the second handler
         self.1.handle(event, conversation).await
     }
 }
@@ -394,6 +469,12 @@ where
 {
     fn from(handler: F) -> Self {
         Box::new(handler)
+    }
+}
+
+impl<I: ToolCallInterceptor + 'static> From<I> for Box<dyn ToolCallInterceptor> {
+    fn from(interceptor: I) -> Self {
+        Box::new(interceptor)
     }
 }
 
@@ -617,6 +698,7 @@ mod tests {
                     }
                 }
             },
+            NoOpInterceptor,
         );
 
         let mut conversation = Conversation::generate();
