@@ -449,10 +449,10 @@ Launch a new agent to handle complex, multi-step tasks autonomously.
 The task tool launches specialized agents (subprocesses) that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.
 
 Available agent types and the tools they have access to:
-- **sage**: Specialized in researching codebases
-  - Tools: read, fs_search, sem_search, fetch
 - **debug**: Specialized in debugging issues
   - Tools: read, shell, fs_search, sem_search, fetch
+- **sage**: Specialized in researching codebases
+  - Tools: read, fs_search, sem_search, fetch
 
 When using the task tool, you must specify a agent_id parameter to select which agent type to use.
 

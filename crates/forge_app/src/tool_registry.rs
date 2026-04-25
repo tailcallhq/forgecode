@@ -245,7 +245,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
         let agent_tools = self.agent_executor.agent_definitions().await?;
 
         // Get agents for template rendering in Task tool description
-        let agents = self.services.get_agents().await?;
+        let mut agents = self.services.get_agents().await?;
 
         // Check if current working directory is indexed
         let environment = self.services.get_environment();
@@ -258,6 +258,15 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
 
         // Build TemplateConfig from ForgeConfig for tool description templates
         let config = self.services.get_config()?;
+
+        // Filter out research subagents from task tool description when disabled
+        if !config.research_subagent {
+            agents.retain(|agent| {
+                let id = agent.id.as_str();
+                id != "sage" && id != "agent"
+            });
+        }
+
         let template_config = TemplateConfig {
             max_read_size: config.max_read_lines as usize,
             max_line_length: config.max_line_chars,
@@ -291,6 +300,8 @@ impl<S> ToolRegistry<S> {
         use crate::TemplateEngine;
 
         let handlebars = TemplateEngine::handlebar_instance();
+        let mut agents = agents;
+        agents.sort_by(|left, right| left.id.as_str().cmp(right.id.as_str()));
 
         // Build tool_names map from all available tools
         let tool_names: Map<String, Value> = ToolCatalog::iter()
@@ -709,6 +720,41 @@ mod tests {
             &template_config,
         );
         assert!(actual.iter().all(|t| t.name.as_str() != "sem_search"));
+    }
+
+    #[test]
+    fn test_task_tool_description_is_stable_across_agent_order() {
+        use fake::{Fake, Faker};
+        let env: Environment = Faker.fake();
+        let template_config = TemplateConfig::default();
+        let agents = create_test_agents();
+        let mut reversed_agents = agents.clone();
+        reversed_agents.reverse();
+
+        let fixture =
+            ToolRegistry::<()>::get_system_tools(true, &env, None, agents, &template_config);
+        let actual = ToolRegistry::<()>::get_system_tools(
+            true,
+            &env,
+            None,
+            reversed_agents,
+            &template_config,
+        );
+
+        let expected = fixture
+            .iter()
+            .find(|tool| tool.name.as_str() == "task")
+            .expect("Task tool should exist")
+            .description
+            .clone();
+        let actual = actual
+            .iter()
+            .find(|tool| tool.name.as_str() == "task")
+            .expect("Task tool should exist")
+            .description
+            .clone();
+
+        assert_eq!(actual, expected);
     }
 }
 

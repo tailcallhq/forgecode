@@ -116,20 +116,18 @@ fn resolve_file_path(candidate: &str) -> Option<String> {
 /// Returns the byte offset of the first unescaped whitespace character, or
 /// the length of `input` if no unescaped whitespace is found.
 fn find_token_end(input: &str) -> usize {
-    let bytes = input.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes.get(i) == Some(&b'\\') && i + 1 < bytes.len() {
-            // Skip escaped character
-            i += 2;
-        } else if bytes
-            .get(i)
-            .map(|b| (*b as char).is_whitespace())
-            .unwrap_or(false)
-        {
+    let mut escaped = false;
+    for (i, c) in input.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if c == '\\' {
+            escaped = true;
+            continue;
+        }
+        if c.is_whitespace() {
             return i;
-        } else {
-            i += 1;
         }
     }
     input.len()
@@ -207,6 +205,14 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+
+    #[test]
+    fn test_wrap_pasted_text_cjk_no_paths() {
+        let fixture = "公";
+        let actual = wrap_pasted_text(fixture);
+        let expected = "公";
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn test_wrap_pasted_text_no_paths() {
@@ -467,6 +473,13 @@ mod tests {
     fn test_unescape_backslashes_trailing_backslash() {
         let actual = unescape_backslashes("/path/file\\");
         let expected = Some("/path/file\\".to_string());
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_find_token_end_backslash_escaped_space() {
+        let actual = find_token_end("/path/my\\ file.txt please");
+        let expected = "/path/my\\ file.txt".len();
         assert_eq!(actual, expected);
     }
 
