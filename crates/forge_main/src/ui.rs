@@ -1203,7 +1203,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                             .unwrap_or_else(|| relative.clone());
 
                         let status_label = match trust_store.check(&relative, hook_path) {
-                            HookTrustStatus::Trusted => status::YES.green().to_string(),
+                            HookTrustStatus::Trusted => "trusted".green().to_string(),
                             HookTrustStatus::Untrusted => "untrusted".yellow().to_string(),
                             HookTrustStatus::Tampered { .. } => "TAMPERED".red().bold().to_string(),
                             HookTrustStatus::Missing => "missing".dimmed().to_string(),
