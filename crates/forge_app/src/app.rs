@@ -151,7 +151,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
         // Create the orchestrator with all necessary dependencies
         let tracing_handler = TracingHandler::new();
         let title_handler = TitleGenerationHandler::new(services.clone());
-        let external_interceptor = ExternalHookInterceptor::from_arc(cached_hooks.clone(), None);
+        let external_interceptor = ExternalHookInterceptor::new(cached_hooks.clone(), None);
 
         // Build the on_end hook, conditionally adding PendingTodosHandler based on
         // config

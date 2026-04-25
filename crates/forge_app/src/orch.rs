@@ -24,8 +24,17 @@ pub struct Orchestrator<S> {
     models: Vec<Model>,
     agent: Agent,
     error_tracker: ToolErrorTracker,
+    /// Hook scripts for lifecycle events and tool-call interception.
     hook: Arc<Hook>,
     config: forge_config::ForgeConfig,
+    /// Pre-verified hook content propagated to sub-agents via [`ToolCallContext`].
+    ///
+    /// The primary hook path is through `self.hook.intercept_tool_call()`, which
+    /// uses the `ExternalHookInterceptor` created in `ForgeAppInner`. This field
+    /// exists solely so the orchestrator can populate `ToolCallContext.cached_hooks`,
+    /// which `agent_executor` then passes to `ForgeApp::chat()` when spawning
+    /// sub-agents (task tool). Sub-agents need their own interceptor since they
+    /// create a separate `ForgeApp` instance.
     cached_hooks: Arc<Vec<forge_domain::CachedHook>>,
 }
 

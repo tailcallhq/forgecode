@@ -16,5 +16,6 @@ pub use title_generation::TitleGenerationHandler;
 pub use tracing::TracingHandler;
 pub use trust::{
     HookTrustStatus, TrustStore, TrustedHook, compute_file_hash, discover_events,
-    hooks_base_dir, relative_hook_path, trust_store_path,
+    hooks_base_dir, relative_hook_path, trust_store_path, validate_hook_path,
+    validate_hook_path_for_delete,
 };

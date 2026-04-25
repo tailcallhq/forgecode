@@ -1031,6 +1031,38 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
         }
 
+        /// Resolves a user-supplied path to a validated, canonical hook path.
+        ///
+        /// Tries the path as-is under the hooks base directory first, then
+        /// falls back to resolving by bare name. The `validate_fn` parameter
+        /// controls whether existence is required (trust) or not (delete).
+        fn resolve_and_validate_hook_path(
+            path: &str,
+            validate_fn: impl Fn(&std::path::Path) -> anyhow::Result<std::path::PathBuf>,
+        ) -> anyhow::Result<(std::path::PathBuf, String, String)> {
+            let base = hooks_base_dir().ok_or_else(|| {
+                anyhow::anyhow!("Cannot determine home directory for hooks")
+            })?;
+
+            let full_path = if base.join(path).exists() {
+                base.join(path)
+            } else {
+                resolve_hook_by_name(path)?
+            };
+
+            let full_path = validate_fn(&full_path)
+                .with_context(|| format!("Invalid hook path: {}", path))?;
+
+            let relative = relative_hook_path(&full_path)
+                .unwrap_or_else(|| full_path.display().to_string());
+            let name = full_path
+                .file_stem()
+                .map(|n: &std::ffi::OsStr| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| relative.clone());
+
+            Ok((full_path, relative, name))
+        }
+
         match command {
             HookCommand::List => {
                 let mut info = Info::new();
@@ -1076,27 +1108,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 }
             }
             HookCommand::Trust { path } => {
-                let base = hooks_base_dir().ok_or_else(|| {
-                    anyhow::anyhow!("Cannot determine home directory for hooks")
-                })?;
-
-                // Try exact path first, then resolve by bare name
-                let full_path = if base.join(&path).exists() {
-                    base.join(&path)
-                } else {
-                    resolve_hook_by_name(&path)?
-                };
-
-                // Validate that the path is within the hooks directory (prevent path traversal)
-                let full_path = forge_app::hooks::trust::validate_hook_path(&full_path)
-                    .with_context(|| format!("Invalid hook path: {}", path))?;
-
-                let relative = relative_hook_path(&full_path)
-                    .unwrap_or_else(|| full_path.display().to_string());
-                let name = full_path
-                    .file_stem()
-                    .map(|n: &std::ffi::OsStr| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| relative.clone());
+                let (full_path, relative, name) = resolve_and_validate_hook_path(
+                    &path,
+                    forge_app::hooks::trust::validate_hook_path,
+                )?;
 
                 let mut trust_store = TrustStore::load()?;
                 trust_store.trust(&relative, &full_path)?;
@@ -1109,29 +1124,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 )))?;
             }
             HookCommand::Delete { path } => {
-                let base = hooks_base_dir().ok_or_else(|| {
-                    anyhow::anyhow!("Cannot determine home directory for hooks")
-                })?;
+                let (full_path, relative, name) = resolve_and_validate_hook_path(
+                    &path,
+                    forge_app::hooks::trust::validate_hook_path_for_delete,
+                )?;
 
-                // Try exact path first, then resolve by bare name
-                let full_path = if base.join(&path).exists() {
-                    base.join(&path)
-                } else {
-                    resolve_hook_by_name(&path)?
-                };
-
-                // Validate that the path is within the hooks directory (prevent path traversal)
-                let full_path = forge_app::hooks::trust::validate_hook_path(&full_path)
-                    .with_context(|| format!("Invalid hook path: {}", path))?;
-
-                let relative = relative_hook_path(&full_path)
-                    .unwrap_or_else(|| full_path.display().to_string());
-                let name = full_path
-                    .file_stem()
-                    .map(|n: &std::ffi::OsStr| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| relative.clone());
-
-                // Remove the file if it exists
+                // Remove the file if it still exists
                 if full_path.exists() {
                     std::fs::remove_file(&full_path)?;
                 }

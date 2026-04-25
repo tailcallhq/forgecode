@@ -1,6 +1,5 @@
 #[cfg(target_os = "linux")]
-#[allow(unused_imports)] // IntoRawFd used only in tests
-use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
+use std::os::fd::{AsRawFd, FromRawFd};
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -15,30 +14,57 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 // ---------------------------------------------------------------------------
-// CachedHook execution extension (memfd on Linux, temp-file fallback)
+// PreparedHook — pre-created executable, kept alive for the entire session
 // ---------------------------------------------------------------------------
 
-/// Extension trait that adds execution capability to [`CachedHook`].
-trait CachedHookExt {
-    /// Spawns the cached script content as a child process.
-    fn spawn(&self) -> std::io::Result<tokio::process::Child>;
-}
-
-impl CachedHookExt for CachedHook {
+/// A hook whose executable has been pre-created at construction time.
+///
+/// On Linux, the `memfd` file descriptor is kept alive for the entire session,
+/// so `/proc/self/fd/<n>` remains valid for every `spawn()` call. On non-Linux,
+/// a temp file is created and cleaned up on drop.
+///
+/// Because the executable is created once and reused, there is no per-call
+/// memfd create/seal overhead and no fd-lifetime race condition.
+enum Executable {
+    /// Linux: `/proc/self/fd/<n>` backed by a sealed memfd. The `Memfd` guard
+    /// keeps the fd alive — it must NOT be dropped until the interceptor is
+    /// dropped (which happens at session end, long after any child has exec'd).
     #[cfg(target_os = "linux")]
-    fn spawn(&self) -> std::io::Result<tokio::process::Child> {
-        let (exe_path, _fd_guard) = prepare_executable(self)?;
-        Command::new(exe_path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
+    Memfd { path: PathBuf, _guard: Memfd },
+    /// Non-Linux: a temp file on disk. Cleaned up on drop.
+    #[cfg(not(target_os = "linux"))]
+    TempFile { path: PathBuf },
+}
+
+/// A fully-prepared hook ready for execution. The executable is created once at
+/// construction and reused for every `intercept()` call.
+struct PreparedHook {
+    /// Original source path — kept for logging/diagnostics.
+    source: PathBuf,
+    /// Pre-created executable (memfd on Linux, temp-file elsewhere).
+    executable: Executable,
+}
+
+impl PreparedHook {
+    /// Prepares an executable from cached hook content.
+    ///
+    /// On Linux, creates a sealed memfd and returns `/proc/self/fd/<n>`.
+    /// On non-Linux, writes content to a temp file.
+    fn prepare(hook: CachedHook) -> std::io::Result<Self> {
+        let source = hook.source().to_path_buf();
+        let executable = prepare_executable(&hook)?;
+        Ok(Self { source, executable })
     }
 
-    #[cfg(not(target_os = "linux"))]
+    /// Spawns the hook script as a child process, reusing the pre-created
+    /// executable.
     fn spawn(&self) -> std::io::Result<tokio::process::Child> {
-        let exe_path = prepare_executable(self)?;
+        let exe_path = match &self.executable {
+            #[cfg(target_os = "linux")]
+            Executable::Memfd { path, .. } => path,
+            #[cfg(not(target_os = "linux"))]
+            Executable::TempFile { path } => path,
+        };
         Command::new(exe_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -48,16 +74,27 @@ impl CachedHookExt for CachedHook {
     }
 }
 
-/// Prepares an executable path for the cached content.
+impl Drop for PreparedHook {
+    fn drop(&mut self) {
+        // For the TempFile variant, clean up the on-disk file.
+        // The Memfd variant is cleaned up automatically by the OwnedFd drop.
+        #[cfg(not(target_os = "linux"))]
+        if let Executable::TempFile { path } = &self.executable {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// Prepares an executable from cached hook content.
 ///
 /// On Linux: creates a `memfd`, writes content, seals it, and returns
-/// `/proc/self/fd/<n>` for execution. The returned `Memfd` guard keeps
-/// the file descriptor alive — it must not be dropped until after the
-/// child process has been spawned.
+/// `/proc/self/fd/<n>` for execution. The `Memfd` guard keeps the file
+/// descriptor alive for the entire session.
 ///
 /// On non-Linux: writes content to a temp file and returns its path.
+/// The file is cleaned up when `PreparedHook` is dropped.
 #[cfg(target_os = "linux")]
-fn prepare_executable(hook: &CachedHook) -> std::io::Result<(PathBuf, Memfd)> {
+fn prepare_executable(hook: &CachedHook) -> std::io::Result<Executable> {
     let name = hook
         .source()
         .file_name()
@@ -65,12 +102,10 @@ fn prepare_executable(hook: &CachedHook) -> std::io::Result<(PathBuf, Memfd)> {
         .unwrap_or_else(|| "hook".to_string());
 
     // Create an anonymous in-memory file descriptor
-    let fd = memfd_create(&name)?;
-    let raw_fd = fd.as_raw_fd();
+    let guard = memfd_create(&name)?;
+    let raw_fd = guard.as_raw_fd();
 
     // Write the cached content using libc write to avoid IO safety issues
-    // (std::fs::File::from_raw_fd would claim ownership of the fd, conflicting
-    // with our Memfd wrapper).
     let content = hook.content();
     let mut offset = 0;
     while offset < content.len() {
@@ -97,11 +132,12 @@ fn prepare_executable(hook: &CachedHook) -> std::io::Result<(PathBuf, Memfd)> {
     seal_memfd(raw_fd)?;
 
     // Return /proc/self/fd/N path for execution, keeping the Memfd alive
-    Ok((PathBuf::from(format!("/proc/self/fd/{raw_fd}")), fd))
+    let path = PathBuf::from(format!("/proc/self/fd/{raw_fd}"));
+    Ok(Executable::Memfd { path, _guard: guard })
 }
 
 #[cfg(not(target_os = "linux"))]
-fn prepare_executable(hook: &CachedHook) -> std::io::Result<PathBuf> {
+fn prepare_executable(hook: &CachedHook) -> std::io::Result<Executable> {
     use std::io::Write;
 
     let mut temp = tempfile::Builder::new()
@@ -118,8 +154,7 @@ fn prepare_executable(hook: &CachedHook) -> std::io::Result<PathBuf> {
     temp.write_all(hook.content())?;
     temp.as_file_mut().sync_all()?;
 
-    // Keep the file on disk but remove the directory entry so it's
-    // auto-cleaned when the last fd closes
+    // Persist the file to disk (cleaned up in PreparedHook::drop)
     let (_, path) = temp.keep()?;
 
     #[cfg(unix)]
@@ -128,7 +163,7 @@ fn prepare_executable(hook: &CachedHook) -> std::io::Result<PathBuf> {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))?;
     }
 
-    Ok(path)
+    Ok(Executable::TempFile { path })
 }
 
 // ---------------------------------------------------------------------------
@@ -212,8 +247,9 @@ fn seal_memfd(fd: std::os::fd::RawFd) -> std::io::Result<()> {
 /// Interceptor that executes external hook scripts to modify tool calls.
 ///
 /// At construction time, the full content of every hook script is read into
-/// memory (cached). At runtime, `intercept()` executes each script from an
-/// anonymous in-memory file descriptor — zero disk I/O, zero TOCTOU risk.
+/// memory and pre-compiled into an executable form (memfd on Linux, temp-file
+/// on non-Linux). At runtime, `intercept()` spawns each pre-compiled executable
+/// — zero disk I/O, zero TOCTOU risk, zero per-call memfd overhead.
 ///
 /// # Hook protocol
 ///
@@ -236,63 +272,63 @@ fn seal_memfd(fd: std::os::fd::RawFd) -> std::io::Result<()> {
 /// ```json
 /// {"decision": "deny", "reason": "blocked by policy"}
 /// ```
-#[derive(Clone)]
 pub struct ExternalHookInterceptor {
-    cached_hooks: Vec<CachedHook>,
+    hooks: std::sync::Arc<Vec<PreparedHook>>,
     timeout_secs: u64,
 }
 
-impl Default for ExternalHookInterceptor {
-    fn default() -> Self {
-        Self {
-            cached_hooks: Vec::new(),
-            timeout_secs: 30,
-        }
-    }
-}
-
 impl ExternalHookInterceptor {
-    /// Creates a new external hook interceptor with hook content cached in
-    /// memory.
+    /// Creates a new external hook interceptor from cached hook content.
+    ///
+    /// Each hook's content is pre-compiled into an executable (memfd on Linux,
+    /// temp-file elsewhere) at construction time. The prepared executables are
+    /// reused for every `intercept()` call.
     ///
     /// # Arguments
     ///
     /// * `cached_hooks` - Hook scripts whose content has been read into memory
     /// * `timeout_secs` - Optional timeout in seconds for hook execution (default: 30)
-    pub fn new(cached_hooks: Vec<CachedHook>, timeout_secs: Option<u64>) -> Self {
-        Self {
-            cached_hooks,
-            timeout_secs: timeout_secs.unwrap_or(30),
-        }
-    }
-
-    /// Creates a new external hook interceptor from pre-cached hooks.
-    pub fn from_arc(
+    pub fn new(
         cached_hooks: std::sync::Arc<Vec<CachedHook>>,
         timeout_secs: Option<u64>,
     ) -> Self {
+        let hooks: Vec<PreparedHook> = cached_hooks
+            .iter()
+            .filter_map(|hook| match PreparedHook::prepare(hook.clone()) {
+                Ok(prepared) => Some(prepared),
+                Err(e) => {
+                    debug!(
+                        hook = %hook.source().display(),
+                        error = %e,
+                        "Failed to prepare hook executable, skipping"
+                    );
+                    None
+                }
+            })
+            .collect();
+
         Self {
-            cached_hooks: (*cached_hooks).clone(),
+            hooks: std::sync::Arc::new(hooks),
             timeout_secs: timeout_secs.unwrap_or(30),
         }
     }
 
-    /// Run a single cached hook script, piping JSON input and parsing JSON
+    /// Run a single prepared hook script, piping JSON input and parsing JSON
     /// output.
     async fn run_hook(
-        hook: &CachedHook,
+        hook: &PreparedHook,
         input: &HookInput,
         timeout_secs: u64,
     ) -> anyhow::Result<HookOutput> {
         let input_json = serde_json::to_string(input)?;
 
-        debug!(hook = %hook.source().display(), "Executing external hook");
+        debug!(hook = %hook.source.display(), "Executing external hook");
 
         let mut child = match hook.spawn() {
             Ok(c) => c,
             Err(e) => {
                 debug!(
-                    hook = %hook.source().display(),
+                    hook = %hook.source.display(),
                     error = %e,
                     "Failed to spawn hook, treating as allow"
                 );
@@ -316,7 +352,7 @@ impl ExternalHookInterceptor {
             Ok(Err(e)) => return Err(e.into()),
             Err(_) => {
                 debug!(
-                    hook = %hook.source().display(),
+                    hook = %hook.source.display(),
                     timeout_secs = timeout_secs,
                     "Hook execution timed out, treating as allow"
                 );
@@ -332,7 +368,7 @@ impl ExternalHookInterceptor {
         if !output.stderr.is_empty() {
             let stderr_str = String::from_utf8_lossy(&output.stderr);
             debug!(
-                hook = %hook.source().display(),
+                hook = %hook.source.display(),
                 stderr = %stderr_str,
                 "Hook stderr output"
             );
@@ -340,7 +376,7 @@ impl ExternalHookInterceptor {
 
         if !output.status.success() {
             debug!(
-                hook = %hook.source().display(),
+                hook = %hook.source.display(),
                 exit_code = ?output.status.code(),
                 "Hook exited with non-zero status, skipping"
             );
@@ -357,7 +393,7 @@ impl ExternalHookInterceptor {
             Ok(hook_output) => Ok(hook_output),
             Err(e) => {
                 debug!(
-                    hook = %hook.source().display(),
+                    hook = %hook.source.display(),
                     error = %e,
                     "Hook output was not valid JSON, treating as allow"
                 );
@@ -453,7 +489,7 @@ impl ToolCallInterceptor for ExternalHookInterceptor {
         _agent: &Agent,
         _model_id: &ModelId,
     ) -> anyhow::Result<()> {
-        let hooks = &self.cached_hooks;
+        let hooks = &self.hooks;
         if hooks.is_empty() {
             return Ok(());
         }
@@ -464,14 +500,14 @@ impl ToolCallInterceptor for ExternalHookInterceptor {
             tool_input: serde_json::to_value(&tool_call.arguments)?,
         };
 
-        for hook in hooks {
+        for hook in hooks.iter() {
             let output = Self::run_hook(hook, &current_input, self.timeout_secs).await?;
 
             match output.decision.as_str() {
                 "deny" => {
                     let reason = output.reason.as_deref().unwrap_or("no reason provided");
                     debug!(
-                        hook = %hook.source().display(),
+                        hook = %hook.source.display(),
                         reason = reason,
                         "Hook denied tool call"
                     );
@@ -487,7 +523,7 @@ impl ToolCallInterceptor for ExternalHookInterceptor {
                 }
                 other => {
                     debug!(
-                        hook = %hook.source().display(),
+                        hook = %hook.source.display(),
                         decision = other,
                         "Unknown hook decision, treating as allow"
                     );
@@ -548,8 +584,9 @@ mod tests {
 
     #[test]
     fn test_interceptor_with_empty_cached_hooks() {
-        let interceptor = ExternalHookInterceptor::new(Vec::new(), None);
-        assert!(interceptor.cached_hooks.is_empty());
+        let interceptor =
+            ExternalHookInterceptor::new(std::sync::Arc::new(Vec::new()), None);
+        assert!(interceptor.hooks.is_empty());
     }
 
     #[test]
@@ -582,7 +619,8 @@ echo '{"decision":"deny","reason":"test block"}'
         }
 
         let cached = CachedHook::from_path(hook_path).unwrap();
-        let interceptor = ExternalHookInterceptor::new(vec![cached], None);
+        let interceptor =
+            ExternalHookInterceptor::new(std::sync::Arc::new(vec![cached]), None);
         let mut tool_call = forge_domain::ToolCallFull::new("test_tool")
             .arguments(forge_domain::ToolCallArguments::from(serde_json::json!({})));
         // Create minimal agent for test (agent parameter is unused in intercept)
@@ -614,7 +652,8 @@ echo '{"decision":"deny","reason":"test block"}'
 
         let cached = CachedHook::from_path(hook_path).unwrap();
         // Pass timeout as injected parameter (1 second) instead of using env var
-        let interceptor = ExternalHookInterceptor::new(vec![cached], Some(1));
+        let interceptor =
+            ExternalHookInterceptor::new(std::sync::Arc::new(vec![cached]), Some(1));
         let mut tool_call = forge_domain::ToolCallFull::new("test_tool")
             .arguments(forge_domain::ToolCallArguments::from(serde_json::json!({})));
         let agent = forge_domain::Agent::new(

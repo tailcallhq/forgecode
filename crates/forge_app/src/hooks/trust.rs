@@ -87,6 +87,58 @@ pub fn validate_hook_path(path: &Path) -> Result<PathBuf> {
     Ok(canonical_path)
 }
 
+/// Variant of [`validate_hook_path`] for delete operations where the file may
+/// no longer exist on disk.
+///
+/// If the file exists, behaves identically to [`validate_hook_path`]
+/// (canonicalize + traversal check). If the file is missing, falls back to
+/// normalizing the path components without resolving symlinks, then verifies
+/// the normalized path is within the hooks base directory.
+///
+/// This allows users to clean up stale trust-store entries for hooks that have
+/// already been removed from disk.
+///
+/// # Errors
+///
+/// Returns an error if the hooks base directory cannot be determined or the
+/// path escapes the hooks directory.
+pub fn validate_hook_path_for_delete(path: &Path) -> Result<PathBuf> {
+    let base = hooks_base_dir().ok_or_else(|| {
+        anyhow::anyhow!("Cannot determine hooks base directory")
+    })?;
+
+    // If the file still exists, use the strict canonicalize-based check.
+    if path.exists() {
+        return validate_hook_path(path);
+    }
+
+    // File is gone — normalize without resolving symlinks.
+    // canonicalize on a non-existent path would fail, so we use a
+    // best-effort normalization instead.
+    let canonical_base = base.canonicalize().with_context(|| {
+        format!("Failed to canonicalize base directory: {}", base.display())
+    })?;
+
+    // Normalize by joining to the base if the path is relative,
+    // otherwise use as-is.
+    let normalized = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    };
+
+    // Simple traversal check on the normalized path.
+    if !normalized.starts_with(&canonical_base) {
+        return Err(anyhow::anyhow!(
+            "Path traversal detected: {} is outside hooks directory {}",
+            normalized.display(),
+            canonical_base.display()
+        ));
+    }
+
+    Ok(normalized)
+}
+
 /// Returns the path to the trust store file: `~/.forge/hooks/trust.json`.
 pub fn trust_store_path() -> Option<PathBuf> {
     hooks_base_dir().map(|dir| dir.join("trust.json"))
@@ -176,7 +228,10 @@ impl TrustStore {
             Ok(store) => Ok(store),
             Err(e) => {
                 tracing::warn!(
-                    "Malformed trust.json, treating all hooks as untrusted: {e}"
+                    path = %path.display(),
+                    "Malformed trust.json, treating all hooks as untrusted. \
+                     Old content can be recovered from the file before the next trust \
+                     operation overwrites it: {e}"
                 );
                 Ok(Self::new())
             }
