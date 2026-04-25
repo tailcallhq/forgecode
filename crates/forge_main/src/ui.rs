@@ -1147,6 +1147,20 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             discover_hooks, hooks_base_dir, relative_hook_path,
         };
 
+        /// Resolve a bare name (e.g. "rtk") to the full hook path by scanning all events.
+        fn resolve_hook_by_name(name: &str) -> Option<std::path::PathBuf> {
+            let events = discover_events();
+            for event in &events {
+                for hook in discover_hooks(event) {
+                    let stem = hook.file_stem()?.to_string_lossy();
+                    if stem == name {
+                        return Some(hook);
+                    }
+                }
+            }
+            None
+        }
+
         match command {
             HookCommand::List => {
                 let mut info = Info::new();
@@ -1195,22 +1209,32 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let base = hooks_base_dir().ok_or_else(|| {
                     anyhow::anyhow!("Cannot determine home directory for hooks")
                 })?;
-                let full_path = base.join(&path);
 
-                if !full_path.exists() {
+                // Try exact path first, then resolve by bare name
+                let full_path = if base.join(&path).exists() {
+                    base.join(&path)
+                } else if let Some(resolved) = resolve_hook_by_name(&path) {
+                    resolved
+                } else {
                     return Err(anyhow::anyhow!(
-                        "Hook file not found: {}",
-                        full_path.display()
+                        "Hook not found: {path}"
                     ));
-                }
+                };
+
+                let relative = relative_hook_path(&full_path)
+                    .unwrap_or_else(|| full_path.display().to_string());
+                let name = full_path
+                    .file_stem()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| relative.clone());
 
                 let mut trust_store = TrustStore::load()?;
-                trust_store.trust(&path, &full_path)?;
+                trust_store.trust(&relative, &full_path)?;
                 trust_store.save()?;
 
                 let hash = compute_file_hash(&full_path)?;
                 self.writeln_title(TitleFormat::info(format!(
-                    "Hook trusted: {path} ({:.16}...)",
+                    "Hook trusted: {name} ({:.16}...)",
                     hash
                 )))?;
             }
@@ -1218,7 +1242,24 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let base = hooks_base_dir().ok_or_else(|| {
                     anyhow::anyhow!("Cannot determine home directory for hooks")
                 })?;
-                let full_path = base.join(&path);
+
+                // Try exact path first, then resolve by bare name
+                let full_path = if base.join(&path).exists() {
+                    base.join(&path)
+                } else if let Some(resolved) = resolve_hook_by_name(&path) {
+                    resolved
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Hook not found: {path}"
+                    ));
+                };
+
+                let relative = relative_hook_path(&full_path)
+                    .unwrap_or_else(|| full_path.display().to_string());
+                let name = full_path
+                    .file_stem()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| relative.clone());
 
                 // Remove the file if it exists
                 if full_path.exists() {
@@ -1227,11 +1268,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 // Remove from trust store regardless
                 let mut trust_store = TrustStore::load()?;
-                trust_store.untrust(&path);
+                trust_store.untrust(&relative);
                 trust_store.save()?;
 
                 self.writeln_title(TitleFormat::info(format!(
-                    "Hook deleted: {path}"
+                    "Hook deleted: {name}"
                 )))?;
             }
         }
