@@ -1167,7 +1167,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         let relative =
                             relative_hook_path(hook_path).unwrap_or_else(|| hook_path.display().to_string());
                         let file_name = hook_path
-                            .file_name()
+                            .file_stem()
                             .map(|n| n.to_string_lossy().to_string())
                             .unwrap_or_else(|| relative.clone());
 
