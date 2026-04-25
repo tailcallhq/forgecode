@@ -52,6 +52,8 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
     let mut trust_store = TrustStore::load()?;
     let mut trusted_hooks = Vec::new();
     let mut store_dirty = false;
+    let mut count_ignored = 0usize;
+    let mut count_tampered = 0usize;
 
     let is_tty = is_stdin_tty();
 
@@ -122,6 +124,7 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
                 }
             }
             HookTrustStatus::Tampered { expected, actual } => {
+                count_tampered += 1;
                 tracing::error!(
                     hook = %relative,
                     expected = %expected.get(..16).unwrap_or(&expected),
@@ -156,7 +159,16 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
                 store_dirty = true;
             }
             HookTrustStatus::Ignored => {
-                tracing::debug!(hook = %relative, "Hook ignored (previously dismissed)");
+                count_ignored += 1;
+                tracing::info!(
+                    hook = %relative,
+                    "Hook ignored (previously dismissed). \
+                     Use `forge hook trust` to enable, or `forge hook delete` to remove."
+                );
+                eprintln!(
+                    "  Skipping ignored hook: {} (use `forge hook trust` to enable)",
+                    relative
+                );
             }
             HookTrustStatus::Missing => {
                 // File was discovered but disappeared — skip
@@ -166,6 +178,21 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
 
     if store_dirty {
         trust_store.save()?;
+    }
+
+    // Print a startup summary when there are hooks to report.
+    if !trusted_hooks.is_empty() || count_ignored > 0 || count_tampered > 0 {
+        let mut parts = Vec::new();
+        if !trusted_hooks.is_empty() {
+            parts.push(format!("{} loaded", trusted_hooks.len()));
+        }
+        if count_ignored > 0 {
+            parts.push(format!("{} ignored", count_ignored));
+        }
+        if count_tampered > 0 {
+            parts.push(format!("{} tampered", count_tampered));
+        }
+        eprintln!("  Hooks: {}", parts.join(", "));
     }
 
     Ok(trusted_hooks)
