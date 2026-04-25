@@ -47,7 +47,7 @@ pub use data_gen::*;
 pub use error::*;
 pub use git_app::*;
 pub use hooks::{
-    ExternalHookInterceptor, HookTrustStatus, TrustStore, TrustedHook, compute_file_hash,
+    ExternalHookInterceptor, HookSummary, HookTrustStatus, TrustStore, TrustedHook, compute_file_hash,
     discover_events, discover_hooks, hooks_base_dir, load_and_verify_hooks, relative_hook_path,
     trust_store_path,
 };

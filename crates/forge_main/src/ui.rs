@@ -385,6 +385,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.display_banner()?;
         self.init_state(true).await?;
 
+        // Print hook summary after the banner.
+        if let Some(summary) = self.api.hook_summary() {
+            let text = summary.to_string();
+            if !text.is_empty() {
+                eprint!("{text}");
+            }
+        }
+
         self.trace_user();
         self.hydrate_caches();
 

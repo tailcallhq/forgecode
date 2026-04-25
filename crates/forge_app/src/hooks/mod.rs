@@ -10,7 +10,7 @@ pub mod trust;
 pub use compaction::CompactionHandler;
 pub use doom_loop::DoomLoopDetector;
 pub use external::{discover_hooks, ExternalHookInterceptor};
-pub use loader::load_and_verify_hooks;
+pub use loader::{load_and_verify_hooks, HookSummary};
 pub use pending_todos::PendingTodosHandler;
 pub use title_generation::TitleGenerationHandler;
 pub use tracing::TracingHandler;

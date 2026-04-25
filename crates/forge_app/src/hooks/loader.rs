@@ -11,6 +11,51 @@ use std::path::PathBuf;
 use crate::hooks::external::discover_hooks;
 use crate::hooks::trust::{HookTrustStatus, TrustStore, relative_hook_path};
 
+/// Summary of hook verification results, returned by `load_and_verify_hooks`
+/// for the caller to display at the appropriate time.
+#[derive(Debug, Default)]
+pub struct HookSummary {
+    /// Number of hooks that passed verification and will be loaded.
+    pub loaded: usize,
+    /// Number of hooks with no trust record (skipped).
+    pub untrusted: usize,
+    /// Number of hooks whose hash no longer matches (tampered, skipped).
+    pub tampered: Vec<String>,
+}
+
+impl std::fmt::Display for HookSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.loaded == 0 && self.untrusted == 0 && self.tampered.is_empty() {
+            return Ok(());
+        }
+
+        let mut parts = Vec::new();
+        if self.loaded > 0 {
+            parts.push(format!("{} loaded", self.loaded));
+        }
+        if self.untrusted > 0 {
+            parts.push(format!("{} untrusted", self.untrusted));
+        }
+        if !self.tampered.is_empty() {
+            parts.push(format!("{} tampered", self.tampered.len()));
+        }
+        writeln!(f, "  Hooks: {}", parts.join(", "))?;
+
+        if self.untrusted > 0 {
+            writeln!(
+                f,
+                "  Use `forge hook trust <path>` to trust, or `forge hook delete <path>` to remove."
+            )?;
+        }
+
+        for msg in &self.tampered {
+            write!(f, "{msg}")?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Discovers hooks for the given event, verifies trust, and returns only
 /// the paths of hooks that are safe to execute.
 ///
@@ -21,16 +66,16 @@ use crate::hooks::trust::{HookTrustStatus, TrustStore, relative_hook_path};
 /// - **Missing** → skipped
 ///
 /// No interactive prompts — users manage trust via `forge hook trust/delete`.
-pub fn load_and_verify_hooks(event_name: &str) -> anyhow::Result<Vec<PathBuf>> {
+pub fn load_and_verify_hooks(event_name: &str) -> anyhow::Result<(Vec<PathBuf>, HookSummary)> {
     let all_hooks = discover_hooks(event_name);
     if all_hooks.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), HookSummary::default()));
     }
 
     let mut trust_store = TrustStore::load()?;
     let mut trusted_hooks = Vec::new();
     let mut count_untrusted = 0usize;
-    let mut count_tampered = 0usize;
+    let mut tampered_messages = Vec::new();
     let mut store_dirty = false;
 
     for hook_path in &all_hooks {
@@ -57,33 +102,32 @@ pub fn load_and_verify_hooks(event_name: &str) -> anyhow::Result<Vec<PathBuf>> {
                 );
             }
             HookTrustStatus::Tampered { expected, actual } => {
-                count_tampered += 1;
+                let mut msg = String::new();
+                msg.push_str("\n");
+                msg.push_str("  DANGER: Hook script has been modified!\n");
+                msg.push_str(&format!("    Event:    {event_name}\n"));
+                msg.push_str(&format!("    Hook:     {relative}\n"));
+                msg.push_str(&format!(
+                    "    Expected: {}...\n",
+                    expected.get(..16).unwrap_or(&expected)
+                ));
+                msg.push_str(&format!(
+                    "    Actual:   {}...\n",
+                    actual.get(..16).unwrap_or(&actual)
+                ));
+                msg.push_str("  This hook will NOT be loaded.\n");
+                msg.push_str(&format!("  Re-trust: forge hook trust {relative}\n"));
+                msg.push_str(&format!("  Or delete: forge hook delete {relative}\n"));
+                msg.push_str("\n");
+
                 tracing::error!(
                     hook = %relative,
                     expected = %expected.get(..16).unwrap_or(&expected),
                     actual = %actual.get(..16).unwrap_or(&actual),
                     "DANGER: Hook script has been modified!"
                 );
-                eprintln!();
-                eprintln!("  DANGER: Hook script has been modified!");
-                eprintln!("    Event:    {event_name}");
-                eprintln!("    Hook:     {relative}");
-                eprintln!(
-                    "    Expected: {}...",
-                    expected.get(..16).unwrap_or(&expected)
-                );
-                eprintln!(
-                    "    Actual:   {}...",
-                    actual.get(..16).unwrap_or(&actual)
-                );
-                eprintln!("  This hook will NOT be loaded.");
-                eprintln!(
-                    "  Re-trust: forge hook trust {relative}"
-                );
-                eprintln!(
-                    "  Or delete: forge hook delete {relative}"
-                );
-                eprintln!();
+
+                tampered_messages.push(msg);
 
                 trust_store.untrust(&relative);
                 store_dirty = true;
@@ -98,26 +142,11 @@ pub fn load_and_verify_hooks(event_name: &str) -> anyhow::Result<Vec<PathBuf>> {
         trust_store.save()?;
     }
 
-    // Print a startup summary when there are hooks to report.
-    if !trusted_hooks.is_empty() || count_untrusted > 0 || count_tampered > 0 {
-        let mut parts = Vec::new();
-        if !trusted_hooks.is_empty() {
-            parts.push(format!("{} loaded", trusted_hooks.len()));
-        }
-        if count_untrusted > 0 {
-            parts.push(format!("{} untrusted", count_untrusted));
-        }
-        if count_tampered > 0 {
-            parts.push(format!("{} tampered", count_tampered));
-        }
-        eprintln!("  Hooks: {}", parts.join(", "));
+    let summary = HookSummary {
+        loaded: trusted_hooks.len(),
+        untrusted: count_untrusted,
+        tampered: tampered_messages,
+    };
 
-        if count_untrusted > 0 {
-            eprintln!(
-                "  Use `forge hook trust <path>` to trust, or `forge hook delete <path>` to remove."
-            );
-        }
-    }
-
-    Ok(trusted_hooks)
+    Ok((trusted_hooks, summary))
 }

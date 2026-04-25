@@ -263,4 +263,10 @@ pub trait API: Sync + Send {
 
     /// Check the OAuth authentication status of an MCP server
     async fn mcp_auth_status(&self, server_url: &str) -> Result<String>;
+
+    /// Returns the hook verification summary computed at startup.
+    /// Returns `None` if no hooks were found or the implementation has no hook support.
+    fn hook_summary(&self) -> Option<&forge_app::HookSummary> {
+        None
+    }
 }

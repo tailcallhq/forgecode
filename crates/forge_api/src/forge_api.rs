@@ -27,6 +27,8 @@ pub struct ForgeAPI<S, F> {
     infra: Arc<F>,
     /// Hook paths verified at startup, cached for the entire session.
     cached_hooks: Vec<PathBuf>,
+    /// Hook verification summary for display after banner.
+    hook_summary: forge_app::HookSummary,
 }
 
 impl<A, F> ForgeAPI<A, F> {
@@ -35,6 +37,7 @@ impl<A, F> ForgeAPI<A, F> {
             services,
             infra,
             cached_hooks: Vec::new(),
+            hook_summary: forge_app::HookSummary::default(),
         }
     }
 
@@ -60,8 +63,10 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
         let repo = Arc::new(ForgeRepo::new(infra.clone()));
         let app = Arc::new(ForgeServices::new(repo.clone()));
         let mut api = ForgeAPI::new(app, repo);
-        api.cached_hooks = forge_app::load_and_verify_hooks("toolcall-start")
+        let (hooks, summary) = forge_app::load_and_verify_hooks("toolcall-start")
             .unwrap_or_default();
+        api.cached_hooks = hooks;
+        api.hook_summary = summary;
         api
     }
 
@@ -458,6 +463,10 @@ impl<
     fn hydrate_channel(&self) -> Result<()> {
         self.infra.hydrate();
         Ok(())
+    }
+
+    fn hook_summary(&self) -> Option<&forge_app::HookSummary> {
+        Some(&self.hook_summary)
     }
 }
 
