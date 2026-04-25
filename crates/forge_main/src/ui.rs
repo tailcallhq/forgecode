@@ -387,6 +387,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         self.trace_user();
         self.hydrate_caches();
+
+        // Verify external hooks before entering the interactive loop.
+        // This may prompt the user to trust/deny/ignore untrusted hooks.
+        self.api.verify_hooks().await?;
+
         self.init_conversation().await?;
 
         // Check for dispatch flag first

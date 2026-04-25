@@ -85,10 +85,19 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
                     "Untrusted hook discovered"
                 );
 
+                let preview = read_script_preview(hook_path, 5);
+                let prompt = format!(
+                    "Untrusted hook detected!\n\n  \
+                     Event: {event_name}\n  \
+                     Script: {relative}\n  \
+                     Path: {}\n\
+                     {preview}\
+                     \nDo you trust this hook?",
+                    hook_path.display(),
+                );
+
                 let choice = user_infra
-                    .select_one_enum::<TrustPromptChoice>(&format!(
-                        "Untrusted hook found: {relative}\nDo you trust this hook?",
-                    ))
+                    .select_one_enum::<TrustPromptChoice>(&prompt)
                     .await?;
 
                 match choice {
@@ -121,6 +130,7 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
                 );
                 eprintln!();
                 eprintln!("  DANGER: Hook script has been modified!");
+                eprintln!("    Event:    {event_name}");
                 eprintln!("    Hook:     {relative}");
                 eprintln!(
                     "    Expected: {}...",
@@ -161,6 +171,20 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
     Ok(trusted_hooks)
 }
 
+/// Reads the first `n` lines of a script file for preview display.
+/// Returns a formatted string with the preview, or empty string on failure.
+fn read_script_preview(path: &std::path::Path, n: usize) -> String {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return String::new();
+    };
+    let lines: Vec<&str> = content.lines().take(n).collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+    let preview = lines.join("\n    ");
+    format!("  Preview:\n    {preview}\n")
+}
+
 /// Checks whether stdin is connected to a TTY (interactive terminal).
 fn is_stdin_tty() -> bool {
     use std::io::IsTerminal;
@@ -188,5 +212,32 @@ mod tests {
     fn test_is_stdin_tty_returns_bool() {
         // Just verify it doesn't panic
         let _ = is_stdin_tty();
+    }
+
+    #[test]
+    fn test_read_script_preview_shows_first_lines() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let path = temp.path().join("hook.sh");
+        std::fs::write(&path, "#!/bin/bash\necho hello\necho world\nline4\nline5\nline6\n").unwrap();
+
+        let actual = read_script_preview(&path, 5);
+        let expected = "  Preview:\n    #!/bin/bash\n    echo hello\n    echo world\n    line4\n    line5\n";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_read_script_preview_empty_file() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let path = temp.path().join("hook.sh");
+        std::fs::write(&path, "").unwrap();
+
+        let actual = read_script_preview(&path, 5);
+        assert_eq!(actual, "");
+    }
+
+    #[test]
+    fn test_read_script_preview_missing_file() {
+        let actual = read_script_preview(std::path::Path::new("/nonexistent/hook.sh"), 5);
+        assert_eq!(actual, "");
     }
 }

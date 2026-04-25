@@ -8,7 +8,8 @@ use forge_app::{
     AgentProviderResolver, AgentRegistry, AppConfigService, AuthService, CommandInfra,
     CommandLoaderService, ConversationService, DataGenerationApp, EnvironmentInfra,
     FileDiscoveryService, ForgeApp, GitApp, GrpcInfra, McpConfigManager, McpService,
-    ProviderAuthService, ProviderService, Services, User, UserUsage, Walker, WorkspaceService,
+    ProviderAuthService, ProviderService, Services, User, UserUsage, Walker,
+    WorkspaceService,
 };
 use forge_config::ForgeConfig;
 use forge_domain::{Agent, ConsoleWriter, *};
@@ -24,7 +25,7 @@ use crate::API;
 pub struct ForgeAPI<S, F> {
     services: Arc<S>,
     infra: Arc<F>,
-    /// Hook paths verified at first use, then cached for the session.
+    /// Hook paths verified at startup, then cached for the session.
     cached_hooks: tokio::sync::OnceCell<Vec<PathBuf>>,
 }
 
@@ -150,13 +151,15 @@ impl<
             .get_active_agent_id()
             .await?
             .unwrap_or_default();
+        // cached_hooks is pre-populated by verify_hooks() at startup.
+        // If somehow not yet populated (e.g. non-interactive use), fall back
+        // to empty hooks.
         let cached_hooks = self
             .cached_hooks
-            .get_or_try_init(|| {
-                forge_app::load_and_verify_hooks("toolcall-start", self.services.clone())
-            })
-            .await?;
-        self.app().chat(agent_id, chat, cached_hooks.clone()).await
+            .get()
+            .cloned()
+            .unwrap_or_default();
+        self.app().chat(agent_id, chat, cached_hooks).await
     }
 
     async fn upsert_conversation(&self, conversation: Conversation) -> anyhow::Result<()> {
@@ -435,6 +438,14 @@ impl<
             .await
             .ok_or_else(|| forge_domain::Error::NoDefaultSession)?;
         self.services.get_provider(model_config.provider).await
+    }
+
+    async fn verify_hooks(&self) -> Result<()> {
+        let hooks = forge_app::load_and_verify_hooks("toolcall-start", self.services.clone())
+            .await
+            .unwrap_or_default();
+        let _ = self.cached_hooks.set(hooks);
+        Ok(())
     }
 
     async fn mcp_auth(&self, server_url: &str) -> Result<()> {
