@@ -1,5 +1,6 @@
 ---
 source: crates/forge_repo/src/provider/anthropic.rs
+assertion_line: 594
 expression: actual
 ---
 [
@@ -10,7 +11,7 @@ expression: actual
     "context_length": 200000,
     "tools_supported": true,
     "supports_parallel_tool_calls": null,
-    "supports_reasoning": null,
+    "supports_reasoning": false,
     "input_modalities": [
       "text",
       "image"
@@ -23,7 +24,7 @@ expression: actual
     "context_length": 200000,
     "tools_supported": true,
     "supports_parallel_tool_calls": null,
-    "supports_reasoning": null,
+    "supports_reasoning": false,
     "input_modalities": [
       "text",
       "image"
