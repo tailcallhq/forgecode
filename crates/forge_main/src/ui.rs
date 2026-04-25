@@ -1148,17 +1148,34 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         };
 
         /// Resolve a bare name (e.g. "rtk") to the full hook path by scanning all events.
-        fn resolve_hook_by_name(name: &str) -> Option<std::path::PathBuf> {
+        ///
+        /// Returns an error if the name is ambiguous (multiple hooks match).
+        fn resolve_hook_by_name(name: &str) -> anyhow::Result<std::path::PathBuf> {
             let events = discover_events();
+            let mut matches: Vec<std::path::PathBuf> = Vec::new();
             for event in &events {
                 for hook in discover_hooks(event) {
-                    let stem = hook.file_stem()?.to_string_lossy();
-                    if stem == name {
-                        return Some(hook);
+                    if let Some(stem) = hook.file_stem() {
+                        if stem.to_string_lossy() == name {
+                            matches.push(hook);
+                        }
                     }
                 }
             }
-            None
+            match matches.len() {
+                0 => Err(anyhow::anyhow!("Hook not found: {name}")),
+                1 => Ok(matches.into_iter().next().unwrap()),
+                _ => {
+                    let names: Vec<String> = matches
+                        .iter()
+                        .map(|p| relative_hook_path(p).unwrap_or_else(|| p.display().to_string()))
+                        .collect();
+                    Err(anyhow::anyhow!(
+                        "Ambiguous hook name '{name}', multiple hooks match: {}",
+                        names.join(", ")
+                    ))
+                }
+            }
         }
 
         match command {
@@ -1213,12 +1230,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 // Try exact path first, then resolve by bare name
                 let full_path = if base.join(&path).exists() {
                     base.join(&path)
-                } else if let Some(resolved) = resolve_hook_by_name(&path) {
-                    resolved
                 } else {
-                    return Err(anyhow::anyhow!(
-                        "Hook not found: {path}"
-                    ));
+                    resolve_hook_by_name(&path)?
                 };
 
                 let relative = relative_hook_path(&full_path)
@@ -1246,12 +1259,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 // Try exact path first, then resolve by bare name
                 let full_path = if base.join(&path).exists() {
                     base.join(&path)
-                } else if let Some(resolved) = resolve_hook_by_name(&path) {
-                    resolved
                 } else {
-                    return Err(anyhow::anyhow!(
-                        "Hook not found: {path}"
-                    ));
+                    resolve_hook_by_name(&path)?
                 };
 
                 let relative = relative_hook_path(&full_path)
