@@ -5001,9 +5001,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let (model_id, conversation) = tokio::join!(
             async {
-                let shell_config = self.api.get_shell_config().await.ok().flatten();
-                let session_config = self.api.get_session_config().await;
-                shell_config.or(session_config).map(|c| c.model)
+                self.api.get_session_config().await.map(|c| c.model)
             },
             async {
                 if let Some(cid) = cid {

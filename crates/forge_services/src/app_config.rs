@@ -25,7 +25,16 @@ impl<F: ProviderRepository + EnvironmentInfra<Config = forge_config::ForgeConfig
 {
     async fn get_session_config(&self) -> Option<ModelConfig> {
         let config = self.infra.get_config().ok()?;
-        let session = config.session.as_ref()?;
+        let is_shell = self
+            .infra
+            .get_env_var("FORGE_SHELL_PROMPT")
+            .is_some_and(|v| v == "1");
+        let source = if is_shell {
+            config.shell.as_ref().or(config.session.as_ref())
+        } else {
+            config.session.as_ref()
+        };
+        let session = source?;
         Some(ModelConfig {
             provider: ProviderId::from(session.provider_id.clone()),
             model: ModelId::new(session.model_id.clone()),
@@ -101,6 +110,7 @@ mod tests {
     struct MockInfra {
         config: Arc<Mutex<ForgeConfig>>,
         providers: Vec<Provider<Url>>,
+        env_vars: Arc<Mutex<HashMap<String, String>>>,
     }
 
     impl MockInfra {
@@ -163,7 +173,13 @@ mod tests {
                         custom_headers: None,
                     },
                 ],
+                env_vars: Arc::new(Mutex::new(HashMap::new())),
             }
+        }
+
+        fn with_env_var(self, key: &str, value: &str) -> Self {
+            self.env_vars.lock().unwrap().insert(key.to_string(), value.to_string());
+            self
         }
     }
 
@@ -230,12 +246,12 @@ mod tests {
             Ok(self.config.lock().unwrap().clone())
         }
 
-        fn get_env_var(&self, _key: &str) -> Option<String> {
-            None
+        fn get_env_var(&self, key: &str) -> Option<String> {
+            self.env_vars.lock().unwrap().get(key).cloned()
         }
 
         fn get_env_vars(&self) -> std::collections::BTreeMap<String, String> {
-            std::collections::BTreeMap::new()
+            self.env_vars.lock().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect()
         }
     }
 
@@ -515,6 +531,89 @@ mod tests {
 
         // ForgeConfig only tracks a single active session, so the last
         // provider/model pair wins
+        let actual = service.get_session_config().await;
+        let expected = Some(DomainModelConfig::new(
+            ProviderId::ANTHROPIC,
+            ModelId::new("claude-3"),
+        ));
+
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_session_config_prefers_shell_config_in_shell_mode() -> anyhow::Result<()> {
+        let fixture = MockInfra::new().with_env_var("FORGE_SHELL_PROMPT", "1");
+        let service = ForgeAppConfigService::new(Arc::new(fixture.clone()));
+
+        // Set both session and shell config with different models
+        service
+            .update_config(vec![
+                ConfigOperation::SetSessionConfig(DomainModelConfig::new(
+                    ProviderId::ANTHROPIC,
+                    ModelId::new("claude-3"),
+                )),
+                ConfigOperation::SetShellConfig(DomainModelConfig::new(
+                    ProviderId::OPENAI,
+                    ModelId::new("gpt-4"),
+                )),
+            ])
+            .await?;
+
+        // In shell mode, get_session_config should prefer shell config
+        let actual = service.get_session_config().await;
+        let expected = Some(DomainModelConfig::new(
+            ProviderId::OPENAI,
+            ModelId::new("gpt-4"),
+        ));
+
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_session_config_falls_back_to_session_in_shell_mode() -> anyhow::Result<()> {
+        let fixture = MockInfra::new().with_env_var("FORGE_SHELL_PROMPT", "1");
+        let service = ForgeAppConfigService::new(Arc::new(fixture.clone()));
+
+        // Set only session config (no shell config)
+        service
+            .update_config(vec![ConfigOperation::SetSessionConfig(
+                DomainModelConfig::new(ProviderId::ANTHROPIC, ModelId::new("claude-3")),
+            )])
+            .await?;
+
+        // In shell mode, should fall back to session config when shell config is absent
+        let actual = service.get_session_config().await;
+        let expected = Some(DomainModelConfig::new(
+            ProviderId::ANTHROPIC,
+            ModelId::new("claude-3"),
+        ));
+
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_session_config_ignores_shell_config_outside_shell_mode() -> anyhow::Result<()> {
+        let fixture = MockInfra::new(); // No FORGE_SHELL_PROMPT
+        let service = ForgeAppConfigService::new(Arc::new(fixture.clone()));
+
+        // Set both session and shell config
+        service
+            .update_config(vec![
+                ConfigOperation::SetSessionConfig(DomainModelConfig::new(
+                    ProviderId::ANTHROPIC,
+                    ModelId::new("claude-3"),
+                )),
+                ConfigOperation::SetShellConfig(DomainModelConfig::new(
+                    ProviderId::OPENAI,
+                    ModelId::new("gpt-4"),
+                )),
+            ])
+            .await?;
+
+        // Outside shell mode, get_session_config should return session config
         let actual = service.get_session_config().await;
         let expected = Some(DomainModelConfig::new(
             ProviderId::ANTHROPIC,
