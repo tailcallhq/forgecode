@@ -172,9 +172,9 @@ pub fn load_and_verify_hooks(event_name: &str) -> anyhow::Result<(Vec<PathBuf>, 
     Ok((trusted_hooks, summary))
 }
 
-/// Extracts the file name from a hook path for display.
+/// Extracts the file name from a hook path for display, without extension.
 fn hook_name(path: &std::path::Path) -> String {
-    path.file_name()
+    path.file_stem()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| path.display().to_string())
 }
