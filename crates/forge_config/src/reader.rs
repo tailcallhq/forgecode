@@ -291,4 +291,24 @@ mod tests {
         });
         assert_eq!(actual.session, expected);
     }
+
+    #[test]
+    fn test_use_forge_committer_defaults_to_true() {
+        let actual = ConfigReader::default().read_defaults().build().unwrap();
+
+        assert_eq!(actual.use_forge_committer, true);
+    }
+
+    #[test]
+    fn test_use_forge_committer_can_be_disabled() {
+        let toml = "use_forge_committer = false\n";
+
+        let actual = ConfigReader::default()
+            .read_defaults()
+            .read_toml(toml)
+            .build()
+            .unwrap();
+
+        assert_eq!(actual.use_forge_committer, false);
+    }
 }
