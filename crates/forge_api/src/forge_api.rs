@@ -24,11 +24,17 @@ use crate::API;
 pub struct ForgeAPI<S, F> {
     services: Arc<S>,
     infra: Arc<F>,
+    /// Hook paths verified at first use, then cached for the session.
+    cached_hooks: tokio::sync::OnceCell<Vec<PathBuf>>,
 }
 
 impl<A, F> ForgeAPI<A, F> {
     pub fn new(services: Arc<A>, infra: Arc<F>) -> Self {
-        Self { services, infra }
+        Self {
+            services,
+            infra,
+            cached_hooks: tokio::sync::OnceCell::new(),
+        }
     }
 
     /// Creates a ForgeApp instance with the current services and latest config.
@@ -63,7 +69,7 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
 
 #[async_trait::async_trait]
 impl<
-    A: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>,
+    A: Services + EnvironmentInfra<Config = forge_config::ForgeConfig> + forge_app::UserInfra,
     F: CommandInfra
         + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + SkillRepository
@@ -144,7 +150,13 @@ impl<
             .get_active_agent_id()
             .await?
             .unwrap_or_default();
-        self.app().chat(agent_id, chat).await
+        let cached_hooks = self
+            .cached_hooks
+            .get_or_try_init(|| {
+                forge_app::load_and_verify_hooks("toolcall-start", self.services.clone())
+            })
+            .await?;
+        self.app().chat(agent_id, chat, cached_hooks.clone()).await
     }
 
     async fn upsert_conversation(&self, conversation: Conversation) -> anyhow::Result<()> {

@@ -57,10 +57,14 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
 
     /// Executes a chat request and returns a stream of responses.
     /// This method contains the core chat logic extracted from ForgeAPI.
+    ///
+    /// `cached_hooks` contains pre-verified hook script paths loaded at
+    /// startup. Pass an empty vec to skip hook interception entirely.
     pub async fn chat(
         &self,
         agent_id: AgentId,
         chat: ChatRequest,
+        cached_hooks: Vec<std::path::PathBuf>,
     ) -> Result<MpscStream<Result<ChatResponse, anyhow::Error>>> {
         let services = self.services.clone();
 
@@ -147,7 +151,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
         // Create the orchestrator with all necessary dependencies
         let tracing_handler = TracingHandler::new();
         let title_handler = TitleGenerationHandler::new(services.clone());
-        let external_interceptor = ExternalHookInterceptor::new();
+        let external_interceptor = ExternalHookInterceptor::new(cached_hooks);
 
         // Build the on_end hook, conditionally adding PendingTodosHandler based on
         // config
