@@ -382,3 +382,44 @@ impl<
         self.infra.get_env_vars()
     }
 }
+
+#[async_trait::async_trait]
+impl<
+    F: forge_app::UserInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
+        + HttpInfra
+        + McpServerInfra
+        + WalkerInfra
+        + SnapshotRepository
+        + ConversationRepository
+        + KVStore
+        + ChatRepository
+        + ProviderRepository
+        + WorkspaceIndexRepository
+        + AgentRepository
+        + SkillRepository
+        + ValidationRepository
+        + Send
+        + Sync,
+> forge_app::UserInfra for ForgeServices<F>
+{
+    async fn prompt_question(&self, question: &str) -> anyhow::Result<Option<String>> {
+        self.infra.prompt_question(question).await
+    }
+
+    async fn select_one<T: Clone + std::fmt::Display + Send + 'static>(
+        &self,
+        message: &str,
+        options: Vec<T>,
+    ) -> anyhow::Result<Option<T>> {
+        self.infra.select_one(message, options).await
+    }
+
+    async fn select_many<T: std::fmt::Display + Clone + Send + 'static>(
+        &self,
+        message: &str,
+        options: Vec<T>,
+    ) -> anyhow::Result<Option<Vec<T>>> {
+        self.infra.select_many(message, options).await
+    }
+}

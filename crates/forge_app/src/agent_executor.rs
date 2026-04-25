@@ -81,6 +81,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentEx
             .chat(
                 agent_id.clone(),
                 ChatRequest::new(Event::new(task.clone()), conversation.id),
+                Vec::new(), // No hook interception for internal agent calls
             )
             .await?;
 

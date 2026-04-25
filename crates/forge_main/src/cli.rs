@@ -123,6 +123,9 @@ pub enum TopLevelCommand {
         prompt: String,
     },
 
+    /// Manage hook scripts and trust status.
+    Hook(HookCommandGroup),
+
     /// Manage API provider authentication.
     Provider(ProviderCommandGroup),
 
@@ -696,6 +699,32 @@ pub enum ConversationCommand {
 
         /// New name for the conversation.
         name: String,
+    },
+}
+
+/// Command group for hook management.
+#[derive(Parser, Debug, Clone)]
+pub struct HookCommandGroup {
+    #[command(subcommand)]
+    pub command: HookCommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum HookCommand {
+    /// List all hook scripts with trust status.
+    #[command(alias = "ls")]
+    List,
+
+    /// Trust a hook script by computing and storing its hash.
+    Trust {
+        /// Relative path of the hook (e.g. toolcall-start.d/01-hook.sh).
+        path: String,
+    },
+
+    /// Delete a hook script and remove it from the trust store.
+    Delete {
+        /// Relative path of the hook (e.g. toolcall-start.d/01-hook.sh).
+        path: String,
     },
 }
 

@@ -10,12 +10,9 @@ use tracing::debug;
 
 /// Interceptor that executes external hook scripts to modify tool calls.
 ///
-/// Looks for executable scripts in `~/.forge/hooks/<event>.d/` directories.
-/// For the `toolcall-start` event, it scans `~/.forge/hooks/toolcall-start.d/*`,
-/// sorts them alphabetically, and runs them in sequence.
-///
-/// Each hook receives JSON on stdin and returns JSON on stdout. The output of
-/// one hook becomes the input for the next (pipeline/chaining).
+/// At construction time, receives a pre-verified list of hook script paths
+/// (cached in memory). At runtime, `intercept()` uses only these cached
+/// paths — zero disk I/O, zero TOCTOU risk.
 ///
 /// # Hook protocol
 ///
@@ -39,7 +36,9 @@ use tracing::debug;
 /// {"decision": "deny", "reason": "blocked by policy"}
 /// ```
 #[derive(Clone, Default)]
-pub struct ExternalHookInterceptor;
+pub struct ExternalHookInterceptor {
+    cached_hooks: Vec<PathBuf>,
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 struct HookInput {
@@ -62,16 +61,21 @@ struct HookSpecificOutput {
 }
 
 impl ExternalHookInterceptor {
-    /// Creates a new external hook interceptor
-    pub fn new() -> Self {
-        Self
+    /// Creates a new external hook interceptor with pre-verified cached hook
+    /// paths.
+    pub fn new(cached_hooks: Vec<PathBuf>) -> Self {
+        Self { cached_hooks }
     }
 
     /// Returns the sorted list of hook scripts for a given event.
     ///
     /// Scans `~/.forge/hooks/<event>.d/` for executable files, sorted
     /// alphabetically by filename.
-    fn discover_hooks(event_name: &str) -> Vec<PathBuf> {
+    ///
+    /// This is a standalone function used by the startup loader and CLI
+    /// commands. It is not called during `intercept()` — the interceptor
+    /// uses cached paths instead.
+    pub fn discover_hooks(event_name: &str) -> Vec<PathBuf> {
         let Some(home) = dirs::home_dir() else {
             return Vec::new();
         };
@@ -180,7 +184,7 @@ impl ToolCallInterceptor for ExternalHookInterceptor {
         _agent: &Agent,
         _model_id: &ModelId,
     ) -> anyhow::Result<()> {
-        let hooks = Self::discover_hooks("toolcall-start");
+        let hooks = &self.cached_hooks;
         if hooks.is_empty() {
             return Ok(());
         }
@@ -191,7 +195,7 @@ impl ToolCallInterceptor for ExternalHookInterceptor {
             tool_input: serde_json::to_value(&tool_call.arguments)?,
         };
 
-        for hook_path in &hooks {
+        for hook_path in hooks {
             let output = Self::run_hook(hook_path, &current_input).await?;
 
             match output.decision.as_str() {
@@ -271,5 +275,21 @@ mod tests {
         let output: HookOutput = serde_json::from_str(json).unwrap();
         assert_eq!(output.decision, "deny");
         assert_eq!(output.reason.as_deref(), Some("blocked"));
+    }
+
+    #[test]
+    fn test_interceptor_with_empty_cached_hooks() {
+        let interceptor = ExternalHookInterceptor::new(Vec::new());
+        assert!(interceptor.cached_hooks.is_empty());
+    }
+
+    #[test]
+    fn test_interceptor_with_cached_hooks() {
+        let hooks = vec![
+            PathBuf::from("/tmp/hook1.sh"),
+            PathBuf::from("/tmp/hook2.sh"),
+        ];
+        let interceptor = ExternalHookInterceptor::new(hooks);
+        assert_eq!(interceptor.cached_hooks.len(), 2);
     }
 }

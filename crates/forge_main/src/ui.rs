@@ -32,7 +32,8 @@ use tokio_stream::StreamExt;
 use url::Url;
 
 use crate::cli::{
-    Cli, CommitCommandGroup, ConversationCommand, ListCommand, McpCommand, TopLevelCommand,
+    Cli, CommitCommandGroup, ConversationCommand, HookCommand, ListCommand, McpCommand,
+    TopLevelCommand,
 };
 use crate::conversation_selector::ConversationSelector;
 use crate::display_constants::{CommandType, headers, markers, status};
@@ -598,6 +599,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     .await?;
                 return Ok(());
             }
+            TopLevelCommand::Hook(hook_group) => {
+                self.handle_hook_command(hook_group.command).await?;
+                return Ok(());
+            }
             TopLevelCommand::Provider(provider_group) => {
                 self.handle_provider_command(provider_group).await?;
                 return Ok(());
@@ -973,6 +978,107 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.spinner.start(Some("Reloading MCPs"))?;
         self.api.reload_mcp().await?;
         self.writeln_title(TitleFormat::info("MCP reloaded"))?;
+
+        Ok(())
+    }
+
+    async fn handle_hook_command(
+        &mut self,
+        command: crate::cli::HookCommand,
+    ) -> anyhow::Result<()> {
+        use forge_app::{
+            ExternalHookInterceptor, HookTrustStatus, TrustStore, compute_file_hash,
+            hooks_base_dir, relative_hook_path,
+        };
+
+        match command {
+            HookCommand::List => {
+                let mut info = Info::new();
+
+                // Discover all known event directories
+                let events = ["toolcall-start"];
+                let trust_store = TrustStore::load()?;
+
+                for event in events {
+                    let hooks = ExternalHookInterceptor::discover_hooks(event);
+                    if hooks.is_empty() {
+                        continue;
+                    }
+
+                    info = info.add_title(event.to_uppercase());
+
+                    for hook_path in &hooks {
+                        let relative =
+                            relative_hook_path(hook_path).unwrap_or_else(|| hook_path.display().to_string());
+                        let file_name = hook_path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| relative.clone());
+
+                        let status_label = match trust_store.check(&relative, hook_path) {
+                            HookTrustStatus::Trusted => status::YES.green().to_string(),
+                            HookTrustStatus::Untrusted => "untrusted".yellow().to_string(),
+                            HookTrustStatus::Tampered { .. } => "TAMPERED".red().bold().to_string(),
+                            HookTrustStatus::Missing => "missing".dimmed().to_string(),
+                        };
+
+                        info = info
+                            .add_key_value("Hook", file_name)
+                            .add_key_value("Status", status_label)
+                            .add_key_value("Path", relative);
+                    }
+                }
+
+                if info.sections().is_empty() {
+                    self.writeln_title(TitleFormat::info("No hook scripts found"))?;
+                } else {
+                    self.writeln(info)?;
+                }
+            }
+            HookCommand::Trust { path } => {
+                let base = hooks_base_dir().ok_or_else(|| {
+                    anyhow::anyhow!("Cannot determine home directory for hooks")
+                })?;
+                let full_path = base.join(&path);
+
+                if !full_path.exists() {
+                    return Err(anyhow::anyhow!(
+                        "Hook file not found: {}",
+                        full_path.display()
+                    ));
+                }
+
+                let mut trust_store = TrustStore::load()?;
+                trust_store.trust(&path, &full_path)?;
+                trust_store.save()?;
+
+                let hash = compute_file_hash(&full_path)?;
+                self.writeln_title(TitleFormat::info(format!(
+                    "Hook trusted: {path} ({:.16}...)",
+                    hash
+                )))?;
+            }
+            HookCommand::Delete { path } => {
+                let base = hooks_base_dir().ok_or_else(|| {
+                    anyhow::anyhow!("Cannot determine home directory for hooks")
+                })?;
+                let full_path = base.join(&path);
+
+                // Remove the file if it exists
+                if full_path.exists() {
+                    std::fs::remove_file(&full_path)?;
+                }
+
+                // Remove from trust store regardless
+                let mut trust_store = TrustStore::load()?;
+                trust_store.untrust(&path);
+                trust_store.save()?;
+
+                self.writeln_title(TitleFormat::info(format!(
+                    "Hook deleted: {path}"
+                )))?;
+            }
+        }
 
         Ok(())
     }

@@ -63,7 +63,7 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
 
 #[async_trait::async_trait]
 impl<
-    A: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>,
+    A: Services + EnvironmentInfra<Config = forge_config::ForgeConfig> + forge_app::UserInfra,
     F: CommandInfra
         + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + SkillRepository
@@ -144,7 +144,9 @@ impl<
             .get_active_agent_id()
             .await?
             .unwrap_or_default();
-        self.app().chat(agent_id, chat).await
+        let cached_hooks =
+            forge_app::load_and_verify_hooks("toolcall-start", self.services.clone()).await?;
+        self.app().chat(agent_id, chat, cached_hooks).await
     }
 
     async fn upsert_conversation(&self, conversation: Conversation) -> anyhow::Result<()> {
