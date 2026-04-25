@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::hooks::external::ExternalHookInterceptor;
+use crate::hooks::external::discover_hooks;
 use crate::hooks::trust::{HookTrustStatus, TrustStore, relative_hook_path};
 use crate::infra::UserInfra;
 
@@ -44,7 +44,7 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
     event_name: &str,
     user_infra: Arc<U>,
 ) -> anyhow::Result<Vec<PathBuf>> {
-    let all_hooks = ExternalHookInterceptor::discover_hooks(event_name);
+    let all_hooks = discover_hooks(event_name);
     if all_hooks.is_empty() {
         return Ok(Vec::new());
     }
@@ -94,15 +94,20 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
                 match choice {
                     Some(TrustPromptChoice::Trust) => {
                         trust_store.trust(&relative, hook_path)?;
+                        trust_store.unignore(&relative);
                         store_dirty = true;
                         trusted_hooks.push(hook_path.clone());
                         tracing::info!(hook = %relative, "Hook trusted by user");
                     }
                     Some(TrustPromptChoice::Delete) => {
                         let _ = std::fs::remove_file(hook_path);
+                        trust_store.unignore(&relative);
+                        store_dirty = true;
                         tracing::info!(hook = %relative, "Hook deleted by user");
                     }
                     Some(TrustPromptChoice::Ignore) | None => {
+                        trust_store.ignore(&relative);
+                        store_dirty = true;
                         tracing::info!(hook = %relative, "Hook ignored by user");
                     }
                 }
@@ -127,17 +132,21 @@ pub async fn load_and_verify_hooks<U: UserInfra>(
                 );
                 eprintln!("  This hook will NOT be loaded.");
                 eprintln!(
-                    "  Re-trust: forge hooks trust {relative}"
+                    "  Re-trust: forge hook trust {relative}"
                 );
                 eprintln!(
-                    "  Or delete: forge hooks delete {relative}"
+                    "  Or delete: forge hook delete {relative}"
                 );
                 eprintln!();
 
-                // Remove from trust store so it doesn't keep warning on every
-                // startup
+                // Remove from trust store and add to ignored set so it
+                // doesn't keep warning on every startup.
                 trust_store.untrust(&relative);
+                trust_store.ignore(&relative);
                 store_dirty = true;
+            }
+            HookTrustStatus::Ignored => {
+                tracing::debug!(hook = %relative, "Hook ignored (previously dismissed)");
             }
             HookTrustStatus::Missing => {
                 // File was discovered but disappeared — skip

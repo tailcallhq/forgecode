@@ -67,61 +67,6 @@ impl ExternalHookInterceptor {
         Self { cached_hooks }
     }
 
-    /// Returns the sorted list of hook scripts for a given event.
-    ///
-    /// Scans `~/.forge/hooks/<event>.d/` for executable files, sorted
-    /// alphabetically by filename.
-    ///
-    /// This is a standalone function used by the startup loader and CLI
-    /// commands. It is not called during `intercept()` — the interceptor
-    /// uses cached paths instead.
-    pub fn discover_hooks(event_name: &str) -> Vec<PathBuf> {
-        let Some(home) = dirs::home_dir() else {
-            return Vec::new();
-        };
-        let hook_dir = home
-            .join(".forge")
-            .join("hooks")
-            .join(format!("{event_name}.d"));
-
-        if !hook_dir.is_dir() {
-            return Vec::new();
-        }
-
-        let Ok(entries) = std::fs::read_dir(&hook_dir) else {
-            return Vec::new();
-        };
-
-        let mut hooks: Vec<PathBuf> = entries
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| {
-                // Only include files (not directories)
-                path.is_file()
-            })
-            .filter(|path| {
-                // On Unix, check if the file is executable
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    std::fs::metadata(path)
-                        .map(|m| m.permissions().mode() & 0o111 != 0)
-                        .unwrap_or(false)
-                }
-                #[cfg(not(unix))]
-                {
-                    // On non-Unix, include files with common script extensions
-                    path.extension()
-                        .is_some_and(|ext| ext == "sh" || ext == "bash" || ext == "py")
-                }
-            })
-            .collect();
-
-        // Sort alphabetically for deterministic execution order
-        hooks.sort();
-        hooks
-    }
-
     /// Run a single hook script, piping JSON input and parsing JSON output.
     async fn run_hook(
         hook_path: &std::path::Path,
@@ -174,6 +119,60 @@ impl ExternalHookInterceptor {
             }
         }
     }
+}
+
+/// Returns the sorted list of hook scripts for a given event.
+///
+/// Scans `~/.forge/hooks/<event>.d/` for executable files, sorted
+/// alphabetically by filename.
+///
+/// This is used by the startup loader and CLI commands. It is not called
+/// during `intercept()` — the interceptor uses cached paths instead.
+pub fn discover_hooks(event_name: &str) -> Vec<PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let hook_dir = home
+        .join(".forge")
+        .join("hooks")
+        .join(format!("{event_name}.d"));
+
+    if !hook_dir.is_dir() {
+        return Vec::new();
+    }
+
+    let Ok(entries) = std::fs::read_dir(&hook_dir) else {
+        return Vec::new();
+    };
+
+    let mut hooks: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            // Only include files (not directories)
+            path.is_file()
+        })
+        .filter(|path| {
+            // On Unix, check if the file is executable
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::metadata(path)
+                    .map(|m| m.permissions().mode() & 0o111 != 0)
+                    .unwrap_or(false)
+            }
+            #[cfg(not(unix))]
+            {
+                // On non-Unix, include files with common script extensions
+                path.extension()
+                    .is_some_and(|ext| ext == "sh" || ext == "bash" || ext == "py")
+            }
+        })
+        .collect();
+
+    // Sort alphabetically for deterministic execution order
+    hooks.sort();
+    hooks
 }
 
 #[async_trait]
@@ -246,7 +245,7 @@ mod tests {
     #[test]
     fn test_discover_hooks_empty_dir() {
         // This test just ensures the function doesn't panic with missing dirs
-        let hooks = ExternalHookInterceptor::discover_hooks("nonexistent-event");
+        let hooks = discover_hooks("nonexistent-event");
         assert!(hooks.is_empty());
     }
 

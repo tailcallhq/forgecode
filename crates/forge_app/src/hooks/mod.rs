@@ -9,12 +9,12 @@ pub mod trust;
 
 pub use compaction::CompactionHandler;
 pub use doom_loop::DoomLoopDetector;
-pub use external::ExternalHookInterceptor;
+pub use external::{discover_hooks, ExternalHookInterceptor};
 pub use loader::load_and_verify_hooks;
 pub use pending_todos::PendingTodosHandler;
 pub use title_generation::TitleGenerationHandler;
 pub use tracing::TracingHandler;
 pub use trust::{
-    HookTrustStatus, TrustStore, TrustedHook, compute_file_hash, hooks_base_dir,
-    relative_hook_path, trust_store_path,
+    HookTrustStatus, TrustStore, TrustedHook, compute_file_hash, discover_events,
+    hooks_base_dir, relative_hook_path, trust_store_path,
 };

@@ -48,7 +48,8 @@ pub use error::*;
 pub use git_app::*;
 pub use hooks::{
     ExternalHookInterceptor, HookTrustStatus, TrustStore, TrustedHook, compute_file_hash,
-    hooks_base_dir, load_and_verify_hooks, relative_hook_path, trust_store_path,
+    discover_events, discover_hooks, hooks_base_dir, load_and_verify_hooks, relative_hook_path,
+    trust_store_path,
 };
 pub use infra::*;
 pub use services::*;

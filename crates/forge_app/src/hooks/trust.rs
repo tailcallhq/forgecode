@@ -31,6 +31,8 @@ pub enum HookTrustStatus {
     Tampered { expected: String, actual: String },
     /// The hook file no longer exists on disk.
     Missing,
+    /// User previously chose to ignore this hook — skip without prompting.
+    Ignored,
 }
 
 /// Centralized trust store persisted at `~/.forge/hooks/trust.json`.
@@ -43,6 +45,9 @@ pub struct TrustStore {
     pub version: u32,
     /// Map from relative path to trusted hook record.
     pub hooks: BTreeMap<String, TrustedHook>,
+    /// Set of relative paths the user chose to ignore (skip without prompting).
+    #[serde(default)]
+    pub ignored: std::collections::BTreeSet<String>,
 }
 
 /// Returns the base directory for all hooks: `~/.forge/hooks/`.
@@ -53,6 +58,34 @@ pub fn hooks_base_dir() -> Option<PathBuf> {
 /// Returns the path to the trust store file: `~/.forge/hooks/trust.json`.
 pub fn trust_store_path() -> Option<PathBuf> {
     hooks_base_dir().map(|dir| dir.join("trust.json"))
+}
+
+/// Discovers all event names by scanning `~/.forge/hooks/` for `*.d`
+/// directories.
+pub fn discover_events() -> Vec<String> {
+    let Some(base) = hooks_base_dir() else {
+        return Vec::new();
+    };
+
+    let Ok(entries) = std::fs::read_dir(&base) else {
+        return Vec::new();
+    };
+
+    let mut events: Vec<String> = entries
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name()?.to_str()?.to_string();
+                name.strip_suffix(".d").map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    events.sort();
+    events
 }
 
 /// Computes the SHA-256 hash of a file's contents, returned as lowercase hex.
@@ -85,6 +118,7 @@ impl TrustStore {
         Self {
             version: 1,
             hooks: BTreeMap::new(),
+            ignored: std::collections::BTreeSet::new(),
         }
     }
 
@@ -145,6 +179,15 @@ impl TrustStore {
         std::fs::rename(&tmp_path, &path)
             .with_context(|| format!("Failed to rename {} to {}", tmp_path.display(), path.display()))?;
 
+        // Set read-only permissions as a speed bump against casual modification.
+        // Not a security boundary — an attacker with write access can chmod it —
+        // but forces a deliberate action rather than accidental overwrite.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444));
+        }
+
         Ok(())
     }
 
@@ -153,6 +196,10 @@ impl TrustStore {
     pub fn check(&self, relative_path: &str, actual_path: &Path) -> HookTrustStatus {
         if !actual_path.exists() {
             return HookTrustStatus::Missing;
+        }
+
+        if self.ignored.contains(relative_path) {
+            return HookTrustStatus::Ignored;
         }
 
         let Some(trusted) = self.hooks.get(relative_path) else {
@@ -196,6 +243,17 @@ impl TrustStore {
     /// Removes a hook from the trust store.
     pub fn untrust(&mut self, relative_path: &str) {
         self.hooks.remove(relative_path);
+    }
+
+    /// Marks a hook as ignored — it will be silently skipped on future startups
+    /// without prompting.
+    pub fn ignore(&mut self, relative_path: &str) {
+        self.ignored.insert(relative_path.to_string());
+    }
+
+    /// Removes a hook from the ignored set (e.g. after explicit trust or delete).
+    pub fn unignore(&mut self, relative_path: &str) {
+        self.ignored.remove(relative_path);
     }
 
     /// Returns all known hooks with their trust records (if any).
@@ -343,5 +401,61 @@ mod tests {
         let actual = relative_hook_path(&hook_path);
         let expected = Some("toolcall-start.d/01-hook.sh".to_string());
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_trust_store_check_ignored() {
+        let temp = fixture();
+        let hook_path = write_hook(temp.path(), "hook.sh", "#!/bin/bash\necho ok\n");
+
+        let mut store = TrustStore::new();
+        store.ignore("hook.sh");
+
+        let actual = store.check("hook.sh", &hook_path);
+        let expected = HookTrustStatus::Ignored;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_trust_store_ignore_and_unignore() {
+        let mut store = TrustStore::new();
+        store.ignore("hook.sh");
+        assert!(store.ignored.contains("hook.sh"));
+
+        store.unignore("hook.sh");
+        assert!(!store.ignored.contains("hook.sh"));
+    }
+
+    #[test]
+    fn test_trust_overrides_ignore() {
+        let temp = fixture();
+        let hook_path = write_hook(temp.path(), "hook.sh", "content");
+
+        let mut store = TrustStore::new();
+        store.ignore("hook.sh");
+        store.trust("hook.sh", &hook_path).unwrap();
+        store.unignore("hook.sh");
+
+        // Now it should be Trusted, not Ignored
+        let actual = store.check("hook.sh", &hook_path);
+        let expected = HookTrustStatus::Trusted;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_ignored_set_serialized() {
+        let temp = fixture();
+        let hook_path = write_hook(temp.path(), "hook.sh", "content");
+
+        let mut store = TrustStore::new();
+        store.ignore("hook.sh");
+        store.trust("other.sh", &hook_path).unwrap();
+
+        let json = serde_json::to_string_pretty(&store).unwrap();
+        let loaded: TrustStore = serde_json::from_str(&json).unwrap();
+
+        assert!(loaded.ignored.contains("hook.sh"));
+        assert!(!loaded.ignored.contains("other.sh"));
+        assert!(loaded.hooks.contains_key("other.sh"));
     }
 }

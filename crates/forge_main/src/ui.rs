@@ -987,20 +987,20 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         command: crate::cli::HookCommand,
     ) -> anyhow::Result<()> {
         use forge_app::{
-            ExternalHookInterceptor, HookTrustStatus, TrustStore, compute_file_hash,
-            hooks_base_dir, relative_hook_path,
+            HookTrustStatus, TrustStore, compute_file_hash, discover_events,
+            discover_hooks, hooks_base_dir, relative_hook_path,
         };
 
         match command {
             HookCommand::List => {
                 let mut info = Info::new();
 
-                // Discover all known event directories
-                let events = ["toolcall-start"];
+                // Discover all event directories dynamically
+                let events = discover_events();
                 let trust_store = TrustStore::load()?;
 
                 for event in events {
-                    let hooks = ExternalHookInterceptor::discover_hooks(event);
+                    let hooks = discover_hooks(&event);
                     if hooks.is_empty() {
                         continue;
                     }
@@ -1020,6 +1020,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                             HookTrustStatus::Untrusted => "untrusted".yellow().to_string(),
                             HookTrustStatus::Tampered { .. } => "TAMPERED".red().bold().to_string(),
                             HookTrustStatus::Missing => "missing".dimmed().to_string(),
+                            HookTrustStatus::Ignored => "ignored".dimmed().to_string(),
                         };
 
                         info = info
@@ -1050,6 +1051,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 let mut trust_store = TrustStore::load()?;
                 trust_store.trust(&path, &full_path)?;
+                trust_store.unignore(&path);
                 trust_store.save()?;
 
                 let hash = compute_file_hash(&full_path)?;
@@ -1072,6 +1074,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 // Remove from trust store regardless
                 let mut trust_store = TrustStore::load()?;
                 trust_store.untrust(&path);
+                trust_store.unignore(&path);
                 trust_store.save()?;
 
                 self.writeln_title(TitleFormat::info(format!(
