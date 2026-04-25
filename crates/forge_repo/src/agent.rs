@@ -218,7 +218,6 @@ impl<F: FileInfoInfra + EnvironmentInfra<Config = ForgeConfig> + DirectoryReader
 
         Ok(agent_defs
             .into_iter()
-            .filter(|def| filter_agent(def, &config))
             .map(|def| {
                 def.into_agent(
                     ProviderId::from(session.provider_id.clone()),
@@ -229,11 +228,9 @@ impl<F: FileInfoInfra + EnvironmentInfra<Config = ForgeConfig> + DirectoryReader
     }
 
     async fn get_agent_infos(&self) -> anyhow::Result<Vec<forge_domain::AgentInfo>> {
-        let config = self.infra.get_config()?;
         let agent_defs = self.load_agents().await?;
         Ok(agent_defs
             .into_iter()
-            .filter(|def| filter_agent(def, &config))
             .map(|def| forge_domain::AgentInfo {
                 id: def.id,
                 title: def.title,
@@ -241,15 +238,6 @@ impl<F: FileInfoInfra + EnvironmentInfra<Config = ForgeConfig> + DirectoryReader
             })
             .collect())
     }
-}
-
-/// Returns `false` for agents that are disabled by a feature flag in the
-/// configuration, `true` for all others.
-fn filter_agent(def: &AgentDefinition, config: &ForgeConfig) -> bool {
-    if def.id.as_str() == forge_domain::AgentId::SAGE.as_str() && !config.research_subagent {
-        return false;
-    }
-    true
 }
 
 #[cfg(test)]

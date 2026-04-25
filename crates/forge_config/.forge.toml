@@ -32,7 +32,7 @@ research_subagent = false
 currency_symbol = "$"
 currency_conversion_rate = 1.0
 subagents = true
-prevent_sleep = true
+use_forge_committer = true
 
 [retry]
 backoff_factor = 2

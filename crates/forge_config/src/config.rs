@@ -202,6 +202,11 @@ pub struct ForgeConfig {
     /// Model and provider configuration used for commit message generation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<ModelConfig>,
+    /// Whether `forge commit` should override `GIT_COMMITTER_NAME` and
+    /// `GIT_COMMITTER_EMAIL` with the Forge identity. Defaults to `true` via
+    /// the embedded `.forge.toml` defaults.
+    #[serde(default)]
+    pub use_forge_committer: bool,
     /// Maximum number of recent commits included as context for commit message
     /// generation.
     #[serde(default)]

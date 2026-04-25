@@ -121,13 +121,18 @@ fn resolve_file_path(candidate: &str) -> Option<String> {
 /// are never mistaken for standalone Unicode whitespace code-points like
 /// U+0085 (NEL) or U+00A0 (NBSP).
 fn find_token_end(input: &str) -> usize {
-    let mut chars = input.char_indices().peekable();
-    while let Some((byte_idx, ch)) = chars.next() {
-        if ch == '\\' {
-            // Skip the escaped character (whatever it is)
-            chars.next();
-        } else if ch.is_whitespace() {
-            return byte_idx;
+    let mut escaped = false;
+    for (i, c) in input.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if c == '\\' {
+            escaped = true;
+            continue;
+        }
+        if c.is_whitespace() {
+            return i;
         }
     }
     input.len()
@@ -205,6 +210,14 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+
+    #[test]
+    fn test_wrap_pasted_text_cjk_no_paths() {
+        let fixture = "公";
+        let actual = wrap_pasted_text(fixture);
+        let expected = "公";
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn test_wrap_pasted_text_no_paths() {
@@ -465,6 +478,13 @@ mod tests {
     fn test_unescape_backslashes_trailing_backslash() {
         let actual = unescape_backslashes("/path/file\\");
         let expected = Some("/path/file\\".to_string());
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_find_token_end_backslash_escaped_space() {
+        let actual = find_token_end("/path/my\\ file.txt please");
+        let expected = "/path/my\\ file.txt".len();
         assert_eq!(actual, expected);
     }
 
