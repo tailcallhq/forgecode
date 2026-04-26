@@ -464,10 +464,9 @@ mod tests {
         Content, Context as ChatContext, ContextMessage, FinishReason, ModelId, Provider,
         ProviderId, ProviderResponse,
     };
+    use pretty_assertions::assert_eq;
     use tokio_stream::StreamExt;
     use url::Url;
-
-    use pretty_assertions::assert_eq;
 
     use super::*;
     use crate::provider::mock_server::MockServer;
