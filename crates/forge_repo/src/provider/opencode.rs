@@ -249,7 +249,8 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync>
         Ok(merged)
     }
 
-    /// Fetches the up-to-date model list from models.dev for the given provider.
+    /// Fetches the up-to-date model list from models.dev for the given
+    /// provider.
     async fn fetch_models_dev(&self, provider: &Provider<Url>) -> Result<Vec<Model>> {
         let provider_key = models_dev_key(&provider.id)
             .ok_or_else(|| anyhow::anyhow!("Unknown provider for models.dev: {}", provider.id))?;
@@ -259,9 +260,9 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync>
         let body = response.text().await?;
         let api: HashMap<String, serde_json::Value> = serde_json::from_str(&body)?;
 
-        let provider_value = api
-            .get(provider_key)
-            .ok_or_else(|| anyhow::anyhow!("Provider {} not found in models.dev response", provider_key))?;
+        let provider_value = api.get(provider_key).ok_or_else(|| {
+            anyhow::anyhow!("Provider {} not found in models.dev response", provider_key)
+        })?;
 
         let provider_data: ModelsDevResponse = serde_json::from_value(provider_value.clone())?;
 
