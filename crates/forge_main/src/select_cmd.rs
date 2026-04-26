@@ -56,7 +56,7 @@ pub fn run_select(args: SelectArgs) -> anyhow::Result<()> {
     }
 
     let mut picker: nucleo_picker::Picker<String, _> = picker_opts.picker(StrRenderer);
-    picker.extend_exact(items.into_iter());
+    picker.extend_exact(items);
 
     if args.multi {
         match picker.pick_multi() {
@@ -158,7 +158,9 @@ fn run_select_with_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Resu
     let injector = matcher.injector();
     for row in rows.iter().cloned() {
         injector.push(row, |item, columns| {
-            columns[0] = Utf32String::from(item.display.as_str());
+            if let Some(column) = columns.get_mut(0) {
+                *column = Utf32String::from(item.display.as_str());
+            }
         });
     }
     drop(injector);
@@ -225,13 +227,15 @@ fn run_select_with_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Resu
 
         draw_preview_ui(
             &mut stderr,
-            &prompt,
-            &query,
-            &matched_rows,
-            selected_index,
-            &mut scroll_offset,
-            &preview_cache,
-            preview_layout,
+            PreviewUi {
+                prompt: &prompt,
+                query: &query,
+                matched_rows: &matched_rows,
+                selected_index,
+                scroll_offset: &mut scroll_offset,
+                preview: &preview_cache,
+                layout: preview_layout,
+            },
         )?;
 
         if event::poll(Duration::from_millis(50))? {
@@ -419,7 +423,10 @@ fn split_field_parts(item: &str, delimiter: Option<&Regex>) -> Vec<FieldPart> {
             let mut last_end = 0usize;
 
             for delimiter_match in regex.find_iter(item) {
-                let field = item[last_end..delimiter_match.start()].trim();
+                let field = item
+                    .get(last_end..delimiter_match.start())
+                    .unwrap_or_default()
+                    .trim();
                 if !field.is_empty() {
                     parts.push(FieldPart {
                         value: field.to_string(),
@@ -430,7 +437,7 @@ fn split_field_parts(item: &str, delimiter: Option<&Regex>) -> Vec<FieldPart> {
                 last_end = delimiter_match.end();
             }
 
-            let field = item[last_end..].trim();
+            let field = item.get(last_end..).unwrap_or_default().trim();
             if !field.is_empty() {
                 parts.push(FieldPart {
                     value: field.to_string(),
@@ -505,8 +512,10 @@ fn compute_display_widths(
             let width = part.end.saturating_sub(part.start);
             if widths.len() <= index {
                 widths.push(width);
-            } else if widths[index] < width {
-                widths[index] = width;
+            } else if let Some(current_width) = widths.get_mut(index)
+                && *current_width < width
+            {
+                *current_width = width;
             }
         }
     }
@@ -616,16 +625,26 @@ fn shell_escape(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn draw_preview_ui(
-    stderr: &mut io::Stderr,
-    prompt: &str,
-    query: &str,
-    matched_rows: &[&SelectRow],
+struct PreviewUi<'a> {
+    prompt: &'a str,
+    query: &'a str,
+    matched_rows: &'a [&'a SelectRow],
     selected_index: usize,
-    scroll_offset: &mut usize,
-    preview: &str,
+    scroll_offset: &'a mut usize,
+    preview: &'a str,
     layout: PreviewLayout,
-) -> anyhow::Result<()> {
+}
+
+fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result<()> {
+    let PreviewUi {
+        prompt,
+        query,
+        matched_rows,
+        selected_index,
+        scroll_offset,
+        preview,
+        layout,
+    } = ui;
     let (width, height) = terminal::size()?;
     let width = width.max(20);
     let height = height.max(6);

@@ -2,8 +2,8 @@ use std::io::IsTerminal;
 
 use anyhow::Result;
 use console::strip_ansi_codes;
-use nucleo_picker::{PickerOptions, render::StrRenderer};
 use nucleo_picker::error::PickError;
+use nucleo_picker::{PickerOptions, render::StrRenderer};
 
 /// Builder for select prompts with fuzzy search.
 pub struct SelectBuilder<T> {
@@ -122,19 +122,19 @@ impl<T: 'static> SelectBuilder<T> {
             if effective_cursor > 0 && effective_cursor < data_items.len() {
                 let mut reordered = data_items;
                 reordered.swap(0, effective_cursor);
-                picker.extend_exact(reordered.into_iter());
+                picker.extend_exact(reordered);
             } else {
-                picker.extend_exact(data_items.into_iter());
+                picker.extend_exact(data_items);
             }
         } else {
-            picker.extend_exact(data_items.into_iter());
+            picker.extend_exact(data_items);
         }
 
         if let Some(help) = self.help_message {
             println!("{}", help);
         }
-        for i in 0..header_count {
-            println!("{}", self.options[i]);
+        for header in self.options.iter().take(header_count) {
+            println!("{}", header);
         }
 
         match picker.pick() {
@@ -172,7 +172,7 @@ fn prompt_confirm(message: &str, default: Option<bool>) -> Result<Option<bool>> 
         .reversed(true)
         .picker(StrRenderer);
 
-    picker.extend_exact(items.into_iter());
+    picker.extend_exact(items);
 
     println!("{}", message);
 

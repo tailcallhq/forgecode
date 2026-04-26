@@ -2,8 +2,8 @@ use std::io::IsTerminal;
 
 use anyhow::Result;
 use console::strip_ansi_codes;
-use nucleo_picker::{PickerOptions, render::StrRenderer};
 use nucleo_picker::error::PickError;
+use nucleo_picker::{PickerOptions, render::StrRenderer};
 
 /// Builder for multi-select prompts.
 pub struct MultiSelectBuilder<T> {
@@ -44,7 +44,7 @@ impl<T> MultiSelectBuilder<T> {
             .reversed(true)
             .picker(StrRenderer);
 
-        picker.extend_exact(display_options.into_iter());
+        picker.extend_exact(display_options);
 
         println!("{}", self.message);
 
@@ -54,9 +54,10 @@ impl<T> MultiSelectBuilder<T> {
                 let selected_items: Vec<T> = selection
                     .iter()
                     .filter_map(|selected_str| {
-                        self.options.iter().find(|opt| {
-                            strip_ansi_codes(&opt.to_string()).trim() == *selected_str
-                        }).cloned()
+                        self.options
+                            .iter()
+                            .find(|opt| strip_ansi_codes(&opt.to_string()).trim() == *selected_str)
+                            .cloned()
                     })
                     .collect();
 
