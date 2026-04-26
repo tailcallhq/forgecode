@@ -281,42 +281,34 @@ impl<F: 'static + WorkspaceIndexRepository + FileReaderInfra, D: FileDiscovery +
         let infra = self.infra.clone();
         let batch_size = self.batch_size;
 
-        futures::stream::iter(paths).chunks(batch_size).then(move |batch| {
-            let user_id = user_id.clone();
-            let workspace_id = workspace_id.clone();
-            let token = token.clone();
-            let infra = infra.clone();
-            async move {
-                let mut files = Vec::with_capacity(batch.len());
-                for file_path in &batch {
-                    info!(workspace_id = %workspace_id, path = %file_path.display(), "File sync started");
-                    let content = infra
-                        .read_utf8(file_path)
-                        .await
-                        .with_context(|| {
+        futures::stream::iter(paths)
+            .chunks(batch_size)
+            .then(move |batch| {
+                let user_id = user_id.clone();
+                let workspace_id = workspace_id.clone();
+                let token = token.clone();
+                let infra = infra.clone();
+                async move {
+                    let mut files = Vec::with_capacity(batch.len());
+                    for file_path in &batch {
+                        let content = infra.read_utf8(file_path).await.with_context(|| {
                             format!("Failed to read file '{}' for upload", file_path.display())
                         })?;
-                    files.push(forge_domain::FileRead::new(
-                        file_path.to_string_lossy().into_owned(),
-                        content,
-                    ));
+                        files.push(forge_domain::FileRead::new(
+                            file_path.to_string_lossy().into_owned(),
+                            content,
+                        ));
+                    }
+                    let count = files.len();
+                    let upload =
+                        forge_domain::CodeBase::new(user_id.clone(), workspace_id.clone(), files);
+                    infra
+                        .upload_files(&upload, &token)
+                        .await
+                        .context("Failed to upload files")?;
+                    Ok::<_, anyhow::Error>(count)
                 }
-                let count = files.len();
-                let upload = forge_domain::CodeBase::new(
-                    user_id.clone(),
-                    workspace_id.clone(),
-                    files,
-                );
-                infra
-                    .upload_files(&upload, &token)
-                    .await
-                    .context("Failed to upload files")?;
-                for file_path in &batch {
-                    info!(workspace_id = %workspace_id, path = %file_path.display(), "File sync completed");
-                }
-                Ok::<_, anyhow::Error>(count)
-            }
-        })
+            })
     }
 
     /// Discovers workspace files and streams their hashes without retaining

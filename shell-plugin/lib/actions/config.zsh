@@ -447,7 +447,7 @@ function _forge_action_config_reasoning_effort() {
 # Action handler: Show config list
 function _forge_action_config() {
     echo
-    $_FORGE_BIN config list
+    _forge_exec config list
 }
 
 # Action handler: Open the global forge config file in an editor
