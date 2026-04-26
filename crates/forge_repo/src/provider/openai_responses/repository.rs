@@ -207,23 +207,17 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                 async move {
                     match event_result {
                         Ok(Event::Open) => None,
-                        Ok(Event::Message(msg))
-                            if ["[DONE]", ""].contains(&msg.data.as_str()) =>
-                        {
+                        Ok(Event::Message(msg)) if ["[DONE]", ""].contains(&msg.data.as_str()) => {
                             None
                         }
                         Ok(Event::Message(msg)) => {
                             let result = serde_json::from_str::<
                                 super::response::ResponsesStreamEvent,
                             >(&msg.data)
-                            .with_context(|| {
-                                format!("Failed to parse SSE event: {}", msg.data)
-                            });
+                            .with_context(|| format!("Failed to parse SSE event: {}", msg.data));
 
                             match result {
-                                Ok(super::response::ResponsesStreamEvent::Keepalive {
-                                    ..
-                                }) => None,
+                                Ok(super::response::ResponsesStreamEvent::Keepalive { .. }) => None,
                                 Ok(super::response::ResponsesStreamEvent::Ping { cost }) => {
                                     let usage = forge_domain::Usage {
                                         cost: Some(cost),
@@ -250,8 +244,10 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                             Some(Err(anyhow::anyhow!(reason)
                                 .context(format_http_context(None, "POST", &url))))
                         }
-                        Err(e) => Some(Err(anyhow::Error::from(e)
-                            .context(format_http_context(None, "POST", &url)))),
+                        Err(e) => {
+                            Some(Err(anyhow::Error::from(e)
+                                .context(format_http_context(None, "POST", &url))))
+                        }
                     }
                 }
             });
@@ -1576,8 +1572,14 @@ mod tests {
         let actual = stream.next().await.expect("stream should yield one item");
         assert!(actual.is_err());
         let err_str = format!("{:#}", actual.unwrap_err());
-        assert!(err_str.contains("400 Bad Request Reason:"), "missing reason: {err_str}");
-        assert!(err_str.contains("model_not_supported"), "missing body: {err_str}");
+        assert!(
+            err_str.contains("400 Bad Request Reason:"),
+            "missing reason: {err_str}"
+        );
+        assert!(
+            err_str.contains("model_not_supported"),
+            "missing body: {err_str}"
+        );
         assert!(err_str.contains("/v1/responses"), "missing url: {err_str}");
         Ok(())
     }
@@ -1585,8 +1587,7 @@ mod tests {
     /// Tests that when the SSE endpoint returns 200 with a non-SSE content type
     /// the stream error includes the response body and the URL.
     #[tokio::test]
-    async fn test_stream_error_on_wrong_content_type_includes_body_and_url() -> anyhow::Result<()>
-    {
+    async fn test_stream_error_on_wrong_content_type_includes_body_and_url() -> anyhow::Result<()> {
         let mut fixture = MockServer::new().await;
         let error_body = r#"{"error":{"message":"internal server error"}}"#;
         let _mock = fixture
@@ -1610,8 +1611,14 @@ mod tests {
         let actual = stream.next().await.expect("stream should yield one item");
         assert!(actual.is_err());
         let err_str = format!("{:#}", actual.unwrap_err());
-        assert!(err_str.contains("200 OK Reason:"), "missing reason: {err_str}");
-        assert!(err_str.contains("internal server error"), "missing body: {err_str}");
+        assert!(
+            err_str.contains("200 OK Reason:"),
+            "missing reason: {err_str}"
+        );
+        assert!(
+            err_str.contains("internal server error"),
+            "missing body: {err_str}"
+        );
         assert!(err_str.contains("/v1/responses"), "missing url: {err_str}");
         Ok(())
     }
