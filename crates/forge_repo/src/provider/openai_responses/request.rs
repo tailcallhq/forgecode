@@ -149,24 +149,45 @@ impl FromDomain<ReasoningConfig> for oai::Reasoning {
     }
 }
 
+/// Returns true when any nested schema object explicitly allows arbitrary
+/// properties via `additionalProperties: true`.
+fn has_open_additional_properties(schema: &serde_json::Value) -> bool {
+    match schema {
+        serde_json::Value::Object(map) => {
+            if map
+                .get("additionalProperties")
+                .and_then(|value| value.as_bool())
+                .is_some_and(|value| value)
+            {
+                return true;
+            }
+
+            map.values().any(has_open_additional_properties)
+        }
+        serde_json::Value::Array(values) => values.iter().any(has_open_additional_properties),
+        _ => false,
+    }
+}
+
 /// Converts a schemars RootSchema into codex tool parameters with
-/// OpenAI-compatible JSON Schema
+/// OpenAI-compatible JSON Schema.
 ///
-/// The Responses API performs strict JSON Schema validation for tools. This
-/// function normalizes schemars output into the subset OpenAI accepts by using
-/// the shared `normalize_json_schema` utility with strict mode enabled.
+/// The Responses API performs strict JSON Schema validation for tools. When the
+/// schema contains any nested `additionalProperties: true`, Forge disables tool
+/// strictness for that tool so OpenAI can accept the open object shape.
+/// Otherwise the schema is normalized in strict mode.
 ///
 /// # Errors
-/// Returns an error if schema serialization fails
-fn codex_tool_parameters(schema: &schemars::Schema) -> anyhow::Result<serde_json::Value> {
+/// Returns an error if schema serialization fails.
+fn codex_tool_parameters(schema: &schemars::Schema) -> anyhow::Result<(serde_json::Value, bool)> {
     let mut params =
         serde_json::to_value(schema).with_context(|| "Failed to serialize tool schema")?;
 
-    // Use strict mode (true) for OpenAI - adds additionalProperties, properties,
-    // and required
-    enforce_strict_schema(&mut params, true);
+    let is_strict = !has_open_additional_properties(&params);
 
-    Ok(params)
+    enforce_strict_schema(&mut params, is_strict);
+
+    Ok((params, is_strict))
 }
 
 /// Converts Forge's domain-level Context into an async-openai Responses API
@@ -301,10 +322,12 @@ impl FromDomain<ChatContext> for oai::CreateResponse {
                     .tools
                     .into_iter()
                     .map(|tool| {
+                        let (parameters, is_strict) = codex_tool_parameters(&tool.input_schema)?;
+
                         Ok(oai::Tool::Function(oai::FunctionTool {
                             name: tool.name.to_string(),
-                            parameters: Some(codex_tool_parameters(&tool.input_schema)?),
-                            strict: Some(true),
+                            parameters: Some(parameters),
+                            strict: Some(is_strict),
                             description: Some(tool.description),
                             defer_loading: None,
                         }))
@@ -383,7 +406,9 @@ mod tests {
     use serde_json::json;
 
     use crate::provider::FromDomain;
-    use crate::provider::openai_responses::request::codex_tool_parameters;
+    use crate::provider::openai_responses::request::{
+        codex_tool_parameters, has_open_additional_properties,
+    };
 
     #[test]
     fn test_reasoning_config_conversion_with_effort() -> anyhow::Result<()> {
@@ -595,7 +620,7 @@ mod tests {
         }))
         .unwrap();
 
-        let actual = codex_tool_parameters(&fixture)?;
+        let (actual, actual_strict) = codex_tool_parameters(&fixture)?;
 
         let expected = json!({
             "type": "object",
@@ -608,7 +633,103 @@ mod tests {
             "required": ["url"]
         });
 
+        let expected_strict = true;
         assert_eq!(actual, expected);
+        assert_eq!(actual_strict, expected_strict);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_has_open_additional_properties_detects_nested_true() {
+        let fixture = json!({
+            "type": "object",
+            "properties": {
+                "code": { "type": "string" },
+                "data": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            },
+            "required": ["code", "data"],
+            "additionalProperties": false
+        });
+
+        let actual = has_open_additional_properties(&fixture);
+
+        let expected = true;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_codex_tool_parameters_disables_strict_for_nested_open_object() -> anyhow::Result<()> {
+        let fixture = schemars::Schema::try_from(json!({
+            "type": "object",
+            "properties": {
+                "code": { "type": "string" },
+                "data": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            },
+            "required": ["code", "data"],
+            "additionalProperties": false
+        }))
+        .unwrap();
+
+        let (actual, actual_strict) = codex_tool_parameters(&fixture)?;
+
+        let expected = json!({
+            "type": "object",
+            "properties": {
+                "code": { "type": "string" },
+                "data": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            },
+            "required": ["code", "data"],
+            "additionalProperties": false
+        });
+
+        let expected_strict = false;
+        assert_eq!(actual, expected);
+        assert_eq!(actual_strict, expected_strict);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_codex_request_uses_non_strict_tool_for_nested_open_object() -> anyhow::Result<()> {
+        let fixture_schema = schemars::Schema::try_from(json!({
+            "type": "object",
+            "properties": {
+                "code": { "type": "string" },
+                "data": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            },
+            "required": ["code", "data"],
+            "additionalProperties": false
+        }))
+        .unwrap();
+        let fixture_tool = forge_app::domain::ToolDefinition::new("mcp_jsmcp_tool_execute_code")
+            .description("Execute code with structured data")
+            .input_schema(fixture_schema);
+        let fixture_context = ChatContext::default()
+            .add_message(ContextMessage::user("Hello", None))
+            .add_tool(fixture_tool)
+            .tool_choice(ToolChoice::Auto);
+
+        let actual = oai::CreateResponse::from_domain(fixture_context)?;
+
+        let actual_tools = actual.tools.expect("Tools should be present");
+        let oai::Tool::Function(actual_tool) = &actual_tools[0] else {
+            anyhow::bail!("Expected function tool");
+        };
+        let expected = Some(false);
+        assert_eq!(actual_tool.strict, expected);
 
         Ok(())
     }

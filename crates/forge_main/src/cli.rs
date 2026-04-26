@@ -119,6 +119,7 @@ pub enum TopLevelCommand {
     /// Suggest shell commands from natural language.
     Suggest {
         /// Natural language description of the desired command.
+        #[arg(allow_hyphen_values = true)]
         prompt: String,
     },
 
@@ -148,6 +149,9 @@ pub enum TopLevelCommand {
 
     /// Run diagnostics on shell environment (alias for `zsh doctor`).
     Doctor,
+
+    /// Stream forge log output (defaults to the most recent log file).
+    Logs(LogsArgs),
 }
 
 /// Command group for custom command management.
@@ -816,6 +820,27 @@ pub struct UpdateArgs {
     /// Skip the confirmation prompt when applying updates.
     #[arg(long, default_value_t = false)]
     pub no_confirm: bool,
+}
+
+/// Arguments for the `forge logs` command.
+#[derive(Parser, Debug, Clone)]
+pub struct LogsArgs {
+    /// Number of lines to show from the end of the log file.
+    #[arg(long, short = 'n', default_value_t = 20)]
+    pub lines: usize,
+
+    /// Do not follow the log output; exit after printing the last lines.
+    #[arg(long)]
+    pub no_follow: bool,
+
+    /// List all available log files instead of tailing one.
+    #[arg(long, short = 'l')]
+    pub list: bool,
+
+    /// Path to a specific log file to tail. Defaults to the most recent log
+    /// file in the forge logs directory.
+    #[arg(long, short = 'f')]
+    pub file: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -1695,6 +1720,39 @@ mod tests {
     fn test_prompt_with_double_hyphen() {
         let fixture = Cli::parse_from(["forge", "-p", "--something"]);
         assert_eq!(fixture.prompt, Some("--something".to_string()));
+    }
+
+    #[test]
+    fn test_suggest_with_dash_prefixed_prompt() {
+        let fixture = Cli::parse_from(["forge", "suggest", "--- date"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Suggest { prompt }) => prompt,
+            _ => panic!("Expected suggest subcommand"),
+        };
+        let expected = "--- date".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_suggest_with_double_dash_prompt() {
+        let fixture = Cli::parse_from(["forge", "suggest", "--date tomorrow"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Suggest { prompt }) => prompt,
+            _ => panic!("Expected suggest subcommand"),
+        };
+        let expected = "--date tomorrow".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_suggest_with_single_dash_prompt() {
+        let fixture = Cli::parse_from(["forge", "suggest", "-v file.txt"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Suggest { prompt }) => prompt,
+            _ => panic!("Expected suggest subcommand"),
+        };
+        let expected = "-v file.txt".to_string();
+        assert_eq!(actual, expected);
     }
 
     #[test]
