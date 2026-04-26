@@ -64,10 +64,19 @@ where
                                 },
                             ))
                         }
-                        reqwest_eventsource::Error::InvalidContentType(_, ref response) => {
-                            let status_code = response.status();
-                            debug!(response = ?response, "Invalid content type");
-                            Some(Err(error).with_context(|| format!("Http Status: {status_code}")))
+                        reqwest_eventsource::Error::InvalidContentType(_, response) => {
+                            let status = response.status();
+                            let body = response.text().await.ok();
+                            Some(Err(Error::InvalidStatusCode(status.as_u16())).with_context(
+                                || match body {
+                                    Some(body) => {
+                                        format!("{status} Reason: {body}")
+                                    }
+                                    None => {
+                                        format!("{status} Reason: [Unknown]")
+                                    }
+                                },
+                            ))
                         }
                         error => {
                             tracing::error!(error = ?error, "Failed to receive chat completion event");
