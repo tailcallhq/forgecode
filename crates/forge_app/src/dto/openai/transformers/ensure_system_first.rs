@@ -17,7 +17,6 @@ impl Transformer for MergeSystemMessages {
             let (system, rest): (Vec<_>, Vec<_>) =
                 messages.into_iter().partition(|m| m.role == Role::System);
 
-
             let merged = if system.is_empty() {
                 rest
             } else {
@@ -62,7 +61,6 @@ impl Transformer for MergeSystemMessages {
                     result
                 }
             };
-
 
             request.messages = Some(merged);
         }
