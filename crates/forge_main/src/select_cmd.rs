@@ -1,4 +1,5 @@
 use std::cmp;
+use std::collections::BTreeSet;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -6,8 +7,14 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use crossterm::cursor::{Hide, MoveTo, Show};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::style::{Attribute, Print, SetAttribute};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    KeyboardEnhancementFlags, MouseEventKind, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
+};
+use crossterm::style::{
+    Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
+};
 use crossterm::terminal::{
     self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
     enable_raw_mode,
@@ -15,8 +22,6 @@ use crossterm::terminal::{
 use crossterm::{execute, queue};
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config as NucleoConfig, Nucleo, Utf32String};
-use nucleo_picker::error::PickError;
-use nucleo_picker::{PickerOptions, render::StrRenderer};
 use regex::Regex;
 
 use crate::cli::SelectArgs;
@@ -47,42 +52,7 @@ pub fn run_select(args: SelectArgs) -> anyhow::Result<()> {
         return run_select_with_preview(args, items);
     }
 
-    let mut picker_opts = PickerOptions::default()
-        .reversed(true)
-        .case_matching(nucleo_picker::CaseMatching::Smart);
-
-    if let Some(query) = args.query {
-        picker_opts = picker_opts.query(query);
-    }
-
-    let mut picker: nucleo_picker::Picker<String, _> = picker_opts.picker(StrRenderer);
-    picker.extend_exact(items);
-
-    if args.multi {
-        match picker.pick_multi() {
-            Ok(selection) if selection.is_empty() => std::process::exit(1),
-            Ok(selection) => {
-                for item in selection.iter() {
-                    println!("{}", item);
-                }
-            }
-            Err(PickError::NotInteractive) | Err(PickError::UserInterrupted) => {
-                std::process::exit(1);
-            }
-            Err(error) => anyhow::bail!("Picker error: {error}"),
-        }
-    } else {
-        match picker.pick() {
-            Ok(Some(item)) => println!("{}", item),
-            Ok(None) => std::process::exit(1),
-            Err(PickError::NotInteractive) | Err(PickError::UserInterrupted) => {
-                std::process::exit(1);
-            }
-            Err(error) => anyhow::bail!("Picker error: {error}"),
-        }
-    }
-
-    Ok(())
+    run_select_without_preview(args, items)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -120,10 +90,7 @@ struct PreviewLayout {
 
 impl Default for PreviewLayout {
     fn default() -> Self {
-        Self {
-            placement: PreviewPlacement::Right,
-            percent: 50,
-        }
+        Self { placement: PreviewPlacement::Right, percent: 50 }
     }
 }
 
@@ -132,31 +99,93 @@ struct TerminalGuard;
 impl TerminalGuard {
     fn enter() -> anyhow::Result<Self> {
         enable_raw_mode()?;
-        execute!(io::stderr(), EnterAlternateScreen, Hide)?;
+        execute!(
+            io::stderr(),
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+            Hide
+        )?;
         Ok(Self)
     }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let _ = execute!(io::stderr(), Show, LeaveAlternateScreen);
+        let _ = execute!(
+            io::stderr(),
+            Show,
+            PopKeyboardEnhancementFlags,
+            DisableMouseCapture,
+            LeaveAlternateScreen
+        );
         let _ = disable_raw_mode();
     }
 }
 
-fn run_select_with_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Result<()> {
-    if args.multi {
-        anyhow::bail!("Preview mode does not support --multi yet");
-    }
-
+fn run_select_without_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Result<()> {
     let rows = build_rows(&items, args.delimiter.as_deref(), args.with_nth.as_deref())?;
     if rows.is_empty() {
         std::process::exit(1);
     }
 
+    let mode = if args.multi {
+        SelectMode::Multi
+    } else {
+        SelectMode::Single
+    };
+    run_select_ui(
+        args.prompt,
+        args.query,
+        rows,
+        args.header_lines,
+        mode,
+        None,
+        PreviewLayout::default(),
+    )
+}
+
+fn run_select_with_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Result<()> {
+    let rows = build_rows(&items, args.delimiter.as_deref(), args.with_nth.as_deref())?;
+    if rows.is_empty() {
+        std::process::exit(1);
+    }
+
+    let mode = if args.multi {
+        SelectMode::Multi
+    } else {
+        SelectMode::Single
+    };
+    run_select_ui(
+        args.prompt,
+        args.query,
+        rows,
+        args.header_lines,
+        mode,
+        args.preview,
+        parse_preview_window(args.preview_window.as_deref()),
+    )
+}
+
+fn run_select_ui(
+    prompt: Option<String>,
+    query: Option<String>,
+    rows: Vec<SelectRow>,
+    header_lines: usize,
+    mode: SelectMode,
+    preview: Option<String>,
+    preview_layout: PreviewLayout,
+) -> anyhow::Result<()> {
+    let header_count = header_lines.min(rows.len());
+    let header_rows = rows.iter().take(header_count).collect::<Vec<_>>();
+    let data_rows = rows.iter().skip(header_count).cloned().collect::<Vec<_>>();
+    if data_rows.is_empty() {
+        std::process::exit(1);
+    }
+
     let mut matcher = Nucleo::new(NucleoConfig::DEFAULT, Arc::new(|| {}), None, 1);
     let injector = matcher.injector();
-    for row in rows.iter().cloned() {
+    for row in data_rows.iter().cloned() {
         injector.push(row, |item, columns| {
             if let Some(column) = columns.get_mut(0) {
                 *column = Utf32String::from(item.display.as_str());
@@ -165,7 +194,7 @@ fn run_select_with_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Resu
     }
     drop(injector);
 
-    let mut query = args.query.unwrap_or_default();
+    let mut query = query.unwrap_or_default();
     matcher
         .pattern
         .reparse(0, &query, CaseMatching::Smart, Normalization::Smart, false);
@@ -173,19 +202,16 @@ fn run_select_with_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Resu
 
     let guard = TerminalGuard::enter()?;
     let mut stderr = io::stderr();
-    let prompt = args.prompt.unwrap_or_else(|| "❯ ".to_string());
-    let preview_command = args.preview.unwrap_or_default();
-    let preview_layout = parse_preview_window(args.preview_window.as_deref());
+    let prompt = prompt.unwrap_or_else(|| "❯ ".to_string());
+    let preview_command = preview.unwrap_or_default();
     let mut selected_index = 0usize;
     let mut scroll_offset = 0usize;
+    let mut preview_scroll_offset = 0usize;
+    let mut queued_indices = BTreeSet::new();
     let mut preview_cache = String::new();
     let mut last_preview_key = String::new();
     let mut last_query = query.clone();
     let mut last_tick = Instant::now();
-
-    if rows.len() > 1 {
-        selected_index = 1;
-    }
 
     loop {
         if query != last_query {
@@ -199,8 +225,13 @@ fn run_select_with_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Resu
             let previous_query = last_query.clone();
             last_query = query.clone();
             let _ = matcher.tick(50);
-            selected_index = if query.starts_with(&previous_query) { selected_index } else { 0 };
+            selected_index = if query.starts_with(&previous_query) {
+                selected_index
+            } else {
+                0
+            };
             scroll_offset = 0;
+            preview_scroll_offset = 0;
         } else if last_tick.elapsed() >= Duration::from_millis(25) {
             let _ = matcher.tick(10);
             last_tick = Instant::now();
@@ -222,6 +253,7 @@ fn run_select_with_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Resu
             preview_cache = selected_row
                 .map(|row| render_preview(&preview_command, row))
                 .unwrap_or_else(|| "No matches".to_string());
+            preview_scroll_offset = 0;
             last_preview_key = preview_key;
         }
 
@@ -231,41 +263,144 @@ fn run_select_with_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Resu
                 prompt: &prompt,
                 query: &query,
                 matched_rows: &matched_rows,
+                header_rows: &header_rows,
                 selected_index,
                 scroll_offset: &mut scroll_offset,
                 preview: &preview_cache,
+                preview_scroll_offset,
                 layout: preview_layout,
             },
         )?;
 
         if event::poll(Duration::from_millis(50))? {
             match event::read()? {
-                Event::Key(key) => match handle_key_event(key, &mut query, matched_rows.len(), &mut selected_index) {
-                    PickerAction::Continue => {}
-                    PickerAction::Accept => {
-                        if let Some(row) = selected_row {
+                Event::Key(key) => {
+                    match handle_key_event(
+                        key,
+                        &mut query,
+                        matched_rows.len(),
+                        &mut selected_index,
+                        !preview_command.is_empty(),
+                    ) {
+                        PickerAction::Continue => {}
+                        PickerAction::PreviewScrollUp => {
+                            preview_scroll_offset = preview_scroll_offset.saturating_sub(1);
+                        }
+                        PickerAction::PreviewScrollDown => {
+                            preview_scroll_offset = preview_scroll_offset.saturating_add(1);
+                        }
+                        PickerAction::PreviewPageUp => {
+                            let page_size =
+                                preview_content_height(header_rows.len(), preview_layout)
+                                    .saturating_sub(1)
+                                    .max(1);
+                            preview_scroll_offset = preview_scroll_offset.saturating_sub(page_size);
+                        }
+                        PickerAction::PreviewPageDown => {
+                            let page_size =
+                                preview_content_height(header_rows.len(), preview_layout)
+                                    .saturating_sub(1)
+                                    .max(1);
+                            preview_scroll_offset = preview_scroll_offset.saturating_add(page_size);
+                        }
+                        PickerAction::Toggle => {
+                            if mode == SelectMode::Multi && selected_row.is_some() {
+                                if !queued_indices.remove(&selected_index) {
+                                    queued_indices.insert(selected_index);
+                                }
+                                selected_index = cmp::min(
+                                    selected_index + 1,
+                                    matched_rows.len().saturating_sub(1),
+                                );
+                            }
+                        }
+                        PickerAction::Accept => {
+                            if mode == SelectMode::Multi && !queued_indices.is_empty() {
+                                drop(guard);
+                                for index in &queued_indices {
+                                    if let Some(row) = matched_rows.get(*index) {
+                                        println!("{}", row.raw);
+                                    }
+                                }
+                                return Ok(());
+                            }
+
+                            if let Some(row) = selected_row {
+                                drop(guard);
+                                println!("{}", row.raw);
+                                return Ok(());
+                            }
+                        }
+                        PickerAction::Exit => {
                             drop(guard);
-                            println!("{}", row.raw);
-                            return Ok(());
+                            std::process::exit(1);
                         }
                     }
-                    PickerAction::Exit => {
-                        drop(guard);
-                        std::process::exit(1);
+                }
+                Event::Mouse(mouse) => {
+                    if !preview_command.is_empty()
+                        && mouse_over_preview(
+                            mouse.column,
+                            mouse.row,
+                            header_rows.len(),
+                            preview_layout,
+                        )
+                    {
+                        match mouse.kind {
+                            MouseEventKind::ScrollUp => {
+                                preview_scroll_offset = preview_scroll_offset.saturating_sub(3);
+                            }
+                            MouseEventKind::ScrollDown => {
+                                preview_scroll_offset = preview_scroll_offset.saturating_add(3);
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        match mouse.kind {
+                            MouseEventKind::ScrollUp => {
+                                selected_index = selected_index.saturating_sub(1);
+                            }
+                            MouseEventKind::ScrollDown => {
+                                selected_index = cmp::min(
+                                    selected_index.saturating_add(1),
+                                    matched_rows.len().saturating_sub(1),
+                                );
+                            }
+                            _ => {}
+                        }
                     }
-                },
+                }
                 Event::Resize(_, _) => {}
                 _ => {}
             }
         }
+
+        if !preview_command.is_empty() {
+            preview_scroll_offset = preview_scroll_offset.min(max_preview_scroll_offset(
+                &preview_cache,
+                header_rows.len(),
+                preview_layout,
+            ));
+        }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SelectMode {
+    Single,
+    Multi,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum PickerAction {
     Continue,
     Accept,
+    Toggle,
     Exit,
+    PreviewScrollUp,
+    PreviewScrollDown,
+    PreviewPageUp,
+    PreviewPageDown,
 }
 
 fn handle_key_event(
@@ -273,78 +408,149 @@ fn handle_key_event(
     query: &mut String,
     matched_len: usize,
     selected_index: &mut usize,
+    has_preview: bool,
 ) -> PickerAction {
     match key {
         KeyEvent {
-            code: KeyCode::Char('c'),
-            modifiers: KeyModifiers::CONTROL,
-            ..
+            code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, ..
         }
-        | KeyEvent {
-            code: KeyCode::Esc, ..
-        } => PickerAction::Exit,
-        KeyEvent {
-            code: KeyCode::Enter,
-            ..
-        } => PickerAction::Accept,
-        KeyEvent {
-            code: KeyCode::Up, ..
+        | KeyEvent { code: KeyCode::Esc, .. } => PickerAction::Exit,
+        KeyEvent { code: KeyCode::Char('U'), .. } if has_preview => PickerAction::PreviewPageUp,
+        KeyEvent { code: KeyCode::Char('u'), modifiers, .. }
+            if has_preview && modifiers.contains(KeyModifiers::SHIFT) =>
+        {
+            PickerAction::PreviewPageUp
         }
-        | KeyEvent {
-            code: KeyCode::BackTab,
-            ..
-        } => {
+        KeyEvent { code: KeyCode::PageUp, modifiers, .. }
+            if has_preview && modifiers.contains(KeyModifiers::SHIFT) =>
+        {
+            PickerAction::PreviewPageUp
+        }
+        KeyEvent { code: KeyCode::Char('D'), .. } if has_preview => PickerAction::PreviewPageDown,
+        KeyEvent { code: KeyCode::Char('d'), modifiers, .. }
+            if has_preview && modifiers.contains(KeyModifiers::SHIFT) =>
+        {
+            PickerAction::PreviewPageDown
+        }
+        KeyEvent { code: KeyCode::PageDown, modifiers, .. }
+            if has_preview && modifiers.contains(KeyModifiers::SHIFT) =>
+        {
+            PickerAction::PreviewPageDown
+        }
+        KeyEvent { code: KeyCode::Char('K'), .. } if has_preview => PickerAction::PreviewScrollUp,
+        KeyEvent { code: KeyCode::Char('k'), modifiers, .. }
+            if has_preview && modifiers.contains(KeyModifiers::SHIFT) =>
+        {
+            PickerAction::PreviewScrollUp
+        }
+        KeyEvent { code: KeyCode::Up, modifiers, .. }
+            if has_preview && modifiers.contains(KeyModifiers::SHIFT) =>
+        {
+            PickerAction::PreviewScrollUp
+        }
+        KeyEvent { code: KeyCode::Char('J'), .. } if has_preview => PickerAction::PreviewScrollDown,
+        KeyEvent { code: KeyCode::Char('j'), modifiers, .. }
+            if has_preview && modifiers.contains(KeyModifiers::SHIFT) =>
+        {
+            PickerAction::PreviewScrollDown
+        }
+        KeyEvent { code: KeyCode::Down, modifiers, .. }
+            if has_preview && modifiers.contains(KeyModifiers::SHIFT) =>
+        {
+            PickerAction::PreviewScrollDown
+        }
+        KeyEvent { code: KeyCode::Enter, .. } => PickerAction::Accept,
+        KeyEvent { code: KeyCode::BackTab, .. } | KeyEvent { code: KeyCode::Tab, .. } => {
+            PickerAction::Toggle
+        }
+        KeyEvent { code: KeyCode::Up, .. } => {
             if matched_len > 0 {
                 *selected_index = selected_index.saturating_sub(1);
             }
             PickerAction::Continue
         }
-        KeyEvent {
-            code: KeyCode::Down,
-            ..
-        }
-        | KeyEvent {
-            code: KeyCode::Tab, ..
-        } => {
+        KeyEvent { code: KeyCode::Down, .. } => {
             if matched_len > 0 {
                 *selected_index = cmp::min(*selected_index + 1, matched_len.saturating_sub(1));
             }
             PickerAction::Continue
         }
-        KeyEvent {
-            code: KeyCode::PageUp,
-            ..
-        } => {
+        KeyEvent { code: KeyCode::PageUp, .. } => {
             if matched_len > 0 {
                 *selected_index = selected_index.saturating_sub(10);
             }
             PickerAction::Continue
         }
-        KeyEvent {
-            code: KeyCode::PageDown,
-            ..
-        } => {
+        KeyEvent { code: KeyCode::PageDown, .. } => {
             if matched_len > 0 {
                 *selected_index = cmp::min(*selected_index + 10, matched_len.saturating_sub(1));
             }
             PickerAction::Continue
         }
-        KeyEvent {
-            code: KeyCode::Backspace,
-            ..
-        } => {
+        KeyEvent { code: KeyCode::Backspace, .. } => {
             query.pop();
             PickerAction::Continue
         }
-        KeyEvent {
-            code: KeyCode::Char(ch),
-            modifiers,
-            ..
-        } if modifiers.is_empty() || modifiers == KeyModifiers::SHIFT => {
+        KeyEvent { code: KeyCode::Char(ch), modifiers, .. }
+            if modifiers.is_empty() || modifiers == KeyModifiers::SHIFT =>
+        {
             query.push(ch);
             PickerAction::Continue
         }
         _ => PickerAction::Continue,
+    }
+}
+
+fn max_preview_scroll_offset(preview: &str, header_rows: usize, layout: PreviewLayout) -> usize {
+    preview
+        .lines()
+        .count()
+        .saturating_sub(preview_content_height(header_rows, layout).max(1))
+}
+
+fn preview_content_height(header_rows: usize, layout: PreviewLayout) -> usize {
+    let Ok((_, height)) = terminal::size() else {
+        return 1;
+    };
+    let height = ((height.max(6) as u32 * 80) / 100).max(6) as u16;
+    let header_height = 2u16.saturating_add(header_rows as u16);
+    let body_height = height.saturating_sub(header_height).max(1);
+
+    (match layout.placement {
+        PreviewPlacement::Right => body_height,
+        PreviewPlacement::Bottom => {
+            let preview_height = ((height as u32 * layout.percent as u32) / 100) as u16;
+            preview_height
+                .clamp(3, body_height.saturating_sub(1).max(3))
+                .saturating_sub(2)
+        }
+    }) as usize
+}
+
+fn mouse_over_preview(column: u16, row: u16, header_rows: usize, layout: PreviewLayout) -> bool {
+    let Ok((width, height)) = terminal::size() else {
+        return false;
+    };
+    let width = width.max(20);
+    let height = ((height.max(6) as u32 * 80) / 100).max(6) as u16;
+    let header_height = 2u16.saturating_add(header_rows as u16);
+    let body_height = height.saturating_sub(header_height).max(1);
+
+    match layout.placement {
+        PreviewPlacement::Right => {
+            let preview_width = ((width as u32 * layout.percent as u32) / 100) as u16;
+            let preview_width = preview_width.clamp(10, width.saturating_sub(10));
+            let list_width = width.saturating_sub(preview_width + 3).max(10);
+            let preview_x = list_width + 3;
+            column >= preview_x && column < width && row >= header_height && row < height
+        }
+        PreviewPlacement::Bottom => {
+            let preview_height = ((height as u32 * layout.percent as u32) / 100) as u16;
+            let preview_height = preview_height.clamp(3, body_height.saturating_sub(1).max(3));
+            let list_height = body_height.saturating_sub(preview_height).max(1);
+            let preview_y = header_height + list_height;
+            column < width && row >= preview_y && row < preview_y.saturating_add(preview_height)
+        }
     }
 }
 
@@ -354,7 +560,9 @@ fn build_rows(
     with_nth: Option<&str>,
 ) -> anyhow::Result<Vec<SelectRow>> {
     let delimiter_regex = match delimiter {
-        Some(value) => Some(Regex::new(value).with_context(|| format!("Invalid delimiter regex: {value}"))?),
+        Some(value) => {
+            Some(Regex::new(value).with_context(|| format!("Invalid delimiter regex: {value}"))?)
+        }
         None => None,
     };
     let display_fields = parse_with_nth(with_nth)?;
@@ -385,7 +593,11 @@ fn parse_with_nth(with_nth: Option<&str>) -> anyhow::Result<Option<Vec<FieldSele
     };
 
     let mut selectors = Vec::new();
-    for part in value.split(',').map(str::trim).filter(|part| !part.is_empty()) {
+    for part in value
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+    {
         if let Some((start, end)) = part.split_once("..") {
             let start = start
                 .trim()
@@ -402,10 +614,10 @@ fn parse_with_nth(with_nth: Option<&str>) -> anyhow::Result<Option<Vec<FieldSele
                 selectors.push(FieldSelector::RangeInclusive(start, end));
             }
         } else {
-            selectors.push(FieldSelector::Index(
-                part.parse::<usize>()
-                    .with_context(|| format!("Invalid --with-nth field: {part}"))?,
-            ));
+            selectors
+                .push(FieldSelector::Index(part.parse::<usize>().with_context(
+                    || format!("Invalid --with-nth field: {part}"),
+                )?));
         }
     }
 
@@ -447,20 +659,12 @@ fn split_field_parts(item: &str, delimiter: Option<&Regex>) -> Vec<FieldPart> {
             }
 
             if parts.is_empty() {
-                vec![FieldPart {
-                    value: item.to_string(),
-                    start: 0,
-                    end: item.len(),
-                }]
+                vec![FieldPart { value: item.to_string(), start: 0, end: item.len() }]
             } else {
                 parts
             }
         }
-        None => vec![FieldPart {
-            value: item.to_string(),
-            start: 0,
-            end: item.len(),
-        }],
+        None => vec![FieldPart { value: item.to_string(), start: 0, end: item.len() }],
     }
 }
 
@@ -490,7 +694,10 @@ fn build_display(
                 format!(
                     "{:<width$}",
                     part.value,
-                    width = column_widths.get(index).copied().unwrap_or(part.value.chars().count())
+                    width = column_widths
+                        .get(index)
+                        .copied()
+                        .unwrap_or(part.value.chars().count())
                 )
             }
         })
@@ -629,9 +836,11 @@ struct PreviewUi<'a> {
     prompt: &'a str,
     query: &'a str,
     matched_rows: &'a [&'a SelectRow],
+    header_rows: &'a [&'a SelectRow],
     selected_index: usize,
     scroll_offset: &'a mut usize,
     preview: &'a str,
+    preview_scroll_offset: usize,
     layout: PreviewLayout,
 }
 
@@ -640,20 +849,31 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
         prompt,
         query,
         matched_rows,
+        header_rows,
         selected_index,
         scroll_offset,
         preview,
+        preview_scroll_offset,
         layout,
     } = ui;
     let (width, height) = terminal::size()?;
     let width = width.max(20);
-    let height = height.max(6);
+    let height = ((height.max(6) as u32 * 80) / 100).max(6) as u16;
 
-    let header_height = 1u16;
-    let status_height = 1u16;
-    let body_height = height.saturating_sub(header_height + status_height).max(1);
+    let has_preview = !preview.is_empty();
+    let header_height = 2u16.saturating_add(header_rows.len() as u16);
+    let body_height = height.saturating_sub(header_height).max(1);
 
-    let (list_x, list_y, list_width, list_height, preview_x, preview_y, preview_width, preview_height) =
+    let (
+        list_x,
+        list_y,
+        list_width,
+        list_height,
+        preview_x,
+        preview_y,
+        preview_width,
+        preview_height,
+    ) = if has_preview {
         match layout.placement {
             PreviewPlacement::Right => {
                 let preview_width = ((width as u32 * layout.percent as u32) / 100) as u16;
@@ -671,12 +891,24 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
                 )
             }
             PreviewPlacement::Bottom => {
-                let preview_height = ((body_height as u32 * layout.percent as u32) / 100) as u16;
-                let preview_height = preview_height.clamp(3, body_height.saturating_sub(2).max(3));
-                let list_height = body_height.saturating_sub(preview_height + 1).max(1);
-                (0, header_height, width, list_height, 0, header_height + list_height + 1, width, preview_height)
+                let preview_height = ((height as u32 * layout.percent as u32) / 100) as u16;
+                let preview_height = preview_height.clamp(3, body_height.saturating_sub(1).max(3));
+                let list_height = body_height.saturating_sub(preview_height).max(1);
+                (
+                    0,
+                    header_height,
+                    width,
+                    list_height,
+                    0,
+                    header_height + list_height,
+                    width,
+                    preview_height,
+                )
             }
-        };
+        }
+    } else {
+        (0, header_height, width, body_height, 0, height, 0, 0)
+    };
 
     let visible_rows = list_height as usize;
     if visible_rows > 0 {
@@ -688,62 +920,253 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
     }
 
     queue!(stderr, MoveTo(0, 0), Clear(ClearType::All))?;
-    queue!(stderr, MoveTo(0, 0), Print(truncate_line(&format!("{}{}", prompt, query), width as usize)))?;
-
-    for row_index in 0..list_height {
-        queue!(stderr, MoveTo(list_x, list_y + row_index), Clear(ClearType::CurrentLine))?;
-        let item_index = *scroll_offset + row_index as usize;
-        if let Some(row) = matched_rows.get(item_index) {
-            let prefix = if item_index == selected_index { "> " } else { "  " };
-            let content_width = list_width.saturating_sub(prefix.chars().count() as u16) as usize;
-            let line = format!("{prefix}{}", truncate_line(&row.display, content_width));
-            if item_index == selected_index {
-                queue!(stderr, SetAttribute(Attribute::Reverse))?;
-            }
-            queue!(stderr, MoveTo(list_x, list_y + row_index), Print(line))?;
-            if item_index == selected_index {
-                queue!(stderr, SetAttribute(Attribute::Reset))?;
-            }
-        }
-    }
-
-    match layout.placement {
-        PreviewPlacement::Right => {
-            let divider_x = list_width + 1;
-            for row_index in 0..body_height {
-                queue!(stderr, MoveTo(divider_x, header_height + row_index), Print("│"))?;
-            }
-        }
-        PreviewPlacement::Bottom => {
-            queue!(stderr, MoveTo(0, preview_y.saturating_sub(1)), Clear(ClearType::CurrentLine))?;
-            queue!(stderr, MoveTo(0, preview_y.saturating_sub(1)), Print("─".repeat(width as usize)))?;
-        }
-    }
-
-    let preview_lines = preview.lines().collect::<Vec<_>>();
-    for row_index in 0..preview_height {
-        queue!(stderr, MoveTo(preview_x, preview_y + row_index), Print(" ".repeat(preview_width as usize)))?;
-        if let Some(line) = preview_lines.get(row_index as usize) {
-            queue!(stderr, MoveTo(preview_x, preview_y + row_index), Print(truncate_line(line, preview_width as usize)))?;
-        }
-    }
-
-    queue!(stderr, MoveTo(0, height.saturating_sub(1)), Clear(ClearType::CurrentLine))?;
     queue!(
         stderr,
-        MoveTo(0, height.saturating_sub(1)),
+        MoveTo(0, 0),
+        SetAttribute(Attribute::Bold),
+        SetForegroundColor(Color::AnsiValue(110)),
         Print(truncate_line(
-            &format!("{} matches", matched_rows.len()),
-            width as usize,
-        ))
+            &format!("{}{}", prompt, query),
+            width as usize
+        )),
+        ResetColor,
+        SetAttribute(Attribute::Reset)
     )?;
+    queue!(
+        stderr,
+        MoveTo(2, 1),
+        SetForegroundColor(Color::AnsiValue(144)),
+        Print(format!("{}/{}", matched_rows.len(), matched_rows.len())),
+        SetForegroundColor(Color::AnsiValue(59)),
+        Print(" "),
+        Print(truncate_line(
+            &"─".repeat(width as usize),
+            width.saturating_sub(3 + match_count_width(matched_rows.len())) as usize,
+        )),
+        ResetColor
+    )?;
+    for (index, row) in header_rows.iter().enumerate() {
+        let row_y = 2u16.saturating_add(index as u16);
+        if row_y < header_height {
+            queue!(
+                stderr,
+                MoveTo(2, row_y),
+                SetAttribute(Attribute::Bold),
+                SetForegroundColor(Color::AnsiValue(109))
+            )?;
+            queue!(
+                stderr,
+                Print(truncate_line(
+                    &row.display,
+                    width.saturating_sub(2) as usize
+                ))
+            )?;
+            queue!(stderr, ResetColor, SetAttribute(Attribute::Reset))?;
+        }
+    }
+
+    for row_index in 0..list_height {
+        queue!(
+            stderr,
+            MoveTo(list_x, list_y + row_index),
+            Clear(ClearType::CurrentLine)
+        )?;
+        let item_index = *scroll_offset + row_index as usize;
+        if let Some(row) = matched_rows.get(item_index) {
+            let is_selected = item_index == selected_index;
+            let marker = "▌";
+            let content_width = list_width.saturating_sub(2) as usize;
+            if is_selected {
+                queue!(
+                    stderr,
+                    MoveTo(list_x, list_y + row_index),
+                    SetAttribute(Attribute::Bold),
+                    SetForegroundColor(Color::AnsiValue(161)),
+                    SetBackgroundColor(Color::AnsiValue(236)),
+                    Print(marker),
+                    SetForegroundColor(Color::AnsiValue(254)),
+                    Print(" "),
+                    Print(truncate_line(&row.display, content_width)),
+                    ResetColor,
+                    SetAttribute(Attribute::Reset)
+                )?;
+            } else {
+                queue!(
+                    stderr,
+                    MoveTo(list_x, list_y + row_index),
+                    SetForegroundColor(Color::AnsiValue(236)),
+                    Print(marker),
+                    ResetColor,
+                    Print(" "),
+                    Print(truncate_line(&row.display, content_width))
+                )?;
+            }
+        }
+    }
+
+    if has_preview {
+        match layout.placement {
+            PreviewPlacement::Right => {
+                let divider_x = list_width + 1;
+                for row_index in 0..body_height {
+                    queue!(
+                        stderr,
+                        MoveTo(divider_x, header_height + row_index),
+                        Print("│")
+                    )?;
+                }
+            }
+            PreviewPlacement::Bottom => {
+                queue!(
+                    stderr,
+                    MoveTo(0, preview_y),
+                    SetForegroundColor(Color::AnsiValue(59)),
+                    Print("┌"),
+                    Print("─".repeat(width.saturating_sub(2) as usize)),
+                    Print("┐"),
+                    ResetColor
+                )?;
+            }
+        }
+
+        let preview_lines = preview.lines().collect::<Vec<_>>();
+        let preview_content_height = match layout.placement {
+            PreviewPlacement::Bottom => preview_height.saturating_sub(2),
+            PreviewPlacement::Right => preview_height,
+        } as usize;
+        let preview_scroll_offset = preview_scroll_offset.min(
+            preview_lines
+                .len()
+                .saturating_sub(preview_content_height.max(1)),
+        );
+        for row_index in 0..preview_height {
+            let y = preview_y + row_index;
+            if layout.placement == PreviewPlacement::Bottom && row_index == 0 {
+                continue;
+            }
+            if layout.placement == PreviewPlacement::Bottom
+                && row_index == preview_height.saturating_sub(1)
+            {
+                queue!(
+                    stderr,
+                    MoveTo(preview_x, y),
+                    SetForegroundColor(Color::AnsiValue(59)),
+                    Print("└"),
+                    Print("─".repeat(preview_width.saturating_sub(2) as usize)),
+                    Print("┘"),
+                    ResetColor
+                )?;
+                continue;
+            }
+
+            let (content_x, content_width) = if layout.placement == PreviewPlacement::Bottom {
+                queue!(
+                    stderr,
+                    MoveTo(preview_x, y),
+                    SetForegroundColor(Color::AnsiValue(59)),
+                    Print("│"),
+                    MoveTo(preview_x + preview_width.saturating_sub(1), y),
+                    Print("│"),
+                    ResetColor
+                )?;
+                (preview_x + 2, preview_width.saturating_sub(4))
+            } else {
+                (preview_x, preview_width)
+            };
+
+            queue!(
+                stderr,
+                MoveTo(content_x, y),
+                Print(" ".repeat(content_width as usize))
+            )?;
+            let line_index = if layout.placement == PreviewPlacement::Bottom {
+                preview_scroll_offset + row_index.saturating_sub(1) as usize
+            } else {
+                preview_scroll_offset + row_index as usize
+            };
+            if let Some(line) = preview_lines.get(line_index) {
+                queue!(
+                    stderr,
+                    MoveTo(content_x, y),
+                    Print(truncate_line(line, content_width as usize))
+                )?;
+            }
+
+            if layout.placement == PreviewPlacement::Bottom
+                && row_index == 1
+                && !preview_lines.is_empty()
+            {
+                let indicator =
+                    preview_scroll_indicator(preview_scroll_offset, preview_lines.len());
+                let indicator_width = indicator.chars().count() as u16;
+                if indicator_width.saturating_add(1) < preview_width {
+                    queue!(
+                        stderr,
+                        MoveTo(
+                            preview_x + preview_width.saturating_sub(indicator_width + 2),
+                            y
+                        ),
+                        SetAttribute(Attribute::Reverse),
+                        SetForegroundColor(Color::AnsiValue(144)),
+                        Print(indicator),
+                        ResetColor,
+                        SetAttribute(Attribute::Reset),
+                        SetForegroundColor(Color::AnsiValue(59)),
+                        Print(" "),
+                        Print("│"),
+                        ResetColor
+                    )?;
+                }
+            }
+        }
+    }
 
     stderr.flush()?;
     Ok(())
 }
 
+fn preview_scroll_indicator(scroll_offset: usize, line_count: usize) -> String {
+    format!("{}/{line_count}", scroll_offset.saturating_add(1))
+}
+
+fn match_count_width(count: usize) -> u16 {
+    format!("{count}/{count}").chars().count() as u16
+}
+
 fn truncate_line(value: &str, max_width: usize) -> String {
-    value.chars().take(max_width).collect()
+    let mut rendered = String::new();
+    let mut visible_width = 0usize;
+    let mut chars = value.chars().peekable();
+    let mut truncated = false;
+    let mut has_ansi = false;
+
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            has_ansi = true;
+            rendered.push(ch);
+            for ansi_ch in chars.by_ref() {
+                rendered.push(ansi_ch);
+                if ansi_ch.is_ascii_alphabetic() || ansi_ch == '~' {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        if visible_width >= max_width {
+            truncated = true;
+            break;
+        }
+
+        rendered.push(ch);
+        visible_width = visible_width.saturating_add(1);
+    }
+
+    if truncated && has_ansi {
+        rendered.push_str("\u{1b}[0m");
+    }
+
+    rendered
 }
 
 #[cfg(unix)]

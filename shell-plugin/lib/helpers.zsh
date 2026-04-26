@@ -126,7 +126,11 @@ function _forge_select() {
         return 1
     fi
 
-    if $_FORGE_BIN select "${forge_args[@]}" < "$selectable_file" > "$output_file" 2>/dev/tty; then
+    if (( header_lines > 0 )); then
+        forge_args+=(--header-lines "$header_lines")
+    fi
+
+    if $_FORGE_BIN select "${forge_args[@]}" < "$input_file" > "$output_file" 2>/dev/tty; then
         cat "$output_file"
         exit_status=0
     else

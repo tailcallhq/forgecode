@@ -40,9 +40,8 @@ impl<T> MultiSelectBuilder<T> {
             .map(|item| strip_ansi_codes(&item.to_string()).trim().to_string())
             .collect();
 
-        let mut picker: nucleo_picker::Picker<String, _> = PickerOptions::default()
-            .reversed(true)
-            .picker(StrRenderer);
+        let mut picker: nucleo_picker::Picker<String, _> =
+            PickerOptions::default().reversed(true).picker(StrRenderer);
 
         picker.extend_exact(display_options);
 

@@ -101,7 +101,10 @@ impl<T: 'static> SelectBuilder<T> {
             .collect();
 
         let header_count = self.header_lines.min(display_options.len());
-        let data_items = display_options.into_iter().skip(header_count).collect::<Vec<_>>();
+        let data_items = display_options
+            .into_iter()
+            .skip(header_count)
+            .collect::<Vec<_>>();
 
         if data_items.is_empty() {
             return Ok(None);
@@ -144,9 +147,7 @@ impl<T: 'static> SelectBuilder<T> {
                     .options
                     .iter()
                     .skip(header_count)
-                    .find(|opt| {
-                        strip_ansi_codes(&opt.to_string()).trim() == selected_str
-                    })
+                    .find(|opt| strip_ansi_codes(&opt.to_string()).trim() == selected_str)
                     .cloned())
             }
             Ok(None) => Ok(None),
@@ -168,9 +169,8 @@ fn prompt_confirm(message: &str, default: Option<bool>) -> Result<Option<bool>> 
         vec!["Yes".to_string(), "No".to_string()]
     };
 
-    let mut picker: nucleo_picker::Picker<String, _> = PickerOptions::default()
-        .reversed(true)
-        .picker(StrRenderer);
+    let mut picker: nucleo_picker::Picker<String, _> =
+        PickerOptions::default().reversed(true).picker(StrRenderer);
 
     picker.extend_exact(items);
 

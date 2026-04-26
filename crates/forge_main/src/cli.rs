@@ -183,6 +183,10 @@ pub struct SelectArgs {
     /// Preview window layout hint.
     #[arg(long = "preview-window")]
     pub preview_window: Option<String>,
+
+    /// Number of leading input lines displayed as a non-selectable header.
+    #[arg(long = "header-lines", default_value_t = 0)]
+    pub header_lines: usize,
 }
 
 /// Command group for custom command management.
