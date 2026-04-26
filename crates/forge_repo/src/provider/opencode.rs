@@ -16,6 +16,8 @@ use crate::provider::google::GoogleResponseRepository;
 use crate::provider::openai::OpenAIResponseRepository;
 use crate::provider::openai_responses::OpenAIResponsesResponseRepository;
 
+const MODELS_DEV_API_URL: &str = "https://models.dev/api.json";
+
 /// OpenCode provider that routes to different backends based on model:
 /// - Claude models (claude-*) -> Anthropic endpoint
 /// - GPT-5 models (gpt-5*) -> OpenAIResponses endpoint
@@ -255,16 +257,14 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync>
         let provider_key = models_dev_key(&provider.id)
             .ok_or_else(|| anyhow::anyhow!("Unknown provider for models.dev: {}", provider.id))?;
 
-        let url = Url::parse("https://models.dev/api.json")?;
+        let url = Url::parse(MODELS_DEV_API_URL)?;
         let response = self.infra.http_get(&url, None).await?;
         let body = response.text().await?;
-        let api: HashMap<String, serde_json::Value> = serde_json::from_str(&body)?;
+        let mut api: HashMap<String, ModelsDevResponse> = serde_json::from_str(&body)?;
 
-        let provider_value = api.get(provider_key).ok_or_else(|| {
+        let provider_data = api.remove(provider_key).ok_or_else(|| {
             anyhow::anyhow!("Provider {} not found in models.dev response", provider_key)
         })?;
-
-        let provider_data: ModelsDevResponse = serde_json::from_value(provider_value.clone())?;
 
         let models = provider_data
             .models
