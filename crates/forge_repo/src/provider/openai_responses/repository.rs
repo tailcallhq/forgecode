@@ -166,9 +166,12 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
             request = super::codex_transformer::CodexTransformer.transform(request);
         }
 
-        // Apply deferred loading for GPT 5.4 and newer models when tool_search is enabled.
+        // Apply deferred loading for GPT 5.4 and newer models when tool_search is
+        // enabled.
         let model_str = model.as_str();
-        if tool_search_enabled && (model_str.starts_with("gpt-5.4") || model_str.starts_with("gpt-5.5")) {
+        if tool_search_enabled
+            && (model_str.starts_with("gpt-5.4") || model_str.starts_with("gpt-5.5"))
+        {
             use forge_domain::Transformer;
             request = super::codex_transformer::SetDeferLoading.transform(request);
         }
