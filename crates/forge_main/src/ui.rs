@@ -578,6 +578,52 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 McpCommand::Logout(args) => {
                     self.handle_mcp_logout(&args.name).await?;
                 }
+                McpCommand::Enable(args) => {
+                    let name = forge_api::ServerName::from(args.name.clone());
+                    let scope: forge_domain::Scope = args.scope.into();
+
+                    // Read scope-specific config
+                    let mut scope_config = self.api.read_mcp_config(Some(&scope)).await?;
+
+                    // Find and enable the server
+                    if let Some(server) = scope_config.mcp_servers.get_mut(&name) {
+                        server.set_disable(false);
+                        self.api.write_mcp_config(&scope, &scope_config).await?;
+                        self.api.reload_mcp().await?;
+                        self.writeln_title(TitleFormat::info(format!(
+                            "Enabled MCP server: {}",
+                            args.name
+                        )))?;
+                    } else {
+                        self.writeln_title(TitleFormat::error(format!(
+                            "Server '{}' not found",
+                            args.name
+                        )))?;
+                    }
+                }
+                McpCommand::Disable(args) => {
+                    let name = forge_api::ServerName::from(args.name.clone());
+                    let scope: forge_domain::Scope = args.scope.into();
+
+                    // Read scope-specific config
+                    let mut scope_config = self.api.read_mcp_config(Some(&scope)).await?;
+
+                    // Find and disable the server
+                    if let Some(server) = scope_config.mcp_servers.get_mut(&name) {
+                        server.set_disable(true);
+                        self.api.write_mcp_config(&scope, &scope_config).await?;
+                        self.api.reload_mcp().await?;
+                        self.writeln_title(TitleFormat::info(format!(
+                            "Disabled MCP server: {}",
+                            args.name
+                        )))?;
+                    } else {
+                        self.writeln_title(TitleFormat::error(format!(
+                            "Server '{}' not found",
+                            args.name
+                        )))?;
+                    }
+                }
             },
             TopLevelCommand::Info { porcelain, conversation_id } => {
                 // Only initialize state (agent/provider/model resolution).
