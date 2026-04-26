@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use convert_case::{Case, Casing};
 use derive_setters::Setters;
-use forge_api::{AgentId, ModelId, Usage};
+use forge_api::{AgentId, Effort, ModelId, Usage};
 use nu_ansi_term::{Color, Style};
 use reedline::{Prompt, PromptHistorySearchStatus};
 
@@ -23,6 +23,12 @@ const SUCCESS_SYMBOL: &str = "\u{f013e}"; // 󰄾  chevron
 const AGENT_SYMBOL: &str = "\u{f167a}";
 const MODEL_SYMBOL: &str = "\u{ec19}";
 
+/// Terminal width at which the reasoning effort label switches from the
+/// compact three-letter form (e.g. `MED`) to the full uppercase label
+/// (e.g. `MEDIUM`). Matches [`crate::zsh::rprompt`] so the CLI and zsh
+/// integration render identically on equivalent terminals.
+const WIDE_TERMINAL_THRESHOLD: usize = 100;
+
 /// Very Specialized Prompt for the Agent Chat
 #[derive(Clone, Setters)]
 #[setters(strip_option, borrow_self)]
@@ -31,6 +37,10 @@ pub struct ForgePrompt {
     pub usage: Option<Usage>,
     pub agent_id: AgentId,
     pub model: Option<ModelId>,
+    /// Currently configured reasoning effort level for the active model,
+    /// rendered to the right of the model when set. `Effort::None` is
+    /// suppressed (see [`ForgePrompt::render_prompt_right`]).
+    pub reasoning_effort: Option<Effort>,
     pub git_branch: Option<String>,
 }
 
@@ -39,7 +49,14 @@ impl ForgePrompt {
     /// construction time.
     pub fn new(cwd: PathBuf, agent_id: AgentId) -> Self {
         let git_branch = get_git_branch();
-        Self { cwd, usage: None, agent_id, model: None, git_branch }
+        Self {
+            cwd,
+            usage: None,
+            agent_id,
+            model: None,
+            reasoning_effort: None,
+            git_branch,
+        }
     }
 
     pub fn refresh(&mut self) -> &mut Self {
@@ -172,6 +189,22 @@ impl Prompt for ForgePrompt {
             write!(result, " {}", Style::new().fg(color).paint(&model_label)).unwrap();
         }
 
+        // Reasoning effort — rendered to the right of the model, matching the
+        // ZSH rprompt. `Effort::None` is suppressed (see zsh/rprompt.rs). On
+        // narrow terminals the label collapses to its first three characters
+        // so the prompt stays compact.
+        if let Some(ref effort) = self.reasoning_effort
+            && !matches!(effort, Effort::None)
+        {
+            let effort_label = effort_label(effort, term_width());
+            let color = if active {
+                Color::Yellow
+            } else {
+                Color::DarkGray
+            };
+            write!(result, " {}", Style::new().fg(color).paint(&effort_label)).unwrap();
+        }
+
         Cow::Owned(result)
     }
 
@@ -217,6 +250,27 @@ fn get_git_branch() -> Option<String> {
     head.referent_name().map(|r| r.shorten().to_string())
 }
 
+/// Returns the current terminal width in columns, falling back to 80 when
+/// the size cannot be detected.
+fn term_width() -> usize {
+    terminal_size::terminal_size()
+        .map(|(w, _)| w.0 as usize)
+        .unwrap_or(80)
+}
+
+/// Formats an [`Effort`] as its uppercase label, collapsing to the first three
+/// characters on narrow terminals (< [`WIDE_TERMINAL_THRESHOLD`] columns).
+fn effort_label(effort: &Effort, width: usize) -> String {
+    let full = effort.to_string().to_uppercase();
+    if width >= WIDE_TERMINAL_THRESHOLD {
+        full
+    } else {
+        // `chars().take(3)` rather than `&full[..3]` to satisfy the
+        // `clippy::string_slice` lint denied in CI.
+        full.chars().take(3).collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use nu_ansi_term::Style;
@@ -231,6 +285,7 @@ mod tests {
                 usage: None,
                 agent_id: AgentId::default(),
                 model: None,
+                reasoning_effort: None,
                 git_branch: None,
             }
         }
@@ -378,5 +433,37 @@ mod tests {
         let actual = prompt.render_prompt_right();
         assert!(actual.contains("0.01"));
         assert!(actual.contains("1.5k"));
+    }
+
+    #[test]
+    fn test_render_prompt_right_with_reasoning_effort() {
+        // When reasoning effort is set, its uppercase label appears after the
+        // model segment.
+        let mut prompt = ForgePrompt::default();
+        let _ = prompt.model(ModelId::new("gpt-4"));
+        let _ = prompt.reasoning_effort(Effort::High);
+
+        let actual = prompt.render_prompt_right();
+        assert!(actual.contains("HIGH") || actual.contains("HIG"));
+    }
+
+    #[test]
+    fn test_render_prompt_right_hides_effort_none() {
+        // `Effort::None` carries no useful info — it must not be rendered.
+        let mut prompt = ForgePrompt::default();
+        let _ = prompt.model(ModelId::new("gpt-4"));
+        let _ = prompt.reasoning_effort(Effort::None);
+
+        let actual = prompt.render_prompt_right();
+        assert!(!actual.to_uppercase().contains("NONE"));
+    }
+
+    #[test]
+    fn test_effort_label_narrow_vs_wide() {
+        assert_eq!(effort_label(&Effort::Medium, 80), "MED");
+        assert_eq!(
+            effort_label(&Effort::Medium, WIDE_TERMINAL_THRESHOLD),
+            "MEDIUM"
+        );
     }
 }
