@@ -154,12 +154,21 @@ pub enum TopLevelCommand {
     Logs(LogsArgs),
 
     /// Interactive fuzzy item picker.
-    Select(SelectArgs),
+    Select(SelectCommandGroup),
 }
 
-/// Arguments for the `forge select` command.
+/// Command group for the `forge select` interactive picker.
+///
+/// When no subcommand is given, acts as a pipe-based fuzzy picker that reads
+/// items from stdin. Subcommands provide purpose-built pickers for specific
+/// domain types (models, agents, providers, etc.) that fetch data internally
+/// and output the selected value.
 #[derive(Parser, Debug, Clone)]
-pub struct SelectArgs {
+pub struct SelectCommandGroup {
+    #[command(subcommand)]
+    pub command: Option<SelectCommand>,
+
+    // ── Pipe-based arguments (used when no subcommand is given) ──
     /// Prompt text displayed before the picker.
     #[arg(long, short = 'p')]
     pub prompt: Option<String>,
@@ -192,6 +201,96 @@ pub struct SelectArgs {
     #[arg(long = "header-lines", default_value_t = 0)]
     pub header_lines: usize,
 }
+
+/// Purpose-built interactive pickers for specific domain types.
+///
+/// Each variant fetches data internally through the Forge API, presents an
+/// interactive fuzzy picker, and prints the selected value to stdout for the
+/// shell plugin to consume.
+#[derive(Subcommand, Debug, Clone)]
+pub enum SelectCommand {
+    /// Select a model interactively from all configured providers.
+    ///
+    /// Prints the selected model_id on the first line and provider_id on the
+    /// second line. Returns exit code 1 if the user cancels.
+    Model {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+    },
+
+    /// Select an agent interactively.
+    ///
+    /// Prints the selected agent_id on stdout. Returns exit code 1 if the
+    /// user cancels.
+    Agent {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+    },
+
+    /// Select a provider interactively.
+    ///
+    /// Prints the selected provider_id on stdout. Returns exit code 1 if the
+    /// user cancels.
+    Provider {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+
+        /// Only show providers that are configured (logged in).
+        #[arg(long)]
+        configured: bool,
+    },
+
+    /// Select a reasoning effort level interactively.
+    ///
+    /// Prints the selected effort level (none, minimal, low, medium, high,
+    /// xhigh, max) on stdout. Returns exit code 1 if the user cancels.
+    ReasoningEffort {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+    },
+
+    /// Select a command interactively.
+    ///
+    /// Prints the selected command name on stdout. Returns exit code 1 if the
+    /// user cancels.
+    Command {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+    },
+
+    /// Select a conversation interactively with a preview pane.
+    ///
+    /// Prints the selected conversation_id on stdout. Returns exit code 1 if
+    /// the user cancels.
+    Conversation {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+    },
+
+    /// Select a file interactively with a preview pane.
+    ///
+    /// Walks the workspace and presents a fuzzy picker with syntax-highlighted
+    /// file previews. Prints the selected file path on stdout. Returns exit
+    /// code 1 if the user cancels.
+    File {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+    },
+}
+
+/// Legacy type alias for pipe-based select arguments.
+///
+/// When no subcommand is provided, `SelectCommandGroup` carries the pipe-based
+/// arguments inline. This alias exists for backward compatibility with the
+/// `select_cmd` module.
+pub type SelectArgs = SelectCommandGroup;
 
 /// Command group for custom command management.
 #[derive(Parser, Debug, Clone)]

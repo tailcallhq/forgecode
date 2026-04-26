@@ -2,8 +2,9 @@ use std::io::IsTerminal;
 
 use anyhow::Result;
 use console::strip_ansi_codes;
+use nucleo_picker::PickerOptions;
 use nucleo_picker::error::PickError;
-use nucleo_picker::{PickerOptions, render::StrRenderer};
+use nucleo_picker::render::StrRenderer;
 
 /// Builder for multi-select prompts.
 pub struct MultiSelectBuilder<T> {

@@ -1,13 +1,16 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use forge_select::ForgeWidget;
 use forge_walker::Walker;
 use reedline::{Completer, Span, Suggestion};
 
 use crate::completer::CommandCompleter;
 use crate::completer::search_term::SearchTerm;
 use crate::model::ForgeCommandManager;
+use crate::select_cmd::{
+    PreviewLayout, PreviewPlacement, SelectMode, SelectRow, SelectUiOptions, redirect_stdin_to_tty,
+    run_select_ui,
+};
 
 pub struct InputCompleter {
     cwd: PathBuf,
@@ -40,27 +43,59 @@ impl Completer for InputCompleter {
                 .map(|file| file.path)
                 .collect();
 
-            // Preview command: show directory listing for dirs, file contents for files.
-            // {2} references the path column (items are formatted as "{idx}\t{path}").
-            // Use bat for syntax-highlighted file previews when available, falling back
-            // to cat. Mirrors the shell plugin's _FORGE_CAT_CMD and completion.zsh preview.
-            let cat_cmd = if which_bat() {
+            if files.is_empty() {
+                return vec![];
+            }
+
+            let has_bat = std::process::Command::new("bat")
+                .arg("--version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok();
+            let cat_cmd = if has_bat {
                 "bat --color=always --style=numbers,changes --line-range=:500"
             } else {
                 "cat"
             };
+
             let preview_cmd = format!(
-                "if [ -d {{2}} ]; then ls -la --color=always {{2}} 2>/dev/null || ls -la {{2}}; else {cat_cmd} {{2}}; fi"
+                "if [ -d {{}} ]; then ls -la --color=always {{}} 2>/dev/null || ls -la {{}}; else {cat_cmd} {{}}; fi"
             );
 
-            let mut builder = ForgeWidget::select("File", files)
-                .with_preview(preview_cmd)
-                .with_preview_window("bottom:75%:wrap:border-sharp");
-            if !query.term.is_empty() {
-                builder = builder.with_initial_text(query.term);
+            #[cfg(unix)]
+            {
+                use std::io::IsTerminal;
+                if !std::io::stdin().is_terminal() {
+                    let _ = redirect_stdin_to_tty();
+                }
             }
 
-            if let Ok(Some(selected)) = builder.prompt() {
+            let rows: Vec<SelectRow> = files
+                .into_iter()
+                .map(|path| SelectRow {
+                    raw: path.clone(),
+                    display: path.clone(),
+                    fields: vec![path],
+                })
+                .collect();
+
+            let initial_text = if !query.term.is_empty() {
+                Some(query.term.to_string())
+            } else {
+                None
+            };
+
+            if let Ok(Some(selected)) = run_select_ui(SelectUiOptions {
+                prompt: Some("File ❯ ".to_string()),
+                query: initial_text,
+                rows,
+                header_lines: 0,
+                mode: SelectMode::Single,
+                preview: Some(preview_cmd),
+                preview_layout: PreviewLayout { placement: PreviewPlacement::Bottom, percent: 75 },
+                initial_raw: None,
+            }) {
                 let value = format!("[{}]", selected);
                 return vec![Suggestion {
                     description: None,
@@ -77,13 +112,4 @@ impl Completer for InputCompleter {
 
         vec![]
     }
-}
-
-/// Returns `true` if the `bat` binary is available on `PATH`.
-fn which_bat() -> bool {
-    std::process::Command::new("which")
-        .arg("bat")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
 }

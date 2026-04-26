@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fmt::Display;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -32,7 +31,8 @@ use tokio_stream::StreamExt;
 use url::Url;
 
 use crate::cli::{
-    Cli, CommitCommandGroup, ConversationCommand, ListCommand, McpCommand, TopLevelCommand,
+    Cli, CommitCommandGroup, ConversationCommand, ListCommand, McpCommand, SelectCommand,
+    TopLevelCommand,
 };
 use crate::conversation_selector::ConversationSelector;
 use crate::display_constants::{CommandType, headers, markers, status};
@@ -150,6 +150,28 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
     }
 
+    fn select_raw_row(
+        &self,
+        prompt: &str,
+        query: Option<String>,
+        rows: Vec<crate::select_cmd::SelectRow>,
+        header_lines: usize,
+        initial_raw: Option<String>,
+    ) -> Result<Option<crate::select_cmd::SelectRow>> {
+        let selected = crate::select_cmd::run_select_ui(crate::select_cmd::SelectUiOptions {
+            prompt: Some(prompt.to_string()),
+            query,
+            rows: rows.clone(),
+            header_lines,
+            mode: crate::select_cmd::SelectMode::Single,
+            preview: None,
+            preview_layout: crate::select_cmd::PreviewLayout::default(),
+            initial_raw,
+        })?;
+
+        Ok(selected.and_then(|raw| rows.into_iter().find(|row| row.raw == raw)))
+    }
+
     /// Displays banner only if user is in interactive mode.
     fn display_banner(&self) -> Result<()> {
         if self.cli.is_interactive() {
@@ -233,7 +255,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let command = Arc::new(ForgeCommandManager::default());
         let spinner = SharedSpinner::new(SpinnerManager::new(api.clone()));
         Ok(Self {
-            state: Default::default(),
+            state: UIState::new(env.clone()),
             api,
             new_api: Arc::new(f),
             console: Console::new(
@@ -742,8 +764,40 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 crate::logs::run(args, log_dir).await?;
                 return Ok(());
             }
-            TopLevelCommand::Select(args) => {
-                crate::select_cmd::run_select(args)?;
+            TopLevelCommand::Select(cmd) => {
+                match &cmd.command {
+                    None => {
+                        crate::select_cmd::run_select(cmd)?;
+                    }
+                    Some(SelectCommand::File { query }) => {
+                        self.on_select_file_cli(query.clone()).await?;
+                    }
+                    _ => {
+                        self.init_state(false).await?;
+                        match &cmd.command {
+                            Some(SelectCommand::Model { query }) => {
+                                self.on_select_model_cli(query.clone()).await?;
+                            }
+                            Some(SelectCommand::Agent { query }) => {
+                                self.on_select_agent_cli(query.clone()).await?;
+                            }
+                            Some(SelectCommand::Provider { query, configured }) => {
+                                self.on_select_provider_cli(query.clone(), *configured)
+                                    .await?;
+                            }
+                            Some(SelectCommand::ReasoningEffort { query }) => {
+                                self.on_select_reasoning_effort_cli(query.clone()).await?;
+                            }
+                            Some(SelectCommand::Command { query }) => {
+                                self.on_select_command_cli(query.clone()).await?;
+                            }
+                            Some(SelectCommand::Conversation { query }) => {
+                                self.on_select_conversation_cli(query.clone()).await?;
+                            }
+                            Some(SelectCommand::File { .. }) | None => {}
+                        }
+                    }
+                }
                 return Ok(());
             }
         }
@@ -2080,18 +2134,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 }
             }
             AppCommand::Agent => {
-                #[derive(Clone)]
-                struct Agent {
-                    id: AgentId,
-                    label: String,
-                }
-
-                impl Display for Agent {
-                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(f, "{}", self.label)
-                    }
-                }
-
                 let agents = self.api.get_agent_infos().await?;
 
                 if agents.is_empty() {
@@ -2121,40 +2163,29 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let Some(header) = all_lines.first() else {
                     return Err(UIError::MissingHeaderLine.into());
                 };
-                display_agents.push(Agent {
-                    id: AgentId::new("__header__".to_string()),
-                    label: header.to_string(),
-                });
+                display_agents.push(crate::select_cmd::SelectRow::header(header.to_string()));
                 // Data rows
                 for line in all_lines.iter().skip(1) {
                     if let Some(id_str) = line.split_whitespace().next() {
-                        display_agents.push(Agent {
-                            label: line.to_string(),
-                            id: AgentId::new(id_str.to_string()),
-                        });
+                        display_agents.push(crate::select_cmd::SelectRow::new(
+                            id_str.to_string(),
+                            line.to_string(),
+                        ));
                     }
                 }
 
                 // Find starting cursor for the current agent
-                let current_agent = self.api.get_active_agent().await;
-                let starting_cursor = current_agent
-                    .and_then(|current| {
-                        // Skip header row (index 0) when searching
-                        all_lines.iter().skip(1).position(|line| {
-                            line.split_whitespace()
-                                .next()
-                                .map(|id| id == current.as_str())
-                                .unwrap_or(false)
-                        })
-                    })
-                    .unwrap_or(0);
+                let initial_raw = self
+                    .api
+                    .get_active_agent()
+                    .await
+                    .map(|current| current.as_str().to_string());
 
-                if let Some(selected_agent) = ForgeWidget::select("Agent", display_agents)
-                    .with_starting_cursor(starting_cursor)
-                    .with_header_lines(1)
-                    .prompt()?
+                if let Some(selected_agent) =
+                    self.select_raw_row("Agent", None, display_agents, 1, initial_raw)?
                 {
-                    self.on_agent_change(selected_agent.id).await?;
+                    self.on_agent_change(AgentId::new(selected_agent.raw))
+                        .await?;
                 }
             }
             AppCommand::Login => {
@@ -2327,10 +2358,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let current_effort = self.api.get_reasoning_effort().await.ok().flatten();
         let current_str = current_effort.as_ref().map(|e| e.to_string());
 
-        let starting_cursor = current_str
-            .as_ref()
-            .and_then(|c| effort_levels.iter().position(|e| e == c))
-            .unwrap_or(0);
+        let initial_raw = current_str;
 
         let prompt = if global {
             "Config Reasoning Effort"
@@ -2338,9 +2366,18 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             "Reasoning Effort"
         };
 
-        let selected = ForgeWidget::select(prompt, effort_levels)
-            .with_starting_cursor(starting_cursor)
-            .prompt()?;
+        let selected = self
+            .select_raw_row(
+                prompt,
+                None,
+                effort_levels
+                    .iter()
+                    .map(|level| crate::select_cmd::SelectRow::new(level, level))
+                    .collect(),
+                0,
+                initial_raw,
+            )?
+            .map(|row| row.raw);
 
         if let Some(effort_str) = selected {
             let effort = forge_domain::Effort::from_str(&effort_str)
@@ -2354,6 +2391,542 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
 
         Ok(())
+    }
+
+    /// CLI handler for `forge select model`.
+    ///
+    /// Fetches all provider models, presents an interactive fuzzy picker, and
+    /// prints the selected `model_id` and `provider_id` on separate lines.
+    /// Exits with code 1 if the user cancels.
+    async fn on_select_model_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
+        // Fetch models from ALL configured providers
+        let mut all_provider_models = self.api.get_all_provider_models().await?;
+
+        if all_provider_models.is_empty() {
+            std::process::exit(1);
+        }
+
+        // Sort models and providers
+        all_provider_models
+            .iter_mut()
+            .for_each(|pm| pm.models.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str())));
+        all_provider_models.sort_by(|a, b| a.provider_id.as_ref().cmp(b.provider_id.as_ref()));
+
+        // Build Info structure
+        let mut info = Info::new();
+        for pm in &all_provider_models {
+            let provider_display = pm.provider_id.to_string();
+            for model in &pm.models {
+                let id = model.id.to_string();
+                info = info
+                    .add_title(&id)
+                    .add_key_value("Model", model.name.as_ref().unwrap_or(&id))
+                    .add_key_value("Provider", &provider_display);
+
+                if let Some(limit) = model.context_length {
+                    let context = if limit >= 1_000_000 {
+                        format!("{}M", limit / 1_000_000)
+                    } else if limit >= 1000 {
+                        format!("{}k", limit / 1000)
+                    } else {
+                        format!("{limit}")
+                    };
+                    info = info.add_key_value("Context Window", context);
+                } else {
+                    info = info.add_key_value("Context Window", markers::EMPTY);
+                }
+
+                if let Some(supported) = model.tools_supported {
+                    info = info.add_key_value(
+                        "Tool Supported",
+                        if supported { status::YES } else { status::NO },
+                    );
+                } else {
+                    info = info.add_key_value("Tools", markers::EMPTY);
+                }
+
+                let supports_image = model
+                    .input_modalities
+                    .contains(&forge_domain::InputModality::Image);
+                info = info.add_key_value(
+                    "Image",
+                    if supports_image {
+                        status::YES
+                    } else {
+                        status::NO
+                    },
+                );
+            }
+        }
+
+        // Convert to porcelain format
+        let porcelain_output = Porcelain::from(&info)
+            .drop_col(0)
+            .truncate(0, 40)
+            .uppercase_headers();
+        let porcelain_str = porcelain_output.to_string();
+
+        let all_lines: Vec<&str> = porcelain_str.lines().collect();
+        if all_lines.is_empty() {
+            std::process::exit(1);
+        }
+
+        // Build a flat list of (ModelId, ProviderId) for the data rows
+        let mut model_entries: Vec<(ModelId, ProviderId)> = Vec::new();
+        for pm in &all_provider_models {
+            for model in &pm.models {
+                model_entries.push((model.id.clone(), pm.provider_id.clone()));
+            }
+        }
+
+        let mut rows = Vec::with_capacity(all_lines.len());
+        let Some(header) = all_lines.first() else {
+            return Err(UIError::MissingHeaderLine.into());
+        };
+        rows.push(crate::select_cmd::SelectRow {
+            raw: header.to_string(),
+            display: header.to_string(),
+            fields: Vec::new(),
+        });
+        for (i, line) in all_lines.iter().skip(1).enumerate() {
+            let Some((model_id, provider_id)) = model_entries.get(i) else {
+                continue;
+            };
+            rows.push(crate::select_cmd::SelectRow {
+                raw: format!("{}\t{}", model_id.as_str(), provider_id.as_ref()),
+                display: line.to_string(),
+                fields: vec![model_id.to_string(), provider_id.as_ref().to_string()],
+            });
+        }
+
+        // Find starting cursor for the current model (if any)
+        let current_model = self
+            .get_agent_model(self.api.get_active_agent().await)
+            .await;
+        let current_provider = self
+            .get_provider(self.api.get_active_agent().await)
+            .await
+            .ok()
+            .map(|provider| provider.id);
+        let initial_raw = current_model.as_ref().and_then(|current| {
+            model_entries
+                .iter()
+                .find(|(model_id, provider_id)| {
+                    model_id == current
+                        && current_provider
+                            .as_ref()
+                            .map(|provider| provider_id == provider)
+                            .unwrap_or(true)
+                })
+                .map(|(model_id, provider_id)| {
+                    format!("{}\t{}", model_id.as_str(), provider_id.as_ref())
+                })
+        });
+
+        match crate::select_cmd::run_select_ui(crate::select_cmd::SelectUiOptions {
+            prompt: Some("Model ❯ ".to_string()),
+            query,
+            rows,
+            header_lines: 1,
+            mode: crate::select_cmd::SelectMode::Single,
+            preview: None,
+            preview_layout: crate::select_cmd::PreviewLayout::default(),
+            initial_raw,
+        })? {
+            Some(selected) => {
+                let mut parts = selected.splitn(2, '\t');
+                if let (Some(model_id), Some(provider_id)) = (parts.next(), parts.next()) {
+                    println!("{model_id}");
+                    println!("{provider_id}");
+                }
+                Ok(())
+            }
+            None => std::process::exit(1),
+        }
+    }
+
+    /// CLI handler for `forge select agent`.
+    ///
+    /// Fetches all agents, presents an interactive fuzzy picker, and prints the
+    /// selected `agent_id` on stdout. Exits with code 1 if the user cancels.
+    async fn on_select_agent_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
+        let agents = self.api.get_agent_infos().await?;
+
+        if agents.is_empty() {
+            std::process::exit(1);
+        }
+
+        // Build Info structure (same as build_agents_info)
+        let info = self.build_agents_info(false).await?;
+
+        // Convert to porcelain format matching shell plugin's :agent
+        let porcelain_output = Porcelain::from(&info)
+            .drop_cols(&[0, 3])
+            .truncate(3, 30)
+            .uppercase_headers();
+        let porcelain_str = porcelain_output.to_string();
+
+        let all_lines: Vec<&str> = porcelain_str.lines().collect();
+        if all_lines.is_empty() {
+            std::process::exit(1);
+        }
+
+        let mut rows: Vec<crate::select_cmd::SelectRow> = Vec::with_capacity(all_lines.len());
+        let Some(header) = all_lines.first() else {
+            return Err(UIError::MissingHeaderLine.into());
+        };
+        rows.push(crate::select_cmd::SelectRow::header(header.to_string()));
+        for line in all_lines.iter().skip(1) {
+            if let Some(id_str) = line.split_whitespace().next() {
+                rows.push(crate::select_cmd::SelectRow::new(
+                    id_str.to_string(),
+                    line.to_string(),
+                ));
+            }
+        }
+
+        // Find starting cursor for the current agent
+        let initial_raw = self
+            .api
+            .get_active_agent()
+            .await
+            .map(|current| current.as_str().to_string());
+
+        match self.select_raw_row("Agent", query, rows, 1, initial_raw)? {
+            Some(row) => {
+                println!("{}", row.raw);
+                Ok(())
+            }
+            None => std::process::exit(1),
+        }
+    }
+
+    /// CLI handler for `forge select provider`.
+    ///
+    /// Fetches all providers, presents an interactive fuzzy picker, and prints
+    /// the selected `provider_id` on stdout. Exits with code 1 if the user
+    /// cancels.
+    async fn on_select_provider_cli(
+        &mut self,
+        query: Option<String>,
+        configured_only: bool,
+    ) -> anyhow::Result<()> {
+        let providers: Vec<AnyProvider> = self.api.get_providers().await?;
+
+        if providers.is_empty() {
+            std::process::exit(1);
+        }
+
+        let current_provider_id = self
+            .get_provider(self.api.get_active_agent().await)
+            .await
+            .ok()
+            .map(|p| p.id);
+
+        // Build provider list with query support
+        let mut sorted = providers;
+        sorted.sort_by_key(|a| a.id().to_string());
+
+        // Maintain a filtered list matching the display rows
+        let mut filtered: Vec<AnyProvider> = Vec::new();
+
+        let mut info = Info::new();
+        for provider in &sorted {
+            let configured = provider.is_configured();
+
+            // If --configured flag is set, skip unconfigured providers
+            if configured_only && !configured {
+                continue;
+            }
+
+            filtered.push(provider.clone());
+
+            let id: &str = &provider.id();
+            let display_name = provider.id().to_string();
+            let domain = if let Some(url) = provider.url() {
+                url.domain().map(|d| d.to_string()).unwrap_or_default()
+            } else {
+                markers::EMPTY.to_string()
+            };
+            let provider_type = provider.provider_type().to_string();
+            info = info
+                .add_title(id.to_case(Case::UpperSnake))
+                .add_key_value("name", display_name)
+                .add_key_value("id", id)
+                .add_key_value("host", domain)
+                .add_key_value("type", provider_type);
+            if configured {
+                info = info.add_key_value("logged in", status::YES);
+            }
+        }
+
+        let porcelain_output = Porcelain::from(&info)
+            .drop_cols(&[0, 2])
+            .uppercase_headers();
+        let porcelain_str = porcelain_output.to_string();
+
+        let all_lines: Vec<&str> = porcelain_str.lines().collect();
+        if all_lines.is_empty() {
+            std::process::exit(1);
+        }
+
+        let mut rows: Vec<crate::select_cmd::SelectRow> = Vec::with_capacity(all_lines.len());
+        let Some(header) = all_lines.first() else {
+            return Err(UIError::MissingHeaderLine.into());
+        };
+        rows.push(crate::select_cmd::SelectRow::header(header.to_string()));
+        for (i, line) in all_lines.iter().skip(1).enumerate() {
+            if let Some(provider) = filtered.get(i) {
+                rows.push(crate::select_cmd::SelectRow::new(
+                    provider.id().as_ref().to_string(),
+                    line.to_string(),
+                ));
+            }
+        }
+
+        let initial_raw = current_provider_id.map(|current| current.as_ref().to_string());
+
+        match self.select_raw_row("Provider", query, rows, 1, initial_raw)? {
+            Some(row) => {
+                println!("{}", row.raw);
+                Ok(())
+            }
+            None => std::process::exit(1),
+        }
+    }
+
+    /// CLI handler for `forge select reasoning-effort`.
+    ///
+    /// Shows the built-in list of reasoning effort levels and prints the
+    /// selected level on stdout. Exits with code 1 if the user cancels.
+    async fn on_select_reasoning_effort_cli(
+        &mut self,
+        query: Option<String>,
+    ) -> anyhow::Result<()> {
+        let effort_levels = [
+            "none".to_string(),
+            "minimal".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+            "max".to_string(),
+        ];
+
+        let current_effort = self.api.get_reasoning_effort().await.ok().flatten();
+        let current_str = current_effort.as_ref().map(|e| e.to_string());
+        let selected = self.select_raw_row(
+            "Reasoning Effort",
+            query,
+            effort_levels
+                .iter()
+                .map(|level| crate::select_cmd::SelectRow::new(level, level))
+                .collect(),
+            0,
+            current_str,
+        )?;
+
+        match selected {
+            Some(row) => {
+                println!("{}", row.raw);
+                Ok(())
+            }
+            None => std::process::exit(1),
+        }
+    }
+
+    /// CLI handler for `forge select command`.
+    ///
+    /// Fetches built-in and custom commands, presents an interactive fuzzy
+    /// picker, and prints the selected command name on stdout. Exits with
+    /// code 1 if the user cancels.
+    async fn on_select_command_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
+        let custom_commands = self.api.get_commands().await?;
+
+        // Build the full list: built-in commands + agent aliases + custom commands
+        let mut info = Info::new();
+
+        // Built-in commands
+        for cmd in AppCommand::iter().filter(|c| !c.is_internal() && !c.is_agent_switch()) {
+            info = info
+                .add_title(cmd.name())
+                .add_key_value("type", CommandType::Command)
+                .add_key_value("description", cmd.usage());
+        }
+
+        // Agent aliases
+        info = info
+            .add_title("ask")
+            .add_key_value("type", CommandType::Agent)
+            .add_key_value(
+                "description",
+                "Research and investigation agent [alias for: sage]",
+            )
+            .add_title("plan")
+            .add_key_value("type", CommandType::Agent)
+            .add_key_value(
+                "description",
+                "Planning and strategy agent [alias for: muse]",
+            );
+
+        // Agent infos
+        let agent_infos = self.api.get_agent_infos().await?;
+        for agent_info in agent_infos {
+            let title = agent_info
+                .title
+                .map(|title| title.lines().collect::<Vec<_>>().join(" "));
+            info = info
+                .add_title(agent_info.id.to_string())
+                .add_key_value("type", CommandType::Agent)
+                .add_key_value("description", title);
+        }
+
+        // Custom commands
+        for command in custom_commands {
+            info = info
+                .add_title(command.name.clone())
+                .add_key_value("type", CommandType::Custom)
+                .add_key_value("description", command.description.clone());
+        }
+
+        let porcelain = Porcelain::from(&info)
+            .uppercase_headers()
+            .sort_by(&[1, 0])
+            .to_case(&[1], Case::UpperSnake)
+            .map_col(0, |col| {
+                if col.as_deref() == Some(headers::ID) {
+                    Some("COMMAND".to_string())
+                } else {
+                    col
+                }
+            });
+        let porcelain_str = porcelain.to_string();
+
+        let all_lines: Vec<&str> = porcelain_str.lines().collect();
+        if all_lines.is_empty() {
+            std::process::exit(1);
+        }
+
+        let mut rows: Vec<crate::select_cmd::SelectRow> = Vec::with_capacity(all_lines.len());
+        let Some(header) = all_lines.first() else {
+            return Err(UIError::MissingHeaderLine.into());
+        };
+        rows.push(crate::select_cmd::SelectRow::header(header.to_string()));
+        for line in all_lines.iter().skip(1) {
+            if let Some(name) = line.split_whitespace().next() {
+                rows.push(crate::select_cmd::SelectRow::new(
+                    name.to_string(),
+                    line.to_string(),
+                ));
+            }
+        }
+
+        match self.select_raw_row("Command", query, rows, 1, None)? {
+            Some(row) => {
+                println!("{}", row.raw);
+                Ok(())
+            }
+            None => std::process::exit(1),
+        }
+    }
+
+    /// CLI handler for `forge select conversation`.
+    ///
+    /// Fetches conversations, presents an interactive fuzzy picker with a
+    /// preview pane, and prints the selected `conversation_id` on stdout.
+    /// Exits with code 1 if the user cancels.
+    async fn on_select_conversation_cli(&mut self, _query: Option<String>) -> anyhow::Result<()> {
+        let max_conversations = self.config.max_conversations;
+        let conversations = self.api.get_conversations(Some(max_conversations)).await?;
+
+        if conversations.is_empty() {
+            std::process::exit(1);
+        }
+
+        if let Some(conversation) =
+            ConversationSelector::select_conversation(&conversations, self.state.conversation_id)
+                .await?
+        {
+            println!("{}", conversation.id);
+        } else {
+            std::process::exit(1);
+        }
+
+        Ok(())
+    }
+
+    /// CLI handler for `forge select file`.
+    ///
+    /// Walks the workspace, presents an interactive fuzzy picker with a
+    /// syntax-highlighted preview pane for each file, and prints the selected
+    /// file path on stdout. Exits with code 1 if the user cancels.
+    async fn on_select_file_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
+        use std::io::IsTerminal;
+
+        #[cfg(unix)]
+        if !std::io::stdin().is_terminal() {
+            crate::select_cmd::redirect_stdin_to_tty()?;
+        }
+
+        let walker = forge_walker::Walker::max_all()
+            .cwd(self.state.cwd.clone())
+            .skip_binary(true);
+        let files: Vec<String> = walker
+            .get_blocking()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|f| f.path)
+            .collect();
+
+        if files.is_empty() {
+            std::process::exit(1);
+        }
+
+        let rows: Vec<crate::select_cmd::SelectRow> = files
+            .into_iter()
+            .map(|path| crate::select_cmd::SelectRow {
+                raw: path.clone(),
+                display: path.clone(),
+                fields: vec![path],
+            })
+            .collect();
+
+        // Use bat for syntax-highlighted previews when available, falling back to cat
+        let has_bat = std::process::Command::new("bat")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok();
+        let cat_cmd = if has_bat {
+            "bat --color=always --style=numbers,changes --line-range=:500"
+        } else {
+            "cat"
+        };
+
+        let preview_cmd = format!(
+            "if [ -d {{}} ]; then ls -la --color=always {{}} 2>/dev/null || ls -la {{}}; else {cat_cmd} {{}}; fi"
+        );
+
+        match crate::select_cmd::run_select_ui(crate::select_cmd::SelectUiOptions {
+            prompt: Some("File ❯ ".to_string()),
+            query,
+            rows,
+            header_lines: 0,
+            mode: crate::select_cmd::SelectMode::Single,
+            preview: Some(preview_cmd),
+            preview_layout: crate::select_cmd::PreviewLayout {
+                placement: crate::select_cmd::PreviewPlacement::Bottom,
+                percent: 75,
+            },
+            initial_raw: None,
+        })? {
+            Some(selected) => {
+                println!("{selected}");
+                Ok(())
+            }
+            None => std::process::exit(1),
+        }
     }
 
     /// Selects and sets the commit model via interactive model picker.
@@ -2858,59 +3431,76 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
         }
 
-        // Create display items: header line first, then data lines paired with
-        // model and provider IDs.
-        #[derive(Clone)]
-        struct ModelRow {
-            model_id: Option<ModelId>,
-            provider_id: Option<ProviderId>,
-            display: String,
-        }
-        impl std::fmt::Display for ModelRow {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", self.display)
-            }
-        }
-
-        let mut rows: Vec<ModelRow> = Vec::with_capacity(all_lines.len());
+        let mut rows = Vec::with_capacity(all_lines.len());
         // Header row (non-selectable via header_lines=1)
         let Some(header) = all_lines.first() else {
             return Err(UIError::MissingHeaderLine.into());
         };
-        rows.push(ModelRow {
-            model_id: None,
-            provider_id: None,
+        rows.push(crate::select_cmd::SelectRow {
+            raw: header.to_string(),
             display: header.to_string(),
+            fields: Vec::new(),
         });
         // Data rows
         for (i, line) in all_lines.iter().skip(1).enumerate() {
-            let entry = model_entries.get(i);
-            rows.push(ModelRow {
-                model_id: entry.map(|(m, _)| m.clone()),
-                provider_id: entry.map(|(_, p)| p.clone()),
+            let Some((model_id, provider_id)) = model_entries.get(i) else {
+                continue;
+            };
+            rows.push(crate::select_cmd::SelectRow {
+                raw: format!("{}\t{}", model_id.as_str(), provider_id.as_ref()),
                 display: line.to_string(),
+                fields: vec![model_id.to_string(), provider_id.as_ref().to_string()],
             });
         }
 
         // Find starting cursor position for the current model.
-        // The cursor position is relative to the data rows (header is excluded
-        // by the picker's header-lines), so index 0 = first data row.
         let current_model = self
             .get_agent_model(self.api.get_active_agent().await)
             .await;
-        let starting_cursor = current_model
-            .as_ref()
-            .and_then(|current| model_entries.iter().position(|(id, _)| id == current))
-            .unwrap_or(0);
+        let current_provider = self
+            .get_provider(self.api.get_active_agent().await)
+            .await
+            .ok()
+            .map(|provider| provider.id);
+        let initial_raw = current_model.as_ref().and_then(|current| {
+            model_entries
+                .iter()
+                .find(|(model_id, provider_id)| {
+                    model_id == current
+                        && current_provider
+                            .as_ref()
+                            .map(|provider| provider_id == provider)
+                            .unwrap_or(true)
+                })
+                .map(|(model_id, provider_id)| {
+                    format!("{}\t{}", model_id.as_str(), provider_id.as_ref())
+                })
+        });
 
-        match ForgeWidget::select("Model", rows)
-            .with_starting_cursor(starting_cursor)
-            .with_header_lines(1)
-            .prompt()?
-        {
-            Some(row) => Ok(row.model_id.zip(row.provider_id)),
-            None => Ok(None),
-        }
+        let selected = crate::select_cmd::run_select_ui(crate::select_cmd::SelectUiOptions {
+            prompt: Some("Model ❯ ".to_string()),
+            query: None,
+            rows,
+            header_lines: 1,
+            mode: crate::select_cmd::SelectMode::Single,
+            preview: None,
+            preview_layout: crate::select_cmd::PreviewLayout::default(),
+            initial_raw,
+        })?;
+
+        let Some(selected) = selected else {
+            return Ok(None);
+        };
+
+        let mut parts = selected.splitn(2, '\t');
+        let selection = match (parts.next(), parts.next()) {
+            (Some(model_id), Some(provider_id)) => Some((
+                ModelId::new(model_id.to_string()),
+                ProviderId::from(provider_id.to_string()),
+            )),
+            _ => None,
+        };
+        Ok(selection)
     }
 
     async fn handle_api_key_input(
@@ -3315,7 +3905,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     }
 
     /// Builds a porcelain-style provider selection list from a set of
-    /// providers, displays it in the interactive picker, and returns the selected provider.
+    /// providers, displays it in the interactive picker, and returns the
+    /// selected provider.
     ///
     /// The display matches the shell plugin's `_forge_select_provider`:
     /// columns NAME, HOST, TYPE, LOGGED IN (hiding the raw ID column).
@@ -3367,42 +3958,32 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             return Ok(None);
         }
 
-        // Build display rows: header + data
-        #[derive(Clone)]
-        struct ProviderRow {
-            provider: Option<AnyProvider>,
-            display: String,
-        }
-        impl std::fmt::Display for ProviderRow {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", self.display)
-            }
-        }
-
-        let mut rows: Vec<ProviderRow> = Vec::with_capacity(all_lines.len());
-        // Header row (non-selectable via header_lines=1)
         let Some(header) = all_lines.first() else {
             return Err(UIError::MissingHeaderLine.into());
         };
-        rows.push(ProviderRow { provider: None, display: header.to_string() });
-        // Data rows
-        for (i, line) in all_lines.iter().skip(1).enumerate() {
-            rows.push(ProviderRow { provider: sorted.get(i).cloned(), display: line.to_string() });
+        let mut rows = vec![crate::select_cmd::SelectRow::header(header.to_string())];
+        for (index, line) in all_lines.iter().skip(1).enumerate() {
+            if let Some(provider) = sorted.get(index) {
+                rows.push(crate::select_cmd::SelectRow::new(
+                    provider.id().as_ref().to_string(),
+                    line.to_string(),
+                ));
+            }
         }
 
-        // Find starting cursor for the current provider
-        let starting_cursor = current_provider_id
-            .and_then(|current| sorted.iter().position(|p| p.id() == current))
-            .unwrap_or(0);
+        let selected = self.select_raw_row(
+            prompt,
+            None,
+            rows,
+            1,
+            current_provider_id.map(|current| current.as_ref().to_string()),
+        )?;
 
-        match ForgeWidget::select(prompt, rows)
-            .with_starting_cursor(starting_cursor)
-            .with_header_lines(1)
-            .prompt()?
-        {
-            Some(row) => Ok(row.provider),
-            None => Ok(None),
-        }
+        Ok(selected.and_then(|row| {
+            sorted
+                .into_iter()
+                .find(|provider| provider.id().as_ref().as_ref() == row.raw)
+        }))
     }
 
     /// Selects a provider, optionally configuring it if not already configured.

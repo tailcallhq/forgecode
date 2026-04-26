@@ -2,8 +2,9 @@ use std::io::IsTerminal;
 
 use anyhow::Result;
 use console::strip_ansi_codes;
+use nucleo_picker::PickerOptions;
 use nucleo_picker::error::PickError;
-use nucleo_picker::{PickerOptions, render::StrRenderer};
+use nucleo_picker::render::StrRenderer;
 
 /// Builder for select prompts with fuzzy search.
 pub struct SelectBuilder<T> {
@@ -27,7 +28,8 @@ impl<T: 'static> SelectBuilder<T> {
 
     /// Set a preview command shown in a side panel as the user navigates items.
     ///
-    /// This is a no-op with nucleo-picker and is retained for API compatibility.
+    /// This is a no-op with nucleo-picker and is retained for API
+    /// compatibility.
     pub fn with_preview(mut self, _command: impl Into<String>) -> Self {
         self.preview = Some(_command.into());
         self
@@ -35,7 +37,8 @@ impl<T: 'static> SelectBuilder<T> {
 
     /// Set the layout of the preview panel.
     ///
-    /// This is a no-op with nucleo-picker and is retained for API compatibility.
+    /// This is a no-op with nucleo-picker and is retained for API
+    /// compatibility.
     pub fn with_preview_window(mut self, _layout: impl Into<String>) -> Self {
         self.preview_window = Some(_layout.into());
         self
@@ -121,7 +124,7 @@ impl<T: 'static> SelectBuilder<T> {
         let mut picker: nucleo_picker::Picker<String, _> = picker_opts.picker(StrRenderer);
 
         if let Some(cursor) = self.starting_cursor {
-            let effective_cursor = cursor.saturating_sub(header_count);
+            let effective_cursor = cursor;
             if effective_cursor > 0 && effective_cursor < data_items.len() {
                 let mut reordered = data_items;
                 reordered.swap(0, effective_cursor);
@@ -134,10 +137,10 @@ impl<T: 'static> SelectBuilder<T> {
         }
 
         if let Some(help) = self.help_message {
-            println!("{}", help);
+            eprintln!("{}", help);
         }
         for header in self.options.iter().take(header_count) {
-            println!("{}", header);
+            eprintln!("{}", header);
         }
 
         match picker.pick() {
@@ -174,7 +177,7 @@ fn prompt_confirm(message: &str, default: Option<bool>) -> Result<Option<bool>> 
 
     picker.extend_exact(items);
 
-    println!("{}", message);
+    eprintln!("{}", message);
 
     match picker.pick() {
         Ok(Some(selected)) => {

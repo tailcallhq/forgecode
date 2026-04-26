@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
+use bstr::ByteSlice;
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
@@ -56,10 +57,28 @@ pub fn run_select(args: SelectArgs) -> anyhow::Result<()> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct SelectRow {
-    raw: String,
-    display: String,
-    fields: Vec<String>,
+pub struct SelectRow {
+    pub raw: String,
+    pub display: String,
+    pub fields: Vec<String>,
+}
+
+impl SelectRow {
+    /// Creates a selectable row with a machine-readable raw value and a
+    /// user-facing display value.
+    pub fn new(raw: impl Into<String>, display: impl Into<String>) -> Self {
+        let raw = raw.into();
+        Self { fields: vec![raw.clone()], raw, display: display.into() }
+    }
+
+    /// Creates a non-selectable header row.
+    pub fn header(display: impl Into<String>) -> Self {
+        Self {
+            raw: String::new(),
+            display: display.into(),
+            fields: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,15 +96,15 @@ struct FieldPart {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PreviewPlacement {
+pub enum PreviewPlacement {
     Right,
     Bottom,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct PreviewLayout {
-    placement: PreviewPlacement,
-    percent: u16,
+pub struct PreviewLayout {
+    pub placement: PreviewPlacement,
+    pub percent: u16,
 }
 
 impl Default for PreviewLayout {
@@ -94,10 +113,13 @@ impl Default for PreviewLayout {
     }
 }
 
-struct TerminalGuard;
+struct TerminalGuard {
+    raw_mode_was_enabled: bool,
+}
 
 impl TerminalGuard {
     fn enter() -> anyhow::Result<Self> {
+        let raw_mode_was_enabled = terminal::is_raw_mode_enabled()?;
         enable_raw_mode()?;
         execute!(
             io::stderr(),
@@ -106,7 +128,7 @@ impl TerminalGuard {
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
             Hide
         )?;
-        Ok(Self)
+        Ok(Self { raw_mode_was_enabled })
     }
 }
 
@@ -119,7 +141,9 @@ impl Drop for TerminalGuard {
             DisableMouseCapture,
             LeaveAlternateScreen
         );
-        let _ = disable_raw_mode();
+        if !self.raw_mode_was_enabled {
+            let _ = disable_raw_mode();
+        }
     }
 }
 
@@ -134,15 +158,22 @@ fn run_select_without_preview(args: SelectArgs, items: Vec<String>) -> anyhow::R
     } else {
         SelectMode::Single
     };
-    run_select_ui(
-        args.prompt,
-        args.query,
+    match run_select_ui(SelectUiOptions {
+        prompt: args.prompt,
+        query: args.query,
         rows,
-        args.header_lines,
+        header_lines: args.header_lines,
         mode,
-        None,
-        PreviewLayout::default(),
-    )
+        preview: None,
+        preview_layout: PreviewLayout::default(),
+        initial_raw: None,
+    })? {
+        Some(selected) => {
+            println!("{selected}");
+            Ok(())
+        }
+        None => std::process::exit(1),
+    }
 }
 
 fn run_select_with_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Result<()> {
@@ -156,26 +187,46 @@ fn run_select_with_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Resu
     } else {
         SelectMode::Single
     };
-    run_select_ui(
-        args.prompt,
-        args.query,
+    match run_select_ui(SelectUiOptions {
+        prompt: args.prompt,
+        query: args.query,
         rows,
-        args.header_lines,
+        header_lines: args.header_lines,
         mode,
-        args.preview,
-        parse_preview_window(args.preview_window.as_deref()),
-    )
+        preview: args.preview,
+        preview_layout: parse_preview_window(args.preview_window.as_deref()),
+        initial_raw: None,
+    })? {
+        Some(selected) => {
+            println!("{selected}");
+            Ok(())
+        }
+        None => std::process::exit(1),
+    }
 }
 
-fn run_select_ui(
-    prompt: Option<String>,
-    query: Option<String>,
-    rows: Vec<SelectRow>,
-    header_lines: usize,
-    mode: SelectMode,
-    preview: Option<String>,
-    preview_layout: PreviewLayout,
-) -> anyhow::Result<()> {
+pub struct SelectUiOptions {
+    pub prompt: Option<String>,
+    pub query: Option<String>,
+    pub rows: Vec<SelectRow>,
+    pub header_lines: usize,
+    pub mode: SelectMode,
+    pub preview: Option<String>,
+    pub preview_layout: PreviewLayout,
+    pub initial_raw: Option<String>,
+}
+
+pub fn run_select_ui(options: SelectUiOptions) -> anyhow::Result<Option<String>> {
+    let SelectUiOptions {
+        prompt,
+        query,
+        rows,
+        header_lines,
+        mode,
+        preview,
+        preview_layout,
+        initial_raw,
+    } = options;
     let header_count = header_lines.min(rows.len());
     let header_rows = rows.iter().take(header_count).collect::<Vec<_>>();
     let data_rows = rows.iter().skip(header_count).cloned().collect::<Vec<_>>();
@@ -205,6 +256,8 @@ fn run_select_ui(
     let prompt = prompt.unwrap_or_else(|| "❯ ".to_string());
     let preview_command = preview.unwrap_or_default();
     let mut selected_index = 0usize;
+    let mut initial_raw = initial_raw;
+    let mut initial_selection_applied = false;
     let mut scroll_offset = 0usize;
     let mut preview_scroll_offset = 0usize;
     let mut queued_indices = BTreeSet::new();
@@ -238,6 +291,15 @@ fn run_select_ui(
         }
 
         let matched_rows = matched_rows(&matcher);
+        if !initial_selection_applied {
+            if let Some(initial_raw) = initial_raw.take()
+                && let Some(index) = matched_rows.iter().position(|row| row.raw == initial_raw)
+            {
+                selected_index = index;
+            }
+            initial_selection_applied = true;
+        }
+
         if matched_rows.is_empty() {
             selected_index = 0;
             scroll_offset = 0;
@@ -322,18 +384,17 @@ fn run_select_ui(
                                         println!("{}", row.raw);
                                     }
                                 }
-                                return Ok(());
+                                return Ok(None);
                             }
 
                             if let Some(row) = selected_row {
                                 drop(guard);
-                                println!("{}", row.raw);
-                                return Ok(());
+                                return Ok(Some(row.raw.clone()));
                             }
                         }
                         PickerAction::Exit => {
                             drop(guard);
-                            std::process::exit(1);
+                            return Ok(None);
                         }
                     }
                 }
@@ -386,7 +447,7 @@ fn run_select_ui(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SelectMode {
+pub enum SelectMode {
     Single,
     Multi,
 }
@@ -805,8 +866,8 @@ fn render_preview(command: &str, row: &SelectRow) -> String {
 
     match output {
         Ok(output) => {
-            let mut rendered = String::from_utf8_lossy(&output.stdout).into_owned();
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let mut rendered = output.stdout.to_str_lossy().into_owned();
+            let stderr = output.stderr.to_str_lossy();
             if !stderr.is_empty() {
                 if !rendered.is_empty() && !rendered.ends_with('\n') {
                     rendered.push('\n');
@@ -1170,7 +1231,7 @@ fn truncate_line(value: &str, max_width: usize) -> String {
 }
 
 #[cfg(unix)]
-fn redirect_stdin_to_tty() -> io::Result<()> {
+pub(crate) fn redirect_stdin_to_tty() -> io::Result<()> {
     use std::os::unix::io::AsRawFd;
 
     let tty = std::fs::File::open("/dev/tty")?;
