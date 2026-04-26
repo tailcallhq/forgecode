@@ -80,7 +80,8 @@ struct ProviderConfig {
 }
 
 /// Maps new environment variable names to their legacy fallback names.
-/// This enables backward compatibility when renaming env vars (e.g. OLLAMA_URL → OLLAMA_HOST).
+/// This enables backward compatibility when renaming env vars (e.g. OLLAMA_URL
+/// → OLLAMA_HOST).
 fn legacy_env_var_fallback(new_name: &str) -> Option<&'static str> {
     match new_name {
         "OLLAMA_HOST" => Some("OLLAMA_URL"),
@@ -368,7 +369,9 @@ impl<
                 .infra
                 .get_env_var(name)
                 // Fall back to legacy env var name for backward compatibility
-                .or_else(|| legacy_env_var_fallback(name).and_then(|legacy| self.infra.get_env_var(legacy)));
+                .or_else(|| {
+                    legacy_env_var_fallback(name).and_then(|legacy| self.infra.get_env_var(legacy))
+                });
             if let Some(value) = value {
                 url_params.insert(URLParam::from(name.to_string()), URLParamValue::from(value));
             } else {
@@ -1329,13 +1332,15 @@ mod env_tests {
         let ollama_id = ProviderId::from("ollama".to_string());
         let ollama_cred = creds.iter().find(|c| c.id == ollama_id).unwrap();
         assert_eq!(
-            ollama_cred.url_params
+            ollama_cred
+                .url_params
                 .get(&URLParam::from("OLLAMA_HOST".to_string()))
                 .map(|v| v.as_str()),
             Some("http://localhost")
         );
         assert_eq!(
-            ollama_cred.url_params
+            ollama_cred
+                .url_params
                 .get(&URLParam::from("OLLAMA_PORT".to_string()))
                 .map(|v| v.as_str()),
             Some("11434")
@@ -1362,7 +1367,8 @@ mod env_tests {
         let ollama_cred = creds.iter().find(|c| c.id == ollama_id).unwrap();
         // Should still be stored under OLLAMA_HOST key (the new param name)
         assert_eq!(
-            ollama_cred.url_params
+            ollama_cred
+                .url_params
                 .get(&URLParam::from("OLLAMA_HOST".to_string()))
                 .map(|v| v.as_str()),
             Some("http://localhost")
@@ -1389,7 +1395,8 @@ mod env_tests {
         let ollama_id = ProviderId::from("ollama".to_string());
         let ollama_cred = creds.iter().find(|c| c.id == ollama_id).unwrap();
         assert_eq!(
-            ollama_cred.url_params
+            ollama_cred
+                .url_params
                 .get(&URLParam::from("OLLAMA_HOST".to_string()))
                 .map(|v| v.as_str()),
             Some("http://new-host")
@@ -1414,7 +1421,8 @@ mod env_tests {
         let vllm_id = ProviderId::from("vllm".to_string());
         let vllm_cred = creds.iter().find(|c| c.id == vllm_id).unwrap();
         assert_eq!(
-            vllm_cred.url_params
+            vllm_cred
+                .url_params
                 .get(&URLParam::from("VLLM_HOST".to_string()))
                 .map(|v| v.as_str()),
             Some("http://vllm-host")
@@ -1452,7 +1460,11 @@ mod env_tests {
         let ollama_id = ProviderId::from("ollama".to_string());
         let config = configs.iter().find(|c| c.id == ollama_id).unwrap();
         assert_eq!(
-            config.url_param_vars.iter().map(|v| v.param_name()).collect::<Vec<_>>(),
+            config
+                .url_param_vars
+                .iter()
+                .map(|v| v.param_name())
+                .collect::<Vec<_>>(),
             vec!["OLLAMA_HOST", "OLLAMA_PORT"]
         );
         assert!(config.url.contains("{{OLLAMA_HOST}}"));
