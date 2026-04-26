@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 use std::panic;
 use std::path::PathBuf;
 
@@ -8,7 +8,6 @@ use forge_api::ForgeAPI;
 use forge_config::ForgeConfig;
 use forge_domain::TitleFormat;
 use forge_main::{Cli, Sandbox, TitleDisplayExt, UI, tracker};
-use url::Url;
 
 /// Enables ENABLE_VIRTUAL_TERMINAL_PROCESSING on the stdout console handle.
 ///
@@ -92,7 +91,7 @@ async fn run() -> Result<()> {
     let mut cli = Cli::parse();
 
     // Check if there's piped input
-    if !atty::is(atty::Stream::Stdin) {
+    if !std::io::stdin().is_terminal() {
         let mut stdin_content = String::new();
         std::io::stdin().read_to_string(&mut stdin_content)?;
         let trimmed_content = stdin_content.trim();
@@ -105,13 +104,6 @@ async fn run() -> Result<()> {
     // immediately rather than silently falling back to defaults at runtime.
     let config =
         ForgeConfig::read().context("Failed to read Forge configuration from .forge.toml")?;
-
-    // Pre-validate services_url so a malformed URL produces a clear error
-    // message at startup instead of panicking inside the constructor.
-    let services_url: Url = config
-        .services_url
-        .parse()
-        .context("services_url in configuration must be a valid URL")?;
 
     // Handle worktree creation if specified
     let cwd: PathBuf = match (&cli.sandbox, &cli.directory) {
@@ -129,7 +121,7 @@ async fn run() -> Result<()> {
     };
 
     let mut ui = UI::init(cli, config, move |config| {
-        ForgeAPI::init(cwd.clone(), config, services_url.clone())
+        ForgeAPI::init(cwd.clone(), config)
     })?;
     ui.run().await;
 

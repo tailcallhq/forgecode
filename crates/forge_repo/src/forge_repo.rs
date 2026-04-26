@@ -8,6 +8,7 @@ use forge_app::{
     FileInfoInfra, FileReaderInfra, FileRemoverInfra, FileWriterInfra, GrpcInfra, HttpInfra,
     KVStore, McpServerInfra, StrategyFactory, UserInfra, WalkedFile, Walker, WalkerInfra,
 };
+use forge_config::ForgeConfig;
 use forge_domain::{
     AnyProvider, AuthCredential, ChatCompletionMessage, ChatRepository, CommandOutput, Context,
     Conversation, ConversationId, ConversationRepository, Environment, FileInfo,
@@ -487,19 +488,15 @@ where
 }
 
 #[async_trait::async_trait]
-impl<F: FileInfoInfra + EnvironmentInfra + DirectoryReaderInfra + Send + Sync> AgentRepository
-    for ForgeRepo<F>
+impl<F: FileInfoInfra + EnvironmentInfra<Config = ForgeConfig> + DirectoryReaderInfra + Send + Sync>
+    AgentRepository for ForgeRepo<F>
 {
-    async fn get_agents(
-        &self,
-        provider_id: forge_domain::ProviderId,
-        model_id: forge_domain::ModelId,
-    ) -> anyhow::Result<Vec<forge_domain::Agent>> {
-        let agent_defs = self.agent_repository.load_agents().await?;
-        Ok(agent_defs
-            .into_iter()
-            .map(|def| def.into_agent(provider_id.clone(), model_id.clone()))
-            .collect())
+    async fn get_agents(&self) -> anyhow::Result<Vec<forge_domain::Agent>> {
+        self.agent_repository.get_agents().await
+    }
+
+    async fn get_agent_infos(&self) -> anyhow::Result<Vec<forge_domain::AgentInfo>> {
+        self.agent_repository.get_agent_infos().await
     }
 }
 
@@ -632,7 +629,7 @@ impl<F: GrpcInfra + Send + Sync> FuzzySearchRepository for ForgeRepo<F> {
 }
 
 impl<F: GrpcInfra> GrpcInfra for ForgeRepo<F> {
-    fn channel(&self) -> tonic::transport::Channel {
+    fn channel(&self) -> anyhow::Result<tonic::transport::Channel> {
         self.infra.channel()
     }
 

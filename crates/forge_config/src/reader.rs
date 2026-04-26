@@ -30,6 +30,9 @@ static LOAD_DOT_ENV: LazyLock<()> = LazyLock::new(|| {
     }
 });
 
+/// Caches base-path resolution for the process lifetime.
+static BASE_PATH: LazyLock<PathBuf> = LazyLock::new(ConfigReader::resolve_base_path);
+
 /// Merges [`ForgeConfig`] from layered sources using a builder pattern.
 #[derive(Default)]
 pub struct ConfigReader {
@@ -51,13 +54,33 @@ impl ConfigReader {
 
     /// Returns the base directory for all Forge config files.
     ///
-    /// If the `FORGE_CONFIG` environment variable is set, its value is used
-    /// directly as the base path. Otherwise defaults to `~/forge`.
+    /// Resolution order:
+    /// 1. `FORGE_CONFIG` environment variable, if set.
+    /// 2. `~/forge` (legacy path), if that directory exists, so users who have
+    ///    not yet run `forge config migrate` continue to read from their
+    ///    existing directory without disruption.
+    /// 3. `~/.forge` as the default path.
     pub fn base_path() -> PathBuf {
+        BASE_PATH.clone()
+    }
+
+    fn resolve_base_path() -> PathBuf {
         if let Ok(path) = std::env::var("FORGE_CONFIG") {
             return PathBuf::from(path);
         }
-        dirs::home_dir().unwrap_or(PathBuf::from(".")).join("forge")
+
+        let base = dirs::home_dir().unwrap_or(PathBuf::from("."));
+        let path = base.join("forge");
+
+        // Prefer ~/forge (legacy) when it exists so existing users are not
+        // disrupted; fall back to ~/.forge as the default.
+        if path.exists() {
+            tracing::info!("Using legacy path");
+            return path;
+        }
+
+        tracing::info!("Using new path");
+        base.join(".forge")
     }
 
     /// Adds the provided TOML string as a config source without touching the
@@ -149,12 +172,22 @@ mod tests {
     }
 
     impl EnvGuard {
-        /// Sets each `(key, value)` pair in the environment, returning a guard
-        /// that cleans them up on drop.
+        /// Acquires [`ENV_MUTEX`], sets each `(key, value)` pair in the
+        /// environment, and removes each key in `remove` if present. All
+        /// set keys are cleaned up on drop.
         #[must_use]
         fn set(pairs: &[(&'static str, &str)]) -> Self {
+            Self::set_and_remove(pairs, &[])
+        }
+
+        /// Like [`set`] but also removes the listed keys before the test runs.
+        #[must_use]
+        fn set_and_remove(pairs: &[(&'static str, &str)], remove: &[&'static str]) -> Self {
             let lock = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
             let keys = pairs.iter().map(|(k, _)| *k).collect();
+            for key in remove {
+                unsafe { std::env::remove_var(key) };
+            }
             for (key, value) in pairs {
                 unsafe { std::env::set_var(key, value) };
             }
@@ -173,16 +206,26 @@ mod tests {
     #[test]
     fn test_base_path_uses_forge_config_env_var() {
         let _guard = EnvGuard::set(&[("FORGE_CONFIG", "/custom/forge/dir")]);
-        let actual = ConfigReader::base_path();
+        let actual = ConfigReader::resolve_base_path();
         let expected = PathBuf::from("/custom/forge/dir");
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_base_path_falls_back_to_home_dir_when_env_var_absent() {
-        let actual = ConfigReader::base_path();
-        // Without FORGE_CONFIG set the path must end with "forge"
-        assert_eq!(actual.file_name().unwrap(), "forge");
+        // Hold the env mutex and ensure FORGE_CONFIG is absent so this test
+        // cannot race with test_base_path_uses_forge_config_env_var.
+        let _guard = EnvGuard::set_and_remove(&[], &["FORGE_CONFIG"]);
+
+        let actual = ConfigReader::resolve_base_path();
+        // Without FORGE_CONFIG set the path must be either "forge" (legacy,
+        // preferred when ~/forge exists) or ".forge" (default new path).
+        let name = actual.file_name().unwrap();
+        assert!(
+            name == "forge" || name == ".forge",
+            "Expected base_path to end with 'forge' or '.forge', got: {:?}",
+            name
+        );
     }
 
     #[test]
@@ -198,8 +241,8 @@ mod tests {
         // it on top of the embedded defaults. The default values must survive.
         let legacy = ForgeConfig {
             session: Some(ModelConfig {
-                provider_id: Some("anthropic".to_string()),
-                model_id: Some("claude-3".to_string()),
+                provider_id: "anthropic".to_string(),
+                model_id: "claude-3".to_string(),
             }),
             ..Default::default()
         };
@@ -216,8 +259,8 @@ mod tests {
         assert_eq!(
             actual.session,
             Some(ModelConfig {
-                provider_id: Some("anthropic".to_string()),
-                model_id: Some("claude-3".to_string()),
+                provider_id: "anthropic".to_string(),
+                model_id: "claude-3".to_string(),
             })
         );
 
@@ -243,9 +286,29 @@ mod tests {
             .unwrap();
 
         let expected = Some(ModelConfig {
-            provider_id: Some("fake-provider".to_string()),
-            model_id: Some("fake-model".to_string()),
+            provider_id: "fake-provider".to_string(),
+            model_id: "fake-model".to_string(),
         });
         assert_eq!(actual.session, expected);
+    }
+
+    #[test]
+    fn test_use_forge_committer_defaults_to_true() {
+        let actual = ConfigReader::default().read_defaults().build().unwrap();
+
+        assert_eq!(actual.use_forge_committer, true);
+    }
+
+    #[test]
+    fn test_use_forge_committer_can_be_disabled() {
+        let toml = "use_forge_committer = false\n";
+
+        let actual = ConfigReader::default()
+            .read_defaults()
+            .read_toml(toml)
+            .build()
+            .unwrap();
+
+        assert_eq!(actual.use_forge_committer, false);
     }
 }

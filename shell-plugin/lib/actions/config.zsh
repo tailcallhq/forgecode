@@ -155,10 +155,10 @@ function _forge_action_model() {
             # Switch provider first if it differs from the current one
             # current_provider (fetched above) is the display name, compare against that
             if [[ -n "$provider_display" && "$provider_display" != "$current_provider" ]]; then
-                _forge_exec_interactive config set provider "$provider_id" --model "$model_id"
+                _forge_exec_interactive config set model "$provider_id" "$model_id"
                 return
             fi
-             _forge_exec config set model "$model_id"
+            _forge_exec config set model "$provider_id" "$model_id"
         fi
     )
 }
@@ -463,12 +463,22 @@ function _forge_action_config_edit() {
         return 1
     fi
 
-    local config_file="${HOME}/forge/.forge.toml"
+    # Resolve config file path via the forge binary (honours FORGE_CONFIG,
+    # new ~/.forge path, and legacy ~/forge fallback automatically)
+    local config_file
+    config_file=$($_FORGE_BIN config path 2>/dev/null)
+    if [[ -z "$config_file" ]]; then
+        _forge_log error "Failed to resolve config path from '$_FORGE_BIN config path'"
+        return 1
+    fi
+
+    local config_dir
+    config_dir=$(dirname "$config_file")
 
     # Ensure the config directory exists
-    if [[ ! -d "${HOME}/forge" ]]; then
-        mkdir -p "${HOME}/forge" || {
-            _forge_log error "Failed to create ~/forge directory"
+    if [[ ! -d "$config_dir" ]]; then
+        mkdir -p "$config_dir" || {
+            _forge_log error "Failed to create $config_dir directory"
             return 1
         }
     fi

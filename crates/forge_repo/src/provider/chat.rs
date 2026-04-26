@@ -14,7 +14,7 @@ use crate::provider::bedrock::BedrockResponseRepository;
 use crate::provider::google::GoogleResponseRepository;
 use crate::provider::openai::OpenAIResponseRepository;
 use crate::provider::openai_responses::OpenAIResponsesResponseRepository;
-use crate::provider::opencode_zen::OpenCodeZenResponseRepository;
+use crate::provider::opencode::OpenCodeZenResponseRepository;
 
 /// Repository responsible for routing chat requests to the appropriate provider
 /// implementation based on the provider's response type.

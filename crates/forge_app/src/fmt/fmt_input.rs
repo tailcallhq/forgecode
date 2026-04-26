@@ -99,7 +99,7 @@ impl FormatContent for ToolCatalog {
             ToolCatalog::MultiPatch(input) => {
                 let display_path = display_path_for(&input.file_path);
                 Some(
-                    TitleFormat::debug("Multi-patch")
+                    TitleFormat::debug("Replace")
                         .sub_title(format!("{} ({} edits)", display_path, input.edits.len()))
                         .into(),
                 )

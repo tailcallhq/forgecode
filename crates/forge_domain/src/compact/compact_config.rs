@@ -31,10 +31,23 @@ pub struct Compact {
     #[merge(strategy = crate::merge::option)]
     pub max_tokens: Option<usize>,
 
-    /// Maximum number of tokens before triggering compaction
+    /// Maximum number of tokens before triggering compaction. This acts as an
+    /// absolute cap and is combined with
+    /// `token_threshold_percentage` by taking the lower value.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[merge(strategy = crate::merge::option)]
     pub token_threshold: Option<usize>,
+
+    /// Maximum percentage of the model context window used to derive the token
+    /// threshold before triggering compaction. This is combined with
+    /// `token_threshold` by taking the lower value.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_percentage"
+    )]
+    #[merge(strategy = crate::merge::option)]
+    pub token_threshold_percentage: Option<f64>,
 
     /// Maximum number of conversation turns before triggering compaction
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -73,6 +86,23 @@ where
     Ok(value)
 }
 
+fn deserialize_optional_percentage<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let value = Option::<f64>::deserialize(deserializer)?;
+    if let Some(value) = value
+        && !(0.0..=1.0).contains(&value)
+    {
+        return Err(Error::custom(format!(
+            "percentage must be between 0.0 and 1.0, got {value}"
+        )));
+    }
+    Ok(value)
+}
+
 impl Default for Compact {
     fn default() -> Self {
         Self::new()
@@ -86,6 +116,7 @@ impl Compact {
         Self {
             max_tokens: None,
             token_threshold: None,
+            token_threshold_percentage: None,
             turn_threshold: None,
             message_threshold: None,
             model: None,

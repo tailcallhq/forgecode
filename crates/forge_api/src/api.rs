@@ -23,12 +23,20 @@ pub trait API: Sync + Send {
     /// Provides a list of models available in the current environment
     async fn get_models(&self) -> Result<Vec<Model>>;
 
-    /// Provides models from all configured providers. Providers that fail to
-    /// return models are silently skipped.
+    /// Provides models from all configured providers. Providers that
+    /// successfully return models are included in the result. If every
+    /// configured provider fails (e.g. due to an invalid API key), the
+    /// first error is returned so the caller sees the real underlying cause
+    /// rather than an empty list.
     async fn get_all_provider_models(&self) -> Result<Vec<ProviderModels>>;
 
     /// Provides a list of agents available in the current environment
     async fn get_agents(&self) -> Result<Vec<Agent>>;
+
+    /// Provides lightweight metadata for all agents without requiring a
+    /// configured provider or model
+    async fn get_agent_infos(&self) -> Result<Vec<AgentInfo>>;
+
     /// Provides a list of providers available in the current environment
     async fn get_providers(&self) -> Result<Vec<AnyProvider>>;
 
@@ -119,7 +127,15 @@ pub trait API: Sync + Send {
     /// Retrieves the provider configuration for the specified agent
     async fn get_agent_provider(&self, agent_id: AgentId) -> anyhow::Result<Provider<Url>>;
 
-    /// Retrieves the provider configuration for the default agent
+    /// Gets the current session configuration (provider and model pair).
+    ///
+    /// Returns `None` when no session has been configured yet, allowing callers
+    /// to distinguish between "not configured" and an actual error.
+    async fn get_session_config(&self) -> Option<forge_domain::ModelConfig>;
+
+    /// Retrieves the provider configuration for the default agent.
+    ///
+    /// Delegates to [`Self::get_session_config`] and resolves the provider.
     async fn get_default_provider(&self) -> anyhow::Result<Provider<Url>>;
 
     /// Applies one or more configuration mutations atomically.
@@ -144,9 +160,6 @@ pub trait API: Sync + Send {
 
     /// Gets the model for the specified agent
     async fn get_agent_model(&self, agent_id: AgentId) -> Option<ModelId>;
-
-    /// Gets the default model
-    async fn get_default_model(&self) -> Option<ModelId>;
 
     /// Gets the commit configuration (provider and model for commit message
     /// generation).

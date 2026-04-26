@@ -91,7 +91,7 @@ impl Attachment {
             // Find the next "@[" pattern
             if let Some(start_pos) = remaining.find("@[") {
                 // Move to the position where "@[" starts
-                remaining = &remaining[start_pos..];
+                remaining = remaining.get(start_pos..).unwrap_or("");
                 match FileTag::parse(remaining) {
                     Ok((next_remaining, file_tag)) => {
                         tags.push(file_tag);
@@ -99,7 +99,7 @@ impl Attachment {
                     }
                     Err(_e) => {
                         // Skip the "@[" since we couldn't parse it
-                        remaining = &remaining[2..];
+                        remaining = remaining.get(2..).unwrap_or("");
                     }
                 }
             } else {

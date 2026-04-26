@@ -42,6 +42,16 @@
         }
       ]
     },
+    "currency_conversion_rate": {
+      "description": "Conversion rate applied to costs before display in the shell rprompt.\nThe raw USD cost is multiplied by this value, allowing costs to be shown\nin a local currency. Defaults to `1.0` (no conversion).",
+      "$ref": "#/$defs/double",
+      "default": 0.0
+    },
+    "currency_symbol": {
+      "description": "Currency symbol displayed in the shell rprompt next to the session cost\n(e.g. `\"$\"`, `\"€\"`, `\"₹\"`). Defaults to `\"$\"`.",
+      "type": "string",
+      "default": ""
+    },
     "custom_history_path": {
       "description": "Path to the conversation history file; defaults to the global history\nlocation when absent.",
       "type": [
@@ -231,6 +241,11 @@
         }
       ]
     },
+    "research_subagent": {
+      "description": "Whether the deep research agent is available.\n\nWhen set to `true`, the Sage agent is added to the agent list and\nthe `:sage` app command is enabled. Defaults to `false`.",
+      "type": "boolean",
+      "default": false
+    },
     "restricted": {
       "description": "Whether restricted mode is active; when enabled, tool execution requires\nexplicit permission grants.",
       "type": "boolean",
@@ -269,6 +284,11 @@
           "type": "null"
         }
       ]
+    },
+    "subagents": {
+      "description": "Enables subagent support via the task tool; when true the forge agent\ngains access to the `task` tool for delegating work to specialised\nsub-agents, and the `sage` research-only agent tool is removed.\nWhen false the `task` tool is disabled and `sage` is available instead.",
+      "type": "boolean",
+      "default": false
     },
     "suggest": {
       "description": "Model and provider configuration used for shell command suggestion\ngeneration.",
@@ -334,6 +354,16 @@
           "type": "null"
         }
       ]
+    },
+    "use_forge_committer": {
+      "description": "Whether `forge commit` should override `GIT_COMMITTER_NAME` and\n`GIT_COMMITTER_EMAIL` with the Forge identity. Defaults to `true` via\nthe embedded `.forge.toml` defaults.",
+      "type": "boolean",
+      "default": false
+    },
+    "verify_todos": {
+      "description": "Enables the pending todos hook that checks for incomplete todo items\nwhen a task ends and reminds the LLM about them.",
+      "type": "boolean",
+      "default": false
     }
   },
   "$defs": {
@@ -401,13 +431,24 @@
           "minimum": 0
         },
         "token_threshold": {
-          "description": "Maximum number of tokens before triggering compaction",
+          "description": "Maximum number of tokens before triggering compaction. This acts as an\nabsolute cap and is combined with\n`token_threshold_percentage` by taking the lower value.",
           "type": [
             "integer",
             "null"
           ],
           "format": "uint",
           "minimum": 0
+        },
+        "token_threshold_percentage": {
+          "description": "Maximum percentage of the model context window used to derive the token\nthreshold before triggering compaction. This is combined with\n`token_threshold` by taking the lower value.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/double"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "turn_threshold": {
           "description": "Maximum number of conversation turns before triggering compaction",
@@ -575,19 +616,17 @@
       "properties": {
         "model_id": {
           "description": "The model to use for this operation.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         },
         "provider_id": {
           "description": "The provider to use for this operation.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         }
-      }
+      },
+      "required": [
+        "provider_id",
+        "model_id"
+      ]
     },
     "ProviderAuthMethod": {
       "description": "Authentication method supported by a provider.\n\nOnly the simple (non-OAuth) methods are available here; providers that\nrequire OAuth device or authorization-code flows must be configured via the\nfile-based `provider.json` override instead.",

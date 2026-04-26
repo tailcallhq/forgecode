@@ -7,19 +7,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Effort, ModelConfig};
 
-/// Domain-level session configuration pairing a provider with a model.
-///
-/// Used to represent an active session, decoupled from the on-disk
-/// configuration format.
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, Setters)]
-#[setters(strip_option, into)]
-pub struct SessionConfig {
-    /// The active provider ID (e.g. `"anthropic"`).
-    pub provider_id: Option<String>,
-    /// The model ID to use with this provider.
-    pub model_id: Option<String>,
-}
-
 /// All discrete mutations that can be applied to the application configuration.
 ///
 /// Instead of replacing the entire config, callers describe exactly which field
@@ -130,6 +117,13 @@ impl Environment {
     /// Returns the global skills directory path (~/forge/skills)
     pub fn global_skills_path(&self) -> PathBuf {
         self.base_path.join("skills")
+    }
+
+    /// Returns the agents skills directory path (~/.agents/skills)
+    ///
+    /// Returns `None` when the home directory cannot be determined.
+    pub fn agents_skills_path(&self) -> Option<PathBuf> {
+        self.home.as_ref().map(|home| home.join(".agents/skills"))
     }
 
     /// Returns the project-local skills directory path (.forge/skills)
@@ -244,6 +238,29 @@ mod tests {
         let expected = PathBuf::from("/home/user/.forge/skills");
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_agents_skills_path_with_home() {
+        let fixture: Environment = Faker.fake();
+        let fixture = fixture.home(PathBuf::from("/home/user"));
+
+        let actual = fixture.agents_skills_path();
+        let expected = Some(PathBuf::from("/home/user/.agents/skills"));
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_agents_skills_path_without_home() {
+        let fixture: Environment = Faker.fake();
+        // Explicitly clear the home field
+        let mut fixture = fixture;
+        fixture.home = None;
+
+        let actual = fixture.agents_skills_path();
+
+        assert_eq!(actual, None);
     }
 
     #[test]

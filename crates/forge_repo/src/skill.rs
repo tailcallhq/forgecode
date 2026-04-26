@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -12,19 +13,22 @@ use serde::Deserialize;
 /// Repository implementation for loading skills from multiple sources:
 /// 1. Built-in skills (embedded in the application)
 /// 2. Global custom skills (from ~/forge/skills/ directory)
-/// 3. Project-local skills (from .forge/skills/ directory in current working
+/// 3. Agents skills (from ~/.agents/skills/ directory)
+/// 4. Project-local skills (from .forge/skills/ directory in current working
 ///    directory)
 ///
 /// ## Skill Precedence
 /// When skills have duplicate names across different sources, the precedence
-/// order is: **CWD (project-local) > Global custom > Built-in**
+/// order is: **CWD (project-local) > Agents (~/.agents/skills) > Global
+/// custom > Built-in**
 ///
-/// This means project-local skills can override global skills, and both can
-/// override built-in skills.
+/// This means project-local skills can override agents skills, which can
+/// override global skills, which can override built-in skills.
 ///
 /// ## Directory Resolution
 /// - **Built-in skills**: Embedded in application binary
 /// - **Global skills**: `~/forge/skills/<skill-name>/SKILL.md`
+/// - **Agents skills**: `~/.agents/skills/<skill-name>/SKILL.md`
 /// - **CWD skills**: `./.forge/skills/<skill-name>/SKILL.md` (relative to
 ///   current working directory)
 ///
@@ -84,12 +88,19 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> SkillR
         let global_skills = self.load_skills_from_dir(&global_dir).await?;
         skills.extend(global_skills);
 
+        // Load agents skills (~/.agents/skills)
+        if let Some(agents_dir) = env.agents_skills_path() {
+            let agents_skills = self.load_skills_from_dir(&agents_dir).await?;
+            skills.extend(agents_skills);
+        }
+
         // Load project-local skills
         let cwd_dir = env.local_skills_path();
         let cwd_skills = self.load_skills_from_dir(&cwd_dir).await?;
         skills.extend(cwd_skills);
 
-        // Resolve conflicts by keeping the last occurrence (CWD > Global > Built-in)
+        // Resolve conflicts by keeping the last occurrence (CWD > Agents > Global >
+        // Built-in)
         let skills = resolve_skill_conflicts(skills);
 
         // Render all skills with environment context
@@ -98,7 +109,7 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> SkillR
             .map(|skill| self.render_skill(skill, &env))
             .collect::<Vec<_>>();
 
-        Ok(rendered_skills)
+        Ok(sort_skills(rendered_skills))
     }
 }
 
@@ -121,7 +132,7 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
             .with_context(|| format!("Failed to list directory: {}", dir.display()))?;
 
         // Filter for directories only (entries that end with '/')
-        let subdirs: Vec<_> = entries
+        let mut subdirs: Vec<_> = entries
             .into_iter()
             .filter_map(|walked| {
                 if walked.is_dir() && !walked.path.is_empty() {
@@ -132,6 +143,7 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
                 }
             })
             .collect();
+        sort_paths(&mut subdirs);
 
         // Read SKILL.md from each subdirectory in parallel
         let futures = subdirs.into_iter().map(|subdir| {
@@ -153,7 +165,7 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
 
                             // Get all resource files in the skill directory recursively
                             let walker = Walker::unlimited().cwd(subdir.clone());
-                            let resources = infra
+                            let mut resources = infra
                                 .walk(walker)
                                 .await
                                 .unwrap_or_default()
@@ -172,6 +184,7 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
                                     }
                                 })
                                 .collect::<Vec<_>>();
+                            sort_paths(&mut resources);
 
                             // Try to extract skill from front matter, otherwise create with
                             // directory name
@@ -220,11 +233,16 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
     /// * `env` - The environment containing path informations
     fn render_skill(&self, skill: Skill, env: &forge_domain::Environment) -> Skill {
         let global = env.global_skills_path().display().to_string();
+        let agents = env
+            .agents_skills_path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
         let local = env.local_skills_path().display().to_string();
 
         let rendered = skill
             .command
             .replace("{{global_skills_path}}", &global)
+            .replace("{{agents_skills_path}}", &agents)
             .replace("{{local_skills_path}}", &local);
 
         skill.command(rendered)
@@ -275,7 +293,9 @@ fn resolve_skill_conflicts(skills: Vec<Skill>) -> Vec<Skill> {
     for skill in skills {
         if let Some(idx) = seen.get(&skill.name) {
             // Replace the earlier skill with the same name
-            result[*idx] = skill.clone();
+            if let Some(existing) = result.get_mut(*idx) {
+                *existing = skill.clone();
+            }
         } else {
             // First occurrence of this skill name
             seen.insert(skill.name.clone(), result.len());
@@ -284,6 +304,30 @@ fn resolve_skill_conflicts(skills: Vec<Skill>) -> Vec<Skill> {
     }
 
     result
+}
+
+fn sort_skills(mut skills: Vec<Skill>) -> Vec<Skill> {
+    for skill in &mut skills {
+        sort_paths(&mut skill.resources);
+    }
+
+    skills.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then_with(|| path_sort_key(a.path.as_deref()).cmp(&path_sort_key(b.path.as_deref())))
+            .then_with(|| a.description.cmp(&b.description))
+    });
+
+    skills
+}
+
+fn sort_paths(paths: &mut [PathBuf]) {
+    paths.sort_by_key(|a| path_sort_key(Some(a.as_path())));
+}
+
+fn path_sort_key(path: Option<&Path>) -> String {
+    path.map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -298,12 +342,7 @@ mod tests {
         let skill_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src/fixtures/skills_with_resources");
         let config = ForgeConfig::read().unwrap_or_default();
-        let services_url = config.services_url.parse().unwrap();
-        let infra = Arc::new(ForgeInfra::new(
-            std::env::current_dir().unwrap(),
-            config,
-            services_url,
-        ));
+        let infra = Arc::new(ForgeInfra::new(std::env::current_dir().unwrap(), config));
         let repo = ForgeSkillRepository::new(infra);
         (repo, skill_dir)
     }
@@ -329,6 +368,35 @@ mod tests {
         );
         assert_eq!(actual[0].command, "cwd prompt");
         assert_eq!(actual[1].name, "skill2");
+    }
+
+    #[test]
+    fn test_sort_skills_orders_names_and_resources() {
+        // Fixture
+        let fixture = vec![
+            Skill::new("zeta", "prompt", "desc")
+                .path("/tmp/zeta/SKILL.md")
+                .resources(vec![
+                    PathBuf::from("/tmp/zeta/b.txt"),
+                    PathBuf::from("/tmp/zeta/a.txt"),
+                ]),
+            Skill::new("alpha", "prompt", "desc").path("/tmp/alpha/SKILL.md"),
+        ];
+
+        // Act
+        let actual = sort_skills(fixture);
+
+        // Assert
+        let expected = vec![
+            Skill::new("alpha", "prompt", "desc").path("/tmp/alpha/SKILL.md"),
+            Skill::new("zeta", "prompt", "desc")
+                .path("/tmp/zeta/SKILL.md")
+                .resources(vec![
+                    PathBuf::from("/tmp/zeta/a.txt"),
+                    PathBuf::from("/tmp/zeta/b.txt"),
+                ]),
+        ];
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -427,6 +495,13 @@ mod tests {
 
         // Assert - should load all skills
         assert_eq!(actual.len(), 2); // minimal-skill, test-skill
+        assert_eq!(
+            actual
+                .iter()
+                .map(|skill| skill.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["minimal-skill", "test-skill"]
+        );
 
         // Verify skill with no resources
         let minimal_skill = actual.iter().find(|s| s.name == "minimal-skill").unwrap();
@@ -436,25 +511,21 @@ mod tests {
         let test_skill = actual.iter().find(|s| s.name == "test-skill").unwrap();
         assert_eq!(test_skill.description, "A test skill with resources");
         assert_eq!(test_skill.resources.len(), 3); // file_1.txt, foo/file_2.txt, foo/bar/file_3.txt
-
-        // Verify nested directory structure is captured
-        assert!(
+        assert_eq!(
             test_skill
                 .resources
                 .iter()
-                .any(|p| p.ends_with("file_1.txt"))
-        );
-        assert!(
-            test_skill
-                .resources
-                .iter()
-                .any(|p| p.ends_with("foo/file_2.txt"))
-        );
-        assert!(
-            test_skill
-                .resources
-                .iter()
-                .any(|p| p.ends_with("foo/bar/file_3.txt"))
+                .map(|path| path
+                    .strip_prefix(&skill_dir)
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string())
+                .collect::<Vec<_>>(),
+            vec![
+                "test-skill/file_1.txt".to_string(),
+                "test-skill/foo/bar/file_3.txt".to_string(),
+                "test-skill/foo/file_2.txt".to_string(),
+            ]
         );
 
         // Ensure SKILL.md is never included in resources

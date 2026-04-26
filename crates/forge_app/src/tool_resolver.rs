@@ -50,9 +50,16 @@ impl ToolResolver {
 
     pub fn is_allowed(agent: &Agent, tool_name: &ToolName) -> bool {
         let aliases = deprecated_tool_aliases();
-        // Normalize the incoming tool name using aliases
         let normalized_tool_name = aliases.get(tool_name.as_str()).unwrap_or(tool_name);
-        Self::is_allowed_pattern(&Self::build_patterns(agent), normalized_tool_name)
+        let legacy_mcp_tool_name = normalized_tool_name.to_legacy_mcp_name();
+        let patterns = Self::build_patterns(agent);
+
+        Self::is_allowed_pattern(&patterns, normalized_tool_name)
+            || legacy_mcp_tool_name
+                .as_ref()
+                .is_some_and(|legacy_tool_name| {
+                    Self::is_allowed_pattern(&patterns, legacy_tool_name)
+                })
     }
 
     /// Builds glob patterns from the agent's tool patterns, deduplicating
@@ -334,6 +341,36 @@ mod tests {
         ];
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_exact_legacy_mcp_tool_allows_claude_code_name() {
+        let fixture = Agent::new(
+            AgentId::new("test-agent"),
+            ProviderId::ANTHROPIC,
+            ModelId::new("claude-3-5-sonnet-20241022"),
+        )
+        .tools(vec![ToolName::new("mcp_github_tool_create_issue")]);
+
+        assert!(ToolResolver::is_allowed(
+            &fixture,
+            &ToolName::new("mcp__github__create_issue"),
+        ));
+    }
+
+    #[test]
+    fn test_glob_legacy_mcp_tool_allows_claude_code_name() {
+        let fixture = Agent::new(
+            AgentId::new("test-agent"),
+            ProviderId::ANTHROPIC,
+            ModelId::new("claude-3-5-sonnet-20241022"),
+        )
+        .tools(vec![ToolName::new("mcp_github_tool_*")]);
+
+        assert!(ToolResolver::is_allowed(
+            &fixture,
+            &ToolName::new("mcp__github__create_issue"),
+        ));
     }
 
     #[test]

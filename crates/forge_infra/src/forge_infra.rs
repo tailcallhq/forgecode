@@ -64,13 +64,14 @@ impl ForgeInfra {
     /// * `config` - Pre-read application configuration; used only at
     ///   construction time to initialize infrastructure services
     /// * `services_url` - Pre-validated URL for the gRPC workspace server
-    pub fn new(cwd: PathBuf, config: forge_config::ForgeConfig, services_url: Url) -> Self {
+    pub fn new(cwd: PathBuf, config: forge_config::ForgeConfig) -> Self {
         let env = to_environment(cwd.clone());
         let config_infra = Arc::new(ForgeEnvironmentInfra::new(cwd, config.clone()));
-
         let file_write_service = Arc::new(ForgeFileWriteService::new());
+        let config = config_infra.cached_config().unwrap_or(config);
+
         let http_service = Arc::new(ForgeHttpInfra::new(
-            config_infra.cached_config().unwrap_or(config),
+            config.clone(),
             file_write_service.clone(),
         ));
         let file_read_service = Arc::new(ForgeFileReadService::new());
@@ -81,7 +82,7 @@ impl ForgeInfra {
                 .map(|c| c.max_parallel_file_reads)
                 .unwrap_or(4),
         ));
-        let grpc_client = Arc::new(ForgeGrpcClient::new(services_url));
+        let grpc_client = Arc::new(ForgeGrpcClient::new(config.services_url.clone()));
         let output_printer = Arc::new(StdConsoleWriter::default());
 
         Self {
@@ -359,7 +360,7 @@ impl StrategyFactory for ForgeInfra {
 }
 
 impl GrpcInfra for ForgeInfra {
-    fn channel(&self) -> tonic::transport::Channel {
+    fn channel(&self) -> anyhow::Result<tonic::transport::Channel> {
         self.grpc_client.channel()
     }
 

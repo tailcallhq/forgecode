@@ -460,7 +460,7 @@ impl<
         );
         tracing::debug!(
             "Token starts with: {}",
-            &access_token.token[..access_token.token.len().min(20)]
+            access_token.token.chars().take(20).collect::<String>()
         );
 
         // Create new credential with fresh token, preserving url_params and provider ID
@@ -605,6 +605,21 @@ mod tests {
         assert_eq!(
             openrouter_config.url.as_str(),
             "https://openrouter.ai/api/v1/chat/completions"
+        );
+
+        let vivgrid_config = configs
+            .iter()
+            .find(|c| c.id == ProviderId::VIVGRID)
+            .unwrap();
+        assert_eq!(vivgrid_config.api_key_vars, Some("VIVGRID_KEY".to_string()));
+        assert!(vivgrid_config.url_param_vars.is_empty());
+        assert_eq!(
+            vivgrid_config.response_type,
+            Some(ProviderResponse::OpenAIResponses)
+        );
+        assert_eq!(
+            vivgrid_config.url.as_str(),
+            "https://api.vivgrid.com/v1/responses"
         );
     }
 

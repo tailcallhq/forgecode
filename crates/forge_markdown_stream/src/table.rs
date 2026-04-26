@@ -31,16 +31,39 @@ pub fn render_table<S: TableStyler + InlineStyler>(
     let mut w: Vec<usize> = vec![0; n];
     for row in &rendered_rows {
         for (i, cell) in row.iter().enumerate() {
-            w[i] = w[i].max(visible_length(cell));
+            let new_width = visible_length(cell);
+            if let Some(wi) = w.get_mut(i) {
+                *wi = (*wi).max(new_width);
+            }
         }
     }
 
     // Shrink columns if table exceeds max width
+    const MIN_COL_WIDTH: usize = 5;
     let overhead = margin.width() + 1 + 3 * n;
     let total: usize = w.iter().sum();
     if overhead + total > max_width && max_width > overhead {
         let avail = max_width - overhead;
-        w.iter_mut().for_each(|x| *x = (*x * avail / total).max(5));
+        // Cap at natural width so narrow columns (e.g. "#") aren't inflated
+        // up to MIN_COL_WIDTH when the proportional share rounds below it.
+        w.iter_mut()
+            .for_each(|x| *x = (*x * avail / total).max(MIN_COL_WIDTH).min(*x));
+
+        // Clamping to MIN_COL_WIDTH can push the new total over `avail` when
+        // tiny columns get bumped up. Trim 1 char at a time from the widest
+        // column (above the minimum) until it fits.
+        let mut excess = w.iter().sum::<usize>().saturating_sub(avail);
+        while excess > 0 {
+            let Some(v) = w
+                .iter_mut()
+                .filter(|v| **v > MIN_COL_WIDTH)
+                .max_by_key(|v| **v)
+            else {
+                break;
+            };
+            *v -= 1;
+            excess -= 1;
+        }
     }
 
     // Helper to create horizontal lines
@@ -62,15 +85,23 @@ pub fn render_table<S: TableStyler + InlineStyler>(
     for (ri, row) in rendered_rows.iter().enumerate() {
         // Wrap each cell's content
         let wrapped: Vec<Vec<String>> = (0..n)
-            .map(|i| wrap(row.get(i).map(|s| s.as_str()).unwrap_or(""), w[i]))
+            .map(|i| {
+                let width = w.get(i).copied().unwrap_or(0);
+                wrap(row.get(i).map(|s| s.as_str()).unwrap_or(""), width)
+            })
             .collect();
 
         // Render each line of the wrapped cells
         for li in 0..wrapped.iter().map(|c| c.len()).max().unwrap_or(1) {
             let cells: String = (0..n)
                 .map(|i| {
-                    let c = wrapped[i].get(li).map(|s| s.as_str()).unwrap_or("");
-                    let p = " ".repeat(w[i].saturating_sub(visible_length(c)));
+                    let c = wrapped
+                        .get(i)
+                        .and_then(|w| w.get(li))
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
+                    let width = w.get(i).copied().unwrap_or(0);
+                    let p = " ".repeat(width.saturating_sub(visible_length(c)));
                     if ri == 0 && li == 0 && !c.is_empty() {
                         format!(" {}{} ", styler.header(c), p)
                     } else {
@@ -119,7 +150,7 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
     let mut i = 0;
 
     while i < chars.len() {
-        let c = chars[i];
+        let c = chars.get(i).copied().unwrap_or('\0');
 
         // Handle escape sequences
         if c == '\x1b' {
@@ -128,14 +159,14 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
 
             // Check what type of sequence
             if i < chars.len() {
-                let next = chars[i];
+                let next = chars.get(i).copied().unwrap_or('\0');
                 esc.push(next);
                 i += 1;
 
                 if next == '[' {
                     // CSI sequence - read until 'm' or other terminator
                     while i < chars.len() {
-                        let sc = chars[i];
+                        let sc = chars.get(i).copied().unwrap_or('\0');
                         esc.push(sc);
                         i += 1;
                         if sc == 'm' || sc == 'K' || sc == 'H' || sc == 'J' {
@@ -156,7 +187,7 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
                     // OSC sequence - read until \x1b\\
                     in_osc = true;
                     while i < chars.len() {
-                        let sc = chars[i];
+                        let sc = chars.get(i).copied().unwrap_or('\0');
                         esc.push(sc);
                         i += 1;
                         if sc == '\\' && esc.len() >= 2 {
@@ -192,22 +223,23 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
 
         // Check if this is a word boundary (space)
         if c.is_whitespace() {
-            // Try to add current word + space to line
-            if line_width + word_width + cw > width && line_width > 0 {
-                // Doesn't fit, start new line
-                if !line.is_empty() {
-                    line.push_str("\x1b[0m");
-                    lines.push(line);
-                }
+            // Gate on `line_width` (visible), not `line.is_empty()`: when an
+            // active style is set `line` carries an ANSI prefix with zero
+            // visible chars, and pushing it would render as a blank row.
+            if line_width > 0 && line_width + word_width + cw > width {
+                line.push_str("\x1b[0m");
+                lines.push(line);
                 line = active_style.clone().unwrap_or_default();
-                line.push_str(&word);
+                line_width = 0;
+            }
+            line.push_str(&word);
+            line_width += word_width;
+            // Skip the separator if it would push past `width` — otherwise a
+            // word that fills the column exactly leaves a trailing space that
+            // overflows the cell by one char.
+            if line_width + cw <= width {
                 line.push(c);
-                line_width = word_width + cw;
-            } else {
-                // Fits on current line
-                line.push_str(&word);
-                line.push(c);
-                line_width += word_width + cw;
+                line_width += cw;
             }
             word.clear();
             word_width = 0;
@@ -218,7 +250,7 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
 
             // If word itself exceeds width, break it by character
             if word_width > width {
-                if !line.is_empty() {
+                if line_width > 0 {
                     line.push_str("\x1b[0m");
                     lines.push(line);
                     line = active_style.clone().unwrap_or_default();
@@ -245,18 +277,18 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
     // Add remaining word to line
     if !word.is_empty() {
         if line_width + word_width > width && line_width > 0 {
-            if !line.is_empty() {
-                line.push_str("\x1b[0m");
-                lines.push(line);
-            }
+            line.push_str("\x1b[0m");
+            lines.push(line);
             line = active_style.clone().unwrap_or_default();
             line.push_str(&word);
+            line_width = word_width;
         } else {
             line.push_str(&word);
+            line_width += word_width;
         }
     }
 
-    if !line.is_empty() {
+    if line_width > 0 {
         lines.push(line);
     }
 
@@ -279,7 +311,7 @@ fn split_word_at_width(word: &str, width: usize) -> (String, String) {
     let mut i = 0;
 
     while i < chars.len() {
-        let c = chars[i];
+        let c = chars.get(i).copied().unwrap_or('\0');
 
         // Handle escape sequences
         if c == '\x1b' {
@@ -287,14 +319,14 @@ fn split_word_at_width(word: &str, width: usize) -> (String, String) {
             i += 1;
 
             if i < chars.len() {
-                let next = chars[i];
+                let next = chars.get(i).copied().unwrap_or('\0');
                 esc.push(next);
                 i += 1;
 
                 if next == '[' {
                     // CSI sequence
                     while i < chars.len() {
-                        let sc = chars[i];
+                        let sc = chars.get(i).copied().unwrap_or('\0');
                         esc.push(sc);
                         i += 1;
                         if sc == 'm' || sc == 'K' || sc == 'H' || sc == 'J' {
@@ -304,7 +336,7 @@ fn split_word_at_width(word: &str, width: usize) -> (String, String) {
                 } else if next == ']' {
                     // OSC sequence - read until \x1b\\ or BEL
                     while i < chars.len() {
-                        let sc = chars[i];
+                        let sc = chars.get(i).copied().unwrap_or('\0');
                         esc.push(sc);
                         i += 1;
                         if sc == '\\' && esc.len() >= 2 {
@@ -463,6 +495,51 @@ mod tests {
     }
 
     #[test]
+    fn test_narrow_first_col_not_padded() {
+        insta::assert_snapshot!(render_with_width(
+            vec![
+                vec!["#", "File", "Description"],
+                vec![
+                    "1",
+                    "plans/foo.md",
+                    "A longer description that forces the table to shrink its columns to fit the target width"
+                ],
+                vec![
+                    "2",
+                    "docs/bar.md",
+                    "Another reasonably long description so the Description column stays the widest"
+                ],
+            ],
+            80
+        ));
+    }
+
+    #[test]
+    fn test_wrap_word_exactly_fills_width_drops_trailing_space() {
+        // A word whose width equals `width` followed by a space must not keep
+        // the space — it would push visible width to `width + 1` and overflow
+        // the cell border by one char.
+        let result = wrap("abcdefgh more text", 8);
+        let strip = |s: &str| String::from_utf8(strip_ansi_escapes::strip(s)).unwrap();
+        assert_eq!(strip(&result[0]), "abcdefgh");
+        for line in &result {
+            assert!(visible_length(line) <= 8);
+        }
+    }
+
+    #[test]
+    fn test_styled_content_no_blank_middle_line() {
+        // An inherited ANSI style prefix on a fresh line has zero visible
+        // chars, so it must not be pushed as its own wrapped row.
+        let wrapped = wrap("\x1b[33mdocs/pdb-reference.md\x1b[0m", 8);
+        let stripped: Vec<String> = wrapped
+            .iter()
+            .map(|s| String::from_utf8(strip_ansi_escapes::strip(s)).unwrap())
+            .collect();
+        assert_eq!(stripped, vec!["docs/pdb", "-referen", "ce.md"]);
+    }
+
+    #[test]
     fn test_unicode_content() {
         insta::assert_snapshot!(render(vec![vec!["名前", "年齢"], vec!["田中", "25"],]));
     }
@@ -500,10 +577,9 @@ mod tests {
     #[test]
     fn test_wrap_splits_text() {
         let result = wrap("hello world", 5);
-        // Word-based wrapping: "hello " and "world" = 2 lines
         assert_eq!(result.len(), 2);
         let strip = |s: &str| String::from_utf8(strip_ansi_escapes::strip(s)).unwrap();
-        assert_eq!(strip(&result[0]), "hello ");
+        assert_eq!(strip(&result[0]), "hello");
         assert_eq!(strip(&result[1]), "world");
     }
 

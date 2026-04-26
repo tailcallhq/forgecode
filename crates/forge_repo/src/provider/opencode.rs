@@ -14,11 +14,14 @@ use crate::provider::google::GoogleResponseRepository;
 use crate::provider::openai::OpenAIResponseRepository;
 use crate::provider::openai_responses::OpenAIResponsesResponseRepository;
 
-/// OpenCode Zen provider that routes to different backends based on model:
+/// OpenCode provider that routes to different backends based on model:
 /// - Claude models (claude-*) -> Anthropic endpoint
 /// - GPT-5 models (gpt-5*) -> OpenAIResponses endpoint
 /// - Gemini models (gemini-*) -> Google endpoint
 /// - Others (GLM, MiniMax, Kimi, etc.) -> OpenAI endpoint
+///
+/// Supports both OpenCode Zen and OpenCode Go by deriving endpoint URLs
+/// from the provider's configured base URL rather than hardcoding them.
 pub struct OpenCodeZenResponseRepository<F> {
     openai_repo: OpenAIResponseRepository<F>,
     codex_repo: OpenAIResponsesResponseRepository<F>,
@@ -53,32 +56,35 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync>
         }
     }
 
-    /// Builds the appropriate provider for the given model
-    /// This modifies the URL based on the model's backend requirements
+    /// Builds the appropriate provider for the given model.
+    ///
+    /// Derives the endpoint URL from the provider's configured base URL so that
+    /// both OpenCode Zen and OpenCode Go (and any future variants) are routed
+    /// to their correct endpoints.
     fn build_provider(&self, provider: &Provider<Url>, model_id: &ModelId) -> Provider<Url> {
         let backend = self.get_backend(model_id);
         let mut new_provider = provider.clone();
+        let base = provider.url.as_str().trim_end_matches('/');
 
         match backend {
             OpenCodeBackend::Anthropic => {
                 // Claude models use /v1/messages endpoint
-                new_provider.url = Url::parse("https://opencode.ai/zen/v1/messages").unwrap();
+                new_provider.url = Url::parse(&format!("{base}/v1/messages")).unwrap();
                 new_provider.response = Some(ProviderResponse::Anthropic);
             }
             OpenCodeBackend::OpenAIResponses => {
                 // GPT-5 models use /v1/responses endpoint
-                new_provider.url = Url::parse("https://opencode.ai/zen/v1/responses").unwrap();
+                new_provider.url = Url::parse(&format!("{base}/v1/responses")).unwrap();
                 new_provider.response = Some(ProviderResponse::OpenAIResponses);
             }
             OpenCodeBackend::Google => {
                 // Gemini models use model-specific endpoint
-                new_provider.url = Url::parse("https://opencode.ai/zen/v1").unwrap();
+                new_provider.url = Url::parse(&format!("{base}/v1")).unwrap();
                 new_provider.response = Some(ProviderResponse::Google);
             }
             OpenCodeBackend::OpenAI => {
                 // Other models use /v1/chat/completions endpoint (default)
-                new_provider.url =
-                    Url::parse("https://opencode.ai/zen/v1/chat/completions").unwrap();
+                new_provider.url = Url::parse(&format!("{base}/v1/chat/completions")).unwrap();
                 new_provider.response = Some(ProviderResponse::OpenAI);
             }
         }
@@ -147,6 +153,8 @@ enum OpenCodeBackend {
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
+
     use super::*;
 
     /// Helper function to determine backend routing (mirrors get_backend logic)

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use forge_app::dto::ToolsOverview;
 use forge_app::{
     AgentProviderResolver, AgentRegistry, AppConfigService, AuthService, CommandInfra,
@@ -48,8 +48,8 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
     /// * `cwd` - The working directory path for environment and file resolution
     /// * `config` - Pre-read application configuration (from startup)
     /// * `services_url` - Pre-validated URL for the gRPC workspace server
-    pub fn init(cwd: PathBuf, config: ForgeConfig, services_url: Url) -> Self {
-        let infra = Arc::new(ForgeInfra::new(cwd, config, services_url));
+    pub fn init(cwd: PathBuf, config: ForgeConfig) -> Self {
+        let infra = Arc::new(ForgeInfra::new(cwd, config));
         let repo = Arc::new(ForgeRepo::new(infra.clone()));
         let app = Arc::new(ForgeServices::new(repo.clone()));
         ForgeAPI::new(app, repo)
@@ -92,6 +92,10 @@ impl<
         self.services.get_agents().await
     }
 
+    async fn get_agent_infos(&self) -> Result<Vec<AgentInfo>> {
+        self.services.get_agent_infos().await
+    }
+
     async fn get_providers(&self) -> Result<Vec<AnyProvider>> {
         Ok(self.services.get_all_providers().await?)
     }
@@ -103,6 +107,12 @@ impl<
         diff: Option<String>,
         additional_context: Option<String>,
     ) -> Result<forge_app::CommitResult> {
+        let use_forge_committer = self
+            .services
+            .get_config()
+            .context("Failed to read forge config for commit settings")?
+            .use_forge_committer;
+
         let git_app = GitApp::new(self.services.clone());
         let result = git_app
             .commit_message(max_diff_size, diff, additional_context)
@@ -112,7 +122,7 @@ impl<
             Ok(result)
         } else {
             git_app
-                .commit(result.message, result.has_staged_files)
+                .commit(result.message, result.has_staged_files, use_forge_committer)
                 .await
         }
     }
@@ -293,10 +303,6 @@ impl<
         agent_provider_resolver.get_model(Some(agent_id)).await.ok()
     }
 
-    async fn get_default_model(&self) -> Option<ModelId> {
-        self.services.get_provider_model(None).await.ok()
-    }
-
     async fn reload_mcp(&self) -> Result<()> {
         self.services.mcp_service().reload_mcp().await
     }
@@ -307,7 +313,6 @@ impl<
     async fn get_skills(&self) -> Result<Vec<Skill>> {
         self.infra.load_skills().await
     }
-
     async fn generate_command(&self, prompt: UserPrompt) -> Result<String> {
         use forge_app::CommandGenerator;
         let generator = CommandGenerator::new(self.services.clone());
@@ -399,9 +404,17 @@ impl<
         app.execute(data_parameters).await
     }
 
+    async fn get_session_config(&self) -> Option<forge_domain::ModelConfig> {
+        self.services.get_session_config().await
+    }
+
     async fn get_default_provider(&self) -> Result<Provider<Url>> {
-        let provider_id = self.services.get_default_provider().await?;
-        self.services.get_provider(provider_id).await
+        let model_config = self
+            .services
+            .get_session_config()
+            .await
+            .ok_or_else(|| forge_domain::Error::NoDefaultSession)?;
+        self.services.get_provider(model_config.provider).await
     }
 
     async fn mcp_auth(&self, server_url: &str) -> Result<()> {

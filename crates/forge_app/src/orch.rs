@@ -11,6 +11,7 @@ use tokio::sync::Notify;
 use tracing::warn;
 
 use crate::agent::AgentService;
+use crate::transformers::{DropReasoningOnlyMessages, ModelSpecificReasoning};
 use crate::{EnvironmentInfra, TemplateEngine};
 
 #[derive(Clone, Setters)]
@@ -208,7 +209,18 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             .pipe(DropReasoningDetails.when(|_| !reasoning_supported))
             // Strip all reasoning from messages when the model has changed (signatures are
             // model-specific and invalid across models). No-op when model is unchanged.
-            .pipe(ReasoningNormalizer::new(model_id.clone()));
+            .pipe(ReasoningNormalizer::new(model_id.clone()))
+            // Normalize Anthropic reasoning knobs per model family before provider conversion.
+            .pipe(
+                ModelSpecificReasoning::new(model_id.as_str())
+                    .when(|_| model_id.as_str().to_lowercase().contains("claude")),
+            )
+            // Drop reasoning-only assistant turns; Anthropic and Bedrock both reject
+            // messages whose final content block is `thinking`.
+            .pipe(
+                DropReasoningOnlyMessages
+                    .when(|_| model_id.as_str().to_lowercase().contains("claude")),
+            );
         let response = self
             .services
             .chat_agent(
@@ -258,7 +270,6 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             self.conversation.context = Some(context.clone());
             self.services.update(self.conversation.clone()).await?;
 
-            // Fire the Request lifecycle event
             let request_event = LifecycleEvent::Request(EventData::new(
                 self.agent.clone(),
                 model_id.clone(),
@@ -325,7 +336,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .execute_tool_calls(&message.tool_calls, &tool_context)
                 .await?;
 
-            // Update context from conversation after tool-call hooks run
+            // Update context from conversation after response / tool-call hooks run
             if let Some(updated_context) = &self.conversation.context {
                 context = updated_context.clone();
             }
@@ -403,19 +414,32 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             tool_context.with_metrics(|metrics| {
                 self.conversation.metrics = metrics.clone();
             })?;
-        }
 
-        // Fire the End lifecycle event (title will be set here by the hook)
-        self.hook
-            .handle(
-                &LifecycleEvent::End(EventData::new(
-                    self.agent.clone(),
-                    model_id.clone(),
-                    EndPayload,
-                )),
-                &mut self.conversation,
-            )
-            .await?;
+            // If completing (should_yield is due), fire End hook and check if
+            // it adds messages
+            if should_yield {
+                let end_count_before = self.conversation.len();
+                self.hook
+                    .handle(
+                        &LifecycleEvent::End(EventData::new(
+                            self.agent.clone(),
+                            model_id.clone(),
+                            EndPayload,
+                        )),
+                        &mut self.conversation,
+                    )
+                    .await?;
+                self.services.update(self.conversation.clone()).await?;
+                // Check if End hook added messages - if so, continue the loop
+                if self.conversation.len() > end_count_before {
+                    // End hook added messages, sync context and continue
+                    if let Some(updated_context) = &self.conversation.context {
+                        context = updated_context.clone();
+                    }
+                    should_yield = false;
+                }
+            }
+        }
 
         self.services.update(self.conversation.clone()).await?;
 

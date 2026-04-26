@@ -1,9 +1,10 @@
 use forge_app::domain::Error as DomainError;
 use forge_app::dto::anthropic::Error as AnthropicError;
-use forge_app::dto::openai::{Error, ErrorResponse};
+use forge_app::dto::openai::{Error, ErrorCode, ErrorResponse};
 use forge_config::RetryConfig;
 
 const TRANSPORT_ERROR_CODES: [&str; 3] = ["ERR_STREAM_PREMATURE_CLOSE", "ECONNRESET", "ETIMEDOUT"];
+const OPENAI_OVERLOADED_ERROR_CODE: &str = "server_is_overloaded";
 
 pub fn into_retry(error: anyhow::Error, retry_config: &RetryConfig) -> anyhow::Error {
     if let Some(code) = get_req_status_code(&error)
@@ -19,6 +20,7 @@ pub fn into_retry(error: anyhow::Error, retry_config: &RetryConfig) -> anyhow::E
         || is_event_transport_error(&error)
         || is_empty_error(&error)
         || is_anthropic_overloaded_error(&error)
+        || is_openai_overloaded_error(&error)
     {
         return DomainError::Retryable(error).into();
     }
@@ -65,31 +67,59 @@ fn get_event_req_status_code(error: &anyhow::Error) -> Option<u16> {
         })
 }
 
-fn has_transport_error_code(error: &ErrorResponse) -> bool {
-    // Check if the current level has a transport error code
+#[derive(Clone, Copy)]
+enum RetryableApiErrorCode {
+    Transport,
+    OpenAIOverloaded,
+}
+
+impl RetryableApiErrorCode {
+    fn matches(self, code: &ErrorCode) -> bool {
+        let Some(code) = code.as_str() else {
+            return false;
+        };
+
+        match self {
+            RetryableApiErrorCode::Transport => TRANSPORT_ERROR_CODES.contains(&code),
+            RetryableApiErrorCode::OpenAIOverloaded => code == OPENAI_OVERLOADED_ERROR_CODE,
+        }
+    }
+}
+
+fn has_error_code(error: &ErrorResponse, retryable_code: RetryableApiErrorCode) -> bool {
+    // Check if the current level has a matching error code.
     let has_direct_code = error
         .code
         .as_ref()
-        .and_then(|code| code.as_str())
-        .is_some_and(|code| {
-            TRANSPORT_ERROR_CODES
-                .into_iter()
-                .any(|message| message == code)
-        });
+        .is_some_and(|code| retryable_code.matches(code));
 
     if has_direct_code {
         return true;
     }
 
-    // Recursively check nested errors
-    error.error.as_deref().is_some_and(has_transport_error_code)
+    // Recursively check nested errors.
+    error
+        .error
+        .as_deref()
+        .is_some_and(|nested| has_error_code(nested, retryable_code))
 }
 
 fn is_api_transport_error(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<Error>()
         .is_some_and(|error| match error {
-            Error::Response(error) => has_transport_error_code(error),
+            Error::Response(error) => has_error_code(error, RetryableApiErrorCode::Transport),
+            _ => false,
+        })
+}
+
+fn is_openai_overloaded_error(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<Error>()
+        .is_some_and(|error| match error {
+            Error::Response(error) => {
+                has_error_code(error, RetryableApiErrorCode::OpenAIOverloaded)
+            }
             _ => false,
         })
 }
@@ -252,21 +282,21 @@ mod tests {
         for code in transport_codes {
             let error = ErrorResponse::default().code(ErrorCode::String(code.to_string()));
             assert!(
-                has_transport_error_code(&error),
+                has_error_code(&error, RetryableApiErrorCode::Transport),
                 "Code {code} should be transport error"
             );
         }
 
         let error = ErrorResponse::default().code(ErrorCode::String("UNKNOWN".to_string()));
-        assert!(!has_transport_error_code(&error));
+        assert!(!has_error_code(&error, RetryableApiErrorCode::Transport));
 
         let error = ErrorResponse::default();
-        assert!(!has_transport_error_code(&error));
+        assert!(!has_error_code(&error, RetryableApiErrorCode::Transport));
 
         // Nested transport codes
         let nested = ErrorResponse::default().code(ErrorCode::String("ECONNRESET".to_string()));
         let error = ErrorResponse::default().error(Box::new(nested));
-        assert!(has_transport_error_code(&error));
+        assert!(has_error_code(&error, RetryableApiErrorCode::Transport));
 
         // is_empty_error
         let error = anyhow::Error::from(Error::Response(ErrorResponse::default()));
@@ -303,6 +333,27 @@ mod tests {
         assert!(get_api_status_code(&error).is_none());
         assert!(get_req_status_code(&error).is_none());
         assert!(get_event_req_status_code(&error).is_none());
+    }
+
+    #[test]
+    fn test_openai_server_overloaded_error_is_retryable() {
+        let retry_config = fixture_retry_config(vec![]);
+
+        let error = anyhow::Error::from(Error::Response(
+            ErrorResponse::default()
+                .code(ErrorCode::String("server_is_overloaded".to_string()))
+                .message(
+                    "Our servers are currently overloaded. Please try again later.".to_string(),
+                ),
+        ));
+
+        assert!(is_retryable(into_retry(error, &retry_config)));
+
+        let error = anyhow::Error::from(Error::Response(
+            ErrorResponse::default().code(ErrorCode::String("rate_limit".to_string())),
+        ));
+
+        assert!(!is_retryable(into_retry(error, &retry_config)));
     }
 
     #[test]

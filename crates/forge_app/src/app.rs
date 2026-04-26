@@ -9,7 +9,10 @@ use forge_stream::MpscStream;
 use crate::apply_tunable_parameters::ApplyTunableParameters;
 use crate::changed_files::ChangedFiles;
 use crate::dto::ToolsOverview;
-use crate::hooks::{CompactionHandler, DoomLoopDetector, TitleGenerationHandler, TracingHandler};
+use crate::hooks::{
+    CompactionHandler, DoomLoopDetector, PendingTodosHandler, TitleGenerationHandler,
+    TracingHandler,
+};
 use crate::init_conversation_metrics::InitConversationMetrics;
 use crate::orch::Orchestrator;
 use crate::services::{AgentRegistry, CustomInstructionsService, ProviderAuthService};
@@ -97,6 +100,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             .await?;
 
         let models = services.models(agent_provider).await?;
+        let selected_model = models.iter().find(|model| model.id == agent.model);
+        let agent = agent.compaction_threshold(selected_model);
 
         // Get system and mcp tool definitions and resolve them for the agent
         let all_tool_definitions = self.tool_registry.list().await?;
@@ -142,8 +147,20 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
         // Create the orchestrator with all necessary dependencies
         let tracing_handler = TracingHandler::new();
         let title_handler = TitleGenerationHandler::new(services.clone());
+
+        // Build the on_end hook, conditionally adding PendingTodosHandler based on
+        // config
+        let on_end_hook = if forge_config.verify_todos {
+            tracing_handler
+                .clone()
+                .and(title_handler.clone())
+                .and(PendingTodosHandler::new())
+        } else {
+            tracing_handler.clone().and(title_handler.clone())
+        };
+
         let hook = Hook::default()
-            .on_start(tracing_handler.clone().and(title_handler.clone()))
+            .on_start(tracing_handler.clone().and(title_handler))
             .on_request(tracing_handler.clone().and(DoomLoopDetector::default()))
             .on_response(
                 tracing_handler
@@ -151,8 +168,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
                     .and(CompactionHandler::new(agent.clone(), environment.clone())),
             )
             .on_toolcall_start(tracing_handler.clone())
-            .on_toolcall_end(tracing_handler.clone())
-            .on_end(tracing_handler.and(title_handler));
+            .on_toolcall_end(tracing_handler)
+            .on_end(on_end_hook);
 
         let orch = Orchestrator::new(
             services.clone(),
@@ -282,13 +299,14 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
 
     /// Gets available models from all configured providers concurrently.
     ///
-    /// Returns a list of `ProviderModels` for each configured provider.
-    /// All providers are queried in parallel; providers that fail to
-    /// return models are silently skipped.
+    /// Returns a list of `ProviderModels` for each configured provider that
+    /// successfully returned models. If every configured provider fails (e.g.
+    /// due to an invalid API key), the first error encountered is returned so
+    /// the caller receives the real underlying cause rather than an empty list.
     pub async fn get_all_provider_models(&self) -> Result<Vec<ProviderModels>> {
         let all_providers = self.services.get_all_providers().await?;
 
-        // Build one future per configured provider
+        // Build one future per configured provider, preserving the error on failure.
         let futures: Vec<_> = all_providers
             .into_iter()
             .filter_map(|any_provider| any_provider.into_configured())
@@ -296,24 +314,24 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
                 let provider_id = provider.id.clone();
                 let services = self.services.clone();
                 async move {
-                    let refreshed = services
-                        .provider_auth_service()
-                        .refresh_provider_credential(provider)
-                        .await
-                        .ok()?;
-                    let models = services.models(refreshed).await.ok()?;
-                    Some(ProviderModels { provider_id, models })
+                    let result: Result<ProviderModels> = async {
+                        let refreshed = services
+                            .provider_auth_service()
+                            .refresh_provider_credential(provider)
+                            .await?;
+                        let models = services.models(refreshed).await?;
+                        Ok(ProviderModels { provider_id, models })
+                    }
+                    .await;
+                    result
                 }
             })
             .collect();
 
-        // Execute all provider fetches concurrently and collect successful results
-        let results = futures::future::join_all(futures)
+        // Execute all provider fetches concurrently.
+        futures::future::join_all(futures)
             .await
             .into_iter()
-            .flatten()
-            .collect();
-
-        Ok(results)
+            .collect::<anyhow::Result<Vec<_>>>()
     }
 }

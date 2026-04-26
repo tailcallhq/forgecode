@@ -3,10 +3,10 @@
 
 <p align="center"><code>curl -fsSL https://forgecode.dev/cli | sh</code></p>
 
-[![CI Status](https://img.shields.io/github/actions/workflow/status/antinomyhq/forge/ci.yml?style=for-the-badge)](https://github.com/antinomyhq/forge/actions)
-[![GitHub Release](https://img.shields.io/github/v/release/antinomyhq/forge?style=for-the-badge)](https://github.com/antinomyhq/forge/releases)
+[![CI Status](https://img.shields.io/github/actions/workflow/status/tailcallhq/forgecode/ci.yml?style=for-the-badge)](https://github.com/tailcallhq/forgecode/actions)
+[![GitHub Release](https://img.shields.io/github/v/release/tailcallhq/forgecode?style=for-the-badge)](https://github.com/tailcallhq/forgecode/releases)
 [![Discord](https://img.shields.io/discord/1044859667798568962?style=for-the-badge&cacheSeconds=120&logo=discord)](https://discord.gg/kRZBPpkgwq)
-[![CLA assistant](https://cla-assistant.io/readme/badge/antinomyhq/forge?style=for-the-badge)](https://cla-assistant.io/antinomyhq/forge)
+[![CLA assistant](https://cla-assistant.io/readme/badge/tailcallhq/forgecode?style=for-the-badge)](https://cla-assistant.io/tailcallhq/forgecode)
 
 ![Code-Forge Demo](https://assets.antinomy.ai/images/forge_demo_2x.gif)
 
@@ -325,8 +325,7 @@ Some commands change settings for the current session only. Others persist to yo
 
 # View & edit config
 :info                          # Show current session info (model, agent, conversation ID)
-:env                           # Show environment and provider info
-:config                        # List current configuration values
+:config                        # Display effective resolved configuration in TOML format
 :config-edit                   # Open config file in $EDITOR (alias: :ce)
 :tools                         # List available tools for the current agent
 :skill                         # List available skills
@@ -864,7 +863,7 @@ System-level environment variables (usually set automatically):
 
 ```bash
 # .env
-FORGE_CONFIG=/custom/config/dir        # Base directory for all Forge config files (default: ~/forge)
+FORGE_CONFIG=/custom/config/dir        # Base directory for all Forge config files (default: ~/.forge)
 FORGE_MAX_SEARCH_RESULT_BYTES=10240   # Maximum bytes for search results (default: 10240 - 10 KB)
 FORGE_HISTORY_FILE=/path/to/history    # Custom path for Forge history file (default: uses system default location)
 FORGE_BANNER="Your custom banner text" # Custom banner text to display on startup (default: Forge ASCII art)
@@ -1091,7 +1090,7 @@ MCP tools can be used as part of multi-agent workflows, allowing specialized age
 
 ## Documentation
 
-For comprehensive documentation on all features and capabilities, please visit the [documentation site](https://github.com/antinomyhq/forge/tree/main/docs).
+For comprehensive documentation on all features and capabilities, please visit the [documentation site](https://github.com/tailcallhq/forgecode/tree/main/docs).
 
 ---
 
@@ -1102,7 +1101,7 @@ For comprehensive documentation on all features and capabilities, please visit t
 curl -fsSL https://forgecode.dev/cli | sh
 
 # Package managers
-nix run github:antinomyhq/forge # for latest dev branch
+nix run github:tailcallhq/forgecode # for latest dev branch
 ```
 
 ---
