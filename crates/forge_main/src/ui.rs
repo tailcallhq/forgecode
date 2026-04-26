@@ -2978,7 +2978,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             } else if allows_local_api_key {
                 let input = ForgeWidget::input(format!(
                     "Enter your {provider_id} API key (press Enter to skip)"
-                ));
+                ))
+                .allow_empty(true);
                 let api_key = input.prompt()?.context("API key input cancelled")?;
                 let api_key_str = api_key.trim();
 
@@ -2999,7 +3000,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         } else if allows_local_api_key {
             let input = ForgeWidget::input(format!(
                 "Enter your {provider_id} API key (press Enter to skip)"
-            ));
+            ))
+            .allow_empty(true);
             let api_key = input.prompt()?.context("API key input cancelled")?;
             let api_key_str = api_key.trim();
 
