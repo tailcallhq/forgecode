@@ -75,8 +75,8 @@ impl Transformer for ProviderPipeline<'_> {
                 || when_model("kimi")(request)
         });
 
-        let default_reasoning_content =
-            DefaultReasoningContent.when(move |request: &Request| is_deepseek_compatible(provider, request));
+        let default_reasoning_content = DefaultReasoningContent
+            .when(move |request: &Request| is_deepseek_compatible(provider, request));
 
         let cerebras_compat = MakeCerebrasCompat.when(move |_| provider.id == ProviderId::CEREBRAS);
 

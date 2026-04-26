@@ -10,6 +10,7 @@ use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{BoxStream, ChatRepository, Provider};
 use forge_infra::sanitize_headers;
 use futures::StreamExt;
+use reqwest::StatusCode;
 use reqwest::header::AUTHORIZATION;
 use tracing::info;
 use url::Url;
@@ -278,7 +279,7 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unable to read response body".to_string());
-            return Err(anyhow::anyhow!(error_body))
+            return Err(status_code_error(status, error_body))
                 .with_context(|| format_http_context(Some(status), "POST", &self.responses_url));
         }
 
@@ -324,6 +325,13 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
         let stream: BoxStream<super::response::StreamItem, anyhow::Error> = Box::pin(event_stream);
         stream.into_domain()
     }
+}
+
+fn status_code_error(status: StatusCode, body: String) -> anyhow::Error {
+    anyhow::Error::from(forge_app::dto::openai::Error::InvalidStatusCode(
+        status.as_u16(),
+    ))
+    .context(body)
 }
 
 fn into_sse_parse_error<E>(error: eventsource_stream::EventStreamError<E>) -> anyhow::Error
@@ -456,11 +464,13 @@ mod tests {
         Content, Context as ChatContext, ContextMessage, FinishReason, ModelId, Provider,
         ProviderId, ProviderResponse,
     };
+    use pretty_assertions::assert_eq;
     use tokio_stream::StreamExt;
     use url::Url;
 
     use super::*;
     use crate::provider::mock_server::MockServer;
+    use crate::provider::retry;
 
     fn is_retryable(error: &anyhow::Error) -> bool {
         error
@@ -599,6 +609,26 @@ mod tests {
                 "output_tokens_details": {"reasoning_tokens": 0}
             }
         })
+    }
+
+    #[test]
+    fn test_status_code_error_preserves_retryable_status_code() {
+        let fixture = StatusCode::SERVICE_UNAVAILABLE;
+
+        let actual = status_code_error(fixture, "Connection refused".to_string());
+
+        let expected = Some(503);
+        assert_eq!(retry::get_api_status_code(&actual), expected);
+    }
+
+    #[test]
+    fn test_status_code_error_preserves_body_context() {
+        let fixture = "Connection refused".to_string();
+
+        let actual = status_code_error(StatusCode::SERVICE_UNAVAILABLE, fixture.clone());
+
+        let expected = true;
+        assert_eq!(actual.to_string().contains(&fixture), expected);
     }
 
     #[test]

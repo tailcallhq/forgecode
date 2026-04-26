@@ -36,7 +36,7 @@ fn is_anthropic_overloaded_error(error: &anyhow::Error) -> bool {
         .is_some_and(|e| matches!(e, AnthropicError::OverloadedError { .. }))
 }
 
-fn get_api_status_code(error: &anyhow::Error) -> Option<u16> {
+pub(crate) fn get_api_status_code(error: &anyhow::Error) -> Option<u16> {
     error.downcast_ref::<Error>().and_then(|error| match error {
         Error::Response(error) => error
             .get_code_deep()
