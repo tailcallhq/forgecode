@@ -73,8 +73,12 @@ impl ProviderId {
     pub const OPENCODE_GO: ProviderId = ProviderId(Cow::Borrowed("opencode_go"));
     pub const FIREWORKS_AI: ProviderId = ProviderId(Cow::Borrowed("fireworks-ai"));
     pub const NOVITA: ProviderId = ProviderId(Cow::Borrowed("novita"));
+    pub const VIVGRID: ProviderId = ProviderId(Cow::Borrowed("vivgrid"));
     pub const GOOGLE_AI_STUDIO: ProviderId = ProviderId(Cow::Borrowed("google_ai_studio"));
     pub const MODAL: ProviderId = ProviderId(Cow::Borrowed("modal"));
+    pub const ADAL: ProviderId = ProviderId(Cow::Borrowed("adal"));
+    pub const XIAOMI_MIMO: ProviderId = ProviderId(Cow::Borrowed("xiaomi_mimo"));
+    pub const NVIDIA: ProviderId = ProviderId(Cow::Borrowed("nvidia"));
 
     /// Returns all built-in provider IDs
     ///
@@ -108,8 +112,12 @@ impl ProviderId {
             ProviderId::OPENCODE_GO,
             ProviderId::FIREWORKS_AI,
             ProviderId::NOVITA,
+            ProviderId::VIVGRID,
             ProviderId::GOOGLE_AI_STUDIO,
             ProviderId::MODAL,
+            ProviderId::ADAL,
+            ProviderId::XIAOMI_MIMO,
+            ProviderId::NVIDIA,
         ]
     }
 
@@ -137,8 +145,12 @@ impl ProviderId {
             "opencode_go" => "OpenCode Go".to_string(),
             "fireworks-ai" => "FireworksAI".to_string(),
             "novita" => "Novita".to_string(),
+            "vivgrid" => "Vivgrid".to_string(),
             "google_ai_studio" => "GoogleAIStudio".to_string(),
             "modal" => "Modal".to_string(),
+            "adal" => "AdaL".to_string(),
+            "xiaomi_mimo" => "XiaomiMimo".to_string(),
+            "nvidia" => "NVIDIA".to_string(),
             _ => {
                 // For other providers, use UpperCamelCase conversion
                 use convert_case::{Case, Casing};
@@ -184,8 +196,15 @@ impl std::str::FromStr for ProviderId {
             "opencode_go" => ProviderId::OPENCODE_GO,
             "fireworks-ai" => ProviderId::FIREWORKS_AI,
             "novita" => ProviderId::NOVITA,
+            "vertex_ai_anthropic" => ProviderId::VERTEX_AI_ANTHROPIC,
+            "bedrock" => ProviderId::BEDROCK,
+            "opencode_zen" => ProviderId::OPENCODE_ZEN,
+            "vivgrid" => ProviderId::VIVGRID,
             "google_ai_studio" => ProviderId::GOOGLE_AI_STUDIO,
             "modal" => ProviderId::MODAL,
+            "adal" => ProviderId::ADAL,
+            "xiaomi_mimo" => ProviderId::XIAOMI_MIMO,
+            "nvidia" => ProviderId::NVIDIA,
             // For custom providers, use Cow::Owned to avoid memory leaks
             custom => ProviderId(Cow::Owned(custom.to_string())),
         };
@@ -557,9 +576,11 @@ mod tests {
         assert_eq!(ProviderId::IO_INTELLIGENCE.to_string(), "IOIntelligence");
         assert_eq!(ProviderId::CODEX.to_string(), "Codex");
         assert_eq!(ProviderId::FIREWORKS_AI.to_string(), "FireworksAI");
+        assert_eq!(ProviderId::VIVGRID.to_string(), "Vivgrid");
         assert_eq!(ProviderId::OPENCODE_ZEN.to_string(), "OpenCode Zen");
         assert_eq!(ProviderId::OPENCODE_GO.to_string(), "OpenCode Go");
         assert_eq!(ProviderId::GOOGLE_AI_STUDIO.to_string(), "GoogleAIStudio");
+        assert_eq!(ProviderId::NVIDIA.to_string(), "NVIDIA");
     }
 
     #[test]
@@ -577,6 +598,13 @@ mod tests {
     }
 
     #[test]
+    fn test_vivgrid_from_str() {
+        let actual = ProviderId::from_str("vivgrid").unwrap();
+        let expected = ProviderId::VIVGRID;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_opencode_go_from_str() {
         let actual = ProviderId::from_str("opencode_go").unwrap();
         let expected = ProviderId::OPENCODE_GO;
@@ -589,8 +617,10 @@ mod tests {
         assert!(built_in.contains(&ProviderId::CODEX));
         assert!(built_in.contains(&ProviderId::OPENAI_RESPONSES_COMPATIBLE));
         assert!(built_in.contains(&ProviderId::FIREWORKS_AI));
+        assert!(built_in.contains(&ProviderId::VIVGRID));
         assert!(built_in.contains(&ProviderId::OPENCODE_GO));
         assert!(built_in.contains(&ProviderId::GOOGLE_AI_STUDIO));
+        assert!(built_in.contains(&ProviderId::NVIDIA));
     }
 
     #[test]
@@ -608,6 +638,13 @@ mod tests {
     }
 
     #[test]
+    fn test_adal_from_str() {
+        let actual = ProviderId::from_str("adal").unwrap();
+        let expected = ProviderId::ADAL;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_modal_display_name() {
         assert_eq!(ProviderId::MODAL.to_string(), "Modal");
     }
@@ -616,6 +653,35 @@ mod tests {
     fn test_modal_in_built_in_providers() {
         let built_in = ProviderId::built_in_providers();
         assert!(built_in.contains(&ProviderId::MODAL));
+    }
+
+    #[test]
+    fn test_adal_display_name() {
+        assert_eq!(ProviderId::ADAL.to_string(), "AdaL");
+    }
+
+    #[test]
+    fn test_adal_in_built_in_providers() {
+        let built_in = ProviderId::built_in_providers();
+        assert!(built_in.contains(&ProviderId::ADAL));
+    }
+
+    #[test]
+    fn test_xiaomi_mimo_from_str() {
+        let actual = ProviderId::from_str("xiaomi_mimo").unwrap();
+        let expected = ProviderId::XIAOMI_MIMO;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_xiaomi_mimo_display_name() {
+        assert_eq!(ProviderId::XIAOMI_MIMO.to_string(), "XiaomiMimo");
+    }
+
+    #[test]
+    fn test_xiaomi_mimo_in_built_in_providers() {
+        let built_in = ProviderId::built_in_providers();
+        assert!(built_in.contains(&ProviderId::XIAOMI_MIMO));
     }
 
     #[test]

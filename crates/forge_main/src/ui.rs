@@ -194,6 +194,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         // Update the app config with the new operating agent.
         self.api.set_active_agent(agent.id.clone()).await?;
+
+        // Update model tracking to reflect the new agent's model
+        let model = self.get_agent_model(Some(agent.id.clone())).await;
+        self.update_model(model.clone());
+
         let name = agent.id.as_str().to_case(Case::UpperSnake).bold();
 
         let title = format!(
@@ -201,7 +206,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             agent.title.as_deref().unwrap_or(MISSING_AGENT_TITLE)
         )
         .dimmed();
-        self.writeln_title(TitleFormat::action(format!("{name} {title}")))?;
+
+        // Show model info if agent uses a specific model
+        let model_info = model
+            .map(|m| format!(" ∙ model: {m}").dimmed().to_string())
+            .unwrap_or_default();
+
+        self.writeln_title(TitleFormat::action(format!("{name} {title}{model_info}")))?;
 
         Ok(())
     }
@@ -265,12 +276,16 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let model = self
             .get_agent_model(self.api.get_active_agent().await)
             .await;
+        let reasoning_effort = self.api.get_reasoning_effort().await.ok().flatten();
         let mut forge_prompt = ForgePrompt::new(self.state.cwd.clone(), agent_id);
         if let Some(u) = usage {
             forge_prompt.usage(u);
         }
         if let Some(m) = model {
             forge_prompt.model(m);
+        }
+        if let Some(e) = reasoning_effort {
+            forge_prompt.reasoning_effort(e);
         }
         self.console.prompt(&mut forge_prompt).await
     }
@@ -720,6 +735,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
             TopLevelCommand::Doctor => {
                 self.on_zsh_doctor().await?;
+                return Ok(());
+            }
+            TopLevelCommand::Logs(args) => {
+                let log_dir = self.api.environment().log_path();
+                crate::logs::run(args, log_dir).await?;
                 return Ok(());
             }
             TopLevelCommand::Select(args) => {
@@ -2951,8 +2971,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let api_key_str = if let Some(default_key) = &request.api_key {
             let key_str = default_key.as_ref();
 
-            // Skip prompting only for Google ADC marker
-            if key_str == "google_adc_marker" {
+            // Skip prompting for markers that indicate non-API-key auth
+            if key_str == "google_adc_marker" || key_str == "aws_profile_marker" {
                 key_str.to_string()
             } else {
                 // For other providers, show the existing key as default (autofill)
@@ -3191,6 +3211,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 AuthMethod::OAuthDevice(_) => "OAuth Device Flow".to_string(),
                 AuthMethod::OAuthCode(_) => "OAuth Authorization Code".to_string(),
                 AuthMethod::GoogleAdc => "Google Application Default Credentials (ADC)".to_string(),
+                AuthMethod::AwsProfile => "AWS Profile (SSO/IAM)".to_string(),
                 AuthMethod::CodexDevice(_) => "OpenAI Codex Device Flow".to_string(),
             })
             .collect();
@@ -4366,16 +4387,22 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .filter(|text| !text.trim().is_empty())
             .and_then(|str| ConversationId::from_str(str.as_str()).ok());
 
+        let agent_id = std::env::var("_FORGE_ACTIVE_AGENT")
+            .ok()
+            .filter(|text| !text.trim().is_empty())
+            .map(AgentId::new);
+
         // Make IO calls in parallel
-        let (model_id, conversation) = tokio::join!(
-            async { self.api.get_session_config().await.map(|c| c.model) },
+        let (model_id, conversation, reasoning_effort) = tokio::join!(
+            self.get_agent_model(agent_id.clone()),
             async {
                 if let Some(cid) = cid {
                     self.api.conversation(&cid).await.ok().flatten()
                 } else {
                     None
                 }
-            }
+            },
+            async { self.api.get_reasoning_effort().await.ok().flatten() }
         );
 
         // Calculate total cost including related conversations
@@ -4396,16 +4423,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .map(|val| val == "1")
             .unwrap_or(true); // Default to true
 
+        // Read terminal width from COLUMNS (propagated by the zsh shell plugin)
+        // so the rprompt can pick a compact or full-length reasoning effort
+        // label. Missing or unparseable values fall back to the full-length
+        // form in the renderer.
+        let terminal_width = std::env::var("COLUMNS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok());
+
         let rprompt = ZshRPrompt::from_config(&self.config)
-            .agent(
-                std::env::var("_FORGE_ACTIVE_AGENT")
-                    .ok()
-                    .filter(|text| !text.trim().is_empty())
-                    .map(AgentId::new),
-            )
+            .agent(agent_id)
             .model(model_id)
             .token_count(conversation.and_then(|conversation| conversation.token_count()))
             .cost(cost)
+            .reasoning_effort(reasoning_effort)
+            .terminal_width(terminal_width)
             .use_nerd_font(use_nerd_font);
 
         Some(rprompt.to_string())

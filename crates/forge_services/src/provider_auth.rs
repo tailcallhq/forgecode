@@ -31,7 +31,10 @@ where
         auth_method: AuthMethod,
     ) -> anyhow::Result<AuthContextRequest> {
         // Get required URL parameters for API key flow and Google ADC
-        let required_params = if matches!(auth_method, AuthMethod::ApiKey | AuthMethod::GoogleAdc) {
+        let required_params = if matches!(
+            auth_method,
+            AuthMethod::ApiKey | AuthMethod::GoogleAdc | AuthMethod::AwsProfile
+        ) {
             // Get URL params from provider entry (works for both configured and
             // unconfigured)
             let providers = self.infra.get_all_providers().await?;
@@ -58,14 +61,14 @@ where
         {
             api_key_request.existing_params = Some(existing_credential.url_params.into());
 
-            // Only prefill API key if it's not the internal Google ADC marker when asking
-            // for regular API Key This allows switching from ADC -> API Key
-            // without prefilling the marker
-            if let Some(key) = existing_credential.auth_details.api_key() {
+            // Only prefill API key for regular API Key flow
+            // Don't overwrite markers (google_adc_marker, aws_profile_marker)
+            // used by non-API-key auth methods
+            if !matches!(auth_method, AuthMethod::GoogleAdc | AuthMethod::AwsProfile)
+                && let Some(key) = existing_credential.auth_details.api_key()
+            {
                 let is_adc_marker = key.as_ref() == "google_adc_marker";
-                let requesting_adc = matches!(auth_method, AuthMethod::GoogleAdc);
-
-                if (requesting_adc && is_adc_marker) || (!requesting_adc && !is_adc_marker) {
+                if !is_adc_marker {
                     api_key_request.api_key = Some(key.clone());
                 }
             }
@@ -91,6 +94,9 @@ where
                 if is_vertex_provider && response.response.api_key.as_ref() == "google_adc_marker" {
                     // Vertex AI uses Google ADC
                     forge_domain::AuthMethod::google_adc()
+                } else if response.response.api_key.as_ref() == "aws_profile_marker" {
+                    // AWS Profile authentication
+                    forge_domain::AuthMethod::AwsProfile
                 } else {
                     // Regular API key
                     forge_domain::AuthMethod::ApiKey
