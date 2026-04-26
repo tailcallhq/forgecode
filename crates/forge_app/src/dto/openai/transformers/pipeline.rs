@@ -63,6 +63,7 @@ impl Transformer for ProviderPipeline<'_> {
             provider.id == ProviderId::REQUESTY
                 || provider.id == ProviderId::GITHUB_COPILOT
                 || is_deepseek_provider(provider)
+                || provider.id == ProviderId::NVIDIA
         });
 
         let github_copilot_reasoning =
