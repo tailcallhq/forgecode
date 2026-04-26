@@ -564,6 +564,26 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.5-2026-04-23",
+        "name": "GPT-5.5",
+        "description": "Frontier model for the most complex professional work.",
+        "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.5-pro-2026-04-23",
+        "name": "GPT-5.5 Pro",
+        "description": "GPT-5.5 pro uses more compute to think harder and provide consistently better answers.",
+        "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key"]

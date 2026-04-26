@@ -60,7 +60,9 @@ impl Transformer for ProviderPipeline<'_> {
         let open_ai_compat = MakeOpenAiCompat.when(move |_| !supports_open_router_params(provider));
 
         let set_reasoning_effort = SetReasoningEffort.when(move |_| {
-            provider.id == ProviderId::REQUESTY || provider.id == ProviderId::GITHUB_COPILOT
+            provider.id == ProviderId::REQUESTY
+                || provider.id == ProviderId::GITHUB_COPILOT
+                || is_deepseek_provider(provider)
         });
 
         let github_copilot_reasoning =
@@ -908,6 +910,40 @@ mod tests {
 
         let message = actual.messages.unwrap().into_iter().next().unwrap();
         assert_eq!(message.reasoning_content, Some(String::new()));
+    }
+
+    #[test]
+    fn test_deepseek_provider_applies_reasoning_effort() {
+        let provider = deepseek("deepseek");
+        let fixture = Request::default().reasoning(forge_domain::ReasoningConfig {
+            enabled: Some(true),
+            effort: Some(forge_domain::Effort::High),
+            max_tokens: None,
+            exclude: None,
+        });
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        assert_eq!(actual.reasoning_effort, Some("high".to_string()));
+        assert_eq!(actual.reasoning, None);
+    }
+
+    #[test]
+    fn test_deepseek_provider_sets_reasoning_effort_none_when_disabled() {
+        let provider = deepseek("deepseek");
+        let fixture = Request::default().reasoning(forge_domain::ReasoningConfig {
+            enabled: Some(false),
+            effort: Some(forge_domain::Effort::High),
+            max_tokens: None,
+            exclude: None,
+        });
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        assert_eq!(actual.reasoning_effort, Some("none".to_string()));
+        assert_eq!(actual.reasoning, None);
     }
 
     #[test]
