@@ -103,6 +103,7 @@ mod tests {
             reasoning: None,
             stream: None,
             response_format: None,
+            initiator: None,
         };
 
         let request = ConverseStreamInput::from_domain(context).expect("Failed to convert context");
@@ -130,6 +131,7 @@ mod tests {
             reasoning: None,
             stream: None,
             response_format: None,
+            initiator: None,
         };
 
         let request = ConverseStreamInput::from_domain(context).expect("Failed to convert context");
@@ -159,6 +161,7 @@ mod tests {
             reasoning: None,
             stream: None,
             response_format: None,
+            initiator: None,
         };
 
         let request = ConverseStreamInput::from_domain(context).expect("Failed to convert context");

@@ -195,8 +195,7 @@ impl ContextMessage {
         reasoning_details: Option<Vec<ReasoningFull>>,
         tool_calls: Option<Vec<ToolCallFull>>,
     ) -> Self {
-        let tool_calls =
-            tool_calls.and_then(|calls| if calls.is_empty() { None } else { Some(calls) });
+        let tool_calls = tool_calls.filter(|calls| !calls.is_empty());
         TextMessage {
             role: Role::Assistant,
             content: content.to_string(),
@@ -402,6 +401,10 @@ impl std::ops::DerefMut for MessageEntry {
 pub struct Context {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_id: Option<ConversationId>,
+    /// Indicates who initiated the conversation: "user" or "agent".
+    /// Used for GitHub Copilot billing optimization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initiator: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub messages: Vec<MessageEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -417,7 +420,7 @@ pub struct Context {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub top_k: Option<TopK>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reasoning: Option<crate::agent_definition::ReasoningConfig>,
+    pub reasoning: Option<crate::ReasoningConfig>,
     /// Controls whether responses should be streamed. When `true`, responses
     /// are delivered incrementally as they're generated. When `false`, the
     /// complete response is returned at once. Defaults to `true` if not
@@ -556,6 +559,7 @@ impl Context {
     /// are supported and uses the appropriate format. For models that don't
     /// support tools, use the TransformToolCalls transformer to convert the
     /// context afterward.
+    #[allow(clippy::too_many_arguments)]
     pub fn append_message(
         self,
         content: impl ToString,
@@ -566,21 +570,19 @@ impl Context {
         tool_records: Vec<(ToolCallFull, ToolResult)>,
         phase: Option<MessagePhase>,
     ) -> Self {
-        // Convert flat reasoning string to reasoning_details if present
-        let merged_reasoning_details = if let Some(reasoning_text) = reasoning {
-            let reasoning_entry = ReasoningFull {
+        // Convert flat reasoning string to reasoning_details only when no structured
+        // reasoning_details are present. When reasoning_details already exists it
+        // already contains the text (with its cryptographic signature), so adding
+        // another entry from the raw `reasoning` string would produce a duplicate
+        // thinking block with a null signature, which Anthropic rejects.
+        let merged_reasoning_details = match (reasoning, reasoning_details) {
+            (_, Some(details)) => Some(details),
+            (Some(reasoning_text), None) => Some(vec![ReasoningFull {
                 text: Some(reasoning_text),
                 type_of: Some("reasoning.text".to_string()),
                 ..Default::default()
-            };
-            if let Some(mut existing_details) = reasoning_details {
-                existing_details.push(reasoning_entry);
-                Some(existing_details)
-            } else {
-                Some(vec![reasoning_entry])
-            }
-        } else {
-            reasoning_details
+            }]),
+            (None, None) => None,
         };
 
         // Adding tool calls
@@ -637,6 +639,12 @@ impl Context {
     /// Checks if reasoning is enabled by user or not.
     pub fn is_reasoning_supported(&self) -> bool {
         self.reasoning.as_ref().is_some_and(|reasoning| {
+            // `Effort::None` is a strong opt-out that wins over `enabled` and
+            // `max_tokens`.
+            if matches!(reasoning.effort, Some(crate::Effort::None)) {
+                return false;
+            }
+
             // When enabled parameter is defined then return it's value directly.
             if reasoning.enabled.is_some() {
                 return reasoning.enabled.unwrap_or_default();
@@ -768,6 +776,21 @@ impl std::ops::Add for TokenCount {
 impl Default for TokenCount {
     fn default() -> Self {
         TokenCount::Actual(0)
+    }
+}
+
+impl TokenCount {
+    /// Returns the larger of two TokenCount values by their inner count.
+    /// If both are `Actual`, the result is `Actual`. If either is `Approx`,
+    /// the result is `Approx`.
+    pub fn max(self, other: TokenCount) -> TokenCount {
+        use TokenCount::*;
+        match (self, other) {
+            (Actual(a), Actual(b)) => Actual(a.max(b)),
+            (Actual(a), Approx(b)) => Approx(a.max(b)),
+            (Approx(a), Actual(b)) => Approx(a.max(b)),
+            (Approx(a), Approx(b)) => Approx(a.max(b)),
+        }
     }
 }
 
@@ -1092,10 +1115,8 @@ mod tests {
 
     #[test]
     fn test_context_is_reasoning_supported_when_enabled() {
-        let fixture = Context::default().reasoning(crate::agent_definition::ReasoningConfig {
-            enabled: Some(true),
-            ..Default::default()
-        });
+        let fixture = Context::default()
+            .reasoning(crate::ReasoningConfig { enabled: Some(true), ..Default::default() });
 
         let actual = fixture.is_reasoning_supported();
         let expected = true;
@@ -1105,8 +1126,8 @@ mod tests {
 
     #[test]
     fn test_context_is_reasoning_supported_when_effort_set() {
-        let fixture = Context::default().reasoning(crate::agent_definition::ReasoningConfig {
-            effort: Some(crate::agent_definition::Effort::High),
+        let fixture = Context::default().reasoning(crate::ReasoningConfig {
+            effort: Some(crate::Effort::High),
             ..Default::default()
         });
 
@@ -1118,10 +1139,8 @@ mod tests {
 
     #[test]
     fn test_context_is_reasoning_supported_when_max_tokens_positive() {
-        let fixture = Context::default().reasoning(crate::agent_definition::ReasoningConfig {
-            max_tokens: Some(1024),
-            ..Default::default()
-        });
+        let fixture = Context::default()
+            .reasoning(crate::ReasoningConfig { max_tokens: Some(1024), ..Default::default() });
 
         let actual = fixture.is_reasoning_supported();
         let expected = true;
@@ -1131,10 +1150,8 @@ mod tests {
 
     #[test]
     fn test_context_is_reasoning_not_supported_when_max_tokens_zero() {
-        let fixture = Context::default().reasoning(crate::agent_definition::ReasoningConfig {
-            max_tokens: Some(0),
-            ..Default::default()
-        });
+        let fixture = Context::default()
+            .reasoning(crate::ReasoningConfig { max_tokens: Some(0), ..Default::default() });
 
         let actual = fixture.is_reasoning_supported();
         let expected = false;
@@ -1144,10 +1161,8 @@ mod tests {
 
     #[test]
     fn test_context_is_reasoning_not_supported_when_disabled() {
-        let fixture = Context::default().reasoning(crate::agent_definition::ReasoningConfig {
-            enabled: Some(false),
-            ..Default::default()
-        });
+        let fixture = Context::default()
+            .reasoning(crate::ReasoningConfig { enabled: Some(false), ..Default::default() });
 
         let actual = fixture.is_reasoning_supported();
         let expected = false;
@@ -1167,10 +1182,10 @@ mod tests {
 
     #[test]
     fn test_context_is_reasoning_not_supported_when_explicitly_disabled() {
-        let fixture = Context::default().reasoning(crate::agent_definition::ReasoningConfig {
+        let fixture = Context::default().reasoning(crate::ReasoningConfig {
             enabled: Some(false),
-            effort: Some(crate::agent_definition::Effort::High), /* Should be ignored when
-                                                                  * explicitly disabled */
+            effort: Some(crate::Effort::High), /* Should be ignored when
+                                                * explicitly disabled */
             ..Default::default()
         });
 
@@ -1180,6 +1195,37 @@ mod tests {
         assert_eq!(
             actual, expected,
             "Should not be supported when explicitly disabled, even with effort set"
+        );
+    }
+
+    #[test]
+    fn test_context_is_reasoning_not_supported_when_effort_is_none() {
+        // `Effort::None` is documented as "skips the thinking step entirely" and
+        // must act as an explicit opt-out regardless of other fields.
+        let fixture = Context::default().reasoning(crate::ReasoningConfig {
+            effort: Some(crate::Effort::None),
+            ..Default::default()
+        });
+
+        let actual = fixture.is_reasoning_supported();
+
+        assert!(!actual);
+    }
+
+    #[test]
+    fn test_context_is_reasoning_not_supported_when_effort_none_overrides_enabled_true() {
+        let fixture = Context::default().reasoning(crate::ReasoningConfig {
+            enabled: Some(true),
+            effort: Some(crate::Effort::None),
+            max_tokens: Some(8000),
+            ..Default::default()
+        });
+
+        let actual = fixture.is_reasoning_supported();
+
+        assert!(
+            !actual,
+            "Effort::None must win over enabled: true and max_tokens"
         );
     }
 
@@ -1647,5 +1693,60 @@ mod tests {
         let expected = false; // Last assistant used "model2", same as current
 
         assert_eq!(actual, expected);
+    }
+
+    /// Regression test: when both `reasoning` (raw text) and
+    /// `reasoning_details` (structured, with a cryptographic signature) are
+    /// present, `append_message` must NOT create a duplicate thinking block
+    /// with a null signature.
+    ///
+    /// The Anthropic API rejects messages where any thinking block carries a
+    /// null or missing signature, so the stored `reasoning_details` must
+    /// contain exactly the structured entries that were passed in — no
+    /// extras.
+    #[test]
+    fn test_append_message_does_not_duplicate_reasoning_when_details_present() {
+        // Fixture: a structured reasoning detail with a valid signature, as would
+        // arrive after aggregating an Anthropic streaming response.
+        let fixture_details = vec![ReasoningFull {
+            text: Some("Let me think about this.".to_string()),
+            signature: Some("EpwFvalidSignatureABC123".to_string()),
+            type_of: Some("reasoning.text".to_string()),
+            format: Some("anthropic-claude-v1".to_string()),
+            index: Some(0),
+            ..Default::default()
+        }];
+
+        // Both reasoning (raw string) and reasoning_details (structured) are provided,
+        // mirroring what orch.rs passes after collecting a streamed Anthropic response.
+        let fixture = Context::default().add_message(ContextMessage::user("Hello", None));
+        let actual = fixture.append_message(
+            "Answer",
+            None,
+            Some("Let me think about this.".to_string()), // raw reasoning string
+            Some(fixture_details.clone()),                // structured reasoning_details
+            Usage::default(),
+            vec![],
+            None,
+        );
+
+        // Extract the stored reasoning_details from the assistant message.
+        let stored = actual
+            .messages
+            .iter()
+            .find_map(|entry| {
+                if let ContextMessage::Text(msg) = &**entry
+                    && msg.role == Role::Assistant
+                {
+                    return msg.reasoning_details.as_ref();
+                }
+                None
+            })
+            .expect("Assistant message should have reasoning_details");
+
+        // Expected: exactly the one structured entry that was passed in.
+        // No duplicate null-signature entry should have been appended.
+        let expected = fixture_details;
+        assert_eq!(stored, &expected);
     }
 }

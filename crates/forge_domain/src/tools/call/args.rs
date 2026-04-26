@@ -35,7 +35,19 @@ impl<'de> Deserialize<'de> for ToolCallArguments {
     where
         D: serde::Deserializer<'de>,
     {
-        Ok(Value::deserialize(deserializer)?.into())
+        let value = Value::deserialize(deserializer)?;
+
+        // Handle case where API sends arguments as a string containing JSON
+        // e.g., "{\"key\": \"value\"}" instead of {"key": "value"}
+        if let Value::String(json_str) = &value {
+            if let Ok(repaired) = json_repair(json_str) {
+                return Ok(ToolCallArguments::Parsed(repaired));
+            }
+            // If json_repair fails, fall back to storing as Unparsed
+            return Ok(ToolCallArguments::Unparsed(json_str.clone()));
+        }
+
+        Ok(ToolCallArguments::Parsed(value))
     }
 }
 
@@ -50,6 +62,32 @@ impl ToolCallArguments {
         match self {
             ToolCallArguments::Unparsed(str) => str,
             ToolCallArguments::Parsed(value) => value.to_string(),
+        }
+    }
+
+    /// Normalizes the arguments by converting `Unparsed` strings into
+    /// structured JSON values when possible.
+    ///
+    /// This is used for persisted conversations that may contain tool call
+    /// arguments saved as raw strings. If repair succeeds, the arguments become
+    /// `Parsed`. If repair fails, the raw content is preserved inside a
+    /// fallback object so downstream request builders always receive
+    /// structured JSON.
+    pub fn normalize(self) -> Self {
+        match self {
+            ToolCallArguments::Unparsed(json_str) => {
+                // Try to parse the string as JSON
+                if let Ok(repaired) = json_repair(&json_str) {
+                    ToolCallArguments::Parsed(repaired)
+                } else {
+                    // If it's not valid JSON, create a fallback object with the raw content
+                    // This ensures we always send valid JSON to the API
+                    let mut map = Map::new();
+                    map.insert("_raw_content".to_string(), Value::String(json_str));
+                    ToolCallArguments::Parsed(Value::Object(map))
+                }
+            }
+            ToolCallArguments::Parsed(_) => self,
         }
     }
 
@@ -178,11 +216,45 @@ mod tests {
     }
 
     #[test]
+    fn test_deserialize_stringified_json_object() {
+        // Simulates kimi-k2p5-turbo sending "arguments": "{\"key\": \"value\"}"
+        // The outer quotes make it a JSON string, inside we have escaped JSON
+        let json_str = r#""{\"file_path\": \"/test\", \"content\": \"hello\"}""#;
+        let actual: ToolCallArguments = serde_json::from_str(json_str).unwrap();
+        let expected = ToolCallArguments::Parsed(json!({
+            "file_path": "/test",
+            "content": "hello"
+        }));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_roundtrip_stringified_json() {
+        // Start with stringified JSON, deserialize, then serialize back
+        let original = r#""{\"param\": \"value\", \"count\": 42}""#;
+        let deserialized: ToolCallArguments = serde_json::from_str(original).unwrap();
+
+        // After roundtrip, should be a proper JSON object (not a string)
+        let serialized = serde_json::to_string(&deserialized).unwrap();
+        let reparsed: Value = serde_json::from_str(&serialized).unwrap();
+
+        // Should be an object, not a string
+        assert!(
+            reparsed.is_object(),
+            "Should be JSON object, got: {}",
+            serialized
+        );
+        assert_eq!(reparsed["param"], "value");
+        assert_eq!(reparsed["count"], 42);
+    }
+
+    #[test]
     fn test_serialize_unparsed_empty_string() {
         let fixture = ToolCallArguments::from_json("");
         let actual = serde_json::to_string(&fixture).unwrap();
-        let expected = r#""""#;
-        assert_eq!(actual, expected);
+        // Empty string is not valid JSON, so it falls back to string serialization
+        // which produces a JSON string (quoted)
+        assert_eq!(actual, "\"\"");
     }
 
     #[test]
@@ -331,6 +403,74 @@ mod tests {
             "score": 95.5
         }));
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_normalize_unparsed_json_string() {
+        // Test that stringified JSON gets normalized to Parsed
+        let fixture = ToolCallArguments::from_json(r#"{"file_path": "/test", "content": "hello"}"#);
+        let normalized = fixture.normalize();
+
+        // Should be converted to Parsed
+        match normalized {
+            ToolCallArguments::Parsed(value) => {
+                assert_eq!(value["file_path"], "/test");
+                assert_eq!(value["content"], "hello");
+            }
+            ToolCallArguments::Unparsed(_) => panic!("Should be Parsed after normalization"),
+        }
+    }
+
+    #[test]
+    fn test_normalize_parsed_value_unchanged() {
+        // Test that already Parsed values stay as Parsed
+        let fixture = ToolCallArguments::Parsed(json!({"key": "value"}));
+        let normalized = fixture.normalize();
+
+        match normalized {
+            ToolCallArguments::Parsed(value) => assert_eq!(value["key"], "value"),
+            ToolCallArguments::Unparsed(_) => panic!("Should remain Parsed"),
+        }
+    }
+
+    #[test]
+    fn test_normalize_malformed_json_from_dump() {
+        // Test the exact malformed JSON from the kimi dump
+        let fixture = ToolCallArguments::from_json(r#"{" ,"replace_all": false}"#);
+        let normalized = fixture.normalize();
+
+        // When JSON can't be repaired, it should create a fallback object
+        match normalized {
+            ToolCallArguments::Parsed(value) => {
+                // Should contain the raw content in a fallback object
+                assert!(
+                    value.get("_raw_content").is_some(),
+                    "Expected fallback object with _raw_content, got: {:?}",
+                    value
+                );
+            }
+            ToolCallArguments::Unparsed(_) => {
+                panic!("Should be Parsed (with fallback) even for malformed JSON")
+            }
+        }
+    }
+
+    #[test]
+    fn test_normalize_real_kimi_string() {
+        // Test with a realistic kimi-k2p5-turbo stringified argument
+        let json_str = r#"{"file_path": "/home/kassie/projects/test.ts", "new_string": "import { parseArgs } from \"util\";\nimport { aiCommand } from \"./commands/ai\";", "old_string": "old", "replace_all": false}"#;
+        let fixture = ToolCallArguments::from_json(json_str);
+        let normalized = fixture.normalize();
+
+        match &normalized {
+            ToolCallArguments::Parsed(value) => {
+                assert_eq!(value["file_path"], "/home/kassie/projects/test.ts");
+                assert_eq!(value["replace_all"], false);
+            }
+            ToolCallArguments::Unparsed(s) => {
+                panic!("Should have parsed valid JSON, but got Unparsed: {}", s);
+            }
+        }
     }
 
     #[test]

@@ -16,7 +16,7 @@ toml_edit = { workspace = true }
 url.workspace = true
 fake = { version = "5.1.0", features = ["derive"] }
 schemars.workspace = true
-merge.workspace = true
+strum_macros.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

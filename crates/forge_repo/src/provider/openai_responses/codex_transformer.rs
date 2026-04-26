@@ -11,8 +11,8 @@ use forge_domain::Transformer;
 /// - `max_output_tokens` is not supported and must be stripped.
 /// - `include` always contains `reasoning.encrypted_content` for stateless
 ///   reasoning continuity.
-/// - `text.verbosity` is forced to `Low` for concise output.
-/// - `reasoning.effort` is forced to `High` and `reasoning.summary` to `Auto`.
+/// - `reasoning.effort` and `reasoning.summary` are passed through as-is from
+///   the caller.
 pub struct CodexTransformer;
 
 impl Transformer for CodexTransformer {
@@ -26,11 +26,6 @@ impl Transformer for CodexTransformer {
         let includes = request.include.get_or_insert_with(Vec::new);
         if !includes.contains(&oai::IncludeEnum::ReasoningEncryptedContent) {
             includes.push(oai::IncludeEnum::ReasoningEncryptedContent);
-        }
-
-        if let Some(reasoning) = request.reasoning.as_mut() {
-            reasoning.effort = Some(oai::ReasoningEffort::High);
-            reasoning.summary = Some(oai::ReasoningSummary::Auto);
         }
 
         request
@@ -121,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn test_codex_transformer_sets_reasoning_effort_high_and_summary_auto() {
+    fn test_codex_transformer_preserves_reasoning_effort_and_summary() {
         let reasoning = oai::Reasoning {
             effort: Some(oai::ReasoningEffort::Low),
             summary: Some(oai::ReasoningSummary::Detailed),
@@ -134,11 +129,11 @@ mod tests {
 
         assert_eq!(
             actual.reasoning.as_ref().and_then(|r| r.effort.clone()),
-            Some(oai::ReasoningEffort::High)
+            Some(oai::ReasoningEffort::Low)
         );
         assert_eq!(
             actual.reasoning.as_ref().and_then(|r| r.summary),
-            Some(oai::ReasoningSummary::Auto)
+            Some(oai::ReasoningSummary::Detailed)
         );
     }
 

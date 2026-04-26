@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use derive_setters::Setters;
 use regex::Regex;
 use termimad::crossterm::style::{Attribute, Color};
@@ -13,7 +15,7 @@ pub struct MarkdownFormat {
     skin: MadSkin,
     max_consecutive_newlines: usize,
     #[setters(skip)]
-    highlighter: SyntaxHighlighter,
+    highlighter: OnceLock<SyntaxHighlighter>,
 }
 
 impl Default for MarkdownFormat {
@@ -39,7 +41,7 @@ impl MarkdownFormat {
         Self {
             skin,
             max_consecutive_newlines: 2,
-            highlighter: SyntaxHighlighter::default(),
+            highlighter: OnceLock::new(),
         }
     }
 
@@ -55,10 +57,8 @@ impl MarkdownFormat {
 
         // Render with termimad, then restore highlighted code
         let rendered = self.skin.term_text(processed.markdown()).to_string();
-        processed
-            .restore(&self.highlighter, rendered)
-            .trim()
-            .to_string()
+        let highlighter = self.highlighter.get_or_init(SyntaxHighlighter::default);
+        processed.restore(highlighter, rendered).trim().to_string()
     }
 
     fn strip_excessive_newlines(&self, content: &str) -> String {

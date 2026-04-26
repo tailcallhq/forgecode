@@ -88,11 +88,17 @@ mod tests {
     }
 
     impl EnvironmentInfra for MockInfra {
+        type Config = forge_config::ForgeConfig;
+
         fn get_environment(&self) -> Environment {
             use fake::{Fake, Faker};
             let mut env: Environment = Faker.fake();
             env.cwd = self.cwd.clone();
             env
+        }
+
+        fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
+            Ok(forge_config::ForgeConfig::default())
         }
 
         async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {

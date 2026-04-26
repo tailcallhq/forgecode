@@ -41,12 +41,6 @@ function _forge_action_info() {
     fi
 }
 
-# Action handler: Show environment info
-function _forge_action_env() {
-    echo
-    _forge_exec env
-}
-
 # Action handler: Dump conversation
 function _forge_action_dump() {
     local input_text="$1"
@@ -65,6 +59,12 @@ function _forge_action_compact() {
 # Action handler: Retry last message
 function _forge_action_retry() {
     _forge_handle_conversation_command "retry"
+}
+
+# Action handler: Show available commands (mirrors :help in the REPL)
+function _forge_action_help() {
+    echo
+    $_FORGE_BIN list command
 }
 
 # Helper function to handle conversation commands that require an active conversation

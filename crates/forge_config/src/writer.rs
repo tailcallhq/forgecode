@@ -16,6 +16,10 @@ impl ConfigWriter {
     /// Serializes and writes the configuration to `path`, creating all parent
     /// directories recursively if they do not already exist.
     ///
+    /// The output includes a leading `$schema` key pointing to the Forge
+    /// configuration JSON schema, which enables editor validation and
+    /// auto-complete.
+    ///
     /// # Errors
     ///
     /// Returns an error if the configuration cannot be serialized or the file
@@ -25,7 +29,9 @@ impl ConfigWriter {
             std::fs::create_dir_all(parent)?;
         }
 
-        let contents = toml_edit::ser::to_string_pretty(&self.config)?;
+        let config_toml = toml_edit::ser::to_string_pretty(&self.config)?;
+        let contents =
+            format!("\"$schema\" = \"https://forgecode.dev/schema.json\"\n\n{config_toml}");
 
         std::fs::write(path, contents)?;
 

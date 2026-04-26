@@ -23,8 +23,8 @@ Before executing the command, please follow these steps:
 Usage notes:
   - The command argument is required.
   - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.
-  - If the output exceeds {{env.stdoutMaxPrefixLength}} prefix lines or {{env.stdoutMaxSuffixLength}} suffix lines, or if a line exceeds {{env.stdoutMaxLineLength}} characters, it will be truncated and the full output will be written to a temporary file. You can use read with start_line/end_line to read specific sections or fs_search to search the full content. Because of this, you do NOT need to use `head`, `tail`, or other truncation commands to limit output - just run the command directly.
-  - Avoid using {{tool_names.shell}} with the `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or when these commands are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:
+  - If the output exceeds {{config.stdoutMaxPrefixLength}} prefix lines or {{config.stdoutMaxSuffixLength}} suffix lines, or if a line exceeds {{config.stdoutMaxLineLength}} characters, it will be truncated and the full output will be written to a temporary file. You can use read with start_line/end_line to read specific sections or fs_search to search the full content. Because of this, you should NOT use `head`, `tail`, or other truncation commands to limit output - just run the command directly.
+  - Do not use {{tool_names.shell}} with the `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or when these commands are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:
     - File search: Use `{{tool_names.fs_search}}` (NOT find or ls)
     - Content search: Use `{{tool_names.fs_search}}` with regex (NOT grep or rg)
     - Read files: Use `{{tool_names.read}}` (NOT cat/head/tail)

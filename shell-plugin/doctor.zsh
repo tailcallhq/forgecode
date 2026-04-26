@@ -120,7 +120,7 @@ if [[ -n "$ZSH" ]] && [[ -d "$ZSH" ]]; then
     fi
     print_result info "${ZSH}"
 else
-    print_result fail "Oh My Zsh not found" "Install: sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\""
+    print_result warn "Oh My Zsh not found" "Install: sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\""
 fi
 
 # 2. Check if forge is installed and in PATH
@@ -153,6 +153,7 @@ else
     print_result fail "Forge plugin not loaded"
     print_result instruction "Add to your ~/.zshrc:"
     print_result code "eval \"\$(forge zsh plugin)\""
+    print_result instruction "Or run: forge zsh setup"
 fi
 
 
@@ -187,7 +188,7 @@ if [[ -f "$zshrc_file" ]] && [[ -n "$_FORGE_PLUGIN_LOADED" ]]; then
 fi
 
 # 4. Check ZSH theme RPROMPT
-print_section "ZSH Theme RPROMPT"
+print_section "FORGE RIGHT PROMPT"
 
 # Check if forge theme is loaded by checking environment variable
 if [[ -n "$_FORGE_THEME_LOADED" ]]; then
@@ -195,11 +196,11 @@ if [[ -n "$_FORGE_THEME_LOADED" ]]; then
 elif (( $+functions[p10k] )); then
     print_result info "Powerlevel10k detected (not using Forge theme)"
 elif [[ -n "$ZSH_THEME" ]]; then
-    print_result fail "Using theme: ${ZSH_THEME}"
+    print_result warn "Using theme: ${ZSH_THEME}"
     print_result instruction "To use Forge theme, add to ~/.zshrc:"
     print_result code "eval \"\$(forge zsh theme)\""
 else
-    print_result fail "No theme loaded"
+    print_result warn "No theme loaded"
     print_result instruction "To use Forge theme, add to ~/.zshrc:"
     print_result code "eval \"\$(forge zsh theme)\""
 fi
@@ -529,7 +530,7 @@ if [[ -n "$NERD_FONT" ]]; then
     if [[ "$NERD_FONT" == "1" || "$NERD_FONT" == "true" ]]; then
         print_result pass "NERD_FONT: enabled"
     else
-        print_result fail "NERD_FONT: disabled (${NERD_FONT})"
+        print_result warn "NERD_FONT: disabled (${NERD_FONT})"
         print_result instruction "Enable Nerd Font by setting:"
         print_result code "export NERD_FONT=1"
     fi
@@ -537,7 +538,7 @@ elif [[ -n "$USE_NERD_FONT" ]]; then
     if [[ "$USE_NERD_FONT" == "1" || "$USE_NERD_FONT" == "true" ]]; then
         print_result pass "USE_NERD_FONT: enabled"
     else
-        print_result fail "USE_NERD_FONT: disabled (${USE_NERD_FONT})"
+        print_result warn "USE_NERD_FONT: disabled (${USE_NERD_FONT})"
         print_result instruction "Enable Nerd Font by setting:"
         print_result code "export NERD_FONT=1"
     fi

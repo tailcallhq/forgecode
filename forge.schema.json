@@ -5,7 +5,7 @@
   "type": "object",
   "properties": {
     "auto_dump": {
-      "description": "Format for automatically creating a dump when a task is completed",
+      "description": "Format used when automatically creating a session dump after task\ncompletion; disabled when absent.",
       "anyOf": [
         {
           "$ref": "#/$defs/AutoDumpFormat"
@@ -16,11 +16,12 @@
       ]
     },
     "auto_open_dump": {
-      "description": "Whether to automatically open HTML dump files in the browser",
-      "type": "boolean"
+      "description": "Whether to automatically open HTML dump files in the browser after\ncreation.",
+      "type": "boolean",
+      "default": false
     },
     "commit": {
-      "description": "Provider and model to use for commit message generation",
+      "description": "Model and provider configuration used for commit message generation.",
       "anyOf": [
         {
           "$ref": "#/$defs/ModelConfig"
@@ -28,8 +29,7 @@
         {
           "type": "null"
         }
-      ],
-      "default": null
+      ]
     },
     "compact": {
       "description": "Context compaction settings applied to all agents; falls back to each\nagent's individual setting when absent.",
@@ -42,22 +42,32 @@
         }
       ]
     },
+    "currency_conversion_rate": {
+      "description": "Conversion rate applied to costs before display in the shell rprompt.\nThe raw USD cost is multiplied by this value, allowing costs to be shown\nin a local currency. Defaults to `1.0` (no conversion).",
+      "$ref": "#/$defs/double",
+      "default": 0.0
+    },
+    "currency_symbol": {
+      "description": "Currency symbol displayed in the shell rprompt next to the session cost\n(e.g. `\"$\"`, `\"€\"`, `\"₹\"`). Defaults to `\"$\"`.",
+      "type": "string",
+      "default": ""
+    },
     "custom_history_path": {
-      "description": "Custom history file path",
+      "description": "Path to the conversation history file; defaults to the global history\nlocation when absent.",
       "type": [
         "string",
         "null"
       ]
     },
     "debug_requests": {
-      "description": "Path where debug request files should be written",
+      "description": "Directory where debug request files are written; disabled when absent.",
       "type": [
         "string",
         "null"
       ]
     },
     "http": {
-      "description": "HTTP configuration",
+      "description": "HTTP client settings including proxy, TLS, and timeout configuration.",
       "anyOf": [
         {
           "$ref": "#/$defs/HttpConfig"
@@ -67,58 +77,74 @@
         }
       ]
     },
-    "max_conversations": {
-      "description": "Maximum number of conversations to show in list",
+    "max_commit_count": {
+      "description": "Maximum number of recent commits included as context for commit message\ngeneration.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
+      "minimum": 0
+    },
+    "max_conversations": {
+      "description": "Maximum number of conversations shown in the conversation list.",
+      "type": "integer",
+      "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_extensions": {
-      "description": "Maximum number of file extensions to include in the system prompt",
+      "description": "Maximum number of file extensions included in the agent system prompt.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_fetch_chars": {
-      "description": "Maximum characters for fetch content",
+      "description": "Maximum number of characters returned from a URL fetch.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_file_read_batch_size": {
-      "description": "Maximum number of files that can be read in a single batch operation",
+      "description": "Maximum number of files read in a single batch operation.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_file_size_bytes": {
-      "description": "Maximum file size in bytes for operations",
+      "description": "Maximum file size in bytes permitted for read operations.",
       "type": "integer",
       "format": "uint64",
+      "default": 0,
       "minimum": 0
     },
     "max_image_size_bytes": {
-      "description": "Maximum image file size in bytes for binary read operations",
+      "description": "Maximum image file size in bytes permitted for read operations.",
       "type": "integer",
       "format": "uint64",
+      "default": 0,
       "minimum": 0
     },
     "max_line_chars": {
-      "description": "Maximum characters per line for file read operations",
+      "description": "Maximum number of characters per line when reading a file.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_parallel_file_reads": {
-      "description": "Maximum number of files read concurrently in parallel operations",
+      "description": "Maximum number of files read concurrently during batch operations.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_read_lines": {
-      "description": "Maximum number of lines to read from a file",
+      "description": "Maximum number of lines read from a file in a single operation.",
       "type": "integer",
       "format": "uint64",
+      "default": 0,
       "minimum": 0
     },
     "max_requests_per_turn": {
@@ -131,39 +157,45 @@
       "minimum": 0
     },
     "max_search_lines": {
-      "description": "The maximum number of lines returned for FSSearch",
+      "description": "Maximum number of lines returned by a single file search operation.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_search_result_bytes": {
-      "description": "Maximum bytes allowed for search results",
+      "description": "Maximum number of bytes returned by a single file search operation.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_sem_search_results": {
-      "description": "Maximum number of results to return from initial vector search",
+      "description": "Maximum number of candidate results returned from the initial semantic\nsearch vector query.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_stdout_line_chars": {
-      "description": "Maximum characters per line for shell output",
+      "description": "Maximum number of characters per line in shell command output.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_stdout_prefix_lines": {
-      "description": "Maximum lines for shell output prefix",
+      "description": "Maximum number of lines captured from the leading portion of shell\ncommand output.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_stdout_suffix_lines": {
-      "description": "Maximum lines for shell output suffix",
+      "description": "Maximum number of lines captured from the trailing portion of shell\ncommand output.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_tokens": {
@@ -185,17 +217,42 @@
       "minimum": 0
     },
     "model_cache_ttl_secs": {
-      "description": "TTL in seconds for the model API list cache",
+      "description": "Time-to-live in seconds for the cached model API list.",
       "type": "integer",
       "format": "uint64",
+      "default": 0,
       "minimum": 0
     },
+    "providers": {
+      "description": "Additional provider definitions merged with the built-in provider list.\n\nEntries with an `id` matching a built-in provider override its fields;\nentries with a new `id` are appended and become available for model\nselection.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ProviderEntry"
+      }
+    },
+    "reasoning": {
+      "description": "Reasoning configuration applied to all agents; controls effort level,\ntoken budget, and visibility of the model's thinking process.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReasoningConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "research_subagent": {
+      "description": "Whether the deep research agent is available.\n\nWhen set to `true`, the Sage agent is added to the agent list and\nthe `:sage` app command is enabled. Defaults to `false`.",
+      "type": "boolean",
+      "default": false
+    },
     "restricted": {
-      "description": "Whether the application is running in restricted mode.\nWhen true, tool execution requires explicit permission grants.",
-      "type": "boolean"
+      "description": "Whether restricted mode is active; when enabled, tool execution requires\nexplicit permission grants.",
+      "type": "boolean",
+      "default": false
     },
     "retry": {
-      "description": "Configuration for the retry mechanism",
+      "description": "Retry settings applied at the system level to all IO operations.",
       "anyOf": [
         {
           "$ref": "#/$defs/RetryConfig"
@@ -206,14 +263,16 @@
       ]
     },
     "sem_search_top_k": {
-      "description": "Top-k parameter for relevance filtering during semantic search",
+      "description": "Number of top results retained after re-ranking in semantic search.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "services_url": {
-      "description": "URL for the indexing server",
-      "type": "string"
+      "description": "Base URL of the Forge services API used for semantic search and\nindexing.",
+      "type": "string",
+      "default": ""
     },
     "session": {
       "description": "Default model and provider configuration used when not overridden by\nindividual agents.",
@@ -224,11 +283,15 @@
         {
           "type": "null"
         }
-      ],
-      "default": null
+      ]
+    },
+    "subagents": {
+      "description": "Enables subagent support via the task tool; when true the forge agent\ngains access to the `task` tool for delegating work to specialised\nsub-agents, and the `sage` research-only agent tool is removed.\nWhen false the `task` tool is disabled and `sage` is available instead.",
+      "type": "boolean",
+      "default": false
     },
     "suggest": {
-      "description": "Provider and model to use for shell command suggestion generation",
+      "description": "Model and provider configuration used for shell command suggestion\ngeneration.",
       "anyOf": [
         {
           "$ref": "#/$defs/ModelConfig"
@@ -236,25 +299,29 @@
         {
           "type": "null"
         }
-      ],
-      "default": null
+      ]
     },
     "temperature": {
       "description": "Output randomness for all agents; lower values are deterministic, higher\nvalues are creative (0.0–2.0).",
-      "type": [
-        "number",
-        "null"
-      ],
-      "format": "float"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/double"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "tool_supported": {
-      "description": "Whether tool use is supported in the current environment.\nWhen false, tool calls are disabled regardless of agent configuration.",
-      "type": "boolean"
+      "description": "Whether tool use is supported in the current environment; when false,\nall tool calls are disabled.",
+      "type": "boolean",
+      "default": false
     },
     "tool_timeout_secs": {
-      "description": "Maximum execution time in seconds for a single tool call",
+      "description": "Maximum time in seconds a single tool call may run before being\ncancelled.",
       "type": "integer",
       "format": "uint64",
+      "default": 0,
       "minimum": 0
     },
     "top_k": {
@@ -268,14 +335,17 @@
     },
     "top_p": {
       "description": "Nucleus sampling threshold for all agents; limits token selection to the\ntop cumulative probability mass (0.0–1.0).",
-      "type": [
-        "number",
-        "null"
-      ],
-      "format": "float"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/double"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "updates": {
-      "description": "Configuration for automatic forge updates",
+      "description": "Configuration for automatic Forge updates.",
       "anyOf": [
         {
           "$ref": "#/$defs/Update"
@@ -284,32 +354,18 @@
           "type": "null"
         }
       ]
+    },
+    "use_forge_committer": {
+      "description": "Whether `forge commit` should override `GIT_COMMITTER_NAME` and\n`GIT_COMMITTER_EMAIL` with the Forge identity. Defaults to `true` via\nthe embedded `.forge.toml` defaults.",
+      "type": "boolean",
+      "default": false
+    },
+    "verify_todos": {
+      "description": "Enables the pending todos hook that checks for incomplete todo items\nwhen a task ends and reminds the LLM about them.",
+      "type": "boolean",
+      "default": false
     }
   },
-  "required": [
-    "max_search_lines",
-    "max_search_result_bytes",
-    "max_fetch_chars",
-    "max_stdout_prefix_lines",
-    "max_stdout_suffix_lines",
-    "max_stdout_line_chars",
-    "max_line_chars",
-    "max_read_lines",
-    "max_file_read_batch_size",
-    "max_file_size_bytes",
-    "max_image_size_bytes",
-    "tool_timeout_secs",
-    "auto_open_dump",
-    "max_conversations",
-    "max_sem_search_results",
-    "sem_search_top_k",
-    "services_url",
-    "max_extensions",
-    "max_parallel_file_reads",
-    "model_cache_ttl_secs",
-    "restricted",
-    "tool_supported"
-  ],
   "$defs": {
     "AutoDumpFormat": {
       "description": "The output format used when auto-dumping a conversation on task completion.",
@@ -332,8 +388,7 @@
       "properties": {
         "eviction_window": {
           "description": "Maximum percentage of the context that can be summarized during\ncompaction. Valid values are between 0.0 and 1.0, where 0.0 means no\ncompaction and 1.0 allows summarizing all messages. Works alongside\nretention_window - the more conservative limit (fewer messages to\ncompact) takes precedence.",
-          "type": "number",
-          "format": "double",
+          "$ref": "#/$defs/double",
           "default": 0.0
         },
         "max_tokens": {
@@ -376,13 +431,24 @@
           "minimum": 0
         },
         "token_threshold": {
-          "description": "Maximum number of tokens before triggering compaction",
+          "description": "Maximum number of tokens before triggering compaction. This acts as an\nabsolute cap and is combined with\n`token_threshold_percentage` by taking the lower value.",
           "type": [
             "integer",
             "null"
           ],
           "format": "uint",
           "minimum": 0
+        },
+        "token_threshold_percentage": {
+          "description": "Maximum percentage of the model context window used to derive the token\nthreshold before triggering compaction. This is combined with\n`token_threshold` by taking the lower value.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/double"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "turn_threshold": {
           "description": "Maximum number of conversation turns before triggering compaction",
@@ -394,6 +460,46 @@
           "minimum": 0
         }
       }
+    },
+    "Effort": {
+      "description": "Effort level for model reasoning.",
+      "oneOf": [
+        {
+          "description": "No reasoning; skips the thinking step entirely.",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "Minimal reasoning; fastest and cheapest.",
+          "type": "string",
+          "const": "minimal"
+        },
+        {
+          "description": "Low reasoning effort.",
+          "type": "string",
+          "const": "low"
+        },
+        {
+          "description": "Medium reasoning effort; the default for most providers.",
+          "type": "string",
+          "const": "medium"
+        },
+        {
+          "description": "High reasoning effort.",
+          "type": "string",
+          "const": "high"
+        },
+        {
+          "description": "Extra-high reasoning effort (OpenAI / OpenRouter).",
+          "type": "string",
+          "const": "xhigh"
+        },
+        {
+          "description": "Maximum reasoning effort; only available on select Anthropic models.",
+          "type": "string",
+          "const": "max"
+        }
+      ]
     },
     "HttpConfig": {
       "description": "HTTP client configuration.",
@@ -510,17 +616,188 @@
       "properties": {
         "model_id": {
           "description": "The model to use for this operation.",
+          "type": "string"
+        },
+        "provider_id": {
+          "description": "The provider to use for this operation.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "model_id"
+      ]
+    },
+    "ProviderAuthMethod": {
+      "description": "Authentication method supported by a provider.\n\nOnly the simple (non-OAuth) methods are available here; providers that\nrequire OAuth device or authorization-code flows must be configured via the\nfile-based `provider.json` override instead.",
+      "type": "string",
+      "enum": [
+        "api_key",
+        "google_adc"
+      ]
+    },
+    "ProviderEntry": {
+      "description": "A single provider entry defined inline in `forge.toml`.\n\nInline providers are merged with the built-in provider list; entries with\nthe same `id` override the corresponding built-in entry field-by-field,\nwhile entries with a new `id` are appended to the list.",
+      "type": "object",
+      "properties": {
+        "api_key_var": {
+          "description": "Environment variable holding the API key for this provider.",
           "type": [
             "string",
             "null"
           ]
         },
-        "provider_id": {
-          "description": "The provider to use for this operation.",
+        "auth_methods": {
+          "description": "Authentication methods supported by this provider; defaults to\n`[\"api_key\"]` when omitted.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProviderAuthMethod"
+          }
+        },
+        "custom_headers": {
+          "description": "Additional HTTP headers sent with every request to this provider.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "description": "Unique provider identifier used in model paths (e.g. `\"my_provider\"`).",
+          "type": "string"
+        },
+        "models": {
+          "description": "URL template for fetching the model list; may contain `{{VAR}}`\nplaceholders.",
           "type": [
             "string",
             "null"
           ]
+        },
+        "provider_type": {
+          "description": "Provider category; defaults to `llm` when omitted.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProviderTypeEntry"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "response_type": {
+          "description": "Wire protocol used by this provider.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProviderResponseType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "url": {
+          "description": "URL template for chat completions; may contain `{{VAR}}` placeholders\nthat are substituted from the credential's url params.",
+          "type": "string"
+        },
+        "url_param_vars": {
+          "description": "Environment variables whose values are substituted into `{{VAR}}`\nplaceholders in the `url` and `models` templates.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProviderUrlParam"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "url"
+      ]
+    },
+    "ProviderResponseType": {
+      "description": "Wire protocol a provider uses for chat completions.",
+      "type": "string",
+      "enum": [
+        "OpenAI",
+        "OpenAIResponses",
+        "Anthropic",
+        "Bedrock",
+        "Google",
+        "OpenCode"
+      ]
+    },
+    "ProviderTypeEntry": {
+      "description": "Category of a provider.",
+      "oneOf": [
+        {
+          "description": "LLM provider for chat completions.",
+          "type": "string",
+          "const": "llm"
+        },
+        {
+          "description": "Context engine provider for code indexing and search.",
+          "type": "string",
+          "const": "context_engine"
+        }
+      ]
+    },
+    "ProviderUrlParam": {
+      "description": "A URL parameter variable for a provider, used to substitute template\nvariables in URL strings.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The environment variable name used as the template variable key.",
+          "type": "string"
+        },
+        "options": {
+          "description": "Optional preset values for this parameter shown as suggestions in the\nUI.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "ReasoningConfig": {
+      "description": "Controls the reasoning behaviour of a model, including effort level, token\nbudget, and visibility of the thinking process.",
+      "type": "object",
+      "properties": {
+        "effort": {
+          "description": "Controls the effort level of the model's reasoning.\nSupported by openrouter and forge provider.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Effort"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enabled": {
+          "description": "Enables reasoning at the \"medium\" effort level with no exclusions.\nSupported by openrouter, anthropic, and forge provider.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "exclude": {
+          "description": "When true, the model thinks deeply but the reasoning is hidden from the\ncaller. Supported by openrouter and forge provider.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "max_tokens": {
+          "description": "Controls how many tokens the model can spend thinking.\nShould be greater than 1024 but less than the overall max_tokens.\nSupported by openrouter, anthropic, and forge provider.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
         }
       }
     },
@@ -635,6 +912,10 @@
         "weekly",
         "always"
       ]
+    },
+    "double": {
+      "type": "number",
+      "format": "double"
     }
   }
 }

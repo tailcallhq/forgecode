@@ -1,6 +1,6 @@
 use forge_domain::Transformer;
 
-use crate::dto::openai::Request;
+use crate::dto::openai::{Request, ResponseFormat};
 use crate::utils::enforce_strict_schema;
 
 /// Normalizes tool schemas for OpenAI compatibility
@@ -9,10 +9,15 @@ pub struct NormalizeToolSchema;
 
 /// Enforces strict JSON schema compatibility for tool parameters.
 ///
-/// This is primarily used for OpenCode Zen models routed through the OpenAI
-/// chat-completions backend, where nullable enum values must be rewritten to
-/// OpenAI-compatible strict schema.
+/// This is primarily used for OpenAI-compatible providers that require
+/// nullable enum values to be rewritten to OpenAI-compatible strict schema.
 pub struct EnforceStrictToolSchema;
+
+/// Enforces strict JSON schema compatibility for response_format schemas.
+///
+/// This is used for OpenAI-compatible providers that require the same strict
+/// JSON Schema subset for structured outputs as they do for tool parameters.
+pub struct EnforceStrictResponseFormatSchema;
 
 impl Transformer for NormalizeToolSchema {
     type Value = Request;
@@ -40,6 +45,40 @@ impl Transformer for EnforceStrictToolSchema {
                 enforce_strict_schema(&mut tool.function.parameters, true);
             }
         }
+        request
+    }
+}
+
+impl Transformer for EnforceStrictResponseFormatSchema {
+    type Value = Request;
+
+    fn transform(&mut self, mut request: Self::Value) -> Self::Value {
+        let Some(response_format) = request.response_format.take() else {
+            return request;
+        };
+
+        match response_format {
+            ResponseFormat::Text => {
+                request.response_format = Some(ResponseFormat::Text);
+            }
+            ResponseFormat::JsonSchema { name, schema } => {
+                if let Ok(mut schema_value) = serde_json::to_value(&schema) {
+                    enforce_strict_schema(&mut schema_value, true);
+
+                    if let Ok(normalized_schema) = serde_json::from_value(schema_value) {
+                        request.response_format = Some(ResponseFormat::JsonSchema {
+                            name,
+                            schema: Box::new(normalized_schema),
+                        });
+                    } else {
+                        request.response_format = Some(ResponseFormat::JsonSchema { name, schema });
+                    }
+                } else {
+                    request.response_format = Some(ResponseFormat::JsonSchema { name, schema });
+                }
+            }
+        }
+
         request
     }
 }
@@ -139,5 +178,52 @@ mod tests {
         });
 
         assert_eq!(actual.tools.unwrap()[0].function.parameters, expected);
+    }
+
+    #[test]
+    fn test_enforce_strict_response_format_converts_nullable_enum() {
+        let fixture = Request::default().response_format(ResponseFormat::JsonSchema {
+            name: "test_response".to_string(),
+            schema: Box::new(
+                schemars::Schema::try_from(json!({
+                    "type": "object",
+                    "properties": {
+                        "result": {
+                            "description": "Result",
+                            "nullable": true,
+                            "type": "string",
+                            "enum": ["done", null]
+                        }
+                    }
+                }))
+                .unwrap(),
+            ),
+        });
+
+        let actual = EnforceStrictResponseFormatSchema.transform(fixture);
+
+        let actual_schema = match actual.response_format {
+            Some(ResponseFormat::JsonSchema { schema, .. }) => {
+                serde_json::to_value(schema).unwrap()
+            }
+            Some(ResponseFormat::Text) => panic!("Expected json_schema response format"),
+            None => panic!("Expected response format to be preserved"),
+        };
+        let expected = json!({
+            "type": "object",
+            "properties": {
+                "result": {
+                    "description": "Result",
+                    "anyOf": [
+                        {"type": "string", "enum": ["done"]},
+                        {"type": "null"}
+                    ]
+                }
+            },
+            "additionalProperties": false,
+            "required": ["result"]
+        });
+
+        assert_eq!(actual_schema, expected);
     }
 }

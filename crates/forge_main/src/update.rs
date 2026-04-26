@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use colored::Colorize;
-use forge_api::{API, Update};
+use forge_api::API;
+use forge_config::Update;
 use forge_select::ForgeWidget;
 use forge_tracker::VERSION;
 use update_informer::{Check, Version, registry};
@@ -77,7 +78,7 @@ pub async fn on_update(api: Arc<impl API>, update: Option<&Update>) {
         return;
     }
 
-    let informer = update_informer::new(registry::GitHub, "antinomyhq/forge", VERSION)
+    let informer = update_informer::new(registry::GitHub, "tailcallhq/forgecode", VERSION)
         .interval(frequency.into());
 
     if let Some(version) = informer.check_version().ok().flatten()

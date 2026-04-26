@@ -38,6 +38,13 @@ jobs:
     name: update_release_draft
     runs-on: ubuntu-latest
     steps:
+    - name: Auto Labeler
+      if: github.event_name == 'pull_request_target'
+      uses: release-drafter/release-drafter/autolabeler@v7
+      with:
+        config-name: release-drafter.yml
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Release Drafter
       uses: release-drafter/release-drafter@v7
       with:

@@ -174,19 +174,7 @@ mod tests {
 
     fn fixture_environment() -> Environment {
         use fake::{Fake, Faker};
-
-        let max_bytes: f64 = 250.0 * 1024.0;
-        let fixture: Environment = Faker.fake();
-
-        fixture
-            .max_search_lines(25)
-            .max_search_result_bytes(max_bytes.ceil() as usize)
-            .fetch_truncation_limit(55)
-            .max_read_size(10)
-            .stdout_max_prefix_length(10)
-            .stdout_max_suffix_length(10)
-            .max_line_length(100)
-            .max_file_size(0)
+        Faker.fake()
     }
 
     fn fixture_todo(content: &str, id: &str, status: TodoStatus) -> Todo {

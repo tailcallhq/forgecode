@@ -24,6 +24,32 @@ impl MockServer {
         self.server.url()
     }
 
+    /// Mock any POST path returning the given status code and JSON body with
+    /// `Content-Type: application/json`.  Used to simulate a provider API
+    /// returning a non-2xx error so the SSE client fires `InvalidStatusCode`.
+    pub async fn mock_post_error(&mut self, path: &str, body: &str, status: usize) -> Mock {
+        self.server
+            .mock("POST", path)
+            .with_status(status)
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create_async()
+            .await
+    }
+
+    /// Mock any POST path returning 200 with `Content-Type: application/json`
+    /// (not `text/event-stream`).  Used to simulate an `InvalidContentType`
+    /// error from the SSE client.
+    pub async fn mock_post_wrong_content_type(&mut self, path: &str, body: &str) -> Mock {
+        self.server
+            .mock("POST", path)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create_async()
+            .await
+    }
+
     pub async fn mock_responses_stream(&mut self, events: Vec<String>, status: usize) -> Mock {
         let sse_body = events.join("\n\n");
         self.server

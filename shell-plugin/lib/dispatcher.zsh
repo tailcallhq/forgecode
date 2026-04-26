@@ -148,9 +148,6 @@ function forge-accept-line() {
         info|i)
             _forge_action_info
         ;;
-        env|e)
-            _forge_action_env
-        ;;
         dump|d)
             _forge_action_dump "$input_text"
         ;;
@@ -160,14 +157,14 @@ function forge-accept-line() {
         retry|r)
             _forge_action_retry
         ;;
+        help)
+            _forge_action_help
+        ;;
         agent|a)
             _forge_action_agent "$input_text"
         ;;
         conversation|c)
             _forge_action_conversation "$input_text"
-        ;;
-        config-provider|provider|p)
-            _forge_action_provider "$input_text"
         ;;
         config-model|cm)
             _forge_action_model "$input_text"
@@ -175,8 +172,14 @@ function forge-accept-line() {
         model|m)
             _forge_action_session_model "$input_text"
         ;;
-        model-reset|mr)
-            _forge_action_model_reset
+        config-reload|cr|model-reset|mr)
+            _forge_action_config_reload
+        ;;
+        reasoning-effort|re)
+            _forge_action_reasoning_effort "$input_text"
+        ;;
+        config-reasoning-effort|cre)
+            _forge_action_config_reasoning_effort "$input_text"
         ;;
         config-commit-model|ccm)
             _forge_action_commit_model "$input_text"
@@ -187,7 +190,7 @@ function forge-accept-line() {
         tools|t)
             _forge_action_tools
         ;;
-        config)
+        config|env|e)
             _forge_action_config
         ;;
         config-edit|ce)
@@ -217,6 +220,12 @@ function forge-accept-line() {
         clone)
             _forge_action_clone "$input_text"
         ;;
+        rename|rn)
+            _forge_action_rename "$input_text"
+        ;;
+        conversation-rename)
+            _forge_action_conversation_rename "$input_text"
+        ;;
         copy)
             _forge_action_copy
         ;;
@@ -232,17 +241,11 @@ function forge-accept-line() {
         workspace-info|sync-info)
             _forge_action_sync_info
         ;;
-        provider-login|login)
+        provider-login|login|provider)
             _forge_action_login "$input_text"
         ;;
         logout)
             _forge_action_logout "$input_text"
-        ;;
-        doctor)
-            _forge_action_doctor
-        ;;
-        keyboard-shortcuts|kb)
-            _forge_action_keyboard
         ;;
         *)
             _forge_action_default "$user_action" "$input_text"

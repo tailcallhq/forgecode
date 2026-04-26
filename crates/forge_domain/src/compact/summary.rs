@@ -191,6 +191,7 @@ pub enum SummaryTool {
     Followup { question: String },
     Plan { plan_name: String },
     Skill { name: String },
+    Task { agent_id: String },
     Mcp { name: String },
     TodoWrite { changes: Vec<TodoChange> },
     TodoRead,
@@ -341,6 +342,9 @@ fn extract_tool_info(call: &ToolCallFull, current_todos: &[Todo]) -> Option<Summ
             ToolCatalog::Read(input) => Some(SummaryTool::FileRead { path: input.file_path }),
             ToolCatalog::Write(input) => Some(SummaryTool::FileUpdate { path: input.file_path }),
             ToolCatalog::Patch(input) => Some(SummaryTool::FileUpdate { path: input.file_path }),
+            ToolCatalog::MultiPatch(input) => {
+                Some(SummaryTool::FileUpdate { path: input.file_path })
+            }
             ToolCatalog::Remove(input) => Some(SummaryTool::FileRemove { path: input.path }),
             ToolCatalog::Shell(input) => Some(SummaryTool::Shell { command: input.command }),
             ToolCatalog::FsSearch(input) => {
@@ -402,6 +406,7 @@ fn extract_tool_info(call: &ToolCallFull, current_todos: &[Todo]) -> Option<Summ
                 Some(SummaryTool::TodoWrite { changes })
             }
             ToolCatalog::TodoRead(_) => Some(SummaryTool::TodoRead),
+            ToolCatalog::Task(input) => Some(SummaryTool::Task { agent_id: input.agent_id }),
         };
     }
 

@@ -1,12 +1,13 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use bstr::ByteSlice;
 
 impl crate::ForgeFS {
     pub async fn read_utf8<T: AsRef<Path>>(path: T) -> Result<String> {
         Self::read(path)
             .await
-            .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+            .map(|bytes| bytes.to_str_lossy().to_string())
     }
 
     pub async fn read<T: AsRef<Path>>(path: T) -> Result<Vec<u8>> {

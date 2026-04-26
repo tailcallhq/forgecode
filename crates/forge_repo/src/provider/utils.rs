@@ -1,6 +1,6 @@
 use anyhow::Context as _;
-use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
-use reqwest::{StatusCode, Url};
+use reqwest::header::HeaderMap;
+use reqwest::{Response, StatusCode, Url};
 
 /// Helper function to format HTTP request/response context for logging and
 /// error reporting
@@ -14,6 +14,21 @@ pub(crate) fn format_http_context<U: AsRef<str>>(
     } else {
         format!("{} {}", method, url.as_ref())
     }
+}
+
+/// Reads an HTTP error response body and formats a human-readable reason.
+///
+/// Returns the status code as a `u16` and a formatted string of the form
+/// `"<status> Reason: <body>"`, falling back to `"<status> Reason: [Unknown]"`
+/// when the body cannot be read or is empty.
+pub async fn read_http_error_reason(response: Response) -> (u16, String) {
+    let status = response.status();
+    let body = response.text().await.ok().filter(|b| !b.is_empty());
+    let reason = match body {
+        Some(b) => format!("{status} Reason: {b}"),
+        None => format!("{status} Reason: [Unknown]"),
+    };
+    (status.as_u16(), reason)
 }
 
 /// Joins a base URL with a path, validating the path for security
@@ -48,55 +63,4 @@ pub fn create_headers(headers: Vec<(String, String)>) -> HeaderMap {
         header_map.insert(header_name, header_value);
     }
     header_map
-}
-
-/// Sanitizes headers for logging by redacting sensitive values
-pub fn sanitize_headers(headers: &HeaderMap) -> HeaderMap {
-    let sensitive_headers = [AUTHORIZATION.as_str()];
-    headers
-        .iter()
-        .map(|(name, value)| {
-            let name_str = name.as_str().to_lowercase();
-            let value_str = if sensitive_headers.contains(&name_str.as_str()) {
-                HeaderValue::from_static("[REDACTED]")
-            } else {
-                value.clone()
-            };
-            (name.clone(), value_str)
-        })
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use reqwest::header::HeaderValue;
-
-    use super::*;
-
-    #[test]
-    fn test_sanitize_headers_for_logging() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_static("Bearer secret-api-key"),
-        );
-        headers.insert("x-api-key", HeaderValue::from_static("another-secret"));
-        headers.insert("x-title", HeaderValue::from_static("forge"));
-        headers.insert("content-type", HeaderValue::from_static("application/json"));
-
-        let sanitized = sanitize_headers(&headers);
-
-        assert_eq!(
-            sanitized.get("authorization"),
-            Some(&HeaderValue::from_static("[REDACTED]"))
-        );
-        assert_eq!(
-            sanitized.get("x-title"),
-            Some(&HeaderValue::from_static("forge"))
-        );
-        assert_eq!(
-            sanitized.get("content-type"),
-            Some(&HeaderValue::from_static("application/json"))
-        );
-    }
 }

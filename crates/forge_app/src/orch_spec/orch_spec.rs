@@ -107,7 +107,15 @@ async fn test_empty_responses() {
         ChatCompletionMessage::assistant(""),
     ]);
 
-    ctx.env.retry_config.max_retry_attempts = 3;
+    ctx.config.retry = Some(forge_config::RetryConfig {
+        initial_backoff_ms: 200,
+        min_delay_ms: 1000,
+        backoff_factor: 2,
+        max_attempts: 3,
+        status_codes: vec![429, 500, 502, 503, 504, 408, 522, 520, 529],
+        max_delay_secs: None,
+        suppress_errors: false,
+    });
 
     let _ = ctx.run("Read a file").await;
 
@@ -377,6 +385,10 @@ async fn test_multiple_consecutive_tool_calls() {
             ChatCompletionMessage::assistant("Reading 3").add_tool_call(tool_call.clone()),
             ChatCompletionMessage::assistant("Reading 4").add_tool_call(tool_call.clone()),
             ChatCompletionMessage::assistant("Completing Task").finish_reason(FinishReason::Stop),
+            // Extra responses for doom loop reminder iterations (detector triggers on each request
+            // after 4th tool call)
+            ChatCompletionMessage::assistant("Acknowledged").finish_reason(FinishReason::Stop),
+            ChatCompletionMessage::assistant("Task complete").finish_reason(FinishReason::Stop),
         ]);
 
     let _ = ctx.run("Read a file").await;
@@ -411,6 +423,10 @@ async fn test_doom_loop_detection_adds_user_reminder_after_repeated_calls_on_nex
             ChatCompletionMessage::assistant("Call 3").add_tool_call(tool_call.clone()),
             ChatCompletionMessage::assistant("Call 4").add_tool_call(tool_call.clone()),
             ChatCompletionMessage::assistant("Done").finish_reason(FinishReason::Stop),
+            // Extra responses for doom loop reminder iterations (detector triggers on each request
+            // after 4th tool call)
+            ChatCompletionMessage::assistant("Noted").finish_reason(FinishReason::Stop),
+            ChatCompletionMessage::assistant("Actually done now").finish_reason(FinishReason::Stop),
         ]);
 
     ctx.run("Test doom loop").await.unwrap();
@@ -582,5 +598,119 @@ async fn test_not_complete_when_stop_with_tool_calls() {
     assert_eq!(
         assistant_message_count, 2,
         "Should have 2 assistant messages, confirming is_complete was false with tool calls"
+    );
+}
+
+#[tokio::test]
+async fn test_todo_enforcement_injects_reminder() {
+    // Test: When the orchestrator receives a Stop response but there are pending
+    // todos, the PendingTodosHandler hook should inject a formatted reminder
+    // message into the context listing all outstanding items.
+    // NOTE: Since the End hook now adds reminders and triggers the outer loop
+    // to continue, the orchestrator will loop until todos are completed. We
+    // provide enough mock responses to verify the reminder is injected, and
+    // allow the test to exhaust mock responses (which is expected).
+    use forge_domain::{Metrics, Todo, TodoStatus};
+
+    let mut ctx = TestContext::default()
+        .mock_assistant_responses(vec![
+            // LLM tries to finish but has pending todos - reminder will be injected
+            ChatCompletionMessage::assistant(Content::full("Task is done"))
+                .finish_reason(FinishReason::Stop),
+            // Second response after the first reminder is injected
+            // Handler won't add duplicate reminder, so this will complete
+            ChatCompletionMessage::assistant(Content::full(
+                "I see there are pending todos. Let me continue.",
+            ))
+            .finish_reason(FinishReason::Stop),
+        ])
+        .initial_metrics(Metrics::default().todos(vec![
+            Todo::new("Pending task 1").status(TodoStatus::Pending),
+            Todo::new("In progress task").status(TodoStatus::InProgress),
+        ]));
+
+    // Run the orchestrator - after first reminder, handler won't add duplicates
+    // so the second response will complete successfully
+    ctx.run("Complete this task").await.unwrap();
+
+    let messages = ctx.output.context_messages();
+
+    // Find the reminder message injected by the PendingTodosHandler hook
+    let reminder = messages
+        .iter()
+        .filter_map(|entry| entry.message.content())
+        .find(|content| content.contains("pending todo items"));
+
+    assert!(
+        reminder.is_some(),
+        "Should have a reminder message about pending todos"
+    );
+
+    let actual = reminder.unwrap();
+    assert!(
+        actual.contains("- [PENDING] Pending task 1"),
+        "Reminder should list pending items with status"
+    );
+    assert!(
+        actual.contains("- [IN_PROGRESS] In progress task"),
+        "Reminder should list in-progress items with status"
+    );
+}
+#[tokio::test]
+async fn test_complete_when_no_pending_todos() {
+    // Test: is_complete = true when there are no pending todos (only
+    // completed/cancelled)
+    use forge_domain::{Metrics, Todo, TodoStatus};
+
+    let mut ctx = TestContext::default()
+        .mock_assistant_responses(vec![
+            ChatCompletionMessage::assistant(Content::full("Task is done"))
+                .finish_reason(FinishReason::Stop),
+        ])
+        .initial_metrics(Metrics::default().todos(vec![
+            Todo::new("Completed task").status(TodoStatus::Completed),
+        ]));
+
+    ctx.run("Complete this task").await.unwrap();
+
+    // Verify TaskComplete IS sent (no pending todos to block completion)
+    let has_task_complete = ctx
+        .output
+        .chat_responses
+        .iter()
+        .filter_map(|r| r.as_ref().ok())
+        .any(|response| matches!(response, ChatResponse::TaskComplete));
+
+    assert!(
+        has_task_complete,
+        "Should have TaskComplete when no pending todos exist"
+    );
+}
+
+#[tokio::test]
+async fn test_complete_when_empty_todos() {
+    // Test: is_complete = true when there are no todos at all
+    use forge_domain::Metrics;
+
+    let mut ctx = TestContext::default()
+        .mock_assistant_responses(vec![
+            ChatCompletionMessage::assistant(Content::full("Task is done"))
+                .finish_reason(FinishReason::Stop),
+        ])
+        .initial_metrics(Metrics::default());
+
+    ctx.run("Complete this task").await.unwrap();
+
+    // Verify TaskComplete IS sent (no todos to block completion)
+    let has_task_complete = ctx
+        .output
+        .chat_responses
+        .iter()
+        .filter_map(|r| r.as_ref().ok())
+        .any(|response| matches!(response, ChatResponse::TaskComplete));
+
+    assert!(
+        has_task_complete,
+        "Should have TaskComplete when no todos exist"
     );
 }

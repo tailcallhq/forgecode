@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 
 use console::strip_ansi_codes;
 use derive_setters::Setters;
+use forge_config::ForgeConfig;
 use forge_display::DiffFormat;
 use forge_domain::{
-    CodebaseSearchResults, Environment, FSPatch, FSRead, FSRemove, FSSearch, FSUndo, FSWrite,
-    FileOperation, LineNumbers, Metrics, NetFetch, PlanCreate, ToolKind,
+    CodebaseSearchResults, Environment, FSMultiPatch, FSPatch, FSRead, FSRemove, FSSearch, FSUndo,
+    FSWrite, FileOperation, LineNumbers, Metrics, NetFetch, PlanCreate, ToolKind,
 };
 use forge_template::Element;
 
@@ -51,6 +52,10 @@ pub enum ToolOperation {
     },
     FsPatch {
         input: FSPatch,
+        output: PatchOutput,
+    },
+    FsMultiPatch {
+        input: FSMultiPatch,
         output: PatchOutput,
     },
     FsUndo {
@@ -217,11 +222,22 @@ fn create_validation_warning(path: &str, errors: &[forge_domain::SyntaxError]) -
 }
 
 impl ToolOperation {
+    /// Converts this tool operation into a [`forge_domain::ToolOutput`].
+    ///
+    /// # Arguments
+    /// * `tool_kind` - The kind of tool that produced this operation.
+    /// * `content_files` - Paths to any temporary truncated content files.
+    /// * `env` - Slim runtime environment (used for `cwd` and `shell`).
+    /// * `config` - Full application configuration (used for limits and
+    ///   thresholds).
+    /// * `metrics` - Mutable reference to the conversation metrics that will be
+    ///   updated.
     pub fn into_tool_output(
         self,
         tool_kind: ToolKind,
         content_files: TempContentFiles,
         env: &Environment,
+        config: &ForgeConfig,
         metrics: &mut Metrics,
     ) -> forge_domain::ToolOutput {
         let tool_name = tool_kind.name();
@@ -259,7 +275,7 @@ impl ToolOperation {
                         "display_lines",
                         format!("{}-{}", output.info.start_line, output.info.end_line),
                     )
-                    .attr("total_lines", content.lines().count())
+                    .attr("total_lines", output.info.total_lines)
                     .cdata(content);
 
                 // Track read operations
@@ -328,7 +344,7 @@ impl ToolOperation {
             ToolOperation::FsSearch { input, output } => match output {
                 Some(out) => {
                     let max_lines = min(
-                        env.max_search_lines,
+                        config.max_search_lines,
                         input.head_limit.unwrap_or(u32::MAX) as usize,
                     );
                     let offset = input.offset.unwrap_or(0) as usize;
@@ -337,7 +353,7 @@ impl ToolOperation {
                         &out.matches,
                         offset,
                         max_lines,
-                        env.max_search_result_bytes,
+                        config.max_search_result_bytes,
                         search_dir,
                     );
 
@@ -351,7 +367,7 @@ impl ToolOperation {
 
                     let mut elm = Element::new("search_results")
                         .attr("path", input.path.as_deref().unwrap_or("."))
-                        .attr("max_bytes_allowed", env.max_search_result_bytes)
+                        .attr("max_bytes_allowed", config.max_search_result_bytes)
                         .attr("total_lines", truncated_output.total)
                         .attr("display_lines", display_lines);
 
@@ -363,7 +379,7 @@ impl ToolOperation {
                         TruncationMode::Byte => {
                             let reason = format!(
                                 "Results truncated due to exceeding the {} bytes size limit. Please use a more specific search pattern",
-                                env.max_search_result_bytes
+                                config.max_search_result_bytes
                             );
                             elm = elm.attr("reason", reason);
                         }
@@ -465,6 +481,29 @@ impl ToolOperation {
 
                 forge_domain::ToolOutput::text(elm)
             }
+            ToolOperation::FsMultiPatch { input, output } => {
+                let diff_result = DiffFormat::format(&output.before, &output.after);
+                let diff = console::strip_ansi_codes(diff_result.diff()).to_string();
+
+                let mut elm = Element::new("file_diff")
+                    .attr("path", &input.file_path)
+                    .attr("total_lines", output.after.lines().count())
+                    .cdata(diff);
+
+                if !output.errors.is_empty() {
+                    elm = elm.append(create_validation_warning(&input.file_path, &output.errors));
+                }
+
+                *metrics = metrics.clone().insert(
+                    input.file_path.clone(),
+                    FileOperation::new(tool_kind)
+                        .lines_added(diff_result.lines_added())
+                        .lines_removed(diff_result.lines_removed())
+                        .content_hash(Some(output.content_hash.clone())),
+                );
+
+                forge_domain::ToolOutput::text(elm)
+            }
             ToolOperation::FsUndo { input, output } => {
                 // Diff between snapshot state (after_undo) and modified state
                 // (before_undo)
@@ -525,15 +564,12 @@ impl ToolOperation {
                     ResponseContext::Raw => output.content_type,
                 };
                 let truncated_content =
-                    truncate_fetch_content(&output.content, env.fetch_truncation_limit);
+                    truncate_fetch_content(&output.content, config.max_fetch_chars);
                 let mut elm = Element::new("http_response")
                     .attr("url", &input.url)
                     .attr("status_code", output.code)
                     .attr("start_char", 0)
-                    .attr(
-                        "end_char",
-                        env.fetch_truncation_limit.min(output.content.len()),
-                    )
+                    .attr("end_char", config.max_fetch_chars.min(output.content.len()))
                     .attr("total_chars", output.content.len())
                     .attr("content_type", content_type);
 
@@ -542,7 +578,7 @@ impl ToolOperation {
                     elm = elm.append(Element::new("truncated").text(
                         format!(
                             "Content is truncated to {} chars, remaining content can be read from path: {}",
-                            env.fetch_truncation_limit, path.display())
+                            config.max_fetch_chars, path.display())
                     ));
                 }
 
@@ -564,9 +600,9 @@ impl ToolOperation {
                 let truncated_output = truncate_shell_output(
                     &output.output.stdout,
                     &output.output.stderr,
-                    env.stdout_max_prefix_length,
-                    env.stdout_max_suffix_length,
-                    env.stdout_max_line_length,
+                    config.max_stdout_prefix_lines,
+                    config.max_stdout_suffix_lines,
+                    config.max_stdout_line_chars,
                 );
 
                 let stdout_elem = create_stream_element(
@@ -712,18 +748,24 @@ mod tests {
 
     fn fixture_environment() -> Environment {
         use fake::{Fake, Faker};
-        let max_bytes: f64 = 250.0 * 1024.0; // 250 KB
         let fixture: Environment = Faker.fake();
-        fixture
-            .cwd(PathBuf::from("/projects/test")) // Set deterministic cwd to avoid flaky path formatting
-            .max_search_lines(25)
-            .max_search_result_bytes(max_bytes.ceil() as usize)
-            .fetch_truncation_limit(55)
-            .max_read_size(10)
-            .stdout_max_prefix_length(10)
-            .stdout_max_suffix_length(10)
-            .max_line_length(100)
-            .max_file_size(256 << 10) // 256 KiB
+        fixture.cwd(PathBuf::from("/projects/test")) // Set deterministic cwd to avoid flaky path formatting
+    }
+
+    fn fixture_config() -> ForgeConfig {
+        let max_bytes: f64 = 250.0 * 1024.0; // 250 KB
+        ForgeConfig {
+            max_search_lines: 25,
+            max_search_result_bytes: max_bytes.ceil() as usize,
+            max_fetch_chars: 55,
+            max_read_lines: 10,
+            max_stdout_prefix_lines: 10,
+            max_stdout_suffix_lines: 10,
+            max_stdout_line_chars: 2000,
+            max_line_chars: 100,
+            max_file_size_bytes: 256 << 10, // 256 KiB
+            ..ForgeConfig::default()
+        }
     }
 
     fn to_value(output: forge_domain::ToolOutput) -> String {
@@ -830,11 +872,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Read,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -859,10 +903,12 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let actual = fixture.into_tool_output(
             ToolKind::Read,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -887,11 +933,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Read,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -916,6 +964,7 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let truncation_path =
             TempContentFiles::default().stdout(PathBuf::from("/tmp/truncated_content.txt"));
 
@@ -923,6 +972,7 @@ mod tests {
             ToolKind::Read,
             truncation_path,
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -947,11 +997,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Write,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -976,10 +1028,12 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let actual = fixture.into_tool_output(
             ToolKind::Write,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1002,10 +1056,12 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let actual = fixture.into_tool_output(
             ToolKind::Write,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1035,12 +1091,14 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let truncation_path =
             TempContentFiles::default().stdout(PathBuf::from("/tmp/stdout_content.txt"));
         let actual = fixture.into_tool_output(
             ToolKind::Shell,
             truncation_path,
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1070,12 +1128,14 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let truncation_path =
             TempContentFiles::default().stderr(PathBuf::from("/tmp/stderr_content.txt"));
         let actual = fixture.into_tool_output(
             ToolKind::Shell,
             truncation_path,
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1111,6 +1171,7 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let truncation_path = TempContentFiles::default()
             .stdout(PathBuf::from("/tmp/stdout_content.txt"))
             .stderr(PathBuf::from("/tmp/stderr_content.txt"));
@@ -1118,6 +1179,7 @@ mod tests {
             ToolKind::Shell,
             truncation_path,
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1147,10 +1209,12 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let actual = fixture.into_tool_output(
             ToolKind::Shell,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1173,10 +1237,12 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let actual = fixture.into_tool_output(
             ToolKind::Shell,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1199,10 +1265,12 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let actual = fixture.into_tool_output(
             ToolKind::Shell,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1238,6 +1306,7 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let truncation_path = TempContentFiles::default()
             .stdout(PathBuf::from("/tmp/stdout_content.txt"))
             .stderr(PathBuf::from("/tmp/stderr_content.txt"));
@@ -1245,6 +1314,7 @@ mod tests {
             ToolKind::Shell,
             truncation_path,
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1277,11 +1347,13 @@ mod tests {
         };
 
         let env = fixture_environment(); // max_search_lines is 25
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1313,14 +1385,16 @@ mod tests {
             output: Some(SearchResult { matches }),
         };
 
-        let mut env = fixture_environment();
+        let env = fixture_environment();
+        let mut config = fixture_config();
         // Total lines found are 50, but we limit to 10 for this test
-        env.max_search_lines = 10;
+        config.max_search_lines = 10;
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1352,16 +1426,18 @@ mod tests {
             output: Some(SearchResult { matches }),
         };
 
-        let mut env = fixture_environment();
+        let env = fixture_environment();
+        let mut config = fixture_config();
         // Total lines found are 50, but we limit to 20 for this test
-        env.max_search_lines = 20;
+        config.max_search_lines = 20;
         let max_bytes: f64 = 0.001 * 1024.0 * 1024.0;
-        env.max_search_result_bytes = max_bytes.ceil() as usize; // limit to 0.001 MB
+        config.max_search_result_bytes = max_bytes.ceil() as usize; // limit to 0.001 MB
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1396,16 +1472,18 @@ mod tests {
             output: Some(SearchResult { matches }),
         };
 
-        let mut env = fixture_environment();
+        let env = fixture_environment();
+        let mut config = fixture_config();
         // Total lines found are 50, but we limit to 20 for this test
-        env.max_search_lines = 20;
+        config.max_search_lines = 20;
         let max_bytes: f64 = 0.001 * 1024.0 * 1024.0;
-        env.max_search_result_bytes = max_bytes.ceil() as usize; // limit to 0.001 MB
+        config.max_search_result_bytes = max_bytes.ceil() as usize; // limit to 0.001 MB
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1424,11 +1502,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1453,11 +1533,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Write,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1485,11 +1567,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Write,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1504,11 +1588,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Remove,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1545,11 +1631,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1584,11 +1672,13 @@ mod tests {
         };
 
         let env = fixture_environment(); // max_search_lines is 25
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1619,11 +1709,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1658,11 +1750,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1698,11 +1792,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1736,11 +1832,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1773,11 +1871,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1814,11 +1914,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1855,11 +1957,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1903,11 +2007,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1935,11 +2041,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1958,11 +2066,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::FsSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -1988,11 +2098,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Patch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2018,11 +2130,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Patch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2056,11 +2170,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Patch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2075,11 +2191,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Undo,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2097,11 +2215,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Undo,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2121,11 +2241,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Undo,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2143,11 +2265,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Undo,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2165,11 +2289,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Undo,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2192,11 +2318,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Fetch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2206,10 +2334,11 @@ mod tests {
     #[test]
     fn test_net_fetch_truncated() {
         let env = fixture_environment();
+        let config = fixture_config();
         let truncated_content = "Truncated Content".to_string();
         let long_content = format!(
             "{}{}",
-            "A".repeat(env.fetch_truncation_limit),
+            "A".repeat(config.max_fetch_chars),
             &truncated_content
         );
         let fixture = ToolOperation::NetFetch {
@@ -2232,6 +2361,7 @@ mod tests {
             ToolKind::Fetch,
             truncation_path,
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2264,11 +2394,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Shell,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2291,11 +2423,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Shell,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2309,11 +2443,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Followup,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2344,10 +2480,12 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let actual = fixture.into_tool_output(
             ToolKind::SemSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2371,10 +2509,12 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let actual = fixture.into_tool_output(
             ToolKind::SemSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2386,11 +2526,13 @@ mod tests {
         let fixture = ToolOperation::FollowUp { output: None };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Followup,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2431,10 +2573,12 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let actual = fixture.into_tool_output(
             ToolKind::SemSearch,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2457,11 +2601,13 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
 
         let actual = fixture.into_tool_output(
             ToolKind::Skill,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 
@@ -2489,10 +2635,12 @@ mod tests {
         };
 
         let env = fixture_environment();
+        let config = fixture_config();
         let actual = fixture.into_tool_output(
             ToolKind::Read,
             TempContentFiles::default(),
             &env,
+            &config,
             &mut Metrics::default(),
         );
 

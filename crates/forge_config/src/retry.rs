@@ -1,9 +1,13 @@
+use derive_setters::Setters;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for retry mechanism.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, fake::Dummy)]
+#[derive(
+    Default, Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, fake::Dummy, Setters,
+)]
 #[serde(rename_all = "snake_case")]
+#[setters(into)]
 pub struct RetryConfig {
     /// Initial backoff delay in milliseconds for retry operations
     pub initial_backoff_ms: u64,
@@ -34,7 +38,7 @@ mod tests {
             min_delay_ms: 1000,
             backoff_factor: 2,
             max_attempts: 8,
-            status_codes: vec![429, 500, 502, 503, 504, 408, 522, 520, 529],
+            status_codes: vec![429, 500, 502, 503, 504, 408, 522, 524, 520, 529],
             max_delay_secs: None,
             suppress_errors: false,
         };

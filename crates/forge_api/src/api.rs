@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use forge_app::dto::ToolsOverview;
 use forge_app::{User, UserUsage};
-use forge_domain::{AgentId, ModelId, ProviderModels};
+use forge_domain::{AgentId, Effort, ModelId, ProviderModels};
 use forge_stream::MpscStream;
 use futures::stream::BoxStream;
 use url::Url;
@@ -23,12 +23,20 @@ pub trait API: Sync + Send {
     /// Provides a list of models available in the current environment
     async fn get_models(&self) -> Result<Vec<Model>>;
 
-    /// Provides models from all configured providers.
-    /// Returns an error if any configured provider fails to return models.
+    /// Provides models from all configured providers. Providers that
+    /// successfully return models are included in the result. If every
+    /// configured provider fails (e.g. due to an invalid API key), the
+    /// first error is returned so the caller sees the real underlying cause
+    /// rather than an empty list.
     async fn get_all_provider_models(&self) -> Result<Vec<ProviderModels>>;
 
     /// Provides a list of agents available in the current environment
     async fn get_agents(&self) -> Result<Vec<Agent>>;
+
+    /// Provides lightweight metadata for all agents without requiring a
+    /// configured provider or model
+    async fn get_agent_infos(&self) -> Result<Vec<AgentInfo>>;
+
     /// Provides a list of providers available in the current environment
     async fn get_providers(&self) -> Result<Vec<AnyProvider>>;
 
@@ -71,6 +79,20 @@ pub trait API: Sync + Send {
     /// Returns an error if the operation fails
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> Result<()>;
 
+    /// Renames a conversation by setting its title
+    ///
+    /// # Arguments
+    /// * `conversation_id` - The ID of the conversation to rename
+    /// * `title` - The new title for the conversation
+    ///
+    /// # Errors
+    /// Returns an error if the conversation is not found or the operation fails
+    async fn rename_conversation(
+        &self,
+        conversation_id: &ConversationId,
+        title: String,
+    ) -> Result<()>;
+
     /// Compacts the context of the main agent for the given conversation and
     /// persists it. Returns metrics about the compaction (original vs.
     /// compacted tokens and messages).
@@ -105,11 +127,24 @@ pub trait API: Sync + Send {
     /// Retrieves the provider configuration for the specified agent
     async fn get_agent_provider(&self, agent_id: AgentId) -> anyhow::Result<Provider<Url>>;
 
-    /// Retrieves the provider configuration for the default agent
+    /// Gets the current session configuration (provider and model pair).
+    ///
+    /// Returns `None` when no session has been configured yet, allowing callers
+    /// to distinguish between "not configured" and an actual error.
+    async fn get_session_config(&self) -> Option<forge_domain::ModelConfig>;
+
+    /// Retrieves the provider configuration for the default agent.
+    ///
+    /// Delegates to [`Self::get_session_config`] and resolves the provider.
     async fn get_default_provider(&self) -> anyhow::Result<Provider<Url>>;
 
-    /// Sets the default provider for all the agents
-    async fn set_default_provider(&self, provider_id: ProviderId) -> anyhow::Result<()>;
+    /// Applies one or more configuration mutations atomically.
+    ///
+    /// Each operation in `ops` is applied in order and persisted as a single
+    /// atomic write. Use [`forge_domain::ConfigOperation`] variants to describe
+    /// each mutation. Provider and model changes also invalidate the agent
+    /// cache so the next request picks up the updated configuration.
+    async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()>;
 
     /// Retrieves information about the currently authenticated user
     async fn user_info(&self) -> anyhow::Result<Option<User>>;
@@ -126,27 +161,16 @@ pub trait API: Sync + Send {
     /// Gets the model for the specified agent
     async fn get_agent_model(&self, agent_id: AgentId) -> Option<ModelId>;
 
-    /// Gets the default model
-    async fn get_default_model(&self) -> Option<ModelId>;
-
-    /// Sets the operating model
-    async fn set_default_model(&self, model_id: ModelId) -> anyhow::Result<()>;
-
     /// Gets the commit configuration (provider and model for commit message
     /// generation).
-    async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::CommitConfig>>;
-
-    /// Sets the commit configuration (provider and model for commit message
-    /// generation).
-    async fn set_commit_config(&self, config: forge_domain::CommitConfig) -> anyhow::Result<()>;
+    async fn get_commit_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
 
     /// Gets the suggest configuration (provider and model for command
     /// suggestion generation).
-    async fn get_suggest_config(&self) -> anyhow::Result<Option<forge_domain::SuggestConfig>>;
+    async fn get_suggest_config(&self) -> anyhow::Result<Option<forge_domain::ModelConfig>>;
 
-    /// Sets the suggest configuration (provider and model for command
-    /// suggestion generation).
-    async fn set_suggest_config(&self, config: forge_domain::SuggestConfig) -> anyhow::Result<()>;
+    /// Gets the current reasoning effort setting.
+    async fn get_reasoning_effort(&self) -> anyhow::Result<Option<Effort>>;
 
     /// Refresh MCP caches by fetching fresh data
     async fn reload_mcp(&self) -> Result<()>;
@@ -227,4 +251,13 @@ pub trait API: Sync + Send {
         &self,
         data_parameters: DataGenerationParameters,
     ) -> Result<BoxStream<'static, Result<serde_json::Value, anyhow::Error>>>;
+
+    /// Authenticate with an MCP server via OAuth flow
+    async fn mcp_auth(&self, server_url: &str) -> Result<()>;
+
+    /// Remove stored OAuth credentials for an MCP server (or all servers)
+    async fn mcp_logout(&self, server_url: Option<&str>) -> Result<()>;
+
+    /// Check the OAuth authentication status of an MCP server
+    async fn mcp_auth_status(&self, server_url: &str) -> Result<String>;
 }
