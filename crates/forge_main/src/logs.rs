@@ -35,12 +35,11 @@ async fn collect_files(log_dir: &Path) -> Result<Vec<(SystemTime, PathBuf)>> {
     let mut files = Vec::new();
     while let Some(entry) = entries.next_entry().await? {
         // Single metadata call per entry covers both is_file() and modified().
-        if let Ok(meta) = entry.metadata().await {
-            if meta.is_file() {
+        if let Ok(meta) = entry.metadata().await
+            && meta.is_file() {
                 let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
                 files.push((mtime, entry.path()));
             }
-        }
     }
     Ok(files)
 }
