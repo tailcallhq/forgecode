@@ -780,6 +780,20 @@ mod tests {
             "https://api.intelligence.io.solutions/api/v1/chat/completions"
         );
     }
+
+    #[test]
+    fn test_nvidia_config() {
+        let configs = get_provider_configs();
+        let config = configs.iter().find(|c| c.id == ProviderId::NVIDIA).unwrap();
+        assert_eq!(config.id, ProviderId::NVIDIA);
+        assert_eq!(config.api_key_vars, Some("NVIDIA_API_KEY".to_string()));
+        assert!(config.url_param_vars.is_empty());
+        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(
+            config.url.as_str(),
+            "https://integrate.api.nvidia.com/v1/chat/completions"
+        );
+    }
 }
 
 #[cfg(test)]

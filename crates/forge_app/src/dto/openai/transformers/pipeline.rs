@@ -5,6 +5,7 @@ use url::Url;
 
 use super::default_reasoning_content::DefaultReasoningContent;
 use super::drop_tool_call::DropToolCalls;
+use super::ensure_system_first::MergeSystemMessages;
 use super::github_copilot_reasoning::GitHubCopilotReasoning;
 use super::make_cerebras_compat::MakeCerebrasCompat;
 use super::make_openai_compat::MakeOpenAiCompat;
@@ -62,6 +63,7 @@ impl Transformer for ProviderPipeline<'_> {
             provider.id == ProviderId::REQUESTY
                 || provider.id == ProviderId::GITHUB_COPILOT
                 || is_deepseek_provider(provider)
+                || provider.id == ProviderId::NVIDIA
         });
 
         let github_copilot_reasoning =
@@ -79,6 +81,9 @@ impl Transformer for ProviderPipeline<'_> {
         let cerebras_compat = MakeCerebrasCompat.when(move |_| provider.id == ProviderId::CEREBRAS);
 
         let xai_compat = MakeXaiCompat.when(move |_| provider.id == ProviderId::XAI);
+
+        let ensure_system_first =
+            MergeSystemMessages.when(move |_| provider.id == ProviderId::NVIDIA);
 
         let trim_tool_call_ids = TrimToolCallIds.when(move |_| provider.id == ProviderId::OPENAI);
 
@@ -103,6 +108,7 @@ impl Transformer for ProviderPipeline<'_> {
             .pipe(default_reasoning_content)
             .pipe(cerebras_compat)
             .pipe(xai_compat)
+            .pipe(ensure_system_first)
             .pipe(trim_tool_call_ids)
             .pipe(strict_schema)
             .pipe(NormalizeToolSchema);
