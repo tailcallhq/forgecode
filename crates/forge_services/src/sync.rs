@@ -289,7 +289,6 @@ impl<F: 'static + WorkspaceIndexRepository + FileReaderInfra, D: FileDiscovery +
             async move {
                 let mut files = Vec::with_capacity(batch.len());
                 for file_path in &batch {
-                    info!(workspace_id = %workspace_id, path = %file_path.display(), "File sync started");
                     let content = infra
                         .read_utf8(file_path)
                         .await
@@ -311,9 +310,6 @@ impl<F: 'static + WorkspaceIndexRepository + FileReaderInfra, D: FileDiscovery +
                     .upload_files(&upload, &token)
                     .await
                     .context("Failed to upload files")?;
-                for file_path in &batch {
-                    info!(workspace_id = %workspace_id, path = %file_path.display(), "File sync completed");
-                }
                 Ok::<_, anyhow::Error>(count)
             }
         })
