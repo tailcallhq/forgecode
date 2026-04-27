@@ -43,6 +43,7 @@ use crate::input::Console;
 use crate::model::{AppCommand, ForgeCommandManager};
 use crate::porcelain::Porcelain;
 use crate::prompt::ForgePrompt;
+use crate::select_cmd::{PreviewLayout, PreviewPlacement, SelectMode, SelectRow, SelectUiOptions};
 use crate::state::UIState;
 use crate::stream_renderer::{SharedSpinner, StreamingWriter};
 use crate::sync_display::SyncProgressDisplay;
@@ -154,20 +155,25 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         &self,
         prompt: &str,
         query: Option<String>,
-        rows: Vec<crate::select_cmd::SelectRow>,
+        rows: Vec<SelectRow>,
         header_lines: usize,
         initial_raw: Option<String>,
-    ) -> Result<Option<crate::select_cmd::SelectRow>> {
-        let selected = crate::select_cmd::run_select_ui(crate::select_cmd::SelectUiOptions {
+    ) -> Result<Option<SelectRow>> {
+        self.select_raw_row_with_options(SelectUiOptions {
             prompt: Some(prompt.to_string()),
             query,
-            rows: rows.clone(),
+            rows,
             header_lines,
-            mode: crate::select_cmd::SelectMode::Single,
+            mode: SelectMode::Single,
             preview: None,
-            preview_layout: crate::select_cmd::PreviewLayout::default(),
+            preview_layout: PreviewLayout::default(),
             initial_raw,
-        })?;
+        })
+    }
+
+    fn select_raw_row_with_options(&self, options: SelectUiOptions) -> Result<Option<SelectRow>> {
+        let rows = options.rows.clone();
+        let selected = crate::select_cmd::run_select_ui(options)?;
 
         Ok(selected.and_then(|raw| rows.into_iter().find(|row| row.raw == raw)))
     }
@@ -2398,147 +2404,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     /// Fetches all provider models, presents an interactive fuzzy picker, and
     /// prints the selected `model_id` and `provider_id` on separate lines.
     /// Exits with code 1 if the user cancels.
-    async fn on_select_model_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
-        // Fetch models from ALL configured providers
-        let mut all_provider_models = self.api.get_all_provider_models().await?;
-
-        if all_provider_models.is_empty() {
-            std::process::exit(1);
-        }
-
-        // Sort models and providers
-        all_provider_models
-            .iter_mut()
-            .for_each(|pm| pm.models.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str())));
-        all_provider_models.sort_by(|a, b| a.provider_id.as_ref().cmp(b.provider_id.as_ref()));
-
-        // Build Info structure
-        let mut info = Info::new();
-        for pm in &all_provider_models {
-            let provider_display = pm.provider_id.to_string();
-            for model in &pm.models {
-                let id = model.id.to_string();
-                info = info
-                    .add_title(&id)
-                    .add_key_value("Model", model.name.as_ref().unwrap_or(&id))
-                    .add_key_value("Provider", &provider_display);
-
-                if let Some(limit) = model.context_length {
-                    let context = if limit >= 1_000_000 {
-                        format!("{}M", limit / 1_000_000)
-                    } else if limit >= 1000 {
-                        format!("{}k", limit / 1000)
-                    } else {
-                        format!("{limit}")
-                    };
-                    info = info.add_key_value("Context Window", context);
-                } else {
-                    info = info.add_key_value("Context Window", markers::EMPTY);
-                }
-
-                if let Some(supported) = model.tools_supported {
-                    info = info.add_key_value(
-                        "Tool Supported",
-                        if supported { status::YES } else { status::NO },
-                    );
-                } else {
-                    info = info.add_key_value("Tools", markers::EMPTY);
-                }
-
-                let supports_image = model
-                    .input_modalities
-                    .contains(&forge_domain::InputModality::Image);
-                info = info.add_key_value(
-                    "Image",
-                    if supports_image {
-                        status::YES
-                    } else {
-                        status::NO
-                    },
-                );
-            }
-        }
-
-        // Convert to porcelain format
-        let porcelain_output = Porcelain::from(&info)
-            .drop_col(0)
-            .truncate(0, 40)
-            .uppercase_headers();
-        let porcelain_str = porcelain_output.to_string();
-
-        let all_lines: Vec<&str> = porcelain_str.lines().collect();
-        if all_lines.is_empty() {
-            std::process::exit(1);
-        }
-
-        // Build a flat list of (ModelId, ProviderId) for the data rows
-        let mut model_entries: Vec<(ModelId, ProviderId)> = Vec::new();
-        for pm in &all_provider_models {
-            for model in &pm.models {
-                model_entries.push((model.id.clone(), pm.provider_id.clone()));
-            }
-        }
-
-        let mut rows = Vec::with_capacity(all_lines.len());
-        let Some(header) = all_lines.first() else {
-            return Err(UIError::MissingHeaderLine.into());
-        };
-        rows.push(crate::select_cmd::SelectRow {
-            raw: header.to_string(),
-            display: header.to_string(),
-            fields: Vec::new(),
-        });
-        for (i, line) in all_lines.iter().skip(1).enumerate() {
-            let Some((model_id, provider_id)) = model_entries.get(i) else {
-                continue;
-            };
-            rows.push(crate::select_cmd::SelectRow {
-                raw: format!("{}\t{}", model_id.as_str(), provider_id.as_ref()),
-                display: line.to_string(),
-                fields: vec![model_id.to_string(), provider_id.as_ref().to_string()],
-            });
-        }
-
-        // Find starting cursor for the current model (if any)
-        let current_model = self
-            .get_agent_model(self.api.get_active_agent().await)
-            .await;
-        let current_provider = self
-            .get_provider(self.api.get_active_agent().await)
-            .await
-            .ok()
-            .map(|provider| provider.id);
-        let initial_raw = current_model.as_ref().and_then(|current| {
-            model_entries
-                .iter()
-                .find(|(model_id, provider_id)| {
-                    model_id == current
-                        && current_provider
-                            .as_ref()
-                            .map(|provider| provider_id == provider)
-                            .unwrap_or(true)
-                })
-                .map(|(model_id, provider_id)| {
-                    format!("{}\t{}", model_id.as_str(), provider_id.as_ref())
-                })
-        });
-
-        match crate::select_cmd::run_select_ui(crate::select_cmd::SelectUiOptions {
-            prompt: Some("Model ❯ ".to_string()),
-            query,
-            rows,
-            header_lines: 1,
-            mode: crate::select_cmd::SelectMode::Single,
-            preview: None,
-            preview_layout: crate::select_cmd::PreviewLayout::default(),
-            initial_raw,
-        })? {
-            Some(selected) => {
-                let mut parts = selected.splitn(2, '\t');
-                if let (Some(model_id), Some(provider_id)) = (parts.next(), parts.next()) {
-                    println!("{model_id}");
-                    println!("{provider_id}");
-                }
+    async fn on_select_model_cli(&mut self, _query: Option<String>) -> anyhow::Result<()> {
+        match self.select_model(None).await? {
+            Some((model_id, provider_id)) => {
+                println!("{}", model_id.as_str());
+                println!("{}", provider_id.as_ref());
                 Ok(())
             }
             None => std::process::exit(1),
@@ -2857,9 +2727,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     /// CLI handler for `forge select file`.
     ///
-    /// Walks the workspace, presents an interactive fuzzy picker with a
-    /// syntax-highlighted preview pane for each file, and prints the selected
-    /// file path on stdout. Exits with code 1 if the user cancels.
+    /// Walks the workspace, presents an interactive fuzzy picker with preview,
+    /// and prints the selected file path on stdout. Exits with code 1 if the
+    /// user cancels.
     async fn on_select_file_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
         use std::io::IsTerminal;
 
@@ -2879,19 +2749,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .collect();
 
         if files.is_empty() {
-            std::process::exit(1);
+            return Ok(());
         }
 
-        let rows: Vec<crate::select_cmd::SelectRow> = files
+        let rows: Vec<SelectRow> = files
             .into_iter()
-            .map(|path| crate::select_cmd::SelectRow {
-                raw: path.clone(),
-                display: path.clone(),
-                fields: vec![path],
-            })
+            .map(|path| SelectRow { raw: path.clone(), display: path.clone(), fields: vec![path] })
             .collect();
 
-        // Use bat for syntax-highlighted previews when available, falling back to cat
         let has_bat = std::process::Command::new("bat")
             .arg("--version")
             .stdout(std::process::Stdio::null())
@@ -2903,29 +2768,25 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         } else {
             "cat"
         };
-
-        let preview_cmd = format!(
+        let preview = format!(
             "if [ -d {{}} ]; then ls -la --color=always {{}} 2>/dev/null || ls -la {{}}; else {cat_cmd} {{}}; fi"
         );
 
-        match crate::select_cmd::run_select_ui(crate::select_cmd::SelectUiOptions {
+        match self.select_raw_row_with_options(SelectUiOptions {
             prompt: Some("File ❯ ".to_string()),
             query,
             rows,
             header_lines: 0,
-            mode: crate::select_cmd::SelectMode::Single,
-            preview: Some(preview_cmd),
-            preview_layout: crate::select_cmd::PreviewLayout {
-                placement: crate::select_cmd::PreviewPlacement::Bottom,
-                percent: 75,
-            },
+            mode: SelectMode::Single,
+            preview: Some(preview),
+            preview_layout: PreviewLayout { placement: PreviewPlacement::Bottom, percent: 75 },
             initial_raw: None,
         })? {
             Some(selected) => {
                 println!("{selected}");
                 Ok(())
             }
-            None => std::process::exit(1),
+            None => Ok(()),
         }
     }
 
@@ -3477,22 +3338,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 })
         });
 
-        let selected = crate::select_cmd::run_select_ui(crate::select_cmd::SelectUiOptions {
-            prompt: Some("Model ❯ ".to_string()),
-            query: None,
-            rows,
-            header_lines: 1,
-            mode: crate::select_cmd::SelectMode::Single,
-            preview: None,
-            preview_layout: crate::select_cmd::PreviewLayout::default(),
-            initial_raw,
-        })?;
+        let selected = self.select_raw_row("Model ❯ ", None, rows, 1, initial_raw)?;
 
         let Some(selected) = selected else {
             return Ok(None);
         };
 
-        let mut parts = selected.splitn(2, '\t');
+        let mut parts = selected.raw.splitn(2, '\t');
         let selection = match (parts.next(), parts.next()) {
             (Some(model_id), Some(provider_id)) => Some((
                 ModelId::new(model_id.to_string()),

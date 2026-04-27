@@ -81,7 +81,7 @@ impl ConversationSelector {
             return Ok(None);
         }
 
-        // Build SelectRow items for the custom TUI.
+        // Build SelectRow items for the shared Rust selector UI.
         // Each row stores the UUID in `fields[0]` so that `{1}` in the preview
         // command resolves to the conversation ID. The `raw` field is what gets
         // returned on selection (the UUID).
@@ -89,11 +89,7 @@ impl ConversationSelector {
 
         // Header row (non-selectable via header_lines=1)
         if let Some(header) = all_lines.first() {
-            rows.push(SelectRow {
-                raw: header.to_string(),
-                display: header.to_string(),
-                fields: vec![],
-            });
+            rows.push(SelectRow::header(header.to_string()));
         }
 
         // Data rows: each maps to a conversation
@@ -123,7 +119,7 @@ impl ConversationSelector {
                 prompt: Some("Conversation".to_string()),
                 query: None,
                 rows,
-                header_lines: 1, // header_lines
+                header_lines: 1,
                 mode: SelectMode::Single,
                 preview: Some(preview_command),
                 preview_layout: PreviewLayout { placement: PreviewPlacement::Bottom, percent: 60 },

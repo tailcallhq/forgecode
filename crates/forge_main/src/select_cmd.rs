@@ -1,9 +1,9 @@
-use std::cmp;
 use std::collections::BTreeSet;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{cmp, fmt};
 
 use anyhow::Context;
 use bstr::ByteSlice;
@@ -78,6 +78,12 @@ impl SelectRow {
             display: display.into(),
             fields: Vec::new(),
         }
+    }
+}
+
+impl fmt::Display for SelectRow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.display)
     }
 }
 
