@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+forge_tracker.workspace = true
 forge_domain.workspace = true
 forge_config.workspace = true
 forge_stream.workspace = true

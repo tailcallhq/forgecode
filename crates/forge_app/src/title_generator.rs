@@ -5,11 +5,13 @@ use forge_domain::{
     ChatCompletionMessageFull, Context, ContextMessage, ConversationId, ModelId, ProviderId,
     ReasoningConfig, ResponseFormat, ResultStreamExt, UserPrompt,
 };
+use forge_tracker::{AiGenerationPayload, EventKind};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::TemplateEngine;
 use crate::agent::AgentService as AS;
+use crate::hooks::tracing::TRACKER;
 
 /// Structured response for title generation using JSON format
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -74,11 +76,34 @@ impl<S: AS> TitleGenerator<S> {
             ctx = ctx.reasoning(reasoning.clone());
         }
 
+        let conversation_id = ctx.conversation_id;
         let stream = self
             .services
             .chat_agent(&self.model_id, ctx, self.provider_id.clone())
             .await?;
-        let ChatCompletionMessageFull { content, .. } = stream.into_full(false).await?;
+        let ChatCompletionMessageFull { content, usage, .. } = stream.into_full(false).await?;
+
+        // Dispatch AI generation event with LLM telemetry
+        if let Some(tracker) = TRACKER.get() {
+            let provider = self
+                .provider_id
+                .as_ref()
+                .map(|p| p.to_string())
+                .unwrap_or_default();
+            let payload = AiGenerationPayload {
+                provider,
+                model: self.model_id.as_str().to_string(),
+                input_tokens: *usage.prompt_tokens,
+                output_tokens: *usage.completion_tokens,
+                latency_ms: 0.0,
+                cost: usage.cost,
+                conversation_id: conversation_id.map(|c| c.to_string()).unwrap_or_default(),
+            };
+            let tracker = tracker.clone();
+            tokio::spawn(async move {
+                let _ = tracker.dispatch(EventKind::AiGeneration(payload)).await;
+            });
+        }
 
         // Parse the response - try JSON first (structured output), fallback to plain
         // text

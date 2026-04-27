@@ -5,11 +5,13 @@ use anyhow::{Context as _, Result};
 use forge_domain::{
     Context, ContextMessage, DataGenerationParameters, ResultStreamExt, Template, ToolDefinition,
 };
+use forge_tracker::{AiGenerationPayload, EventKind};
 use futures::StreamExt;
 use futures::stream::{self, BoxStream};
 use schemars::Schema;
 use tracing::{debug, info};
 
+use crate::hooks::tracing::TRACKER;
 use crate::{AppConfigService, FsReadService, ProviderService, Services, TemplateEngine};
 
 pub struct DataGenerationApp<A> {
@@ -135,6 +137,23 @@ impl<A: Services> DataGenerationApp<A> {
 
                 let stream = services.chat(&model_id, context, provider.clone()).await?;
                 let response = stream.into_full(false).await?;
+
+                // Dispatch AI generation event with LLM telemetry
+                if let Some(tracker) = TRACKER.get() {
+                    let payload = AiGenerationPayload {
+                        provider: provider.id.to_string(),
+                        model: model_id.as_str().to_string(),
+                        input_tokens: *response.usage.prompt_tokens,
+                        output_tokens: *response.usage.completion_tokens,
+                        latency_ms: 0.0,
+                        cost: response.usage.cost,
+                        conversation_id: String::new(),
+                    };
+                    let tracker = tracker.clone();
+                    tokio::spawn(async move {
+                        let _ = tracker.dispatch(EventKind::AiGeneration(payload)).await;
+                    });
+                }
 
                 anyhow::Ok((input, response))
             }

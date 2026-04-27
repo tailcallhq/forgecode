@@ -246,7 +246,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             spinner,
             markdown: MarkdownFormat::new(),
             config,
-            _guard: forge_tracker::init_tracing(env.log_path(), TRACKER.clone())?,
+            _guard: forge_tracker::init_tracing(env.log_path())?,
         })
     }
 

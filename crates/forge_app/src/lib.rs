@@ -39,6 +39,14 @@ pub mod utils;
 mod walker;
 mod workspace_status;
 
+/// Initialises the global PostHog tracker in forge_app so that lifecycle
+/// hooks (especially the tracing handler) can dispatch AI generation events
+/// with LLM telemetry. Must be called once at startup by `forge_main` before
+/// any chat operations begin.
+pub fn init_tracker(tracker: forge_tracker::Tracker) {
+    crate::hooks::tracing::set_tracker(tracker);
+}
+
 pub use agent::*;
 pub use agent_provider_resolver::*;
 pub use app::*;

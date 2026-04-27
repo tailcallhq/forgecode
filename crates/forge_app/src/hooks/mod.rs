@@ -2,7 +2,7 @@ mod compaction;
 mod doom_loop;
 mod pending_todos;
 mod title_generation;
-mod tracing;
+pub(crate) mod tracing;
 
 pub use compaction::CompactionHandler;
 pub use doom_loop::DoomLoopDetector;
