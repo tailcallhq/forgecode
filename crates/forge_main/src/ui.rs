@@ -2403,27 +2403,28 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     ///
     /// Fetches all provider models, presents an interactive fuzzy picker, and
     /// prints the selected `model_id` and `provider_id` on separate lines.
-    /// Exits with code 1 if the user cancels.
+    /// Returns without output if the user cancels.
     async fn on_select_model_cli(&mut self, _query: Option<String>) -> anyhow::Result<()> {
         match self.select_model(None).await? {
             Some((model_id, provider_id)) => {
-                println!("{}", model_id.as_str());
-                println!("{}", provider_id.as_ref());
+                self.writeln(model_id.as_str())?;
+                self.writeln(provider_id.as_ref())?;
                 Ok(())
             }
-            None => std::process::exit(1),
+            None => Ok(()),
         }
     }
 
     /// CLI handler for `forge select agent`.
     ///
     /// Fetches all agents, presents an interactive fuzzy picker, and prints the
-    /// selected `agent_id` on stdout. Exits with code 1 if the user cancels.
+    /// selected `agent_id` on stdout. Returns without output if the user
+    /// cancels.
     async fn on_select_agent_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
         let agents = self.api.get_agent_infos().await?;
 
         if agents.is_empty() {
-            std::process::exit(1);
+            return Ok(());
         }
 
         // Build Info structure (same as build_agents_info)
@@ -2438,7 +2439,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let all_lines: Vec<&str> = porcelain_str.lines().collect();
         if all_lines.is_empty() {
-            std::process::exit(1);
+            return Ok(());
         }
 
         let mut rows: Vec<crate::select_cmd::SelectRow> = Vec::with_capacity(all_lines.len());
@@ -2464,17 +2465,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         match self.select_raw_row("Agent", query, rows, 1, initial_raw)? {
             Some(row) => {
-                println!("{}", row.raw);
+                self.writeln(row.raw)?;
                 Ok(())
             }
-            None => std::process::exit(1),
+            None => Ok(()),
         }
     }
 
     /// CLI handler for `forge select provider`.
     ///
     /// Fetches all providers, presents an interactive fuzzy picker, and prints
-    /// the selected `provider_id` on stdout. Exits with code 1 if the user
+    /// the selected `provider_id` on stdout. Returns without output if the user
     /// cancels.
     async fn on_select_provider_cli(
         &mut self,
@@ -2484,7 +2485,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let providers: Vec<AnyProvider> = self.api.get_providers().await?;
 
         if providers.is_empty() {
-            std::process::exit(1);
+            return Ok(());
         }
 
         let current_provider_id = self
@@ -2537,7 +2538,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let all_lines: Vec<&str> = porcelain_str.lines().collect();
         if all_lines.is_empty() {
-            std::process::exit(1);
+            return Ok(());
         }
 
         let mut rows: Vec<crate::select_cmd::SelectRow> = Vec::with_capacity(all_lines.len());
@@ -2558,17 +2559,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         match self.select_raw_row("Provider", query, rows, 1, initial_raw)? {
             Some(row) => {
-                println!("{}", row.raw);
+                self.writeln(row.raw)?;
                 Ok(())
             }
-            None => std::process::exit(1),
+            None => Ok(()),
         }
     }
 
     /// CLI handler for `forge select reasoning-effort`.
     ///
     /// Shows the built-in list of reasoning effort levels and prints the
-    /// selected level on stdout. Exits with code 1 if the user cancels.
+    /// selected level on stdout. Returns without output if the user cancels.
     async fn on_select_reasoning_effort_cli(
         &mut self,
         query: Option<String>,
@@ -2598,18 +2599,18 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         match selected {
             Some(row) => {
-                println!("{}", row.raw);
+                self.writeln(row.raw)?;
                 Ok(())
             }
-            None => std::process::exit(1),
+            None => Ok(()),
         }
     }
 
     /// CLI handler for `forge select command`.
     ///
     /// Fetches built-in and custom commands, presents an interactive fuzzy
-    /// picker, and prints the selected command name on stdout. Exits with
-    /// code 1 if the user cancels.
+    /// picker, and prints the selected command name on stdout. Returns without
+    /// output if the user cancels.
     async fn on_select_command_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
         let custom_commands = self.api.get_commands().await?;
 
@@ -2674,7 +2675,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let all_lines: Vec<&str> = porcelain_str.lines().collect();
         if all_lines.is_empty() {
-            std::process::exit(1);
+            return Ok(());
         }
 
         let mut rows: Vec<crate::select_cmd::SelectRow> = Vec::with_capacity(all_lines.len());
@@ -2693,10 +2694,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         match self.select_raw_row("Command", query, rows, 1, None)? {
             Some(row) => {
-                println!("{}", row.raw);
+                self.writeln(row.raw)?;
                 Ok(())
             }
-            None => std::process::exit(1),
+            None => Ok(()),
         }
     }
 
@@ -2704,22 +2705,20 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     ///
     /// Fetches conversations, presents an interactive fuzzy picker with a
     /// preview pane, and prints the selected `conversation_id` on stdout.
-    /// Exits with code 1 if the user cancels.
+    /// Returns without output if the user cancels.
     async fn on_select_conversation_cli(&mut self, _query: Option<String>) -> anyhow::Result<()> {
         let max_conversations = self.config.max_conversations;
         let conversations = self.api.get_conversations(Some(max_conversations)).await?;
 
         if conversations.is_empty() {
-            std::process::exit(1);
+            return Ok(());
         }
 
         if let Some(conversation) =
             ConversationSelector::select_conversation(&conversations, self.state.conversation_id)
                 .await?
         {
-            println!("{}", conversation.id);
-        } else {
-            std::process::exit(1);
+            self.writeln(conversation.id)?;
         }
 
         Ok(())
@@ -2728,8 +2727,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     /// CLI handler for `forge select file`.
     ///
     /// Walks the workspace, presents an interactive fuzzy picker with preview,
-    /// and prints the selected file path on stdout. Exits with code 1 if the
-    /// user cancels.
+    /// and prints the selected file path on stdout. Returns without output if
+    /// the user cancels.
     async fn on_select_file_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
         use std::io::IsTerminal;
 
@@ -2783,7 +2782,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             initial_raw: None,
         })? {
             Some(selected) => {
-                println!("{selected}");
+                self.writeln(selected)?;
                 Ok(())
             }
             None => Ok(()),
