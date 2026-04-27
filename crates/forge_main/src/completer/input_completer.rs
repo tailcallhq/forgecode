@@ -1,9 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use forge_select::{
-    PreviewLayout, PreviewPlacement, SelectMode, SelectRow, SelectUiOptions, run_select_ui,
-};
+use forge_select::{ForgeWidget, PreviewLayout, PreviewPlacement, SelectRow};
 use forge_walker::Walker;
 use reedline::{Completer, Span, Suggestion};
 
@@ -54,16 +52,12 @@ pub fn select_workspace_file(cwd: &Path, query: Option<String>) -> anyhow::Resul
         .map(|path| SelectRow { raw: path.clone(), display: path.clone(), fields: vec![path] })
         .collect();
 
-    run_select_ui(SelectUiOptions {
-        prompt: Some("File ❯ ".to_string()),
-        query,
-        rows,
-        header_lines: 0,
-        mode: SelectMode::Single,
-        preview: Some(preview_cmd),
-        preview_layout: PreviewLayout { placement: PreviewPlacement::Bottom, percent: 75 },
-        initial_raw: None,
-    })
+    Ok(ForgeWidget::select_rows("File ❯ ", rows)
+        .query(Some(query.unwrap_or_default()))
+        .preview(Some(preview_cmd))
+        .preview_layout(PreviewLayout { placement: PreviewPlacement::Bottom, percent: 75 })
+        .prompt()?
+        .map(|row| row.raw))
 }
 
 pub struct InputCompleter {

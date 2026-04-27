@@ -10,6 +10,7 @@ bstr.workspace = true
 colored.workspace = true
 console.workspace = true
 crossterm = "0.29.0"
+derive_setters.workspace = true
 nucleo.workspace = true
 nucleo-picker.workspace = true
 rustyline.workspace = true

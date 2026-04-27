@@ -21,9 +21,7 @@ use forge_domain::{
     AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, Role, TitleFormat, UserCommand,
 };
 use forge_fs::ForgeFS;
-use forge_select::{
-    ForgeWidget, PreviewLayout, SelectMode, SelectRow, SelectUiOptions, run_select_ui,
-};
+use forge_select::{ForgeWidget, SelectRow};
 use forge_spinner::SpinnerManager;
 use forge_tracker::ToolCallPayload;
 use forge_walker::Walker;
@@ -160,23 +158,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         header_lines: usize,
         initial_raw: Option<String>,
     ) -> Result<Option<SelectRow>> {
-        self.select_raw_row_with_options(SelectUiOptions {
-            prompt: Some(prompt.to_string()),
-            query,
-            rows,
-            header_lines,
-            mode: SelectMode::Single,
-            preview: None,
-            preview_layout: PreviewLayout::default(),
-            initial_raw,
-        })
-    }
-
-    fn select_raw_row_with_options(&self, options: SelectUiOptions) -> Result<Option<SelectRow>> {
-        let rows = options.rows.clone();
-        let selected = run_select_ui(options)?;
-
-        Ok(selected.and_then(|raw| rows.into_iter().find(|row| row.raw == raw)))
+        ForgeWidget::select_rows(prompt, rows)
+            .query(query)
+            .header_lines(header_lines)
+            .initial_raw(initial_raw)
+            .prompt()
     }
 
     fn select_row_output(

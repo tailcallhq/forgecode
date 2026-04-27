@@ -20,6 +20,7 @@ use crossterm::terminal::{
     enable_raw_mode,
 };
 use crossterm::{execute, queue};
+use derive_setters::Setters;
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config as NucleoConfig, Nucleo, Utf32String};
 
@@ -117,8 +118,11 @@ impl Drop for TerminalGuard {
 }
 
 /// Options for running the shared selector UI.
+#[derive(Debug, Setters)]
+#[setters(into)]
 pub struct SelectUiOptions {
     /// Optional prompt text displayed before the query.
+    #[setters(skip)]
     pub prompt: Option<String>,
     /// Optional initial search query.
     pub query: Option<String>,
@@ -134,6 +138,34 @@ pub struct SelectUiOptions {
     pub preview_layout: PreviewLayout,
     /// Optional raw value to focus initially.
     pub initial_raw: Option<String>,
+}
+
+impl SelectUiOptions {
+    /// Creates selector options for the provided prompt and rows.
+    pub fn new(prompt: impl Into<String>, rows: Vec<SelectRow>) -> Self {
+        Self {
+            prompt: Some(prompt.into()),
+            query: None,
+            rows,
+            header_lines: 0,
+            mode: SelectMode::Single,
+            preview: None,
+            preview_layout: PreviewLayout::default(),
+            initial_raw: None,
+        }
+    }
+
+    /// Runs the selector and returns the selected row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if terminal setup, event handling, rendering, or
+    /// preview command execution setup fails.
+    pub fn prompt(self) -> anyhow::Result<Option<SelectRow>> {
+        let rows = self.rows.clone();
+        let selected_raw = run_select_ui(self)?;
+        Ok(selected_raw.and_then(|raw| rows.into_iter().find(|row| row.raw == raw)))
+    }
 }
 
 /// Runs the shared nucleo-backed selector UI and returns the selected raw

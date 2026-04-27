@@ -2,9 +2,7 @@ use anyhow::Result;
 use chrono::Utc;
 use forge_api::Conversation;
 use forge_domain::ConversationId;
-use forge_select::{
-    PreviewLayout, PreviewPlacement, SelectMode, SelectRow, SelectUiOptions, run_select_ui,
-};
+use forge_select::{ForgeWidget, PreviewLayout, PreviewPlacement, SelectRow};
 
 use crate::display_constants::markers;
 use crate::info::Info;
@@ -114,17 +112,13 @@ impl ConversationSelector {
             "CLICOLOR_FORCE=1 forge conversation info {1}; echo; CLICOLOR_FORCE=1 forge conversation show {1}"
                 .to_string();
 
-        let selected_uuid = tokio::task::spawn_blocking(move || {
-            run_select_ui(SelectUiOptions {
-                prompt: Some("Conversation".to_string()),
-                query: None,
-                rows,
-                header_lines: 1,
-                mode: SelectMode::Single,
-                preview: Some(preview_command),
-                preview_layout: PreviewLayout { placement: PreviewPlacement::Bottom, percent: 60 },
-                initial_raw: None,
-            })
+        let selected_uuid = tokio::task::spawn_blocking(move || -> Result<Option<String>> {
+            Ok(ForgeWidget::select_rows("Conversation", rows)
+                .header_lines(1_usize)
+                .preview(Some(preview_command))
+                .preview_layout(PreviewLayout { placement: PreviewPlacement::Bottom, percent: 60 })
+                .prompt()?
+                .map(|row| row.raw))
         })
         .await??;
 

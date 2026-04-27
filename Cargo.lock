@@ -2487,6 +2487,7 @@ dependencies = [
  "colored",
  "console",
  "crossterm 0.29.0",
+ "derive_setters",
  "nucleo",
  "nucleo-picker",
  "pretty_assertions",

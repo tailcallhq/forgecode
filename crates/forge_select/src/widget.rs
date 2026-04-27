@@ -1,6 +1,7 @@
 use crate::confirm::ConfirmBuilder;
 use crate::input::InputBuilder;
 use crate::multi::MultiSelectBuilder;
+use crate::preview::{SelectRow, SelectUiOptions};
 use crate::select::SelectBuilder;
 
 /// Centralized fuzzy select functionality with consistent error handling.
@@ -42,5 +43,10 @@ impl ForgeWidget {
     /// Multi-select prompt.
     pub fn multi_select<T>(message: impl Into<String>, options: Vec<T>) -> MultiSelectBuilder<T> {
         MultiSelectBuilder { message: message.into(), options }
+    }
+
+    /// Entry point for row-based select operations.
+    pub fn select_rows(message: impl Into<String>, rows: Vec<SelectRow>) -> SelectUiOptions {
+        SelectUiOptions::new(message, rows)
     }
 }
