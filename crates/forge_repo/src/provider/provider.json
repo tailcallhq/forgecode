@@ -1214,8 +1214,8 @@
     "api_key_vars": "LLAMA_CPP_API_KEY",
     "url_param_vars": ["LLAMA_CPP_HOST", "LLAMA_CPP_PORT"],
     "response_type": "OpenAI",
-    "url": "{{LLAMA_CPP_HOST}}:{{LLAMA_CPP_PORT}}/v1/chat/completions",
-    "models": "{{LLAMA_CPP_HOST}}:{{LLAMA_CPP_PORT}}/v1/models",
+    "url": "http://{{LLAMA_CPP_HOST}}:{{LLAMA_CPP_PORT}}/v1/chat/completions",
+    "models": "http://{{LLAMA_CPP_HOST}}:{{LLAMA_CPP_PORT}}/v1/models",
     "auth_methods": ["api_key"]
   },
   {
@@ -1223,8 +1223,8 @@
     "api_key_vars": "VLLM_API_KEY",
     "url_param_vars": ["VLLM_HOST", "VLLM_PORT"],
     "response_type": "OpenAI",
-    "url": "{{VLLM_HOST}}:{{VLLM_PORT}}/v1/chat/completions",
-    "models": "{{VLLM_HOST}}:{{VLLM_PORT}}/v1/models",
+    "url": "http://{{VLLM_HOST}}:{{VLLM_PORT}}/v1/chat/completions",
+    "models": "http://{{VLLM_HOST}}:{{VLLM_PORT}}/v1/models",
     "auth_methods": ["api_key"]
   },
   {
@@ -1232,8 +1232,8 @@
     "api_key_vars": "JAN_AI_API_KEY",
     "url_param_vars": ["JAN_AI_HOST", "JAN_AI_PORT"],
     "response_type": "OpenAI",
-    "url": "{{JAN_AI_HOST}}:{{JAN_AI_PORT}}/v1/chat/completions",
-    "models": "{{JAN_AI_HOST}}:{{JAN_AI_PORT}}/v1/models",
+    "url": "http://{{JAN_AI_HOST}}:{{JAN_AI_PORT}}/v1/chat/completions",
+    "models": "http://{{JAN_AI_HOST}}:{{JAN_AI_PORT}}/v1/models",
     "auth_methods": ["api_key"]
   },
   {
@@ -1241,8 +1241,8 @@
     "api_key_vars": "OLLAMA_API_KEY",
     "url_param_vars": ["OLLAMA_HOST", "OLLAMA_PORT"],
     "response_type": "OpenAI",
-    "url": "{{OLLAMA_HOST}}:{{OLLAMA_PORT}}/v1/chat/completions",
-    "models": "{{OLLAMA_HOST}}:{{OLLAMA_PORT}}/v1/models",
+    "url": "http://{{OLLAMA_HOST}}:{{OLLAMA_PORT}}/v1/chat/completions",
+    "models": "http://{{OLLAMA_HOST}}:{{OLLAMA_PORT}}/v1/models",
     "auth_methods": ["api_key"]
   },
   {
@@ -1250,8 +1250,8 @@
     "api_key_vars": "LM_STUDIO_API_KEY",
     "url_param_vars": ["LM_STUDIO_HOST", "LM_STUDIO_PORT"],
     "response_type": "OpenAIResponses",
-    "url": "{{LM_STUDIO_HOST}}:{{LM_STUDIO_PORT}}/v1/responses",
-    "models": "{{LM_STUDIO_HOST}}:{{LM_STUDIO_PORT}}/v1/models",
+    "url": "http://{{LM_STUDIO_HOST}}:{{LM_STUDIO_PORT}}/v1/responses",
+    "models": "http://{{LM_STUDIO_HOST}}:{{LM_STUDIO_PORT}}/v1/models",
     "auth_methods": ["api_key"]
   },
   {
