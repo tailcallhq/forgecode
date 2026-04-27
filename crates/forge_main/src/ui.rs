@@ -815,7 +815,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     }
                     SelectCommand::Provider { query, configured } => {
                         self.init_state(false).await?;
-                        self.on_select_provider_cli(query.clone(), *configured).await?;
+                        self.on_select_provider_cli(query.clone(), *configured)
+                            .await?;
                     }
                     SelectCommand::ReasoningEffort { query } => {
                         self.init_state(false).await?;
