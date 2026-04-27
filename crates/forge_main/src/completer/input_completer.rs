@@ -54,7 +54,7 @@ pub fn select_workspace_file(cwd: &Path, query: Option<String>) -> anyhow::Resul
         .map(|path| SelectRow { raw: path.clone(), display: path.clone(), fields: vec![path] })
         .collect();
 
-    Ok(run_select_ui(SelectUiOptions {
+    run_select_ui(SelectUiOptions {
         prompt: Some("File ❯ ".to_string()),
         query,
         rows,
@@ -63,7 +63,7 @@ pub fn select_workspace_file(cwd: &Path, query: Option<String>) -> anyhow::Resul
         preview: Some(preview_cmd),
         preview_layout: PreviewLayout { placement: PreviewPlacement::Bottom, percent: 75 },
         initial_raw: None,
-    })?)
+    })
 }
 
 pub struct InputCompleter {

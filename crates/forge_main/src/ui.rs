@@ -803,10 +803,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             TopLevelCommand::Select(cmd) => {
                 match &cmd.command {
                     SelectCommand::File { query } => {
-                        if let Some(file) = crate::completer::select_workspace_file(
-                            &self.state.cwd,
-                            query.clone(),
-                        )? {
+                        if let Some(file) =
+                            crate::completer::select_workspace_file(&self.state.cwd, query.clone())?
+                        {
                             self.writeln(file)?;
                         }
                     }
@@ -827,7 +826,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     }
                     SelectCommand::Provider { query, configured } => {
                         self.init_state(false).await?;
-                        if let Some(provider) = self.select_provider(query.clone(), *configured).await? {
+                        if let Some(provider) =
+                            self.select_provider(query.clone(), *configured).await?
+                        {
                             self.writeln(provider.id().as_ref())?;
                         }
                     }
@@ -851,7 +852,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     SelectCommand::Conversation { query: _ } => {
                         self.init_state(false).await?;
                         let max_conversations = self.config.max_conversations;
-                        let conversations = self.api.get_conversations(Some(max_conversations)).await?;
+                        let conversations =
+                            self.api.get_conversations(Some(max_conversations)).await?;
 
                         if !conversations.is_empty()
                             && let Some(conversation) = ConversationSelector::select_conversation(
