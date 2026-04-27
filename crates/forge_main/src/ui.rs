@@ -43,7 +43,7 @@ use crate::input::Console;
 use crate::model::{AppCommand, ForgeCommandManager};
 use crate::porcelain::Porcelain;
 use crate::prompt::ForgePrompt;
-use crate::select_cmd::{PreviewLayout, PreviewPlacement, SelectMode, SelectRow, SelectUiOptions};
+use crate::select_cmd::{PreviewLayout, SelectMode, SelectRow, SelectUiOptions};
 use crate::state::UIState;
 use crate::stream_renderer::{SharedSpinner, StreamingWriter};
 use crate::sync_display::SyncProgressDisplay;
@@ -803,32 +803,65 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             TopLevelCommand::Select(cmd) => {
                 match &cmd.command {
                     SelectCommand::File { query } => {
-                        self.on_select_file_cli(query.clone()).await?;
+                        if let Some(file) = crate::completer::select_workspace_file(
+                            &self.state.cwd,
+                            query.clone(),
+                        )? {
+                            self.writeln(file)?;
+                        }
                     }
                     SelectCommand::Model { query } => {
                         self.init_state(false).await?;
-                        self.on_select_model_cli(query.clone()).await?;
+                        if let Some((model_id, provider_id)) =
+                            self.select_model(None, query.clone()).await?
+                        {
+                            self.writeln(model_id.as_str())?;
+                            self.writeln(provider_id.as_ref())?;
+                        }
                     }
                     SelectCommand::Agent { query } => {
                         self.init_state(false).await?;
-                        self.on_select_agent_cli(query.clone()).await?;
+                        if let Some(agent_id) = self.select_agent(query.clone()).await? {
+                            self.writeln(agent_id.as_str())?;
+                        }
                     }
                     SelectCommand::Provider { query, configured } => {
                         self.init_state(false).await?;
-                        self.on_select_provider_cli(query.clone(), *configured)
-                            .await?;
+                        if let Some(provider) = self.select_provider(query.clone(), *configured).await? {
+                            self.writeln(provider.id().as_ref())?;
+                        }
                     }
                     SelectCommand::ReasoningEffort { query } => {
                         self.init_state(false).await?;
-                        self.on_select_reasoning_effort_cli(query.clone()).await?;
+                        if let Some(effort) = self
+                            .select_reasoning_effort("Reasoning Effort", query.clone())
+                            .await?
+                        {
+                            self.writeln(effort)?;
+                        }
                     }
                     SelectCommand::Command { query } => {
                         self.init_state(false).await?;
-                        self.on_select_command_cli(query.clone()).await?;
+                        let rows = Self::porcelain_rows(self.commands_porcelain().await?)?;
+
+                        if !rows.is_empty() {
+                            self.select_row_output("Command", query.clone(), rows)?;
+                        }
                     }
-                    SelectCommand::Conversation { query } => {
+                    SelectCommand::Conversation { query: _ } => {
                         self.init_state(false).await?;
-                        self.on_select_conversation_cli(query.clone()).await?;
+                        let max_conversations = self.config.max_conversations;
+                        let conversations = self.api.get_conversations(Some(max_conversations)).await?;
+
+                        if !conversations.is_empty()
+                            && let Some(conversation) = ConversationSelector::select_conversation(
+                                &conversations,
+                                self.state.conversation_id,
+                            )
+                            .await?
+                        {
+                            self.writeln(conversation.id)?;
+                        }
                     }
                 }
                 return Ok(());
@@ -2156,18 +2189,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 }
             }
             AppCommand::Agent => {
-                let display_agents = self.agent_select_rows().await?;
-                let initial_raw = self
-                    .api
-                    .get_active_agent()
-                    .await
-                    .map(|current| current.as_str().to_string());
-
-                if let Some(selected_agent) =
-                    self.select_raw_row("Agent", None, display_agents, 1, initial_raw)?
-                {
-                    self.on_agent_change(AgentId::new(selected_agent.raw))
-                        .await?;
+                if let Some(selected_agent) = self.select_agent(None).await? {
+                    self.on_agent_change(selected_agent).await?;
                 }
             }
             AppCommand::Login => {
@@ -2327,39 +2350,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_reasoning_effort_selection(&mut self, global: bool) -> anyhow::Result<()> {
         use std::str::FromStr;
 
-        let effort_levels: Vec<String> = vec![
-            "none".to_string(),
-            "minimal".to_string(),
-            "low".to_string(),
-            "medium".to_string(),
-            "high".to_string(),
-            "xhigh".to_string(),
-            "max".to_string(),
-        ];
-
-        let current_effort = self.api.get_reasoning_effort().await.ok().flatten();
-        let current_str = current_effort.as_ref().map(|e| e.to_string());
-
-        let initial_raw = current_str;
-
         let prompt = if global {
             "Config Reasoning Effort"
         } else {
             "Reasoning Effort"
         };
 
-        let selected = self
-            .select_raw_row(
-                prompt,
-                None,
-                effort_levels
-                    .iter()
-                    .map(|level| crate::select_cmd::SelectRow::new(level, level))
-                    .collect(),
-                0,
-                initial_raw,
-            )?
-            .map(|row| row.raw);
+        let selected = self.select_reasoning_effort(prompt, None).await?;
 
         if let Some(effort_str) = selected {
             let effort = forge_domain::Effort::from_str(&effort_str)
@@ -2375,210 +2372,22 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
-    /// CLI handler for `forge select model`.
-    ///
-    /// Fetches all provider models, presents an interactive fuzzy picker, and
-    /// prints the selected `model_id` and `provider_id` on separate lines.
-    /// Returns without output if the user cancels.
-    async fn on_select_model_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
-        match self.select_model(None, query).await? {
-            Some((model_id, provider_id)) => {
-                self.writeln(model_id.as_str())?;
-                self.writeln(provider_id.as_ref())?;
-                Ok(())
-            }
-            None => Ok(()),
-        }
-    }
-
-    /// CLI handler for `forge select agent`.
-    ///
-    /// Fetches all agents, presents an interactive fuzzy picker, and prints the
-    /// selected `agent_id` on stdout. Returns without output if the user
-    /// cancels.
-    async fn on_select_agent_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
-        let rows = self.agent_select_rows().await?;
-        if rows.is_empty() {
-            return Ok(());
-        }
-
-        let initial_raw = self
-            .api
-            .get_active_agent()
-            .await
-            .map(|current| current.as_str().to_string());
-
-        if let Some(row) = self.select_raw_row("Agent", query, rows, 1, initial_raw)? {
-            self.writeln(row.raw)?;
-        }
-
-        Ok(())
-    }
-
-    /// CLI handler for `forge select provider`.
-    ///
-    /// Fetches all providers, presents an interactive fuzzy picker, and prints
-    /// the selected `provider_id` on stdout. Returns without output if the user
-    /// cancels.
-    async fn on_select_provider_cli(
-        &mut self,
+    async fn select_reasoning_effort(
+        &self,
+        prompt: &str,
         query: Option<String>,
-        configured_only: bool,
-    ) -> anyhow::Result<()> {
-        let mut providers: Vec<AnyProvider> = self.api.get_providers().await?;
-
-        if configured_only {
-            providers.retain(|provider| provider.is_configured());
-        }
-
-        let current_provider_id = self
-            .get_provider(self.api.get_active_agent().await)
-            .await
-            .ok()
-            .map(|p| p.id);
-
-        if let Some(provider) =
-            self.select_provider_from_list(providers, "Provider", current_provider_id, query)?
-        {
-            self.writeln(provider.id().as_ref())?;
-        }
-
-        Ok(())
-    }
-
-    /// CLI handler for `forge select reasoning-effort`.
-    ///
-    /// Shows the built-in list of reasoning effort levels and prints the
-    /// selected level on stdout. Returns without output if the user cancels.
-    async fn on_select_reasoning_effort_cli(
-        &mut self,
-        query: Option<String>,
-    ) -> anyhow::Result<()> {
-        let effort_levels = [
-            "none".to_string(),
-            "minimal".to_string(),
-            "low".to_string(),
-            "medium".to_string(),
-            "high".to_string(),
-            "xhigh".to_string(),
-            "max".to_string(),
-        ];
-
+    ) -> anyhow::Result<Option<String>> {
+        let effort_levels = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
         let current_effort = self.api.get_reasoning_effort().await.ok().flatten();
         let current_str = current_effort.as_ref().map(|e| e.to_string());
         let rows = effort_levels
             .iter()
-            .map(|level| SelectRow::new(level, level))
-            .collect();
-        let selected = self.select_raw_row("Reasoning Effort", query, rows, 0, current_str)?;
-
-        if let Some(row) = selected {
-            self.writeln(row.raw)?;
-        }
-
-        Ok(())
-    }
-
-    /// CLI handler for `forge select command`.
-    ///
-    /// Fetches built-in and custom commands, presents an interactive fuzzy
-    /// picker, and prints the selected command name on stdout. Returns without
-    /// output if the user cancels.
-    async fn on_select_command_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
-        let rows = Self::porcelain_rows(self.commands_porcelain().await?)?;
-        if rows.is_empty() {
-            return Ok(());
-        }
-
-        self.select_row_output("Command", query, rows)
-    }
-
-    /// CLI handler for `forge select conversation`.
-    ///
-    /// Fetches conversations, presents an interactive fuzzy picker with a
-    /// preview pane, and prints the selected `conversation_id` on stdout.
-    /// Returns without output if the user cancels.
-    async fn on_select_conversation_cli(&mut self, _query: Option<String>) -> anyhow::Result<()> {
-        let max_conversations = self.config.max_conversations;
-        let conversations = self.api.get_conversations(Some(max_conversations)).await?;
-
-        if conversations.is_empty() {
-            return Ok(());
-        }
-
-        if let Some(conversation) =
-            ConversationSelector::select_conversation(&conversations, self.state.conversation_id)
-                .await?
-        {
-            self.writeln(conversation.id)?;
-        }
-
-        Ok(())
-    }
-
-    /// CLI handler for `forge select file`.
-    ///
-    /// Walks the workspace, presents an interactive fuzzy picker with preview,
-    /// and prints the selected file path on stdout. Returns without output if
-    /// the user cancels.
-    async fn on_select_file_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
-        use std::io::IsTerminal;
-
-        #[cfg(unix)]
-        if !std::io::stdin().is_terminal() {
-            crate::select_cmd::redirect_stdin_to_tty()?;
-        }
-
-        let walker = forge_walker::Walker::max_all()
-            .cwd(self.state.cwd.clone())
-            .skip_binary(true);
-        let files: Vec<String> = walker
-            .get_blocking()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|f| f.path)
+            .map(|level| SelectRow::new(*level, *level))
             .collect();
 
-        if files.is_empty() {
-            return Ok(());
-        }
-
-        let rows: Vec<SelectRow> = files
-            .into_iter()
-            .map(|path| SelectRow { raw: path.clone(), display: path.clone(), fields: vec![path] })
-            .collect();
-
-        let has_bat = std::process::Command::new("bat")
-            .arg("--version")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok();
-        let cat_cmd = if has_bat {
-            "bat --color=always --style=numbers,changes --line-range=:500"
-        } else {
-            "cat"
-        };
-        let preview = format!(
-            "if [ -d {{}} ]; then ls -la --color=always {{}} 2>/dev/null || ls -la {{}}; else {cat_cmd} {{}}; fi"
-        );
-
-        match self.select_raw_row_with_options(SelectUiOptions {
-            prompt: Some("File ❯ ".to_string()),
-            query,
-            rows,
-            header_lines: 0,
-            mode: SelectMode::Single,
-            preview: Some(preview),
-            preview_layout: PreviewLayout { placement: PreviewPlacement::Bottom, percent: 75 },
-            initial_raw: None,
-        })? {
-            Some(selected) => {
-                self.writeln(selected)?;
-                Ok(())
-            }
-            None => Ok(()),
-        }
+        Ok(self
+            .select_raw_row(prompt, query, rows, 0, current_str)?
+            .map(|row| row.raw))
     }
 
     /// Selects and sets the commit model via interactive model picker.
@@ -2953,6 +2762,19 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
 
         Ok(())
+    }
+
+    async fn select_agent(&self, query: Option<String>) -> Result<Option<AgentId>> {
+        let rows = self.agent_select_rows().await?;
+        let initial_raw = self
+            .api
+            .get_active_agent()
+            .await
+            .map(|current| current.as_str().to_string());
+
+        Ok(self
+            .select_raw_row("Agent", query, rows, 1, initial_raw)?
+            .map(|row| AgentId::new(row.raw)))
     }
 
     async fn agent_select_rows(&self) -> Result<Vec<SelectRow>> {
@@ -3642,8 +3464,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     }
 
     /// Selects a provider, optionally configuring it if not already configured.
-    async fn select_provider(&mut self) -> Result<Option<AnyProvider>> {
-        let providers: Vec<AnyProvider> = self
+    async fn select_provider(
+        &mut self,
+        query: Option<String>,
+        configured_only: bool,
+    ) -> Result<Option<AnyProvider>> {
+        let mut providers: Vec<AnyProvider> = self
             .api
             .get_providers()
             .await?
@@ -3657,6 +3483,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             })
             .collect();
 
+        if configured_only {
+            providers.retain(|provider| provider.is_configured());
+        }
+
         if providers.is_empty() {
             return Err(anyhow::anyhow!("No AI provider API keys configured"));
         }
@@ -3667,7 +3497,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .ok()
             .map(|p| p.id);
 
-        self.select_provider_from_list(providers, "Provider", current_provider_id, None)
+        self.select_provider_from_list(providers, "Provider", current_provider_id, query)
     }
 
     // Helper method to handle model selection and update the conversation.
@@ -3706,7 +3536,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_provider_selection(&mut self) -> Result<bool> {
         // Select a provider
         // If no provider was selected (user canceled), return early
-        let any_provider = match self.select_provider().await? {
+        let any_provider = match self.select_provider(None, false).await? {
             Some(provider) => provider,
             None => return Ok(false),
         };
