@@ -2939,11 +2939,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     // Free-text path (existing behavior)
                     let mut input = ForgeWidget::input(format!("Enter {}", param.name));
 
-                    // Add default value if it exists in the credential
-                    if let Some(params) = existing_url_params
-                        && let Some(default_value) = params.get(&param.name)
-                    {
-                        input = input.with_default(default_value.as_str());
+                    // Prefer existing credential value, then fall back to spec default
+                    let default_value = existing_url_params
+                        .and_then(|p| p.get(&param.name))
+                        .map(|v| v.as_str().to_string())
+                        .or_else(|| param.default.clone());
+
+                    if let Some(default) = default_value {
+                        input = input.with_default(default.as_str());
                     }
 
                     let param_value = input.prompt()?.context("Parameter input cancelled")?;
@@ -2973,18 +2976,24 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             } else {
                 // For other providers, show the existing key as default (autofill)
                 let input = ForgeWidget::input(format!("Enter your {provider_id} API key"))
-                    .with_default(key_str);
+                    .with_default(key_str)
+                    .allow_empty(request.api_key_optional);
                 let api_key = input.prompt()?.context("API key input cancelled")?;
                 let api_key_str = api_key.trim();
-                anyhow::ensure!(!api_key_str.is_empty(), "API key cannot be empty");
+                if !request.api_key_optional {
+                    anyhow::ensure!(!api_key_str.is_empty(), "API key cannot be empty");
+                }
                 api_key_str.to_string()
             }
         } else {
             // Prompt for API key input (no existing key)
-            let input = ForgeWidget::input(format!("Enter your {provider_id} API key"));
+            let input = ForgeWidget::input(format!("Enter your {provider_id} API key"))
+                .allow_empty(request.api_key_optional);
             let api_key = input.prompt()?.context("API key input cancelled")?;
             let api_key_str = api_key.trim();
-            anyhow::ensure!(!api_key_str.is_empty(), "API key cannot be empty");
+            if !request.api_key_optional {
+                anyhow::ensure!(!api_key_str.is_empty(), "API key cannot be empty");
+            }
             api_key_str.to_string()
         };
 
@@ -3204,6 +3213,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .iter()
             .map(|method| match method {
                 AuthMethod::ApiKey => "API Key".to_string(),
+                AuthMethod::OptionalApiKey => "API Key (optional)".to_string(),
                 AuthMethod::OAuthDevice(_) => "OAuth Device Flow".to_string(),
                 AuthMethod::OAuthCode(_) => "OAuth Authorization Code".to_string(),
                 AuthMethod::GoogleAdc => "Google Application Default Credentials (ADC)".to_string(),

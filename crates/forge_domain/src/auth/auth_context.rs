@@ -19,6 +19,8 @@ pub struct ApiKeyRequest {
     pub required_params: Vec<URLParamSpec>,
     pub existing_params: Option<URLParameters>,
     pub api_key: Option<ApiKey>,
+    /// When true the UI accepts an empty API key without raising an error.
+    pub api_key_optional: bool,
 }
 
 /// Response containing API key and URL parameters

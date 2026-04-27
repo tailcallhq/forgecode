@@ -1248,11 +1248,15 @@
   {
     "id": "lm_studio",
     "api_key_vars": "LM_STUDIO_API_KEY",
-    "url_param_vars": ["LM_STUDIO_URL", "LM_STUDIO_PORT"],
-    "response_type": "OpenAI",
-    "url": "{{LM_STUDIO_URL}}:{{LM_STUDIO_PORT}}/v1/chat/completions",
-    "models": "{{LM_STUDIO_URL}}:{{LM_STUDIO_PORT}}/v1/models",
-    "auth_methods": ["api_key"]
+    "url_param_vars": [
+      {"name": "LM_STUDIO_HOST", "default": "127.0.0.1"},
+      {"name": "LM_STUDIO_PORT", "default": "1234"},
+      {"name": "LM_STUDIO_SSL", "options": ["http", "https"]}
+    ],
+    "response_type": "OpenAIResponses",
+    "url": "{{LM_STUDIO_SSL}}://{{LM_STUDIO_HOST}}:{{LM_STUDIO_PORT}}/v1/responses",
+    "models": "{{LM_STUDIO_SSL}}://{{LM_STUDIO_HOST}}:{{LM_STUDIO_PORT}}/v1/models",
+    "auth_methods": ["optional_api_key"]
   },
   {
     "id": "forge_services",

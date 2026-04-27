@@ -7,6 +7,8 @@ use super::OAuthConfig;
 #[serde(rename_all = "snake_case")]
 pub enum AuthMethod {
     ApiKey,
+    /// Same as `ApiKey` but the key may be left empty during setup.
+    OptionalApiKey,
     #[serde(rename = "oauth_device")]
     OAuthDevice(OAuthConfig),
     #[serde(rename = "oauth_code")]
@@ -42,7 +44,7 @@ impl AuthMethod {
             Self::OAuthDevice(config) | Self::OAuthCode(config) | Self::CodexDevice(config) => {
                 Some(config)
             }
-            Self::ApiKey | Self::GoogleAdc | Self::AwsProfile => None,
+            Self::ApiKey | Self::OptionalApiKey | Self::GoogleAdc | Self::AwsProfile => None,
         }
     }
 }

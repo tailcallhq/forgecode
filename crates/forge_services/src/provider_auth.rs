@@ -33,7 +33,7 @@ where
         // Get required URL parameters for API key flow and Google ADC
         let required_params = if matches!(
             auth_method,
-            AuthMethod::ApiKey | AuthMethod::GoogleAdc | AuthMethod::AwsProfile
+            AuthMethod::ApiKey | AuthMethod::OptionalApiKey | AuthMethod::GoogleAdc | AuthMethod::AwsProfile
         ) {
             // Get URL params from provider entry (works for both configured and
             // unconfigured)
@@ -115,7 +115,7 @@ where
         };
 
         // Get required params for API key flow
-        let required_params = if matches!(auth_method, AuthMethod::ApiKey) {
+        let required_params = if matches!(auth_method, AuthMethod::ApiKey | AuthMethod::OptionalApiKey) {
             // Get URL params from provider entry (works for both configured and
             // unconfigured)
             let providers = self.infra.get_all_providers().await?;

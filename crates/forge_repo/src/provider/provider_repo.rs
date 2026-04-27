@@ -27,6 +27,8 @@ enum Models {
 enum UrlParamVarConfig {
     /// A plain environment variable name with free-text UI input.
     Plain(String),
+    /// A parameter with a default value pre-filled in the UI.
+    WithDefault { name: String, default: String },
     /// A parameter with a constrained set of options, rendered as a dropdown.
     WithOptions { name: String, options: Vec<String> },
 }
@@ -36,6 +38,7 @@ impl UrlParamVarConfig {
     fn param_name(&self) -> &str {
         match self {
             Self::Plain(s) => s,
+            Self::WithDefault { name, .. } => name,
             Self::WithOptions { name, .. } => name,
         }
     }
@@ -44,6 +47,9 @@ impl UrlParamVarConfig {
     fn into_spec(self) -> URLParamSpec {
         match self {
             Self::Plain(s) => URLParamSpec::new(URLParam::from(s)),
+            Self::WithDefault { name, default } => {
+                URLParamSpec::with_default(URLParam::from(name), default)
+            }
             Self::WithOptions { name, options } => {
                 URLParamSpec::with_options(URLParam::from(name), options)
             }

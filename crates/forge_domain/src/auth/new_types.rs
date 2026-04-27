@@ -83,6 +83,7 @@ pub struct URLParamValue(String);
 ///
 /// When `options` is `Some`, the UI presents a dropdown for selection.
 /// When `options` is `None`, the UI presents a free-text input.
+/// When `default` is `Some`, the UI pre-fills the input with that value.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct URLParamSpec {
     /// The parameter name used as the template variable and credential map key.
@@ -90,18 +91,26 @@ pub struct URLParamSpec {
     /// Optional list of allowed values. When present, the UI renders a
     /// dropdown.
     pub options: Option<Vec<String>>,
+    /// Optional default value pre-filled in the UI when no existing credential
+    /// value is available.
+    pub default: Option<String>,
 }
 
 impl URLParamSpec {
     /// Creates a `URLParamSpec` with only a name, rendering as a free-text
     /// input.
     pub fn new(name: impl Into<URLParam>) -> Self {
-        Self { name: name.into(), options: None }
+        Self { name: name.into(), options: None, default: None }
+    }
+
+    /// Creates a `URLParamSpec` with a default value pre-filled in the UI.
+    pub fn with_default(name: impl Into<URLParam>, default: impl Into<String>) -> Self {
+        Self { name: name.into(), options: None, default: Some(default.into()) }
     }
 
     /// Creates a `URLParamSpec` with preset options, rendering as a dropdown.
     pub fn with_options(name: impl Into<URLParam>, options: Vec<String>) -> Self {
-        Self { name: name.into(), options: Some(options) }
+        Self { name: name.into(), options: Some(options), default: None }
     }
 }
 

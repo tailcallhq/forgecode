@@ -745,6 +745,13 @@
       "description": "A URL parameter variable for a provider, used to substitute template\nvariables in URL strings.",
       "type": "object",
       "properties": {
+        "default": {
+          "description": "Optional default value pre-filled in the UI when no existing credential\nvalue is available.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "name": {
           "description": "The environment variable name used as the template variable key.",
           "type": "string"

@@ -75,7 +75,10 @@ impl<W: Write> StreamdownRenderer<W> {
 
     /// Push a token to the renderer.
     ///
-    /// Tokens are buffered until a complete line is received, then rendered.
+    /// Complete lines (terminated by `\n`) are rendered immediately with full
+    /// markdown formatting. Any remaining partial line content is also rendered
+    /// right away so that streaming output appears on screen without waiting
+    /// for a newline.
     pub fn push(&mut self, token: &str) -> io::Result<()> {
         self.line_buffer.push_str(token);
 
@@ -90,6 +93,18 @@ impl<W: Write> StreamdownRenderer<W> {
 
             self.line_buffer = self.line_buffer.get(pos + 1..).unwrap_or("").to_string();
         }
+
+        // Render any partial line content immediately so it appears on screen
+        // without waiting for a newline (e.g. streaming reasoning deltas).
+        if !self.line_buffer.is_empty() {
+            let partial = std::mem::take(&mut self.line_buffer);
+            for repaired in repair_line(&partial, self.parser.state()) {
+                for event in self.parser.parse_line(&repaired) {
+                    self.renderer.render_event(&event)?;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -145,6 +160,27 @@ mod tests {
     }
 
     #[test]
+    fn test_push_renders_partial_line_without_newline() {
+        // Deltas that never contain '\n' must be visible immediately after push(),
+        // without having to call finish(). This exercises the streaming use-case
+        // where reasoning / content tokens arrive as small chunks with no newline.
+        let mut output = Vec::new();
+        let mut renderer = StreamdownRenderer::new(&mut output, 80);
+
+        renderer.push("hello").unwrap();
+        renderer.push(" and").unwrap();
+        renderer.push(" world").unwrap();
+
+        // Content must be present even before finish() is called.
+        let intermediate = strip_ansi_escapes::strip(&output);
+        let intermediate = String::from_utf8(intermediate).unwrap();
+        assert!(
+            intermediate.contains("hello"),
+            "partial content should be rendered immediately, got: {intermediate:?}"
+        );
+    }
+
+    #[test]
     fn test_streaming_renderer_preserves_korean_spacing_in_structured_markdown() {
         let fixture = concat!(
             "## 구현 요약\n",
@@ -187,7 +223,11 @@ mod tests {
             "\n",
             "후속 작업은 다음과 같습니다.\n",
             "1. 변경 사항을 검토 가능한 형식으로 정리합니다.\n",
-            "2. 실제 대화 출력과 유사한 통합 테스트 범위를 확장합니다.",
+            // The last two source chunks have no newline, so with immediate
+            // partial rendering they are each processed by parse_line
+            // independently and appear on separate lines.
+            "2. 실제 대화 출력과 유사한 통합 테스트 범위를\n",
+            "확장합니다.",
         );
 
         assert_eq!(actual, expected);

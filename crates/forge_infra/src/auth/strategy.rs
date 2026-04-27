@@ -20,11 +20,17 @@ use crate::auth::util::*;
 pub struct ApiKeyStrategy {
     provider_id: ProviderId,
     required_params: Vec<URLParamSpec>,
+    api_key_optional: bool,
 }
 
 impl ApiKeyStrategy {
     pub fn new(provider_id: ProviderId, required_params: Vec<URLParamSpec>) -> Self {
-        Self { provider_id, required_params }
+        Self { provider_id, required_params, api_key_optional: false }
+    }
+
+    /// Creates a strategy where the API key may be left empty during setup.
+    pub fn new_optional(provider_id: ProviderId, required_params: Vec<URLParamSpec>) -> Self {
+        Self { provider_id, required_params, api_key_optional: true }
     }
 }
 
@@ -35,6 +41,7 @@ impl AuthStrategy for ApiKeyStrategy {
             required_params: self.required_params.clone(),
             existing_params: None,
             api_key: None,
+            api_key_optional: self.api_key_optional,
         }))
     }
 
@@ -447,6 +454,7 @@ impl AuthStrategy for GoogleAdcStrategy {
             required_params: self.required_params.clone(),
             existing_params: None,
             api_key: Some("google_adc_marker".to_string().into()), // Marker to indicate ADC usage
+            api_key_optional: false,
         }))
     }
 
@@ -549,6 +557,7 @@ impl AuthStrategy for AwsProfileStrategy {
             required_params: self.required_params.clone(),
             existing_params: None,
             api_key: Some("aws_profile_marker".to_string().into()),
+            api_key_optional: false,
         }))
     }
 
@@ -1156,6 +1165,9 @@ impl StrategyFactory for ForgeAuthStrategyFactory {
                 provider_id,
                 required_params,
             ))),
+            forge_domain::AuthMethod::OptionalApiKey => Ok(AnyAuthStrategy::ApiKey(
+                ApiKeyStrategy::new_optional(provider_id, required_params),
+            )),
             forge_domain::AuthMethod::OAuthCode(config) => {
                 if provider_id == ProviderId::CLAUDE_CODE {
                     return Ok(AnyAuthStrategy::OAuthCodeAnthropic(OAuthCodeStrategy::new(
