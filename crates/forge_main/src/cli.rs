@@ -159,47 +159,13 @@ pub enum TopLevelCommand {
 
 /// Command group for the `forge select` interactive picker.
 ///
-/// When no subcommand is given, acts as a pipe-based fuzzy picker that reads
-/// items from stdin. Subcommands provide purpose-built pickers for specific
-/// domain types (models, agents, providers, etc.) that fetch data internally
-/// and output the selected value.
+/// Subcommands provide purpose-built pickers for specific domain types (models,
+/// agents, providers, etc.) that fetch data internally and output the selected
+/// value.
 #[derive(Parser, Debug, Clone)]
 pub struct SelectCommandGroup {
     #[command(subcommand)]
-    pub command: Option<SelectCommand>,
-
-    // ── Pipe-based arguments (used when no subcommand is given) ──
-    /// Prompt text displayed before the picker.
-    #[arg(long, short = 'p')]
-    pub prompt: Option<String>,
-
-    /// Initial query text pre-filled in the search box.
-    #[arg(long, short = 'q')]
-    pub query: Option<String>,
-
-    /// Allow selecting multiple items.
-    #[arg(long, short = 'm')]
-    pub multi: bool,
-
-    /// Shell command used to render a preview for the selected item.
-    #[arg(long)]
-    pub preview: Option<String>,
-
-    /// Regex delimiter used to split fields in each input line.
-    #[arg(long)]
-    pub delimiter: Option<String>,
-
-    /// Comma-separated field list used for display text.
-    #[arg(long = "with-nth")]
-    pub with_nth: Option<String>,
-
-    /// Preview window layout hint.
-    #[arg(long = "preview-window")]
-    pub preview_window: Option<String>,
-
-    /// Number of leading input lines displayed as a non-selectable header.
-    #[arg(long = "header-lines", default_value_t = 0)]
-    pub header_lines: usize,
+    pub command: SelectCommand,
 }
 
 /// Purpose-built interactive pickers for specific domain types.
@@ -284,13 +250,6 @@ pub enum SelectCommand {
         query: Option<String>,
     },
 }
-
-/// Legacy type alias for pipe-based select arguments.
-///
-/// When no subcommand is provided, `SelectCommandGroup` carries the pipe-based
-/// arguments inline. This alias exists for backward compatibility with the
-/// `select_cmd` module.
-pub type SelectArgs = SelectCommandGroup;
 
 /// Command group for custom command management.
 #[derive(Parser, Debug, Clone)]

@@ -97,7 +97,7 @@ function _forge_action_conversation() {
     
     # Use Rust's built-in conversation picker with preview
     local conversation_id
-    conversation_id=$(CLICOLOR_FORCE=0 $_FORGE_BIN select conversation </dev/tty 2>/dev/tty)
+    conversation_id=$(_forge_select conversation)
     
     if [[ -n "$conversation_id" ]]; then
         # Switch to conversation and track in history
@@ -130,7 +130,7 @@ function _forge_action_clone() {
     
     # Use Rust's built-in conversation picker
     local conversation_id
-    conversation_id=$(CLICOLOR_FORCE=0 $_FORGE_BIN select conversation </dev/tty 2>/dev/tty)
+    conversation_id=$(_forge_select conversation)
     
     if [[ -n "$conversation_id" ]]; then
         _forge_clone_and_switch "$conversation_id"
@@ -220,7 +220,7 @@ function _forge_action_conversation_rename() {
 
     # No args — use Rust's built-in conversation picker
     local conversation_id
-    conversation_id=$(CLICOLOR_FORCE=0 $_FORGE_BIN select conversation </dev/tty 2>/dev/tty)
+    conversation_id=$(_forge_select conversation)
 
     if [[ -n "$conversation_id" ]]; then
         # Prompt for new name

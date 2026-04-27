@@ -11,7 +11,11 @@ function _forge_action_session_provider() {
     echo
 
     local selected
-    selected=$(CLICOLOR_FORCE=0 $_FORGE_BIN select provider ${input_text:+--query "$input_text"} </dev/tty 2>/dev/tty)
+    if [[ -n "$input_text" ]]; then
+        selected=$(_forge_select provider --query "$input_text")
+    else
+        selected=$(_forge_select provider)
+    fi
 
     if [[ -n "$selected" ]]; then
         _FORGE_SESSION_PROVIDER="$selected"

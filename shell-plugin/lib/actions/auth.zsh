@@ -8,7 +8,11 @@ function _forge_action_login() {
     echo
 
     local provider
-    provider=$(CLICOLOR_FORCE=0 $_FORGE_BIN select provider ${input_text:+--query "$input_text"} </dev/tty 2>/dev/tty)
+    if [[ -n "$input_text" ]]; then
+        provider=$(_forge_select provider --query "$input_text")
+    else
+        provider=$(_forge_select provider)
+    fi
 
     if [[ -n "$provider" ]]; then
         _forge_exec_interactive provider login "$provider"
@@ -21,7 +25,11 @@ function _forge_action_logout() {
     echo
 
     local provider
-    provider=$(CLICOLOR_FORCE=0 $_FORGE_BIN select provider --configured ${input_text:+--query "$input_text"} </dev/tty 2>/dev/tty)
+    if [[ -n "$input_text" ]]; then
+        provider=$(_forge_select provider --configured --query "$input_text")
+    else
+        provider=$(_forge_select provider --configured)
+    fi
 
     if [[ -n "$provider" ]]; then
         _forge_exec provider logout "$provider"

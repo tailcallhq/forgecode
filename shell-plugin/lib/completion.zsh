@@ -12,9 +12,9 @@ function forge-completion() {
         
         # Use Rust's built-in file picker
         if [[ -n "$filter_text" ]]; then
-            selected=$(CLICOLOR_FORCE=0 $_FORGE_BIN select file --query "$filter_text" </dev/tty 2>/dev/tty)
+            selected=$(_forge_select file --query "$filter_text")
         else
-            selected=$(CLICOLOR_FORCE=0 $_FORGE_BIN select file </dev/tty 2>/dev/tty)
+            selected=$(_forge_select file)
         fi
         
         if [[ -n "$selected" ]]; then
@@ -36,9 +36,9 @@ function forge-completion() {
         # Use Rust's built-in command picker
         local selected
         if [[ -n "$filter_text" ]]; then
-            selected=$(CLICOLOR_FORCE=0 $_FORGE_BIN select command --query "$filter_text" </dev/tty 2>/dev/tty)
+            selected=$(_forge_select command --query "$filter_text")
         else
-            selected=$(CLICOLOR_FORCE=0 $_FORGE_BIN select command </dev/tty 2>/dev/tty)
+            selected=$(_forge_select command)
         fi
         
         if [[ -n "$selected" ]]; then

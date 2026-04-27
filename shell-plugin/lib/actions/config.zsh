@@ -30,7 +30,11 @@ function _forge_action_agent() {
     
     # Use forge select agent for interactive picking
     local agent_id
-    agent_id=$(CLICOLOR_FORCE=0 $_FORGE_BIN select agent ${input_text:+--query "$input_text"} </dev/tty 2>/dev/tty)
+    if [[ -n "$input_text" ]]; then
+        agent_id=$(_forge_select agent --query "$input_text")
+    else
+        agent_id=$(_forge_select agent)
+    fi
     
     if [[ -n "$agent_id" ]]; then
         _FORGE_ACTIVE_AGENT="$agent_id"
@@ -45,7 +49,11 @@ function _forge_action_model() {
     echo
 
     local result
-    result=$(CLICOLOR_FORCE=0 $_FORGE_BIN select model ${input_text:+--query "$input_text"} </dev/tty 2>/dev/tty)
+    if [[ -n "$input_text" ]]; then
+        result=$(_forge_select model --query "$input_text")
+    else
+        result=$(_forge_select model)
+    fi
 
     if [[ -n "$result" ]]; then
         local model_id provider_id
@@ -62,7 +70,11 @@ function _forge_action_commit_model() {
     echo
 
     local result
-    result=$(CLICOLOR_FORCE=0 $_FORGE_BIN select model ${input_text:+--query "$input_text"} </dev/tty 2>/dev/tty)
+    if [[ -n "$input_text" ]]; then
+        result=$(_forge_select model --query "$input_text")
+    else
+        result=$(_forge_select model)
+    fi
 
     if [[ -n "$result" ]]; then
         local model_id provider_id
@@ -79,7 +91,11 @@ function _forge_action_suggest_model() {
     echo
 
     local result
-    result=$(CLICOLOR_FORCE=0 $_FORGE_BIN select model ${input_text:+--query "$input_text"} </dev/tty 2>/dev/tty)
+    if [[ -n "$input_text" ]]; then
+        result=$(_forge_select model --query "$input_text")
+    else
+        result=$(_forge_select model)
+    fi
 
     if [[ -n "$result" ]]; then
         local model_id provider_id
@@ -127,7 +143,11 @@ function _forge_action_session_model() {
     echo
 
     local result
-    result=$(CLICOLOR_FORCE=0 $_FORGE_BIN select model ${input_text:+--query "$input_text"} </dev/tty 2>/dev/tty)
+    if [[ -n "$input_text" ]]; then
+        result=$(_forge_select model --query "$input_text")
+    else
+        result=$(_forge_select model)
+    fi
 
     if [[ -n "$result" ]]; then
         _FORGE_SESSION_MODEL="$(echo "$result" | head -n1)"
@@ -164,7 +184,11 @@ function _forge_action_reasoning_effort() {
     echo
 
     local selected
-    selected=$(CLICOLOR_FORCE=0 $_FORGE_BIN select reasoning-effort ${input_text:+--query "$input_text"} </dev/tty 2>/dev/tty)
+    if [[ -n "$input_text" ]]; then
+        selected=$(_forge_select reasoning-effort --query "$input_text")
+    else
+        selected=$(_forge_select reasoning-effort)
+    fi
 
     if [[ -n "$selected" ]]; then
         _FORGE_SESSION_REASONING_EFFORT="$selected"
@@ -180,7 +204,11 @@ function _forge_action_config_reasoning_effort() {
     echo
 
     local selected
-    selected=$(CLICOLOR_FORCE=0 $_FORGE_BIN select reasoning-effort ${input_text:+--query "$input_text"} </dev/tty 2>/dev/tty)
+    if [[ -n "$input_text" ]]; then
+        selected=$(_forge_select reasoning-effort --query "$input_text")
+    else
+        selected=$(_forge_select reasoning-effort)
+    fi
 
     if [[ -n "$selected" ]]; then
         _forge_exec config set reasoning-effort "$selected"

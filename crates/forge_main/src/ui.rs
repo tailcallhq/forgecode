@@ -178,6 +178,36 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(selected.and_then(|raw| rows.into_iter().find(|row| row.raw == raw)))
     }
 
+    fn select_row_output(
+        &mut self,
+        prompt: &str,
+        query: Option<String>,
+        rows: Vec<SelectRow>,
+    ) -> Result<()> {
+        if let Some(row) = self.select_raw_row(prompt, query, rows, 1, None)? {
+            self.writeln(row.raw)?;
+        }
+
+        Ok(())
+    }
+
+    fn porcelain_rows(porcelain: impl ToString) -> Result<Vec<SelectRow>> {
+        let porcelain = porcelain.to_string();
+        let mut lines = porcelain.lines();
+        let Some(header) = lines.next() else {
+            return Ok(Vec::new());
+        };
+
+        let mut rows = vec![SelectRow::header(header.to_string())];
+        rows.extend(lines.filter_map(|line| {
+            line.split_whitespace()
+                .next()
+                .map(|raw| SelectRow::new(raw.to_string(), line.to_string()))
+        }));
+
+        Ok(rows)
+    }
+
     /// Displays banner only if user is in interactive mode.
     fn display_banner(&self) -> Result<()> {
         if self.cli.is_interactive() {
@@ -772,36 +802,32 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
             TopLevelCommand::Select(cmd) => {
                 match &cmd.command {
-                    None => {
-                        crate::select_cmd::run_select(cmd)?;
-                    }
-                    Some(SelectCommand::File { query }) => {
+                    SelectCommand::File { query } => {
                         self.on_select_file_cli(query.clone()).await?;
                     }
-                    _ => {
+                    SelectCommand::Model { query } => {
                         self.init_state(false).await?;
-                        match &cmd.command {
-                            Some(SelectCommand::Model { query }) => {
-                                self.on_select_model_cli(query.clone()).await?;
-                            }
-                            Some(SelectCommand::Agent { query }) => {
-                                self.on_select_agent_cli(query.clone()).await?;
-                            }
-                            Some(SelectCommand::Provider { query, configured }) => {
-                                self.on_select_provider_cli(query.clone(), *configured)
-                                    .await?;
-                            }
-                            Some(SelectCommand::ReasoningEffort { query }) => {
-                                self.on_select_reasoning_effort_cli(query.clone()).await?;
-                            }
-                            Some(SelectCommand::Command { query }) => {
-                                self.on_select_command_cli(query.clone()).await?;
-                            }
-                            Some(SelectCommand::Conversation { query }) => {
-                                self.on_select_conversation_cli(query.clone()).await?;
-                            }
-                            Some(SelectCommand::File { .. }) | None => {}
-                        }
+                        self.on_select_model_cli(query.clone()).await?;
+                    }
+                    SelectCommand::Agent { query } => {
+                        self.init_state(false).await?;
+                        self.on_select_agent_cli(query.clone()).await?;
+                    }
+                    SelectCommand::Provider { query, configured } => {
+                        self.init_state(false).await?;
+                        self.on_select_provider_cli(query.clone(), *configured).await?;
+                    }
+                    SelectCommand::ReasoningEffort { query } => {
+                        self.init_state(false).await?;
+                        self.on_select_reasoning_effort_cli(query.clone()).await?;
+                    }
+                    SelectCommand::Command { query } => {
+                        self.init_state(false).await?;
+                        self.on_select_command_cli(query.clone()).await?;
+                    }
+                    SelectCommand::Conversation { query } => {
+                        self.init_state(false).await?;
+                        self.on_select_conversation_cli(query.clone()).await?;
                     }
                 }
                 return Ok(());
@@ -1084,7 +1110,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             // Fetch all providers for selection (no type filter, like shell :login)
             let providers = self.api.get_providers().await?;
 
-            match self.select_provider_from_list(providers, "Provider", None)? {
+            match self.select_provider_from_list(providers, "Provider", None, None)? {
                 Some(provider) => provider,
                 None => {
                     self.writeln_title(TitleFormat::info("Cancelled"))?;
@@ -1140,7 +1166,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             return Ok(false);
         }
 
-        match self.select_provider_from_list(configured_providers, "Provider", None)? {
+        match self.select_provider_from_list(configured_providers, "Provider", None, None)? {
             Some(provider) => {
                 let provider_id = provider.id();
                 self.api.remove_provider(&provider_id).await?;
@@ -1403,79 +1429,68 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    async fn commands_porcelain(&self) -> Result<Porcelain> {
+        let custom_commands = self.api.get_commands().await?;
+        let mut info = Info::new();
+
+        for cmd in AppCommand::iter().filter(|c| !c.is_internal() && !c.is_agent_switch()) {
+            info = info
+                .add_title(cmd.name())
+                .add_key_value("type", CommandType::Command)
+                .add_key_value("description", cmd.usage());
+        }
+
+        info = info
+            .add_title("ask")
+            .add_key_value("type", CommandType::Agent)
+            .add_key_value(
+                "description",
+                "Research and investigation agent [alias for: sage]",
+            )
+            .add_title("plan")
+            .add_key_value("type", CommandType::Agent)
+            .add_key_value(
+                "description",
+                "Planning and strategy agent [alias for: muse]",
+            );
+
+        let agent_infos = self.api.get_agent_infos().await?;
+        for agent_info in agent_infos {
+            let title = agent_info
+                .title
+                .map(|title| title.lines().collect::<Vec<_>>().join(" "));
+            info = info
+                .add_title(agent_info.id.to_string())
+                .add_key_value("type", CommandType::Agent)
+                .add_key_value("description", title);
+        }
+
+        for command in custom_commands {
+            info = info
+                .add_title(command.name.clone())
+                .add_key_value("type", CommandType::Custom)
+                .add_key_value("description", command.description.clone());
+        }
+
+        Ok(Porcelain::from(&info)
+            .uppercase_headers()
+            .sort_by(&[1, 0])
+            .to_case(&[1], Case::UpperSnake)
+            .map_col(0, |col| {
+                if col.as_deref() == Some(headers::ID) {
+                    Some("COMMAND".to_string())
+                } else {
+                    col
+                }
+            }))
+    }
+
     /// Lists all the commands
     async fn on_show_commands(&mut self, porcelain: bool) -> anyhow::Result<()> {
-        // Fetch custom commands once — used by both the porcelain and plain paths.
         let custom_commands = self.api.get_commands().await?;
 
         if porcelain {
-            // Build the full info with type/description columns for porcelain
-            // (used by the shell plugin for tab completion).
-            let mut info = Info::new();
-
-            // Generate built-in commands directly from the SlashCommand enum so
-            // the list always stays in sync with what the REPL actually supports.
-            // Internal/meta variants (Message, Custom, Shell, AgentSwitch, Rename)
-            // are excluded via is_internal().
-            // Agent-switch shorthands (forge, muse, sage) are excluded via
-            // is_agent_switch() because they are already emitted as AGENT rows
-            // by the agent-info loop below, and must not appear twice.
-            for cmd in AppCommand::iter().filter(|c| !c.is_internal() && !c.is_agent_switch()) {
-                info = info
-                    .add_title(cmd.name())
-                    .add_key_value("type", CommandType::Command)
-                    .add_key_value("description", cmd.usage());
-            }
-
-            // Add agent aliases
-            info = info
-                .add_title("ask")
-                .add_key_value("type", CommandType::Agent)
-                .add_key_value(
-                    "description",
-                    "Research and investigation agent [alias for: sage]",
-                )
-                .add_title("plan")
-                .add_key_value("type", CommandType::Agent)
-                .add_key_value(
-                    "description",
-                    "Planning and strategy agent [alias for: muse]",
-                );
-
-            // Fetch agent infos and add them to the commands list.
-            // Uses get_agent_infos() so no provider/model is required for listing.
-            let agent_infos = self.api.get_agent_infos().await?;
-            for agent_info in agent_infos {
-                let title = agent_info
-                    .title
-                    .map(|title| title.lines().collect::<Vec<_>>().join(" "));
-                info = info
-                    .add_title(agent_info.id.to_string())
-                    .add_key_value("type", CommandType::Agent)
-                    .add_key_value("description", title);
-            }
-
-            for command in custom_commands {
-                info = info
-                    .add_title(command.name.clone())
-                    .add_key_value("type", CommandType::Custom)
-                    .add_key_value("description", command.description.clone());
-            }
-
-            // Original order from Info: [$ID, type, description]
-            // So the original order is fine! But $ID should become COMMAND
-            let porcelain = Porcelain::from(&info)
-                .uppercase_headers()
-                .sort_by(&[1, 0])
-                .to_case(&[1], Case::UpperSnake)
-                .map_col(0, |col| {
-                    if col.as_deref() == Some(headers::ID) {
-                        Some("COMMAND".to_string())
-                    } else {
-                        col
-                    }
-                });
-            self.writeln(porcelain)?;
+            self.writeln(self.commands_porcelain().await?)?;
         } else {
             // Non-porcelain: render in the same flat format as :help in the REPL.
             let command_manager = ForgeCommandManager::default();
@@ -2140,47 +2155,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 }
             }
             AppCommand::Agent => {
-                let agents = self.api.get_agent_infos().await?;
-
-                if agents.is_empty() {
-                    return Ok(false);
-                }
-
-                // Reuse the same Info building logic as list agents
-                let info = self.build_agents_info(false).await?;
-
-                // Convert to porcelain format matching shell plugin's :agent
-                // Shell uses --with-nth="1,2,4,5,6" hiding Location (col 3).
-                // Original cols: 0=Title, 1=Id, 2=Title, 3=Location, 4=Provider, 5=Model,
-                // 6=Reasoning Drop cols 0 (title) and 3 (location)
-                let porcelain_output = Porcelain::from(&info)
-                    .drop_cols(&[0, 3])
-                    .truncate(3, 30)
-                    .uppercase_headers();
-                let porcelain_str = porcelain_output.to_string();
-
-                let all_lines: Vec<&str> = porcelain_str.lines().collect();
-                if all_lines.is_empty() {
-                    return Ok(false);
-                }
-
-                let mut display_agents = Vec::new();
-                // Header row (non-selectable via header_lines=1)
-                let Some(header) = all_lines.first() else {
-                    return Err(UIError::MissingHeaderLine.into());
-                };
-                display_agents.push(crate::select_cmd::SelectRow::header(header.to_string()));
-                // Data rows
-                for line in all_lines.iter().skip(1) {
-                    if let Some(id_str) = line.split_whitespace().next() {
-                        display_agents.push(crate::select_cmd::SelectRow::new(
-                            id_str.to_string(),
-                            line.to_string(),
-                        ));
-                    }
-                }
-
-                // Find starting cursor for the current agent
+                let display_agents = self.agent_select_rows().await?;
                 let initial_raw = self
                     .api
                     .get_active_agent()
@@ -2404,8 +2379,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     /// Fetches all provider models, presents an interactive fuzzy picker, and
     /// prints the selected `model_id` and `provider_id` on separate lines.
     /// Returns without output if the user cancels.
-    async fn on_select_model_cli(&mut self, _query: Option<String>) -> anyhow::Result<()> {
-        match self.select_model(None).await? {
+    async fn on_select_model_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
+        match self.select_model(None, query).await? {
             Some((model_id, provider_id)) => {
                 self.writeln(model_id.as_str())?;
                 self.writeln(provider_id.as_ref())?;
@@ -2421,55 +2396,22 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     /// selected `agent_id` on stdout. Returns without output if the user
     /// cancels.
     async fn on_select_agent_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
-        let agents = self.api.get_agent_infos().await?;
-
-        if agents.is_empty() {
+        let rows = self.agent_select_rows().await?;
+        if rows.is_empty() {
             return Ok(());
         }
 
-        // Build Info structure (same as build_agents_info)
-        let info = self.build_agents_info(false).await?;
-
-        // Convert to porcelain format matching shell plugin's :agent
-        let porcelain_output = Porcelain::from(&info)
-            .drop_cols(&[0, 3])
-            .truncate(3, 30)
-            .uppercase_headers();
-        let porcelain_str = porcelain_output.to_string();
-
-        let all_lines: Vec<&str> = porcelain_str.lines().collect();
-        if all_lines.is_empty() {
-            return Ok(());
-        }
-
-        let mut rows: Vec<crate::select_cmd::SelectRow> = Vec::with_capacity(all_lines.len());
-        let Some(header) = all_lines.first() else {
-            return Err(UIError::MissingHeaderLine.into());
-        };
-        rows.push(crate::select_cmd::SelectRow::header(header.to_string()));
-        for line in all_lines.iter().skip(1) {
-            if let Some(id_str) = line.split_whitespace().next() {
-                rows.push(crate::select_cmd::SelectRow::new(
-                    id_str.to_string(),
-                    line.to_string(),
-                ));
-            }
-        }
-
-        // Find starting cursor for the current agent
         let initial_raw = self
             .api
             .get_active_agent()
             .await
             .map(|current| current.as_str().to_string());
 
-        match self.select_raw_row("Agent", query, rows, 1, initial_raw)? {
-            Some(row) => {
-                self.writeln(row.raw)?;
-                Ok(())
-            }
-            None => Ok(()),
+        if let Some(row) = self.select_raw_row("Agent", query, rows, 1, initial_raw)? {
+            self.writeln(row.raw)?;
         }
+
+        Ok(())
     }
 
     /// CLI handler for `forge select provider`.
@@ -2482,10 +2424,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         query: Option<String>,
         configured_only: bool,
     ) -> anyhow::Result<()> {
-        let providers: Vec<AnyProvider> = self.api.get_providers().await?;
+        let mut providers: Vec<AnyProvider> = self.api.get_providers().await?;
 
-        if providers.is_empty() {
-            return Ok(());
+        if configured_only {
+            providers.retain(|provider| provider.is_configured());
         }
 
         let current_provider_id = self
@@ -2494,76 +2436,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .ok()
             .map(|p| p.id);
 
-        // Build provider list with query support
-        let mut sorted = providers;
-        sorted.sort_by_key(|a| a.id().to_string());
-
-        // Maintain a filtered list matching the display rows
-        let mut filtered: Vec<AnyProvider> = Vec::new();
-
-        let mut info = Info::new();
-        for provider in &sorted {
-            let configured = provider.is_configured();
-
-            // If --configured flag is set, skip unconfigured providers
-            if configured_only && !configured {
-                continue;
-            }
-
-            filtered.push(provider.clone());
-
-            let id: &str = &provider.id();
-            let display_name = provider.id().to_string();
-            let domain = if let Some(url) = provider.url() {
-                url.domain().map(|d| d.to_string()).unwrap_or_default()
-            } else {
-                markers::EMPTY.to_string()
-            };
-            let provider_type = provider.provider_type().to_string();
-            info = info
-                .add_title(id.to_case(Case::UpperSnake))
-                .add_key_value("name", display_name)
-                .add_key_value("id", id)
-                .add_key_value("host", domain)
-                .add_key_value("type", provider_type);
-            if configured {
-                info = info.add_key_value("logged in", status::YES);
-            }
+        if let Some(provider) =
+            self.select_provider_from_list(providers, "Provider", current_provider_id, query)?
+        {
+            self.writeln(provider.id().as_ref())?;
         }
 
-        let porcelain_output = Porcelain::from(&info)
-            .drop_cols(&[0, 2])
-            .uppercase_headers();
-        let porcelain_str = porcelain_output.to_string();
-
-        let all_lines: Vec<&str> = porcelain_str.lines().collect();
-        if all_lines.is_empty() {
-            return Ok(());
-        }
-
-        let mut rows: Vec<crate::select_cmd::SelectRow> = Vec::with_capacity(all_lines.len());
-        let Some(header) = all_lines.first() else {
-            return Err(UIError::MissingHeaderLine.into());
-        };
-        rows.push(crate::select_cmd::SelectRow::header(header.to_string()));
-        for (i, line) in all_lines.iter().skip(1).enumerate() {
-            if let Some(provider) = filtered.get(i) {
-                rows.push(crate::select_cmd::SelectRow::new(
-                    provider.id().as_ref().to_string(),
-                    line.to_string(),
-                ));
-            }
-        }
-
-        let initial_raw = current_provider_id.map(|current| current.as_ref().to_string());
-
-        match self.select_raw_row("Provider", query, rows, 1, initial_raw)? {
-            Some(row) => {
-                self.writeln(row.raw)?;
-                Ok(())
-            }
-            None => Ok(()),
-        }
+        Ok(())
     }
 
     /// CLI handler for `forge select reasoning-effort`.
@@ -2586,24 +2465,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let current_effort = self.api.get_reasoning_effort().await.ok().flatten();
         let current_str = current_effort.as_ref().map(|e| e.to_string());
-        let selected = self.select_raw_row(
-            "Reasoning Effort",
-            query,
-            effort_levels
-                .iter()
-                .map(|level| crate::select_cmd::SelectRow::new(level, level))
-                .collect(),
-            0,
-            current_str,
-        )?;
+        let rows = effort_levels
+            .iter()
+            .map(|level| SelectRow::new(level, level))
+            .collect();
+        let selected = self.select_raw_row("Reasoning Effort", query, rows, 0, current_str)?;
 
-        match selected {
-            Some(row) => {
-                self.writeln(row.raw)?;
-                Ok(())
-            }
-            None => Ok(()),
+        if let Some(row) = selected {
+            self.writeln(row.raw)?;
         }
+
+        Ok(())
     }
 
     /// CLI handler for `forge select command`.
@@ -2612,93 +2484,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     /// picker, and prints the selected command name on stdout. Returns without
     /// output if the user cancels.
     async fn on_select_command_cli(&mut self, query: Option<String>) -> anyhow::Result<()> {
-        let custom_commands = self.api.get_commands().await?;
-
-        // Build the full list: built-in commands + agent aliases + custom commands
-        let mut info = Info::new();
-
-        // Built-in commands
-        for cmd in AppCommand::iter().filter(|c| !c.is_internal() && !c.is_agent_switch()) {
-            info = info
-                .add_title(cmd.name())
-                .add_key_value("type", CommandType::Command)
-                .add_key_value("description", cmd.usage());
-        }
-
-        // Agent aliases
-        info = info
-            .add_title("ask")
-            .add_key_value("type", CommandType::Agent)
-            .add_key_value(
-                "description",
-                "Research and investigation agent [alias for: sage]",
-            )
-            .add_title("plan")
-            .add_key_value("type", CommandType::Agent)
-            .add_key_value(
-                "description",
-                "Planning and strategy agent [alias for: muse]",
-            );
-
-        // Agent infos
-        let agent_infos = self.api.get_agent_infos().await?;
-        for agent_info in agent_infos {
-            let title = agent_info
-                .title
-                .map(|title| title.lines().collect::<Vec<_>>().join(" "));
-            info = info
-                .add_title(agent_info.id.to_string())
-                .add_key_value("type", CommandType::Agent)
-                .add_key_value("description", title);
-        }
-
-        // Custom commands
-        for command in custom_commands {
-            info = info
-                .add_title(command.name.clone())
-                .add_key_value("type", CommandType::Custom)
-                .add_key_value("description", command.description.clone());
-        }
-
-        let porcelain = Porcelain::from(&info)
-            .uppercase_headers()
-            .sort_by(&[1, 0])
-            .to_case(&[1], Case::UpperSnake)
-            .map_col(0, |col| {
-                if col.as_deref() == Some(headers::ID) {
-                    Some("COMMAND".to_string())
-                } else {
-                    col
-                }
-            });
-        let porcelain_str = porcelain.to_string();
-
-        let all_lines: Vec<&str> = porcelain_str.lines().collect();
-        if all_lines.is_empty() {
+        let rows = Self::porcelain_rows(self.commands_porcelain().await?)?;
+        if rows.is_empty() {
             return Ok(());
         }
 
-        let mut rows: Vec<crate::select_cmd::SelectRow> = Vec::with_capacity(all_lines.len());
-        let Some(header) = all_lines.first() else {
-            return Err(UIError::MissingHeaderLine.into());
-        };
-        rows.push(crate::select_cmd::SelectRow::header(header.to_string()));
-        for line in all_lines.iter().skip(1) {
-            if let Some(name) = line.split_whitespace().next() {
-                rows.push(crate::select_cmd::SelectRow::new(
-                    name.to_string(),
-                    line.to_string(),
-                ));
-            }
-        }
-
-        match self.select_raw_row("Command", query, rows, 1, None)? {
-            Some(row) => {
-                self.writeln(row.raw)?;
-                Ok(())
-            }
-            None => Ok(()),
-        }
+        self.select_row_output("Command", query, rows)
     }
 
     /// CLI handler for `forge select conversation`.
@@ -2791,7 +2582,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     /// Selects and sets the commit model via interactive model picker.
     async fn on_config_commit_model(&mut self) -> anyhow::Result<()> {
-        let selection = self.select_model(None).await?;
+        let selection = self.select_model(None, None).await?;
         if let Some((model, provider_id)) = selection {
             let commit_config = forge_domain::ModelConfig::new(provider_id.clone(), model.clone());
             self.api
@@ -2806,7 +2597,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     /// Selects and sets the suggest model via interactive model picker.
     async fn on_config_suggest_model(&mut self) -> anyhow::Result<()> {
-        let selection = self.select_model(None).await?;
+        let selection = self.select_model(None, None).await?;
         if let Some((model, provider_id)) = selection {
             let suggest_config = forge_domain::ModelConfig::new(provider_id.clone(), model.clone());
             self.api
@@ -3163,6 +2954,16 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    async fn agent_select_rows(&self) -> Result<Vec<SelectRow>> {
+        let info = self.build_agents_info(false).await?;
+        let porcelain = Porcelain::from(&info)
+            .drop_cols(&[0, 3])
+            .truncate(3, 30)
+            .uppercase_headers();
+
+        Self::porcelain_rows(porcelain)
+    }
+
     /// Select a model from all configured providers using porcelain-style
     /// tabular display matching the shell plugin's `:model` UI.
     ///
@@ -3181,6 +2982,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn select_model(
         &mut self,
         provider_filter: Option<ProviderId>,
+        query: Option<String>,
     ) -> Result<Option<(ModelId, ProviderId)>> {
         // Check if provider is set otherwise first ask to select a provider
         if provider_filter.is_none() && self.api.get_session_config().await.is_none() {
@@ -3337,7 +3139,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 })
         });
 
-        let selected = self.select_raw_row("Model ❯ ", None, rows, 1, initial_raw)?;
+        let selected = self.select_raw_row("Model ❯ ", query, rows, 1, initial_raw)?;
 
         let Some(selected) = selected else {
             return Ok(None);
@@ -3766,6 +3568,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         providers: Vec<AnyProvider>,
         prompt: &str,
         current_provider_id: Option<ProviderId>,
+        query: Option<String>,
     ) -> Result<Option<AnyProvider>> {
         if providers.is_empty() {
             return Ok(None);
@@ -3824,7 +3627,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let selected = self.select_raw_row(
             prompt,
-            None,
+            query,
             rows,
             1,
             current_provider_id.map(|current| current.as_ref().to_string()),
@@ -3863,7 +3666,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .ok()
             .map(|p| p.id);
 
-        self.select_provider_from_list(providers, "Provider", current_provider_id)
+        self.select_provider_from_list(providers, "Provider", current_provider_id, None)
     }
 
     // Helper method to handle model selection and update the conversation.
@@ -3876,7 +3679,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         provider_filter: Option<ProviderId>,
     ) -> Result<Option<ModelId>> {
         // Select a model; the selector returns both the model and its provider
-        let selection = self.select_model(provider_filter).await?;
+        let selection = self.select_model(provider_filter, None).await?;
 
         // If no model was selected (user canceled), return early
         let (model, provider_id) = match selection {

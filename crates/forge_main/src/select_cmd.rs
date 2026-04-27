@@ -1,11 +1,10 @@
 use std::collections::BTreeSet;
-use std::io::{self, BufRead, IsTerminal, Write};
+use std::io::{self, Write};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{cmp, fmt};
 
-use anyhow::Context;
 use bstr::ByteSlice;
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::event::{
@@ -23,39 +22,6 @@ use crossterm::terminal::{
 use crossterm::{execute, queue};
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config as NucleoConfig, Nucleo, Utf32String};
-use regex::Regex;
-
-use crate::cli::SelectArgs;
-
-/// Run the interactive fuzzy picker.
-///
-/// Reads items from stdin, presents them in a nucleo-based TUI, and prints the
-/// selected item(s) to stdout. When stdin is not a terminal, `/dev/tty` is
-/// opened for keyboard input.
-pub fn run_select(args: SelectArgs) -> anyhow::Result<()> {
-    let stdin = io::stdin();
-    let mut items = Vec::new();
-
-    for line in stdin.lock().lines() {
-        items.push(line?);
-    }
-
-    if items.is_empty() {
-        std::process::exit(1);
-    }
-
-    #[cfg(unix)]
-    if !stdin.is_terminal() {
-        redirect_stdin_to_tty()?;
-    }
-
-    if args.preview.is_some() {
-        return run_select_with_preview(args, items);
-    }
-
-    run_select_without_preview(args, items)
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SelectRow {
     pub raw: String,
@@ -85,20 +51,6 @@ impl fmt::Display for SelectRow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.display)
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum FieldSelector {
-    Index(usize),
-    RangeFrom(usize),
-    RangeInclusive(usize, usize),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct FieldPart {
-    value: String,
-    start: usize,
-    end: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,64 +102,6 @@ impl Drop for TerminalGuard {
         if !self.raw_mode_was_enabled {
             let _ = disable_raw_mode();
         }
-    }
-}
-
-fn run_select_without_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Result<()> {
-    let rows = build_rows(&items, args.delimiter.as_deref(), args.with_nth.as_deref())?;
-    if rows.is_empty() {
-        std::process::exit(1);
-    }
-
-    let mode = if args.multi {
-        SelectMode::Multi
-    } else {
-        SelectMode::Single
-    };
-    match run_select_ui(SelectUiOptions {
-        prompt: args.prompt,
-        query: args.query,
-        rows,
-        header_lines: args.header_lines,
-        mode,
-        preview: None,
-        preview_layout: PreviewLayout::default(),
-        initial_raw: None,
-    })? {
-        Some(selected) => {
-            println!("{selected}");
-            Ok(())
-        }
-        None => std::process::exit(1),
-    }
-}
-
-fn run_select_with_preview(args: SelectArgs, items: Vec<String>) -> anyhow::Result<()> {
-    let rows = build_rows(&items, args.delimiter.as_deref(), args.with_nth.as_deref())?;
-    if rows.is_empty() {
-        std::process::exit(1);
-    }
-
-    let mode = if args.multi {
-        SelectMode::Multi
-    } else {
-        SelectMode::Single
-    };
-    match run_select_ui(SelectUiOptions {
-        prompt: args.prompt,
-        query: args.query,
-        rows,
-        header_lines: args.header_lines,
-        mode,
-        preview: args.preview,
-        preview_layout: parse_preview_window(args.preview_window.as_deref()),
-        initial_raw: None,
-    })? {
-        Some(selected) => {
-            println!("{selected}");
-            Ok(())
-        }
-        None => std::process::exit(1),
     }
 }
 
@@ -619,234 +513,6 @@ fn mouse_over_preview(column: u16, row: u16, header_rows: usize, layout: Preview
             column < width && row >= preview_y && row < preview_y.saturating_add(preview_height)
         }
     }
-}
-
-fn build_rows(
-    items: &[String],
-    delimiter: Option<&str>,
-    with_nth: Option<&str>,
-) -> anyhow::Result<Vec<SelectRow>> {
-    let delimiter_regex = match delimiter {
-        Some(value) => {
-            Some(Regex::new(value).with_context(|| format!("Invalid delimiter regex: {value}"))?)
-        }
-        None => None,
-    };
-    let display_fields = parse_with_nth(with_nth)?;
-
-    let row_parts = items
-        .iter()
-        .map(|item| split_field_parts(item, delimiter_regex.as_ref()))
-        .collect::<Vec<_>>();
-
-    let column_widths = compute_display_widths(&row_parts, display_fields.as_deref());
-
-    let rows = items
-        .iter()
-        .zip(row_parts)
-        .map(|(item, parts)| SelectRow {
-            raw: item.clone(),
-            display: build_display(item, &parts, display_fields.as_deref(), &column_widths),
-            fields: parts.into_iter().map(|part| part.value).collect(),
-        })
-        .collect();
-
-    Ok(rows)
-}
-
-fn parse_with_nth(with_nth: Option<&str>) -> anyhow::Result<Option<Vec<FieldSelector>>> {
-    let Some(value) = with_nth else {
-        return Ok(None);
-    };
-
-    let mut selectors = Vec::new();
-    for part in value
-        .split(',')
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-    {
-        if let Some((start, end)) = part.split_once("..") {
-            let start = start
-                .trim()
-                .parse::<usize>()
-                .with_context(|| format!("Invalid --with-nth field: {part}"))?;
-
-            if end.trim().is_empty() {
-                selectors.push(FieldSelector::RangeFrom(start));
-            } else {
-                let end = end
-                    .trim()
-                    .parse::<usize>()
-                    .with_context(|| format!("Invalid --with-nth field: {part}"))?;
-                selectors.push(FieldSelector::RangeInclusive(start, end));
-            }
-        } else {
-            selectors
-                .push(FieldSelector::Index(part.parse::<usize>().with_context(
-                    || format!("Invalid --with-nth field: {part}"),
-                )?));
-        }
-    }
-
-    if selectors.is_empty() {
-        return Ok(None);
-    }
-
-    Ok(Some(selectors))
-}
-
-fn split_field_parts(item: &str, delimiter: Option<&Regex>) -> Vec<FieldPart> {
-    match delimiter {
-        Some(regex) => {
-            let mut parts = Vec::new();
-            let mut last_end = 0usize;
-
-            for delimiter_match in regex.find_iter(item) {
-                let field = item
-                    .get(last_end..delimiter_match.start())
-                    .unwrap_or_default()
-                    .trim();
-                if !field.is_empty() {
-                    parts.push(FieldPart {
-                        value: field.to_string(),
-                        start: last_end,
-                        end: delimiter_match.start(),
-                    });
-                }
-                last_end = delimiter_match.end();
-            }
-
-            let field = item.get(last_end..).unwrap_or_default().trim();
-            if !field.is_empty() {
-                parts.push(FieldPart {
-                    value: field.to_string(),
-                    start: last_end,
-                    end: item.len(),
-                });
-            }
-
-            if parts.is_empty() {
-                vec![FieldPart { value: item.to_string(), start: 0, end: item.len() }]
-            } else {
-                parts
-            }
-        }
-        None => vec![FieldPart { value: item.to_string(), start: 0, end: item.len() }],
-    }
-}
-
-fn build_display(
-    item: &str,
-    parts: &[FieldPart],
-    display_fields: Option<&[FieldSelector]>,
-    column_widths: &[usize],
-) -> String {
-    let Some(display_fields) = display_fields else {
-        return item.to_string();
-    };
-
-    let selected_parts = select_display_parts(parts, display_fields);
-
-    if selected_parts.is_empty() {
-        return item.to_string();
-    }
-
-    selected_parts
-        .iter()
-        .enumerate()
-        .map(|(index, part)| {
-            if index == selected_parts.len() - 1 {
-                part.value.clone()
-            } else {
-                format!(
-                    "{:<width$}",
-                    part.value,
-                    width = column_widths
-                        .get(index)
-                        .copied()
-                        .unwrap_or(part.value.chars().count())
-                )
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("  ")
-}
-
-fn compute_display_widths(
-    rows: &[Vec<FieldPart>],
-    display_fields: Option<&[FieldSelector]>,
-) -> Vec<usize> {
-    let Some(display_fields) = display_fields else {
-        return Vec::new();
-    };
-
-    let mut widths = Vec::new();
-    for row in rows {
-        for (index, part) in select_display_parts(row, display_fields).iter().enumerate() {
-            let width = part.end.saturating_sub(part.start);
-            if widths.len() <= index {
-                widths.push(width);
-            } else if let Some(current_width) = widths.get_mut(index)
-                && *current_width < width
-            {
-                *current_width = width;
-            }
-        }
-    }
-
-    widths
-}
-
-fn select_display_parts(parts: &[FieldPart], selectors: &[FieldSelector]) -> Vec<FieldPart> {
-    let mut selected = Vec::new();
-
-    for selector in selectors {
-        match *selector {
-            FieldSelector::Index(index) => {
-                if let Some(value) = parts.get(index.saturating_sub(1)) {
-                    selected.push(value.clone());
-                }
-            }
-            FieldSelector::RangeFrom(start) => {
-                for value in parts.iter().skip(start.saturating_sub(1)) {
-                    selected.push(value.clone());
-                }
-            }
-            FieldSelector::RangeInclusive(start, end) => {
-                for value in parts
-                    .iter()
-                    .skip(start.saturating_sub(1))
-                    .take(end.saturating_sub(start).saturating_add(1))
-                {
-                    selected.push(value.clone());
-                }
-            }
-        }
-    }
-
-    selected
-}
-
-fn parse_preview_window(value: Option<&str>) -> PreviewLayout {
-    let Some(value) = value else {
-        return PreviewLayout::default();
-    };
-
-    let placement = if value.contains("down") || value.contains("bottom") || value.contains("up") {
-        PreviewPlacement::Bottom
-    } else {
-        PreviewPlacement::Right
-    };
-
-    let percent = value
-        .split(':')
-        .flat_map(|segment| segment.split(','))
-        .find_map(|segment| segment.trim().strip_suffix('%'))
-        .and_then(|segment| segment.parse::<u16>().ok())
-        .map(|percent| percent.clamp(10, 90))
-        .unwrap_or(50);
-
-    PreviewLayout { placement, percent }
 }
 
 fn matched_rows(matcher: &Nucleo<SelectRow>) -> Vec<&SelectRow> {

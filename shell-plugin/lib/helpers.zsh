@@ -77,6 +77,10 @@ function _forge_exec_interactive() {
     "${cmd[@]}" </dev/tty >/dev/tty
 }
 
+function _forge_select() {
+    CLICOLOR_FORCE=0 $_FORGE_BIN select "$@" </dev/tty 2>/dev/tty
+}
+
 function _forge_reset() {
   # Clear buffer and reset cursor position
   BUFFER=""
