@@ -2,19 +2,36 @@ use std::sync::{Arc, Mutex};
 
 use derive_setters::Setters;
 
-use crate::{ArcSender, ChatResponse, Metrics, TitleFormat, Todo, TodoItem};
+use crate::{ArcSender, CachedHook, ChatResponse, Metrics, TitleFormat, Todo, TodoItem};
 
 /// Provides additional context for tool calls.
 #[derive(Debug, Clone, Setters)]
 pub struct ToolCallContext {
     sender: Option<ArcSender>,
     metrics: Arc<Mutex<Metrics>>,
+    #[setters(skip)]
+    cached_hooks: Arc<Vec<CachedHook>>,
 }
 
 impl ToolCallContext {
     /// Creates a new ToolCallContext with default values
     pub fn new(metrics: Metrics) -> Self {
-        Self { sender: None, metrics: Arc::new(Mutex::new(metrics)) }
+        Self {
+            sender: None,
+            metrics: Arc::new(Mutex::new(metrics)),
+            cached_hooks: Arc::new(Vec::new()),
+        }
+    }
+
+    /// Set the cached hooks for hook interception
+    pub fn cached_hooks(mut self, hooks: Arc<Vec<CachedHook>>) -> Self {
+        self.cached_hooks = hooks;
+        self
+    }
+
+    /// Get the cached hooks
+    pub fn get_cached_hooks(&self) -> Arc<Vec<CachedHook>> {
+        self.cached_hooks.clone()
     }
 
     /// Send a message through the sender if available
@@ -88,11 +105,19 @@ impl ToolCallContext {
 mod tests {
     use super::*;
 
+    fn fixture_cached_hook(content: &[u8]) -> CachedHook {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hook.sh");
+        std::fs::write(&path, content).unwrap();
+        CachedHook::from_path(path).unwrap()
+    }
+
     #[test]
     fn test_create_context() {
         let metrics = Metrics::default();
         let context = ToolCallContext::new(metrics);
         assert!(context.sender.is_none());
+        assert!(context.get_cached_hooks().is_empty());
     }
 
     #[test]
@@ -100,5 +125,33 @@ mod tests {
         let metrics = Metrics::default();
         let context = ToolCallContext::new(metrics);
         assert!(context.sender.is_none());
+        assert!(context.get_cached_hooks().is_empty());
+    }
+
+    #[test]
+    fn test_cached_hooks_storage() {
+        let metrics = Metrics::default();
+        let hooks = vec![
+            fixture_cached_hook(b"#!/bin/bash\necho allow"),
+            fixture_cached_hook(b"#!/bin/bash\necho deny"),
+        ];
+        let context = ToolCallContext::new(metrics).cached_hooks(Arc::new(hooks));
+        let retrieved = context.get_cached_hooks();
+        assert_eq!(retrieved.len(), 2);
+    }
+
+    #[test]
+    fn test_agent_executor_gets_cached_hooks() {
+        // This test verifies that get_cached_hooks() returns the expected hooks
+        // The agent_executor.rs code at line 80 calls ctx.get_cached_hooks()
+        let metrics = Metrics::default();
+        let hooks = vec![
+            fixture_cached_hook(b"#!/bin/bash\necho allow"),
+        ];
+        let context = ToolCallContext::new(metrics).cached_hooks(Arc::new(hooks));
+
+        // Simulate what agent_executor does at line 80
+        let cached_hooks = context.get_cached_hooks();
+        assert_eq!(cached_hooks.len(), 1);
     }
 }

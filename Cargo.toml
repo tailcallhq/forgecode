@@ -111,6 +111,7 @@ tracing = "0.1.44"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 url = { version = "2.5.8", features = ["serde"] }
+libc = "0.2"
 backon = "1.5.2"
 eserde = "0.1.7"
 uuid = { version = "1.23.0", features = [

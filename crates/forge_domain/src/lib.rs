@@ -1,6 +1,7 @@
 mod agent;
 mod attachment;
 mod auth;
+mod cached_hook;
 mod chat_request;
 mod chat_response;
 mod command;
@@ -57,6 +58,7 @@ mod xml;
 
 pub use agent::*;
 pub use attachment::*;
+pub use cached_hook::*;
 pub use chat_request::*;
 pub use chat_response::*;
 pub use command::*;

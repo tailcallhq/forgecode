@@ -32,7 +32,8 @@ use tokio_stream::StreamExt;
 use url::Url;
 
 use crate::cli::{
-    Cli, CommitCommandGroup, ConversationCommand, ListCommand, McpCommand, TopLevelCommand,
+    Cli, CommitCommandGroup, ConversationCommand, HookCommand, ListCommand, McpCommand,
+    TopLevelCommand,
 };
 use crate::conversation_selector::ConversationSelector;
 use crate::display_constants::{CommandType, headers, markers, status};
@@ -114,6 +115,16 @@ pub struct UI<A: ConsoleWriter, F: Fn(ForgeConfig) -> A> {
     config: ForgeConfig,
     #[allow(dead_code)] // The guard is kept alive by being held in the struct
     _guard: forge_tracker::Guard,
+}
+
+/// Result of resolving a user-supplied hook path.
+struct ResolvedHook {
+    /// Canonical or normalized full path to the hook file.
+    full_path: std::path::PathBuf,
+    /// Relative path from `~/.forge/hooks/` (used as trust-store key).
+    relative: String,
+    /// Human-readable hook name (file stem).
+    name: String,
 }
 
 impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI<A, F> {
@@ -319,8 +330,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.display_banner()?;
         self.init_state(true).await?;
 
+        // Print hook summary after the banner.
+        if let Some(summary) = self.api.hook_summary() {
+            let text = summary.to_string();
+            if !text.is_empty() {
+                eprint!("{text}");
+            }
+        }
+
         self.trace_user();
         self.hydrate_caches();
+
         self.init_conversation().await?;
 
         // Check for dispatch flag first
@@ -600,6 +620,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             TopLevelCommand::Config(config_group) => {
                 self.handle_config_command(config_group.command.clone(), config_group.porcelain)
                     .await?;
+                return Ok(());
+            }
+            TopLevelCommand::Hook(hook_group) => {
+                self.handle_hook_command(hook_group.command).await?;
                 return Ok(());
             }
             TopLevelCommand::Provider(provider_group) => {
@@ -982,6 +1006,164 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.spinner.start(Some("Reloading MCPs"))?;
         self.api.reload_mcp().await?;
         self.writeln_title(TitleFormat::info("MCP reloaded"))?;
+
+        Ok(())
+    }
+
+    async fn handle_hook_command(
+        &mut self,
+        command: crate::cli::HookCommand,
+    ) -> anyhow::Result<()> {
+        use forge_app::{
+            HookTrustStatus, TrustStore, compute_file_hash, discover_events,
+            discover_hooks, hooks_base_dir, relative_hook_path,
+        };
+
+        /// Resolve a bare name (e.g. "rtk") to the full hook path by scanning all events.
+        ///
+        /// Returns an error if the name is ambiguous (multiple hooks match).
+        fn resolve_hook_by_name(name: &str) -> anyhow::Result<std::path::PathBuf> {
+            let events = discover_events();
+            let mut matches: Vec<std::path::PathBuf> = Vec::new();
+            for event in &events {
+                for hook in discover_hooks(event) {
+                    if let Some(stem) = hook.file_stem() {
+                        if stem.to_string_lossy() == name {
+                            matches.push(hook);
+                        }
+                    }
+                }
+            }
+            match matches.len() {
+                0 => Err(anyhow::anyhow!("Hook not found: {name}")),
+                1 => Ok(matches.into_iter().next().unwrap()),
+                _ => {
+                    let names: Vec<String> = matches
+                        .iter()
+                        .map(|p| relative_hook_path(p).unwrap_or_else(|| p.display().to_string()))
+                        .collect();
+                    Err(anyhow::anyhow!(
+                        "Ambiguous hook name '{name}', multiple hooks match: {}",
+                        names.join(", ")
+                    ))
+                }
+            }
+        }
+
+        /// Resolves a user-supplied path to a validated, canonical hook path.
+        ///
+        /// Tries the path as-is under the hooks base directory first, then
+        /// falls back to resolving by bare name. The `validate_fn` parameter
+        /// controls whether existence is required (trust) or not (delete).
+        fn resolve_and_validate_hook_path(
+            path: &str,
+            validate_fn: impl Fn(&std::path::Path) -> anyhow::Result<std::path::PathBuf>,
+        ) -> anyhow::Result<ResolvedHook> {
+            let base = hooks_base_dir().ok_or_else(|| {
+                anyhow::anyhow!("Cannot determine home directory for hooks")
+            })?;
+
+            let full_path = if base.join(path).exists() {
+                base.join(path)
+            } else {
+                resolve_hook_by_name(path)?
+            };
+
+            let full_path = validate_fn(&full_path)
+                .with_context(|| format!("Invalid hook path: {}", path))?;
+
+            let relative = relative_hook_path(&full_path)
+                .unwrap_or_else(|| full_path.display().to_string());
+            let name = full_path
+                .file_stem()
+                .map(|n: &std::ffi::OsStr| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| relative.clone());
+
+            Ok(ResolvedHook { full_path, relative, name })
+        }
+
+        match command {
+            HookCommand::List => {
+                let mut info = Info::new();
+
+                // Discover all event directories dynamically
+                let events = discover_events();
+                let trust_store = TrustStore::load()?;
+
+                for event in events {
+                    let hooks = discover_hooks(&event);
+                    if hooks.is_empty() {
+                        continue;
+                    }
+
+                    info = info.add_title(event.to_uppercase());
+
+                    for hook_path in &hooks {
+                        let relative =
+                            relative_hook_path(hook_path).unwrap_or_else(|| hook_path.display().to_string());
+                        let file_name = hook_path
+                            .file_stem()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| relative.clone());
+
+                        let status_label = match trust_store.check(&relative, hook_path) {
+                            HookTrustStatus::Trusted => "trusted".green().to_string(),
+                            HookTrustStatus::Untrusted => "untrusted".yellow().to_string(),
+                            HookTrustStatus::Tampered { .. } => "TAMPERED".red().bold().to_string(),
+                            HookTrustStatus::Missing => "missing".dimmed().to_string(),
+                        };
+
+                        info = info
+                            .add_key_value("Hook", file_name)
+                            .add_key_value("Status", status_label)
+                            .add_key_value("Path", relative);
+                    }
+                }
+
+                if info.sections().is_empty() {
+                    self.writeln_title(TitleFormat::info("No hook scripts found"))?;
+                } else {
+                    self.writeln(info)?;
+                }
+            }
+            HookCommand::Trust { path } => {
+                let resolved = resolve_and_validate_hook_path(
+                    &path,
+                    forge_app::hooks::trust::validate_hook_path,
+                )?;
+
+                let mut trust_store = TrustStore::load()?;
+                trust_store.trust(&resolved.relative, &resolved.full_path)?;
+                trust_store.save()?;
+
+                let hash = compute_file_hash(&resolved.full_path)?;
+                self.writeln_title(TitleFormat::info(format!(
+                    "Hook trusted: {} ({:.16}...)",
+                    resolved.name, hash
+                )))?;
+            }
+            HookCommand::Delete { path } => {
+                let resolved = resolve_and_validate_hook_path(
+                    &path,
+                    forge_app::hooks::trust::validate_hook_path_for_delete,
+                )?;
+
+                // Remove the file if it still exists
+                if resolved.full_path.exists() {
+                    std::fs::remove_file(&resolved.full_path)?;
+                }
+
+                // Remove from trust store regardless
+                let mut trust_store = TrustStore::load()?;
+                trust_store.untrust(&resolved.relative);
+                trust_store.save()?;
+
+                self.writeln_title(TitleFormat::info(format!(
+                    "Hook deleted: {}",
+                    resolved.name
+                )))?;
+            }
+        }
 
         Ok(())
     }

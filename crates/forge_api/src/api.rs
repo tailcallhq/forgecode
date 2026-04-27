@@ -260,4 +260,16 @@ pub trait API: Sync + Send {
 
     /// Check the OAuth authentication status of an MCP server
     async fn mcp_auth_status(&self, server_url: &str) -> Result<String>;
+
+    /// Returns the hook verification summary computed at startup.
+    ///
+    /// Implementations that support hooks should override this method and
+    /// return `Some(&HookSummary)`. The default implementation returns `None`,
+    /// indicating that the implementation does not support hooks.
+    ///
+    /// The summary contains trust status for all discovered hooks, which
+    /// is displayed to the user after the startup banner.
+    fn hook_summary(&self) -> Option<&forge_app::HookSummary> {
+        None
+    }
 }

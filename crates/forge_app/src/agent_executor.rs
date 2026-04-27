@@ -77,10 +77,12 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentEx
         };
         // Execute the request through the ForgeApp
         let app = crate::ForgeApp::new(self.services.clone());
+        let cached_hooks = ctx.get_cached_hooks();
         let mut response_stream = app
             .chat(
                 agent_id.clone(),
                 ChatRequest::new(Event::new(task.clone()), conversation.id),
+                cached_hooks,
             )
             .await?;
 

@@ -12,7 +12,7 @@ mod error;
 mod file_tracking;
 mod fmt;
 mod git_app;
-mod hooks;
+pub mod hooks;
 mod infra;
 mod init_conversation_metrics;
 mod mcp_executor;
@@ -46,6 +46,12 @@ pub use command_generator::*;
 pub use data_gen::*;
 pub use error::*;
 pub use git_app::*;
+pub use forge_domain::CachedHook;
+pub use hooks::{
+    ExternalHookInterceptor, HookSummary, HookTrustStatus, TrustStore, TrustedHook, compute_file_hash,
+    discover_events, discover_hooks, hooks_base_dir, load_and_verify_hooks, relative_hook_path,
+    trust_store_path,
+};
 pub use infra::*;
 pub use services::*;
 pub use template_engine::*;

@@ -24,8 +24,18 @@ pub struct Orchestrator<S> {
     models: Vec<Model>,
     agent: Agent,
     error_tracker: ToolErrorTracker,
+    /// Hook scripts for lifecycle events and tool-call interception.
     hook: Arc<Hook>,
     config: forge_config::ForgeConfig,
+    /// Pre-verified hook content propagated to sub-agents via [`ToolCallContext`].
+    ///
+    /// The primary hook path is through `self.hook.intercept_tool_call()`, which
+    /// uses the `ExternalHookInterceptor` created in `ForgeAppInner`. This field
+    /// exists solely so the orchestrator can populate `ToolCallContext.cached_hooks`,
+    /// which `agent_executor` then passes to `ForgeApp::chat()` when spawning
+    /// sub-agents (task tool). Sub-agents need their own interceptor since they
+    /// create a separate `ForgeApp` instance.
+    cached_hooks: Arc<Vec<forge_domain::CachedHook>>,
 }
 
 impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orchestrator<S> {
@@ -45,6 +55,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             models: Default::default(),
             error_tracker: Default::default(),
             hook: Arc::new(Hook::default()),
+            cached_hooks: Arc::new(Vec::new()),
         }
     }
 
@@ -69,25 +80,53 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .eq_ignore_ascii_case(task_tool_name.as_str())
         };
 
-        // Partition into task tool calls (run in parallel) and all others (run
-        // sequentially). Use a case-insensitive comparison since the model may
-        // send "Task" or "task".
+        // Partition into task tool calls and others. Use case-insensitive comparison.
         let is_task_call =
             |tc: &&ToolCallFull| tc.name.as_str().to_lowercase() == task_tool_name.as_str();
         let (task_calls, other_calls): (Vec<_>, Vec<_>) = tool_calls.iter().partition(is_task_call);
 
-        // Execute task tool calls in parallel — mirrors how direct agent-as-tool calls
-        // work.
+        // Process task tool calls with hooks, then execute in parallel.
+        let mut intercepted_task_calls = Vec::new();
+        for tc in &task_calls {
+            // Fire ToolcallStart lifecycle event
+            let start_event = LifecycleEvent::ToolcallStart(EventData::new(
+                self.agent.clone(),
+                self.agent.model.clone(),
+                ToolcallStartPayload::new((*tc).clone()),
+            ));
+            self.hook
+                .handle(&start_event, &mut self.conversation)
+                .await?;
+
+            // Run interceptor
+            let mut intercepted = (*tc).clone();
+            self.hook
+                .intercept_tool_call(&mut intercepted, &self.agent, &self.agent.model)
+                .await?;
+            intercepted_task_calls.push(intercepted);
+        }
+
+        // Execute intercepted task calls in parallel
         let task_results: Vec<(ToolCallFull, ToolResult)> = join_all(
-            task_calls
+            intercepted_task_calls
                 .iter()
-                .map(|tc| self.services.call(&self.agent, tool_context, (*tc).clone())),
+                .map(|tc| self.services.call(&self.agent, tool_context, tc.clone())),
         )
         .await
         .into_iter()
-        .zip(task_calls.iter())
-        .map(|(result, tc)| ((*tc).clone(), result))
+        .zip(intercepted_task_calls.iter())
+        .map(|(result, tc)| (tc.clone(), result))
         .collect();
+
+        // Fire ToolcallEnd for each task result
+        for (tc, result) in &task_results {
+            let end_event = LifecycleEvent::ToolcallEnd(EventData::new(
+                self.agent.clone(),
+                self.agent.model.clone(),
+                ToolcallEndPayload::new(tc.clone(), result.clone()),
+            ));
+            self.hook.handle(&end_event, &mut self.conversation).await?;
+        }
 
         let system_tools = self
             .tool_definitions
@@ -125,17 +164,23 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .handle(&toolcall_start_event, &mut self.conversation)
                 .await?;
 
+            // Run the interceptor to potentially modify the tool call
+            let mut intercepted_tool_call = (*tool_call).clone();
+            self.hook
+                .intercept_tool_call(&mut intercepted_tool_call, &self.agent, &self.agent.model)
+                .await?;
+
             // Execute the tool
             let tool_result = self
                 .services
-                .call(&self.agent, tool_context, (*tool_call).clone())
+                .call(&self.agent, tool_context, intercepted_tool_call.clone())
                 .await;
 
             // Fire the ToolcallEnd lifecycle event (fires on both success and failure)
             let toolcall_end_event = LifecycleEvent::ToolcallEnd(EventData::new(
                 self.agent.clone(),
                 self.agent.model.clone(),
-                ToolcallEndPayload::new((*tool_call).clone(), tool_result.clone()),
+                ToolcallEndPayload::new(intercepted_tool_call.clone(), tool_result.clone()),
             ));
             self.hook
                 .handle(&toolcall_end_event, &mut self.conversation)
@@ -146,7 +191,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 self.send(ChatResponse::ToolCallEnd(tool_result.clone()))
                     .await?;
             }
-            other_results.push(((*tool_call).clone(), tool_result));
+            other_results.push((intercepted_tool_call.clone(), tool_result));
         }
 
         // Reconstruct results in the original order of tool_calls.
@@ -263,7 +308,9 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         // Retrieve the number of requests allowed per tick.
         let max_requests_per_turn = self.agent.max_requests_per_turn;
         let tool_context =
-            ToolCallContext::new(self.conversation.metrics.clone()).sender(self.sender.clone());
+            ToolCallContext::new(self.conversation.metrics.clone())
+                .sender(self.sender.clone())
+                .cached_hooks(self.cached_hooks.clone());
 
         while !should_yield {
             // Set context for the current loop iteration

@@ -8,7 +8,8 @@ use forge_app::{
     AgentProviderResolver, AgentRegistry, AppConfigService, AuthService, CommandInfra,
     CommandLoaderService, ConversationService, DataGenerationApp, EnvironmentInfra,
     FileDiscoveryService, ForgeApp, GitApp, GrpcInfra, McpConfigManager, McpService,
-    ProviderAuthService, ProviderService, Services, User, UserUsage, Walker, WorkspaceService,
+    ProviderAuthService, ProviderService, Services, User, UserUsage, Walker,
+    WorkspaceService,
 };
 use forge_config::ForgeConfig;
 use forge_domain::{Agent, ConsoleWriter, *};
@@ -24,11 +25,23 @@ use crate::API;
 pub struct ForgeAPI<S, F> {
     services: Arc<S>,
     infra: Arc<F>,
+    /// Hook content verified and read into memory at startup, cached for
+    /// the entire session. Wrapped in Arc to avoid cloning on every chat()
+    /// call. Scripts are executed from in-memory file descriptors — zero
+    /// disk I/O, zero TOCTOU risk.
+    cached_hooks: Arc<Vec<forge_domain::CachedHook>>,
+    /// Hook verification summary for display after banner.
+    hook_summary: forge_app::HookSummary,
 }
 
 impl<A, F> ForgeAPI<A, F> {
     pub fn new(services: Arc<A>, infra: Arc<F>) -> Self {
-        Self { services, infra }
+        Self {
+            services,
+            infra,
+            cached_hooks: Arc::new(Vec::new()),
+            hook_summary: forge_app::HookSummary::default(),
+        }
     }
 
     /// Creates a ForgeApp instance with the current services and latest config.
@@ -52,7 +65,12 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
         let infra = Arc::new(ForgeInfra::new(cwd, config));
         let repo = Arc::new(ForgeRepo::new(infra.clone()));
         let app = Arc::new(ForgeServices::new(repo.clone()));
-        ForgeAPI::new(app, repo)
+        let mut api = ForgeAPI::new(app, repo);
+        let (hooks, summary) = forge_app::load_and_verify_hooks("toolcall-start")
+            .unwrap_or_default();
+        api.cached_hooks = Arc::new(hooks);
+        api.hook_summary = summary;
+        api
     }
 
     pub async fn get_skills_internal(&self) -> Result<Vec<Skill>> {
@@ -144,7 +162,11 @@ impl<
             .get_active_agent_id()
             .await?
             .unwrap_or_default();
-        self.app().chat(agent_id, chat).await
+        // cached_hooks contains hook script content read into memory at init()
+        // time. Scripts are executed from anonymous in-memory file descriptors
+        // — zero disk I/O, zero TOCTOU risk.
+        let cached_hooks = self.cached_hooks.clone();
+        self.app().chat(agent_id, chat, cached_hooks).await
     }
 
     async fn upsert_conversation(&self, conversation: Conversation) -> anyhow::Result<()> {
@@ -438,6 +460,10 @@ impl<
     fn hydrate_channel(&self) -> Result<()> {
         self.infra.hydrate();
         Ok(())
+    }
+
+    fn hook_summary(&self) -> Option<&forge_app::HookSummary> {
+        Some(&self.hook_summary)
     }
 }
 
