@@ -14,8 +14,8 @@ impl FormatContent for ToolCatalog {
                 let display_path = display_path_for(&input.file_path);
                 let is_explicit_range = input.range.is_some();
                 let mut subtitle = display_path;
-                if is_explicit_range {
-                    if let Some(range) = &input.range {
+                if is_explicit_range
+                    && let Some(range) = &input.range {
                         match (range.start_line, range.end_line) {
                             (Some(start), Some(end)) => {
                                 subtitle.push_str(&format!(":{start}-{end}"));
@@ -28,8 +28,7 @@ impl FormatContent for ToolCatalog {
                             }
                             (None, None) => {}
                         }
-                    }
-                };
+                    };
                 Some(TitleFormat::debug("Read").sub_title(subtitle).into())
             }
             ToolCatalog::Write(input) => {
