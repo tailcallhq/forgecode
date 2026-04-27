@@ -97,7 +97,10 @@ fn legacy_env_var_fallback(new_name: &str) -> Option<&'static str> {
 /// environment migration.
 fn default_url_param_value(name: &str) -> Option<&'static str> {
     match name {
-        "OLLAMA_SSL_SCHEME" | "VLLM_SSL_SCHEME" | "LM_STUDIO_SSL_SCHEME" | "LLAMA_CPP_SSL_SCHEME"
+        "OLLAMA_SSL_SCHEME"
+        | "VLLM_SSL_SCHEME"
+        | "LM_STUDIO_SSL_SCHEME"
+        | "LLAMA_CPP_SSL_SCHEME"
         | "JAN_AI_SSL_SCHEME" => Some("http"),
         _ => None,
     }
