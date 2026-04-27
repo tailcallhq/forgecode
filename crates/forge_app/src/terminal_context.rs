@@ -143,6 +143,7 @@ mod tests {
         async fn update_environment(
             &self,
             _ops: Vec<forge_domain::ConfigOperation>,
+            _persist: bool,
         ) -> anyhow::Result<()> {
             Ok(())
         }

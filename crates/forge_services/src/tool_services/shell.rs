@@ -123,7 +123,7 @@ mod tests {
             Ok(forge_config::ForgeConfig::default())
         }
 
-        async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
+        async fn update_environment(&self, _ops: Vec<ConfigOperation>, _persist: bool) -> anyhow::Result<()> {
             unimplemented!()
         }
 

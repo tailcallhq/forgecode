@@ -26,6 +26,26 @@ pub fn to_environment(cwd: PathBuf) -> Environment {
     }
 }
 
+/// Merges `session` overlay values on top of `base`.
+///
+/// Only `Some` fields in `session` override the corresponding field in `base`;
+/// `None` fields leave `base` untouched.
+fn merge_session(mut base: ForgeConfig, session: &ForgeConfig) -> ForgeConfig {
+    if session.session.is_some() {
+        base.session = session.session.clone();
+    }
+    if session.commit.is_some() {
+        base.commit = session.commit.clone();
+    }
+    if session.suggest.is_some() {
+        base.suggest = session.suggest.clone();
+    }
+    if session.reasoning.is_some() {
+        base.reasoning = session.reasoning.clone();
+    }
+    base
+}
+
 /// Applies a single [`ConfigOperation`] directly to a [`ForgeConfig`].
 ///
 /// Used by [`ForgeEnvironmentInfra::update_environment`] to mutate the
@@ -75,7 +95,12 @@ fn apply_config_op(fc: &mut ForgeConfig, op: ConfigOperation) {
 /// environment variable discovery via `.env` files and OS APIs.
 pub struct ForgeEnvironmentInfra {
     cwd: PathBuf,
+    /// Disk-backed config cache. `None` means the cache has been invalidated
+    /// and will be re-read from disk on the next [`Self::cached_config`] call.
     cache: Arc<std::sync::Mutex<Option<ForgeConfig>>>,
+    /// In-memory session overlay. Values set here override the disk config
+    /// for the lifetime of the process without touching the file on disk.
+    session: Arc<std::sync::Mutex<ForgeConfig>>,
 }
 
 impl ForgeEnvironmentInfra {
@@ -88,7 +113,11 @@ impl ForgeEnvironmentInfra {
     /// * `cwd` - The working directory path; used to resolve `.env` files
     /// * `config` - The pre-read [`ForgeConfig`] to seed the in-memory cache
     pub fn new(cwd: PathBuf, config: ForgeConfig) -> Self {
-        Self { cwd, cache: Arc::new(std::sync::Mutex::new(Some(config))) }
+        Self {
+            cwd,
+            cache: Arc::new(std::sync::Mutex::new(Some(config))),
+            session: Arc::new(std::sync::Mutex::new(ForgeConfig::default())),
+        }
     }
 
     /// Returns the cached [`ForgeConfig`], re-reading from disk if the cache
@@ -129,27 +158,37 @@ impl EnvironmentInfra for ForgeEnvironmentInfra {
     }
 
     fn get_config(&self) -> anyhow::Result<ForgeConfig> {
-        self.cached_config()
+        let base = self.cached_config()?;
+        let session = self.session.lock().expect("session mutex poisoned").clone();
+        Ok(merge_session(base, &session))
     }
 
-    async fn update_environment(&self, ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
-        // Load the global config (with defaults applied) for the update round-trip
-        let mut fc = ConfigReader::default()
-            .read_defaults()
-            .read_global()
-            .build()?;
+    async fn update_environment(&self, ops: Vec<ConfigOperation>, persist: bool) -> anyhow::Result<()> {
+        if persist {
+            // Load the global config (with defaults applied) for the update round-trip
+            let mut fc = ConfigReader::default()
+                .read_defaults()
+                .read_global()
+                .build()?;
 
-        debug!(config = ?fc, ?ops, "applying app config operations");
+            debug!(config = ?fc, ?ops, "applying app config operations (persisted)");
 
-        for op in ops {
-            apply_config_op(&mut fc, op);
+            for op in ops {
+                apply_config_op(&mut fc, op);
+            }
+
+            fc.write()?;
+            debug!(config = ?fc, "written .forge.toml");
+
+            // Reset cache so next get_config() re-reads the updated values from disk
+            *self.cache.lock().expect("cache mutex poisoned") = None;
+        } else {
+            let mut session = self.session.lock().expect("session mutex poisoned");
+            debug!(?ops, "applying session-only config operations (in-memory)");
+            for op in ops {
+                apply_config_op(&mut session, op);
+            }
         }
-
-        fc.write()?;
-        debug!(config = ?fc, "written .forge.toml");
-
-        // Reset cache so next get_config() re-reads the updated values from disk
-        *self.cache.lock().expect("cache mutex poisoned") = None;
 
         Ok(())
     }

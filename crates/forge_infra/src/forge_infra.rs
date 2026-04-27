@@ -142,8 +142,9 @@ impl EnvironmentInfra for ForgeInfra {
     async fn update_environment(
         &self,
         ops: Vec<forge_domain::ConfigOperation>,
+        persist: bool,
     ) -> anyhow::Result<()> {
-        self.config_infra.update_environment(ops).await
+        self.config_infra.update_environment(ops, persist).await
     }
 }
 

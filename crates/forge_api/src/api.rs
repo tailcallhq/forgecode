@@ -138,13 +138,18 @@ pub trait API: Sync + Send {
     /// Delegates to [`Self::get_session_config`] and resolves the provider.
     async fn get_default_provider(&self) -> anyhow::Result<Provider<Url>>;
 
-    /// Applies one or more configuration mutations atomically.
+    /// Applies one or more configuration mutations.
     ///
-    /// Each operation in `ops` is applied in order and persisted as a single
-    /// atomic write. Use [`forge_domain::ConfigOperation`] variants to describe
-    /// each mutation. Provider and model changes also invalidate the agent
-    /// cache so the next request picks up the updated configuration.
-    async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()>;
+    /// Each operation in `ops` is applied in order. When `persist` is `true`
+    /// the result is written to disk atomically; when `false` the changes are
+    /// kept in the in-memory cache only and are lost when the process exits.
+    /// Provider and model changes also invalidate the agent cache so the next
+    /// request picks up the updated configuration.
+    async fn update_config(
+        &self,
+        ops: Vec<forge_domain::ConfigOperation>,
+        persist: bool,
+    ) -> anyhow::Result<()>;
 
     /// Retrieves information about the currently authenticated user
     async fn user_info(&self) -> anyhow::Result<Option<User>>;

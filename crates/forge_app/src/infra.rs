@@ -35,16 +35,21 @@ pub trait EnvironmentInfra: Send + Sync {
     /// Returns an error if the disk read fails.
     fn get_config(&self) -> anyhow::Result<Self::Config>;
 
-    /// Applies a list of configuration operations to the persisted config.
+    /// Applies a list of configuration operations.
+    ///
+    /// When `persist` is `true`, the changes are written to disk atomically.
+    /// When `persist` is `false`, the changes are stored in an in-memory
+    /// session overlay only and are lost when the process exits.
     ///
     /// Implementations should load the current config, apply each operation in
-    /// order, and persist the result atomically.
+    /// order, and either persist the result or store it in-memory.
     ///
     /// # Errors
     /// Returns an error if the configuration cannot be read or written.
     fn update_environment(
         &self,
         ops: Vec<ConfigOperation>,
+        persist: bool,
     ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
 }
 

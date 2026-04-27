@@ -197,13 +197,16 @@ pub trait AppConfigService: Send + Sync {
     /// Gets the current reasoning effort setting.
     async fn get_reasoning_effort(&self) -> anyhow::Result<Option<forge_domain::Effort>>;
 
-    /// Applies one or more configuration mutations atomically.
+    /// Applies one or more configuration mutations.
     ///
-    /// Each operation in `ops` is applied in order, and the result is
-    /// persisted as a single atomic write. This is the sole write path for
-    /// all configuration changes; use [`forge_domain::ConfigOperation`]
-    /// variants to describe each mutation.
-    async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()>;
+    /// Each operation in `ops` is applied in order. When `persist` is `true`
+    /// the result is written to disk atomically; when `false` the changes are
+    /// kept in the in-memory cache only and are lost when the process exits.
+    async fn update_config(
+        &self,
+        ops: Vec<forge_domain::ConfigOperation>,
+        persist: bool,
+    ) -> anyhow::Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -962,8 +965,12 @@ impl<I: Services> AppConfigService for I {
         self.config_service().get_reasoning_effort().await
     }
 
-    async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()> {
-        self.config_service().update_config(ops).await
+    async fn update_config(
+        &self,
+        ops: Vec<forge_domain::ConfigOperation>,
+        persist: bool,
+    ) -> anyhow::Result<()> {
+        self.config_service().update_config(ops, persist).await
     }
 }
 

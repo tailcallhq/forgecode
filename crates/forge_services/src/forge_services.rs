@@ -370,8 +370,9 @@ impl<
     fn update_environment(
         &self,
         ops: Vec<forge_domain::ConfigOperation>,
+        persist: bool,
     ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
-        self.infra.update_environment(ops)
+        self.infra.update_environment(ops, persist)
     }
 
     fn get_env_var(&self, key: &str) -> Option<String> {

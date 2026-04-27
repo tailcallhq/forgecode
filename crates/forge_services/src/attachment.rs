@@ -172,7 +172,7 @@ pub mod tests {
             Ok(forge_config::ForgeConfig { max_read_lines: 2000, ..Default::default() })
         }
 
-        async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
+        async fn update_environment(&self, _ops: Vec<ConfigOperation>, _persist: bool) -> anyhow::Result<()> {
             unimplemented!()
         }
     }
@@ -515,9 +515,10 @@ pub mod tests {
         fn update_environment(
             &self,
             ops: Vec<ConfigOperation>,
+            persist: bool,
         ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
             let env_service = self.env_service.clone();
-            async move { env_service.update_environment(ops).await }
+            async move { env_service.update_environment(ops, persist).await }
         }
 
         fn get_env_var(&self, key: &str) -> Option<String> {

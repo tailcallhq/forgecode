@@ -2056,7 +2056,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 self.on_custom_event(event.into()).await?;
             }
             AppCommand::Model => {
-                self.on_model_selection(None).await?;
+                self.on_model_selection(None, false).await?;
             }
             AppCommand::Shell(ref command) => {
                 self.api.execute_shell_command_raw(command).await?;
@@ -2184,7 +2184,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 self.on_show_config(false).await?;
             }
             AppCommand::ConfigModel => {
-                self.on_model_selection(None).await?;
+                self.on_model_selection(None, true).await?;
             }
             AppCommand::ConfigReload => {
                 self.writeln_title(TitleFormat::info(
@@ -2342,7 +2342,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             let effort = forge_domain::Effort::from_str(&effort_str)
                 .map_err(|_| anyhow::anyhow!("Invalid effort level: {effort_str}"))?;
             self.api
-                .update_config(vec![ConfigOperation::SetReasoningEffort(effort.clone())])
+                .update_config(
+                    vec![ConfigOperation::SetReasoningEffort(effort.clone())],
+                    global,
+                )
                 .await?;
             self.writeln_title(
                 TitleFormat::action(effort_str).sub_title("is now the reasoning effort"),
@@ -2358,7 +2361,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         if let Some((model, provider_id)) = selection {
             let commit_config = forge_domain::ModelConfig::new(provider_id.clone(), model.clone());
             self.api
-                .update_config(vec![ConfigOperation::SetCommitConfig(Some(commit_config))])
+                .update_config(
+                    vec![ConfigOperation::SetCommitConfig(Some(commit_config))],
+                    true,
+                )
                 .await?;
             self.writeln_title(TitleFormat::action(model.as_str()).sub_title(format!(
                 "is now the commit model for provider '{provider_id}'"
@@ -2373,7 +2379,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         if let Some((model, provider_id)) = selection {
             let suggest_config = forge_domain::ModelConfig::new(provider_id.clone(), model.clone());
             self.api
-                .update_config(vec![ConfigOperation::SetSuggestConfig(suggest_config)])
+                .update_config(
+                    vec![ConfigOperation::SetSuggestConfig(suggest_config)],
+                    true,
+                )
                 .await?;
             self.writeln_title(TitleFormat::action(model.as_str()).sub_title(format!(
                 "is now the suggest model for provider '{provider_id}'"
@@ -3438,6 +3447,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_model_selection(
         &mut self,
         provider_filter: Option<ProviderId>,
+        save_to_config: bool,
     ) -> Result<Option<ModelId>> {
         // Select a model; the selector returns both the model and its provider
         let selection = self.select_model(provider_filter).await?;
@@ -3448,11 +3458,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             None => return Ok(None),
         };
 
+        let model_config = forge_domain::ModelConfig::new(provider_id, model.clone());
+
         // Set model and provider atomically as a single config operation
         self.api
-            .update_config(vec![ConfigOperation::SetSessionConfig(
-                forge_domain::ModelConfig::new(provider_id, model.clone()),
-            )])
+            .update_config(
+                vec![ConfigOperation::SetSessionConfig(model_config)],
+                save_to_config,
+            )
             .await?;
 
         // Update the UI state with the new model
@@ -3528,9 +3541,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 .validate_model(model.as_str(), Some(&provider.id))
                 .await?;
             self.api
-                .update_config(vec![ConfigOperation::SetSessionConfig(
-                    forge_domain::ModelConfig::new(provider.id.clone(), model_id.clone()),
-                )])
+                .update_config(
+                    vec![ConfigOperation::SetSessionConfig(
+                        forge_domain::ModelConfig::new(provider.id.clone(), model_id.clone()),
+                    )],
+                    true,
+                )
                 .await?;
             self.writeln_title(
                 TitleFormat::action(format!("{}", provider.id))
@@ -3562,7 +3578,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         };
 
         if needs_model_selection {
-            let selected = self.on_model_selection(Some(provider.id.clone())).await?;
+            let selected = self.on_model_selection(Some(provider.id.clone()), true).await?;
             if selected.is_none() {
                 // User cancelled — preserve existing config untouched
                 return Ok(());
@@ -3573,9 +3589,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             let model =
                 compatible_model.expect("compatible_model is Some when !needs_model_selection");
             self.api
-                .update_config(vec![ConfigOperation::SetSessionConfig(
-                    forge_domain::ModelConfig::new(provider.id.clone(), model),
-                )])
+                .update_config(
+                    vec![ConfigOperation::SetSessionConfig(
+                        forge_domain::ModelConfig::new(provider.id.clone(), model),
+                    )],
+                    true,
+                )
                 .await?;
 
             self.writeln_title(
@@ -3699,7 +3718,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let mut operating_model = self.get_agent_model(active_agent.clone()).await;
         if operating_model.is_none() {
             // Use the model returned from selection instead of re-fetching
-            operating_model = self.on_model_selection(None).await?;
+            operating_model = self.on_model_selection(None, true).await?;
         }
 
         if first {
@@ -4283,7 +4302,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let commit_config =
                     forge_domain::ModelConfig::new(provider.clone(), validated_model.clone());
                 self.api
-                    .update_config(vec![ConfigOperation::SetCommitConfig(Some(commit_config))])
+                    .update_config(
+                        vec![ConfigOperation::SetCommitConfig(Some(commit_config))],
+                        true,
+                    )
                     .await?;
                 self.writeln_title(
                     TitleFormat::action(validated_model.as_str())
@@ -4296,7 +4318,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let suggest_config =
                     forge_domain::ModelConfig::new(provider.clone(), validated_model.clone());
                 self.api
-                    .update_config(vec![ConfigOperation::SetSuggestConfig(suggest_config)])
+                    .update_config(
+                        vec![ConfigOperation::SetSuggestConfig(suggest_config)],
+                        true,
+                    )
                     .await?;
                 self.writeln_title(TitleFormat::action(validated_model.as_str()).sub_title(
                     format!("is now the suggest model for provider '{provider}'"),
@@ -4304,7 +4329,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
             ConfigSetField::ReasoningEffort { effort } => {
                 self.api
-                    .update_config(vec![ConfigOperation::SetReasoningEffort(effort.clone())])
+                    .update_config(
+                        vec![ConfigOperation::SetReasoningEffort(effort.clone())],
+                        true,
+                    )
                     .await?;
                 self.writeln_title(
                     TitleFormat::action(effort.to_string())

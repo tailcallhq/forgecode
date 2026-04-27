@@ -65,9 +65,13 @@ impl<F: ProviderRepository + EnvironmentInfra<Config = forge_config::ForgeConfig
             }))
     }
 
-    async fn update_config(&self, ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
-        debug!(ops = ?ops, "Updating app config");
-        self.infra.update_environment(ops).await
+    async fn update_config(&self, ops: Vec<ConfigOperation>, persist: bool) -> anyhow::Result<()> {
+        if persist {
+            debug!(ops = ?ops, "Updating app config (persisted)");
+        } else {
+            debug!(ops = ?ops, "Updating session config (in-memory only)");
+        }
+        self.infra.update_environment(ops, persist).await
     }
 }
 
@@ -173,6 +177,7 @@ mod tests {
         fn update_environment(
             &self,
             ops: Vec<ConfigOperation>,
+            _persist: bool,
         ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
             let config = self.config.clone();
             async move {
@@ -316,9 +321,13 @@ mod tests {
         let service = ForgeAppConfigService::new(Arc::new(fixture.clone()));
 
         service
-            .update_config(vec![ConfigOperation::SetSessionConfig(
-                DomainModelConfig::new(ProviderId::ANTHROPIC, ModelId::new("claude-3")),
-            )])
+            .update_config(
+                vec![ConfigOperation::SetSessionConfig(DomainModelConfig::new(
+                    ProviderId::ANTHROPIC,
+                    ModelId::new("claude-3"),
+                ))],
+                true,
+            )
             .await?;
         let actual = service.get_session_config().await;
         let expected = Some(DomainModelConfig::new(
@@ -339,9 +348,13 @@ mod tests {
 
         // Set OpenAI as the default provider in config (with a model)
         service
-            .update_config(vec![ConfigOperation::SetSessionConfig(
-                DomainModelConfig::new(ProviderId::OPENAI, ModelId::new("gpt-4")),
-            )])
+            .update_config(
+                vec![ConfigOperation::SetSessionConfig(DomainModelConfig::new(
+                    ProviderId::OPENAI,
+                    ModelId::new("gpt-4"),
+                ))],
+                true,
+            )
             .await?;
 
         // Should return the config even if provider is not available
@@ -364,9 +377,13 @@ mod tests {
         let service = ForgeAppConfigService::new(Arc::new(fixture.clone()));
 
         service
-            .update_config(vec![ConfigOperation::SetSessionConfig(
-                DomainModelConfig::new(ProviderId::ANTHROPIC, ModelId::new("claude-3")),
-            )])
+            .update_config(
+                vec![ConfigOperation::SetSessionConfig(DomainModelConfig::new(
+                    ProviderId::ANTHROPIC,
+                    ModelId::new("claude-3"),
+                ))],
+                true,
+            )
             .await?;
 
         let actual = service.get_session_config().await;
@@ -396,9 +413,13 @@ mod tests {
         let service = ForgeAppConfigService::new(Arc::new(fixture.clone()));
 
         service
-            .update_config(vec![ConfigOperation::SetSessionConfig(
-                DomainModelConfig::new(ProviderId::OPENAI, ModelId::new("gpt-4")),
-            )])
+            .update_config(
+                vec![ConfigOperation::SetSessionConfig(DomainModelConfig::new(
+                    ProviderId::OPENAI,
+                    ModelId::new("gpt-4"),
+                ))],
+                true,
+            )
             .await?;
         let actual = service.get_session_config().await.map(|c| c.model);
         let expected = Some(ModelId::new("gpt-4"));
@@ -413,9 +434,13 @@ mod tests {
         let service = ForgeAppConfigService::new(Arc::new(fixture.clone()));
 
         service
-            .update_config(vec![ConfigOperation::SetSessionConfig(
-                DomainModelConfig::new(ProviderId::OPENAI, ModelId::from("gpt-4".to_string())),
-            )])
+            .update_config(
+                vec![ConfigOperation::SetSessionConfig(DomainModelConfig::new(
+                    ProviderId::OPENAI,
+                    ModelId::from("gpt-4".to_string()),
+                ))],
+                true,
+            )
             .await?;
 
         let actual = service.get_session_config().await.map(|c| c.model);
@@ -432,19 +457,24 @@ mod tests {
 
         // Set model for OpenAI first
         service
-            .update_config(vec![ConfigOperation::SetSessionConfig(
-                DomainModelConfig::new(ProviderId::OPENAI, ModelId::from("gpt-4".to_string())),
-            )])
+            .update_config(
+                vec![ConfigOperation::SetSessionConfig(DomainModelConfig::new(
+                    ProviderId::OPENAI,
+                    ModelId::from("gpt-4".to_string()),
+                ))],
+                true,
+            )
             .await?;
 
         // Then switch to Anthropic with its model
         service
-            .update_config(vec![ConfigOperation::SetSessionConfig(
-                DomainModelConfig::new(
+            .update_config(
+                vec![ConfigOperation::SetSessionConfig(DomainModelConfig::new(
                     ProviderId::ANTHROPIC,
                     ModelId::from("claude-3".to_string()),
-                ),
-            )])
+                ))],
+                true,
+            )
             .await?;
 
         // ForgeConfig only tracks a single active session, so the last

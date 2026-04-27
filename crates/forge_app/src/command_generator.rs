@@ -199,6 +199,7 @@ mod tests {
         async fn update_environment(
             &self,
             _ops: Vec<forge_domain::ConfigOperation>,
+            _persist: bool,
         ) -> anyhow::Result<()> {
             unimplemented!()
         }
@@ -318,7 +319,11 @@ mod tests {
             Ok(None)
         }
 
-        async fn update_config(&self, _ops: Vec<forge_domain::ConfigOperation>) -> Result<()> {
+        async fn update_config(
+            &self,
+            _ops: Vec<forge_domain::ConfigOperation>,
+            _persist: bool,
+        ) -> Result<()> {
             Ok(())
         }
     }
