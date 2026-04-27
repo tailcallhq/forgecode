@@ -8,17 +8,8 @@ use reedline::{Completer, Span, Suggestion};
 use crate::completer::CommandCompleter;
 use crate::completer::search_term::SearchTerm;
 use crate::model::ForgeCommandManager;
-use crate::select_cmd::redirect_stdin_to_tty;
 
 pub fn select_workspace_file(cwd: &Path, query: Option<String>) -> anyhow::Result<Option<String>> {
-    #[cfg(unix)]
-    {
-        use std::io::IsTerminal;
-        if !std::io::stdin().is_terminal() {
-            redirect_stdin_to_tty()?;
-        }
-    }
-
     let files: Vec<String> = Walker::max_all()
         .cwd(cwd.to_path_buf())
         .skip_binary(true)

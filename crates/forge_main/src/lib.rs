@@ -25,7 +25,6 @@ mod utils;
 mod vscode;
 mod zsh;
 
-mod select_cmd;
 mod update;
 
 use std::sync::LazyLock;
