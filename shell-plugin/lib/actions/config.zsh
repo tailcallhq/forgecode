@@ -30,11 +30,7 @@ function _forge_action_agent() {
     
     # Use forge select agent for interactive picking
     local agent_id
-    if [[ -n "$input_text" ]]; then
-        agent_id=$(_forge_select agent --query "$input_text")
-    else
-        agent_id=$(_forge_select agent)
-    fi
+    agent_id=$(_forge_select_with_query "$input_text" agent)
     
     if [[ -n "$agent_id" ]]; then
         _FORGE_ACTIVE_AGENT="$agent_id"
@@ -48,17 +44,10 @@ function _forge_action_model() {
     local input_text="$1"
     echo
 
-    local result
-    if [[ -n "$input_text" ]]; then
-        result=$(_forge_select model --query "$input_text")
-    else
-        result=$(_forge_select model)
-    fi
-
-    if [[ -n "$result" ]]; then
-        local model_id provider_id
-        model_id=$(echo "$result" | head -n1)
-        provider_id=$(echo "$result" | tail -n1)
+    local model_id provider_id
+    if _forge_select_model_pair "$input_text"; then
+        model_id="${reply[1]}"
+        provider_id="${reply[2]}"
         _forge_exec config set model "$provider_id" "$model_id"
     fi
 }
@@ -69,17 +58,10 @@ function _forge_action_commit_model() {
     local input_text="$1"
     echo
 
-    local result
-    if [[ -n "$input_text" ]]; then
-        result=$(_forge_select model --query "$input_text")
-    else
-        result=$(_forge_select model)
-    fi
-
-    if [[ -n "$result" ]]; then
-        local model_id provider_id
-        model_id=$(echo "$result" | head -n1)
-        provider_id=$(echo "$result" | tail -n1)
+    local model_id provider_id
+    if _forge_select_model_pair "$input_text"; then
+        model_id="${reply[1]}"
+        provider_id="${reply[2]}"
         _forge_exec config set commit "$provider_id" "$model_id"
     fi
 }
@@ -90,17 +72,10 @@ function _forge_action_suggest_model() {
     local input_text="$1"
     echo
 
-    local result
-    if [[ -n "$input_text" ]]; then
-        result=$(_forge_select model --query "$input_text")
-    else
-        result=$(_forge_select model)
-    fi
-
-    if [[ -n "$result" ]]; then
-        local model_id provider_id
-        model_id=$(echo "$result" | head -n1)
-        provider_id=$(echo "$result" | tail -n1)
+    local model_id provider_id
+    if _forge_select_model_pair "$input_text"; then
+        model_id="${reply[1]}"
+        provider_id="${reply[2]}"
         _forge_exec config set suggest "$provider_id" "$model_id"
     fi
 }
@@ -142,16 +117,9 @@ function _forge_action_session_model() {
     local input_text="$1"
     echo
 
-    local result
-    if [[ -n "$input_text" ]]; then
-        result=$(_forge_select model --query "$input_text")
-    else
-        result=$(_forge_select model)
-    fi
-
-    if [[ -n "$result" ]]; then
-        _FORGE_SESSION_MODEL="$(echo "$result" | head -n1)"
-        _FORGE_SESSION_PROVIDER="$(echo "$result" | tail -n1)"
+    if _forge_select_model_pair "$input_text"; then
+        _FORGE_SESSION_MODEL="${reply[1]}"
+        _FORGE_SESSION_PROVIDER="${reply[2]}"
         _forge_log success "Session model set to \033[1m${_FORGE_SESSION_MODEL}\033[0m (provider: \033[1m${_FORGE_SESSION_PROVIDER}\033[0m)"
     fi
 }
@@ -184,11 +152,7 @@ function _forge_action_reasoning_effort() {
     echo
 
     local selected
-    if [[ -n "$input_text" ]]; then
-        selected=$(_forge_select reasoning-effort --query "$input_text")
-    else
-        selected=$(_forge_select reasoning-effort)
-    fi
+    selected=$(_forge_select_with_query "$input_text" reasoning-effort)
 
     if [[ -n "$selected" ]]; then
         _FORGE_SESSION_REASONING_EFFORT="$selected"
@@ -204,11 +168,7 @@ function _forge_action_config_reasoning_effort() {
     echo
 
     local selected
-    if [[ -n "$input_text" ]]; then
-        selected=$(_forge_select reasoning-effort --query "$input_text")
-    else
-        selected=$(_forge_select reasoning-effort)
-    fi
+    selected=$(_forge_select_with_query "$input_text" reasoning-effort)
 
     if [[ -n "$selected" ]]; then
         _forge_exec config set reasoning-effort "$selected"

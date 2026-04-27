@@ -11,11 +11,7 @@ function _forge_action_session_provider() {
     echo
 
     local selected
-    if [[ -n "$input_text" ]]; then
-        selected=$(_forge_select provider --query "$input_text")
-    else
-        selected=$(_forge_select provider)
-    fi
+    selected=$(_forge_select_with_query "$input_text" provider)
 
     if [[ -n "$selected" ]]; then
         _FORGE_SESSION_PROVIDER="$selected"

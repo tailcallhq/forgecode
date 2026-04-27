@@ -788,6 +788,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 return Ok(());
             }
             TopLevelCommand::Select(cmd) => {
+                if !matches!(&cmd.command, SelectCommand::File { .. }) {
+                    self.init_state(false).await?;
+                }
+
                 match &cmd.command {
                     SelectCommand::File { query } => {
                         if let Some(file) =
@@ -797,7 +801,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         }
                     }
                     SelectCommand::Model { query } => {
-                        self.init_state(false).await?;
                         if let Some((model_id, provider_id)) =
                             self.select_model(None, query.clone()).await?
                         {
@@ -806,13 +809,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         }
                     }
                     SelectCommand::Agent { query } => {
-                        self.init_state(false).await?;
                         if let Some(agent_id) = self.select_agent(query.clone()).await? {
                             self.writeln(agent_id.as_str())?;
                         }
                     }
                     SelectCommand::Provider { query, configured } => {
-                        self.init_state(false).await?;
                         if let Some(provider) =
                             self.select_provider(query.clone(), *configured).await?
                         {
@@ -820,7 +821,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         }
                     }
                     SelectCommand::ReasoningEffort { query } => {
-                        self.init_state(false).await?;
                         if let Some(effort) = self
                             .select_reasoning_effort("Reasoning Effort", query.clone())
                             .await?
@@ -829,15 +829,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         }
                     }
                     SelectCommand::Command { query } => {
-                        self.init_state(false).await?;
                         let rows = Self::porcelain_rows(self.commands_porcelain().await?)?;
 
                         if !rows.is_empty() {
                             self.select_row_output("Command", query.clone(), rows)?;
                         }
                     }
-                    SelectCommand::Conversation { query: _ } => {
-                        self.init_state(false).await?;
+                    SelectCommand::Conversation { query } => {
                         let max_conversations = self.config.max_conversations;
                         let conversations =
                             self.api.get_conversations(Some(max_conversations)).await?;
@@ -846,6 +844,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                             && let Some(conversation) = ConversationSelector::select_conversation(
                                 &conversations,
                                 self.state.conversation_id,
+                                query.clone(),
                             )
                             .await?
                         {
@@ -2008,9 +2007,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             return Ok(());
         }
 
-        if let Some(conversation) =
-            ConversationSelector::select_conversation(&conversations, self.state.conversation_id)
-                .await?
+        if let Some(conversation) = ConversationSelector::select_conversation(
+            &conversations,
+            self.state.conversation_id,
+            None,
+        )
+        .await?
         {
             let conversation_id = conversation.id;
             self.state.conversation_id = Some(conversation_id);
@@ -2585,6 +2587,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             let selected = ConversationSelector::select_conversation(
                 &conversations,
                 self.state.conversation_id,
+                None,
             )
             .await?;
 
@@ -2661,6 +2664,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             let selected = ConversationSelector::select_conversation(
                 &conversations,
                 self.state.conversation_id,
+                None,
             )
             .await?;
 

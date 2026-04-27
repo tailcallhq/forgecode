@@ -23,6 +23,7 @@ impl ConversationSelector {
     pub async fn select_conversation(
         conversations: &[Conversation],
         _current_conversation_id: Option<ConversationId>,
+        query: Option<String>,
     ) -> Result<Option<Conversation>> {
         if conversations.is_empty() {
             return Ok(None);
@@ -114,6 +115,7 @@ impl ConversationSelector {
 
         let selected_uuid = tokio::task::spawn_blocking(move || -> Result<Option<String>> {
             Ok(ForgeWidget::select_rows("Conversation", rows)
+                .query(query)
                 .header_lines(1_usize)
                 .preview(Some(preview_command))
                 .preview_layout(PreviewLayout { placement: PreviewPlacement::Bottom, percent: 60 })
@@ -149,7 +151,7 @@ mod tests {
     #[tokio::test]
     async fn test_select_conversation_empty_list() {
         let conversations = vec![];
-        let result = ConversationSelector::select_conversation(&conversations, None)
+        let result = ConversationSelector::select_conversation(&conversations, None, None)
             .await
             .unwrap();
         assert!(result.is_none());

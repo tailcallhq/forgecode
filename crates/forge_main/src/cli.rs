@@ -178,7 +178,7 @@ pub enum SelectCommand {
     /// Select a model interactively from all configured providers.
     ///
     /// Prints the selected model_id on the first line and provider_id on the
-    /// second line. Returns exit code 1 if the user cancels.
+    /// second line. Prints nothing if the user cancels.
     Model {
         /// Initial query text pre-filled in the search box.
         #[arg(long, short = 'q')]
@@ -187,8 +187,8 @@ pub enum SelectCommand {
 
     /// Select an agent interactively.
     ///
-    /// Prints the selected agent_id on stdout. Returns exit code 1 if the
-    /// user cancels.
+    /// Prints the selected agent_id on stdout. Prints nothing if the user
+    /// cancels.
     Agent {
         /// Initial query text pre-filled in the search box.
         #[arg(long, short = 'q')]
@@ -197,8 +197,8 @@ pub enum SelectCommand {
 
     /// Select a provider interactively.
     ///
-    /// Prints the selected provider_id on stdout. Returns exit code 1 if the
-    /// user cancels.
+    /// Prints the selected provider_id on stdout. Prints nothing if the user
+    /// cancels.
     Provider {
         /// Initial query text pre-filled in the search box.
         #[arg(long, short = 'q')]
@@ -212,7 +212,7 @@ pub enum SelectCommand {
     /// Select a reasoning effort level interactively.
     ///
     /// Prints the selected effort level (none, minimal, low, medium, high,
-    /// xhigh, max) on stdout. Returns exit code 1 if the user cancels.
+    /// xhigh, max) on stdout. Prints nothing if the user cancels.
     ReasoningEffort {
         /// Initial query text pre-filled in the search box.
         #[arg(long, short = 'q')]
@@ -221,8 +221,8 @@ pub enum SelectCommand {
 
     /// Select a command interactively.
     ///
-    /// Prints the selected command name on stdout. Returns exit code 1 if the
-    /// user cancels.
+    /// Prints the selected command name on stdout. Prints nothing if the user
+    /// cancels.
     Command {
         /// Initial query text pre-filled in the search box.
         #[arg(long, short = 'q')]
@@ -231,8 +231,8 @@ pub enum SelectCommand {
 
     /// Select a conversation interactively with a preview pane.
     ///
-    /// Prints the selected conversation_id on stdout. Returns exit code 1 if
-    /// the user cancels.
+    /// Prints the selected conversation_id on stdout. Prints nothing if the
+    /// user cancels.
     Conversation {
         /// Initial query text pre-filled in the search box.
         #[arg(long, short = 'q')]
@@ -242,8 +242,8 @@ pub enum SelectCommand {
     /// Select a file interactively with a preview pane.
     ///
     /// Walks the workspace and presents a fuzzy picker with syntax-highlighted
-    /// file previews. Prints the selected file path on stdout. Returns exit
-    /// code 1 if the user cancels.
+    /// file previews. Prints the selected file path on stdout. Prints nothing
+    /// if the user cancels.
     File {
         /// Initial query text pre-filled in the search box.
         #[arg(long, short = 'q')]

@@ -11,11 +11,7 @@ function forge-completion() {
         local selected
         
         # Use Rust's built-in file picker
-        if [[ -n "$filter_text" ]]; then
-            selected=$(_forge_select file --query "$filter_text")
-        else
-            selected=$(_forge_select file)
-        fi
+        selected=$(_forge_select_with_query "$filter_text" file)
         
         if [[ -n "$selected" ]]; then
             selected="@[${selected}]"
@@ -35,11 +31,7 @@ function forge-completion() {
         
         # Use Rust's built-in command picker
         local selected
-        if [[ -n "$filter_text" ]]; then
-            selected=$(_forge_select command --query "$filter_text")
-        else
-            selected=$(_forge_select command)
-        fi
+        selected=$(_forge_select_with_query "$filter_text" command)
         
         if [[ -n "$selected" ]]; then
             # Replace the current buffer with the selected command

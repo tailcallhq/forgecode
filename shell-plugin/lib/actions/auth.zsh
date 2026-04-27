@@ -8,11 +8,7 @@ function _forge_action_login() {
     echo
 
     local provider
-    if [[ -n "$input_text" ]]; then
-        provider=$(_forge_select provider --query "$input_text")
-    else
-        provider=$(_forge_select provider)
-    fi
+    provider=$(_forge_select_with_query "$input_text" provider)
 
     if [[ -n "$provider" ]]; then
         _forge_exec_interactive provider login "$provider"
@@ -25,11 +21,7 @@ function _forge_action_logout() {
     echo
 
     local provider
-    if [[ -n "$input_text" ]]; then
-        provider=$(_forge_select provider --configured --query "$input_text")
-    else
-        provider=$(_forge_select provider --configured)
-    fi
+    provider=$(_forge_select_with_query "$input_text" provider --configured)
 
     if [[ -n "$provider" ]]; then
         _forge_exec provider logout "$provider"
