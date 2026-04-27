@@ -70,30 +70,32 @@ fn build_ph_event(input: &Event) -> Result<PhEvent> {
         ph_event.insert_prop("model", model)?;
     }
     if let Some(conversation) = &input.conversation
-        && let Ok(value) = serde_json::to_value(conversation) {
-            ph_event.insert_prop("conversation", value)?;
-        }
+        && let Ok(value) = serde_json::to_value(conversation)
+    {
+        ph_event.insert_prop("conversation", value)?;
+    }
     // $set sends person properties to PostHog for user identification.
     if let Some(identity) = &input.identity
-        && let Ok(value) = serde_json::to_value(identity) {
-            ph_event.insert_prop("$set", value)?;
-        }
+        && let Ok(value) = serde_json::to_value(identity)
+    {
+        ph_event.insert_prop("$set", value)?;
+    }
 
     // Map AiGeneration payload fields to native $ai_generation schema properties.
     if &*input.event_name == "ai_generation"
         && let Ok(payload) = serde_json::from_str::<crate::AiGenerationPayload>(&input.event_value)
-        {
-            ph_event.insert_prop("$ai_provider", &payload.provider)?;
-            ph_event.insert_prop("$ai_model", &payload.model)?;
-            ph_event.insert_prop("$ai_input_tokens", payload.input_tokens)?;
-            ph_event.insert_prop("$ai_output_tokens", payload.output_tokens)?;
-            // PostHog expects latency in seconds.
-            ph_event.insert_prop("$ai_latency", payload.latency_ms / 1000.0)?;
-            ph_event.insert_prop("$ai_conversation_id", &payload.conversation_id)?;
-            if let Some(cost) = payload.cost {
-                ph_event.insert_prop("$ai_cost", cost)?;
-            }
+    {
+        ph_event.insert_prop("$ai_provider", &payload.provider)?;
+        ph_event.insert_prop("$ai_model", &payload.model)?;
+        ph_event.insert_prop("$ai_input_tokens", payload.input_tokens)?;
+        ph_event.insert_prop("$ai_output_tokens", payload.output_tokens)?;
+        // PostHog expects latency in seconds.
+        ph_event.insert_prop("$ai_latency", payload.latency_ms / 1000.0)?;
+        ph_event.insert_prop("$ai_conversation_id", &payload.conversation_id)?;
+        if let Some(cost) = payload.cost {
+            ph_event.insert_prop("$ai_cost", cost)?;
         }
+    }
 
     Ok(ph_event)
 }
