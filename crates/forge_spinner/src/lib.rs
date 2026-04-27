@@ -86,8 +86,9 @@ impl<P: ConsoleWriter + 'static> ActiveSpinner<P> {
                 let elapsed = accumulated_elapsed + started_at.elapsed();
                 let tick_index = ((elapsed.as_millis() / TICK_DURATION_MS as u128)
                     % TICKS.len() as u128) as usize;
+                let tick = TICKS.get(tick_index).unwrap_or(&"⠋");
                 let line =
-                    styled_loader_line(TICKS[tick_index], &message, elapsed, terminal_width());
+                    styled_loader_line(tick, &message, elapsed, terminal_width());
 
                 let _ = thread_printer.write_err(format!("\r\x1b[2K{line}").as_bytes());
                 let _ = thread_printer.flush_err();
