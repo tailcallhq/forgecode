@@ -40,7 +40,12 @@ pub fn select_workspace_file(cwd: &Path, query: Option<String>) -> anyhow::Resul
     );
     let rows: Vec<SelectRow> = files
         .into_iter()
-        .map(|path| SelectRow { raw: path.clone(), display: path.clone(), fields: vec![path] })
+        .map(|path| SelectRow {
+            raw: path.clone(),
+            display: path.clone(),
+            search: path.clone(),
+            fields: vec![path],
+        })
         .collect();
 
     Ok(ForgeWidget::select_rows("File ❯ ", rows)

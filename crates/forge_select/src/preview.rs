@@ -31,6 +31,8 @@ pub struct SelectRow {
     pub raw: String,
     /// User-facing text rendered in the selector list.
     pub display: String,
+    /// Text indexed by the fuzzy matcher.
+    pub search: String,
     /// Additional machine-readable fields used for preview placeholder
     /// expansion.
     pub fields: Vec<String>,
@@ -40,7 +42,18 @@ impl SelectRow {
     /// Creates a selectable row with a raw value and a display value.
     pub fn new(raw: impl Into<String>, display: impl Into<String>) -> Self {
         let raw = raw.into();
-        Self { fields: vec![raw.clone()], raw, display: display.into() }
+        Self {
+            fields: vec![raw.clone()],
+            search: raw.clone(),
+            raw,
+            display: display.into(),
+        }
+    }
+
+    /// Sets the text indexed by the fuzzy matcher.
+    pub fn search(mut self, search: impl Into<String>) -> Self {
+        self.search = search.into();
+        self
     }
 
     /// Creates a non-selectable header row.
@@ -48,6 +61,7 @@ impl SelectRow {
         Self {
             raw: String::new(),
             display: display.into(),
+            search: String::new(),
             fields: Vec::new(),
         }
     }
@@ -198,7 +212,7 @@ pub fn run_select_ui(options: SelectUiOptions) -> anyhow::Result<Option<String>>
     for row in data_rows.iter().cloned() {
         injector.push(row, |item, columns| {
             if let Some(column) = columns.get_mut(0) {
-                *column = Utf32String::from(item.display.as_str());
+                *column = Utf32String::from(item.search.as_str());
             }
         });
     }
@@ -283,6 +297,7 @@ pub fn run_select_ui(options: SelectUiOptions) -> anyhow::Result<Option<String>>
             PreviewUi {
                 prompt: &prompt,
                 query: &query,
+                total_rows: data_rows.len(),
                 matched_rows: &matched_rows,
                 header_rows: &header_rows,
                 selected_index,
@@ -536,7 +551,7 @@ fn preview_content_height(header_rows: usize, layout: PreviewLayout) -> usize {
         return 1;
     };
     let height = ((height.max(6) as u32 * 80) / 100).max(6) as u16;
-    let header_height = 2u16.saturating_add(header_rows as u16);
+    let header_height = 3u16.saturating_add(header_rows as u16);
     let body_height = height.saturating_sub(header_height).max(1);
 
     (match layout.placement {
@@ -556,7 +571,7 @@ fn mouse_over_preview(column: u16, row: u16, header_rows: usize, layout: Preview
     };
     let width = width.max(20);
     let height = ((height.max(6) as u32 * 80) / 100).max(6) as u16;
-    let header_height = 2u16.saturating_add(header_rows as u16);
+    let header_height = 3u16.saturating_add(header_rows as u16);
     let body_height = height.saturating_sub(header_height).max(1);
 
     match layout.placement {
@@ -630,6 +645,7 @@ fn shell_escape(value: &str) -> String {
 struct PreviewUi<'a> {
     prompt: &'a str,
     query: &'a str,
+    total_rows: usize,
     matched_rows: &'a [&'a SelectRow],
     header_rows: &'a [&'a SelectRow],
     selected_index: usize,
@@ -643,6 +659,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
     let PreviewUi {
         prompt,
         query,
+        total_rows,
         matched_rows,
         header_rows,
         selected_index,
@@ -656,7 +673,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
     let height = ((height.max(6) as u32 * 80) / 100).max(6) as u16;
 
     let has_preview = !preview.is_empty();
-    let header_height = 2u16.saturating_add(header_rows.len() as u16);
+    let header_height = 3u16.saturating_add(header_rows.len() as u16);
     let body_height = height.saturating_sub(header_height).max(1);
 
     let (
@@ -721,7 +738,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
         SetAttribute(Attribute::Bold),
         SetForegroundColor(Color::AnsiValue(110)),
         Print(truncate_line(
-            &format!("{}{}", prompt, query),
+            &format_prompt_query(prompt, query),
             width as usize
         )),
         ResetColor,
@@ -731,17 +748,17 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
         stderr,
         MoveTo(2, 1),
         SetForegroundColor(Color::AnsiValue(144)),
-        Print(format!("{}/{}", matched_rows.len(), matched_rows.len())),
+        Print(format!("{}/{}", matched_rows.len(), total_rows)),
         SetForegroundColor(Color::AnsiValue(59)),
         Print(" "),
         Print(truncate_line(
             &"─".repeat(width as usize),
-            width.saturating_sub(3 + match_count_width(matched_rows.len())) as usize,
+            width.saturating_sub(3 + match_count_width(matched_rows.len(), total_rows)) as usize,
         )),
         ResetColor
     )?;
     for (index, row) in header_rows.iter().enumerate() {
-        let row_y = 2u16.saturating_add(index as u16);
+        let row_y = 3u16.saturating_add(index as u16);
         if row_y < header_height {
             queue!(
                 stderr,
@@ -924,8 +941,16 @@ fn preview_scroll_indicator(scroll_offset: usize, line_count: usize) -> String {
     format!("{}/{line_count}", scroll_offset.saturating_add(1))
 }
 
-fn match_count_width(count: usize) -> u16 {
-    format!("{count}/{count}").chars().count() as u16
+fn format_prompt_query(prompt: &str, query: &str) -> String {
+    if query.is_empty() || prompt.ends_with(char::is_whitespace) {
+        format!("{prompt}{query}")
+    } else {
+        format!("{prompt} {query}")
+    }
+}
+
+fn match_count_width(matched: usize, total: usize) -> u16 {
+    format!("{matched}/{total}").chars().count() as u16
 }
 
 fn truncate_line(value: &str, max_width: usize) -> String {

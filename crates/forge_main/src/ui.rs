@@ -2914,11 +2914,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let Some(header) = all_lines.first() else {
             return Err(UIError::MissingHeaderLine.into());
         };
-        rows.push(SelectRow {
-            raw: header.to_string(),
-            display: header.to_string(),
-            fields: Vec::new(),
-        });
+        rows.push(SelectRow::header(header.to_string()));
         // Data rows
         for (i, line) in all_lines.iter().skip(1).enumerate() {
             let Some((model_id, provider_id)) = model_entries.get(i) else {
@@ -2927,6 +2923,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             rows.push(SelectRow {
                 raw: format!("{}\t{}", model_id.as_str(), provider_id.as_ref()),
                 display: line.to_string(),
+                search: format!("{} {}", model_id.as_str(), provider_id.as_ref()),
                 fields: vec![model_id.to_string(), provider_id.as_ref().to_string()],
             });
         }

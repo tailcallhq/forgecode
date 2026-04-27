@@ -98,6 +98,7 @@ impl ConversationSelector {
                 rows.push(SelectRow {
                     raw: uuid.clone(),
                     display: line.to_string(),
+                    search: line.to_string(),
                     fields: vec![uuid],
                 });
             }
