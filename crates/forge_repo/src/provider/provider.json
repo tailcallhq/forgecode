@@ -1249,8 +1249,8 @@
     "id": "lm_studio",
     "api_key_vars": "LM_STUDIO_API_KEY",
     "url_param_vars": ["LM_STUDIO_URL", "LM_STUDIO_PORT"],
-    "response_type": "OpenAI",
-    "url": "{{LM_STUDIO_URL}}:{{LM_STUDIO_PORT}}/v1/chat/completions",
+    "response_type": "OpenAIResponses",
+    "url": "{{LM_STUDIO_URL}}:{{LM_STUDIO_PORT}}/v1/responses",
     "models": "{{LM_STUDIO_URL}}:{{LM_STUDIO_PORT}}/v1/models",
     "auth_methods": ["api_key"]
   },
