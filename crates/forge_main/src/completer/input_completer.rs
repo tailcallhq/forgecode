@@ -1,16 +1,16 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use forge_select::{
+    PreviewLayout, PreviewPlacement, SelectMode, SelectRow, SelectUiOptions, run_select_ui,
+};
 use forge_walker::Walker;
 use reedline::{Completer, Span, Suggestion};
 
 use crate::completer::CommandCompleter;
 use crate::completer::search_term::SearchTerm;
 use crate::model::ForgeCommandManager;
-use crate::select_cmd::{
-    PreviewLayout, PreviewPlacement, SelectMode, SelectRow, SelectUiOptions, redirect_stdin_to_tty,
-    run_select_ui,
-};
+use crate::select_cmd::redirect_stdin_to_tty;
 
 pub fn select_workspace_file(cwd: &Path, query: Option<String>) -> anyhow::Result<Option<String>> {
     #[cfg(unix)]

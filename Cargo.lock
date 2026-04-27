@@ -2483,8 +2483,11 @@ name = "forge_select"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bstr",
  "colored",
  "console",
+ "crossterm 0.29.0",
+ "nucleo",
  "nucleo-picker",
  "pretty_assertions",
  "rustyline",

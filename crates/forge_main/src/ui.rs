@@ -21,7 +21,9 @@ use forge_domain::{
     AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, Role, TitleFormat, UserCommand,
 };
 use forge_fs::ForgeFS;
-use forge_select::ForgeWidget;
+use forge_select::{
+    ForgeWidget, PreviewLayout, SelectMode, SelectRow, SelectUiOptions, run_select_ui,
+};
 use forge_spinner::SpinnerManager;
 use forge_tracker::ToolCallPayload;
 use forge_walker::Walker;
@@ -43,7 +45,6 @@ use crate::input::Console;
 use crate::model::{AppCommand, ForgeCommandManager};
 use crate::porcelain::Porcelain;
 use crate::prompt::ForgePrompt;
-use crate::select_cmd::{PreviewLayout, SelectMode, SelectRow, SelectUiOptions};
 use crate::state::UIState;
 use crate::stream_renderer::{SharedSpinner, StreamingWriter};
 use crate::sync_display::SyncProgressDisplay;
@@ -173,7 +174,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     fn select_raw_row_with_options(&self, options: SelectUiOptions) -> Result<Option<SelectRow>> {
         let rows = options.rows.clone();
-        let selected = crate::select_cmd::run_select_ui(options)?;
+        let selected = run_select_ui(options)?;
 
         Ok(selected.and_then(|raw| rows.into_iter().find(|row| row.raw == raw)))
     }
@@ -2923,7 +2924,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let Some(header) = all_lines.first() else {
             return Err(UIError::MissingHeaderLine.into());
         };
-        rows.push(crate::select_cmd::SelectRow {
+        rows.push(SelectRow {
             raw: header.to_string(),
             display: header.to_string(),
             fields: Vec::new(),
@@ -2933,7 +2934,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             let Some((model_id, provider_id)) = model_entries.get(i) else {
                 continue;
             };
-            rows.push(crate::select_cmd::SelectRow {
+            rows.push(SelectRow {
                 raw: format!("{}\t{}", model_id.as_str(), provider_id.as_ref()),
                 display: line.to_string(),
                 fields: vec![model_id.to_string(), provider_id.as_ref().to_string()],
@@ -3440,10 +3441,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let Some(header) = all_lines.first() else {
             return Err(UIError::MissingHeaderLine.into());
         };
-        let mut rows = vec![crate::select_cmd::SelectRow::header(header.to_string())];
+        let mut rows = vec![SelectRow::header(header.to_string())];
         for (index, line) in all_lines.iter().skip(1).enumerate() {
             if let Some(provider) = sorted.get(index) {
-                rows.push(crate::select_cmd::SelectRow::new(
+                rows.push(SelectRow::new(
                     provider.id().as_ref().to_string(),
                     line.to_string(),
                 ));

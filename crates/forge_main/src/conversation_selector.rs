@@ -2,13 +2,13 @@ use anyhow::Result;
 use chrono::Utc;
 use forge_api::Conversation;
 use forge_domain::ConversationId;
+use forge_select::{
+    PreviewLayout, PreviewPlacement, SelectMode, SelectRow, SelectUiOptions, run_select_ui,
+};
 
 use crate::display_constants::markers;
 use crate::info::Info;
 use crate::porcelain::Porcelain;
-use crate::select_cmd::{
-    self, PreviewLayout, PreviewPlacement, SelectMode, SelectRow, SelectUiOptions,
-};
 
 /// Logic for selecting conversations from a list
 pub struct ConversationSelector;
@@ -115,7 +115,7 @@ impl ConversationSelector {
                 .to_string();
 
         let selected_uuid = tokio::task::spawn_blocking(move || {
-            select_cmd::run_select_ui(SelectUiOptions {
+            run_select_ui(SelectUiOptions {
                 prompt: Some("Conversation".to_string()),
                 query: None,
                 rows,
