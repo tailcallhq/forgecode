@@ -2621,11 +2621,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "colored",
+ "console",
  "forge_domain",
  "indicatif",
  "pretty_assertions",
  "rand 0.10.1",
+ "terminal_size",
  "tokio",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]
