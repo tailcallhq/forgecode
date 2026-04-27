@@ -93,6 +93,16 @@ fn legacy_env_var_fallback(new_name: &str) -> Option<&'static str> {
     }
 }
 
+/// Returns the default value for URL parameters that should be optional during
+/// environment migration.
+fn default_url_param_value(name: &str) -> Option<&'static str> {
+    match name {
+        "OLLAMA_SSL_SCHEME" | "VLLM_SSL_SCHEME" | "LM_STUDIO_SSL_SCHEME" | "LLAMA_CPP_SSL_SCHEME"
+        | "JAN_AI_SSL_SCHEME" => Some("http"),
+        _ => None,
+    }
+}
+
 fn overwrite<T>(base: &mut T, other: T) {
     *base = other;
 }
@@ -374,6 +384,11 @@ impl<
                 });
             if let Some(value) = value {
                 url_params.insert(URLParam::from(name.to_string()), URLParamValue::from(value));
+            } else if let Some(value) = default_url_param_value(name) {
+                url_params.insert(
+                    URLParam::from(name.to_string()),
+                    URLParamValue::from(value.to_string()),
+                );
             } else {
                 return Err(Error::env_var_not_found(config.id.clone(), name).into());
             }
@@ -1334,6 +1349,13 @@ mod env_tests {
         assert_eq!(
             ollama_cred
                 .url_params
+                .get(&URLParam::from("OLLAMA_SSL_SCHEME".to_string()))
+                .map(|v| v.as_str()),
+            Some("http")
+        );
+        assert_eq!(
+            ollama_cred
+                .url_params
                 .get(&URLParam::from("OLLAMA_HOST".to_string()))
                 .map(|v| v.as_str()),
             Some("http://localhost")
@@ -1465,10 +1487,32 @@ mod env_tests {
                 .iter()
                 .map(|v| v.param_name())
                 .collect::<Vec<_>>(),
-            vec!["OLLAMA_HOST", "OLLAMA_PORT"]
+            vec!["OLLAMA_SSL_SCHEME", "OLLAMA_HOST", "OLLAMA_PORT"]
         );
+        assert!(config.url.contains("{{OLLAMA_SSL_SCHEME}}://"));
         assert!(config.url.contains("{{OLLAMA_HOST}}"));
         assert!(!config.url.contains("{{OLLAMA_URL}}"));
+    }
+
+    #[tokio::test]
+    async fn test_ollama_ssl_scheme_config_uses_options() {
+        let configs = get_provider_configs();
+        let ollama_id = ProviderId::from("ollama".to_string());
+        let config = configs.iter().find(|c| c.id == ollama_id).unwrap();
+        let ssl_scheme = config
+            .url_param_vars
+            .iter()
+            .find(|v| v.param_name() == "OLLAMA_SSL_SCHEME")
+            .unwrap()
+            .clone()
+            .into_spec();
+        assert_eq!(
+            ssl_scheme,
+            URLParamSpec::with_options(
+                URLParam::from("OLLAMA_SSL_SCHEME".to_string()),
+                vec!["http".to_string(), "https".to_string()]
+            )
+        );
     }
 
     #[tokio::test]
