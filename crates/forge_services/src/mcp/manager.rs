@@ -67,6 +67,10 @@ where
                 ];
                 let mut config = McpConfig::default();
                 for path in paths {
+                    // Skip local .mcp.json if user didn't trust it
+                    if path == env.mcp_local_config() && std::env::var("FORGE_SKIP_LOCAL_MCP").is_ok() {
+                        continue;
+                    }
                     if self.infra.is_file(&path).await.unwrap_or_default() {
                         let new_config = self.read_config(&path).await.context(format!(
                             "An error occurred while reading config at: {}",

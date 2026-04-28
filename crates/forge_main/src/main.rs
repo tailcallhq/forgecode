@@ -1,4 +1,4 @@
-use std::io::{IsTerminal, Read};
+use std::io::{IsTerminal, Read, Write};
 use std::panic;
 use std::path::PathBuf;
 
@@ -118,7 +118,20 @@ async fn run() -> Result<()> {
             Err(_) => panic!("Invalid path: {}", cli.display()),
         },
         (_, _) => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-    };
+     };
+
+    // Check for local .mcp.json and prompt for trust before UI starts
+    let local_mcp = cwd.join(".mcp.json");
+    if local_mcp.exists() {
+        print!("Untrusted .mcp.json found in current directory. Do you trust its contents? (YES/NO): ");
+        std::io::stdout().flush().unwrap();
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).unwrap();
+        if input.trim().to_uppercase() != "YES" {
+            unsafe { std::env::set_var("FORGE_SKIP_LOCAL_MCP", "1") };
+            eprintln!("Skipping untrusted .mcp.json");
+        }
+    }
 
     let mut ui = UI::init(cli, config, move |config| {
         ForgeAPI::init(cwd.clone(), config)
