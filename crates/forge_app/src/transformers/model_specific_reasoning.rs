@@ -29,9 +29,9 @@ impl ModelSpecificReasoning {
         let id = self.model_id.to_lowercase();
         if id.contains("opus-4-7") {
             AnthropicModelFamily::AdaptiveOnly
-        } else if id.contains("opus-4-6") || id.contains("sonnet-4-6") {
+        } else if id.contains("opus-4-6") || id.contains("46-opus") || id.contains("sonnet-4-6") || id.contains("46-sonnet"){
             AnthropicModelFamily::AdaptiveFriendly
-        } else if id.contains("opus-4-5") {
+        } else if id.contains("opus-4-5") || id.contains("45-opus") {
             AnthropicModelFamily::LegacyWithEffort
         } else {
             AnthropicModelFamily::LegacyNoEffort
