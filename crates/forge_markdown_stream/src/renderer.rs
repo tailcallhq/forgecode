@@ -247,7 +247,8 @@ impl<W: Write> Renderer<W> {
                             let bg_esc = self.theme.mermaid_bg.escapes();
                             for line in diagram_lines {
                                 let margin = self.left_margin();
-                                // Re-apply background after every reset so there are no visible gaps
+                                // Re-apply background after every reset so there are no visible
+                                // gaps
                                 let bg_line = format!(
                                     "{}{}{}",
                                     bg_esc,

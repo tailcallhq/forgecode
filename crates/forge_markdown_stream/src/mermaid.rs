@@ -8,7 +8,8 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::theme::Theme;
 
-// Style constants for per-character style maps (sequence + flowchart multi-branch)
+// Style constants for per-character style maps (sequence + flowchart
+// multi-branch)
 const STYLE_NONE: u8 = 0;
 const STYLE_BORDER: u8 = 1;
 const STYLE_NODE: u8 = 2;
@@ -335,7 +336,12 @@ fn parse_node_ref(text: &str) -> (String, Option<String>, NodeShape) {
 }
 
 /// Render a flowchart as Unicode box-drawing art.
-fn render_flowchart(diagram: &str, direction: FlowDirection, width: usize, theme: &Theme) -> Vec<String> {
+fn render_flowchart(
+    diagram: &str,
+    direction: FlowDirection,
+    width: usize,
+    theme: &Theme,
+) -> Vec<String> {
     let (nodes, edges) = parse_flowchart(diagram);
     if nodes.is_empty() {
         return vec!["[empty diagram]".to_string()];
@@ -351,12 +357,22 @@ fn render_flowchart(diagram: &str, direction: FlowDirection, width: usize, theme
     let node_total_width = node_inner_width + 6; // padded node block width
 
     match direction {
-        FlowDirection::TopDown => {
-            render_flowchart_td(&nodes, &edges, node_inner_width, node_total_width, width, theme)
-        }
-        FlowDirection::LeftRight => {
-            render_flowchart_lr(&nodes, &edges, node_inner_width, node_total_width, width, theme)
-        }
+        FlowDirection::TopDown => render_flowchart_td(
+            &nodes,
+            &edges,
+            node_inner_width,
+            node_total_width,
+            width,
+            theme,
+        ),
+        FlowDirection::LeftRight => render_flowchart_lr(
+            &nodes,
+            &edges,
+            node_inner_width,
+            node_total_width,
+            width,
+            theme,
+        ),
     }
 }
 
@@ -383,21 +399,39 @@ fn make_node_lines(node: &FlowNode, inner_width: usize, theme: &Theme) -> Vec<St
 
     match node.shape {
         NodeShape::Default | NodeShape::Rect => {
-            let border = theme.mermaid_border.apply(&center_to_block(format!("┌{}┐", "─".repeat(inner_width))));
-            let label = theme.mermaid_node.apply(&center_to_block(format!("│{}│", padded)));
-            let bottom = theme.mermaid_border.apply(&center_to_block(format!("└{}┘", "─".repeat(inner_width))));
+            let border = theme
+                .mermaid_border
+                .apply(&center_to_block(format!("┌{}┐", "─".repeat(inner_width))));
+            let label = theme
+                .mermaid_node
+                .apply(&center_to_block(format!("│{}│", padded)));
+            let bottom = theme
+                .mermaid_border
+                .apply(&center_to_block(format!("└{}┘", "─".repeat(inner_width))));
             vec![border.to_string(), label.to_string(), bottom.to_string()]
         }
         NodeShape::RoundRect | NodeShape::Stadium => {
-            let border = theme.mermaid_border.apply(&center_to_block(format!("╭{}╮", "─".repeat(inner_width))));
-            let label = theme.mermaid_node.apply(&center_to_block(format!("│{}│", padded)));
-            let bottom = theme.mermaid_border.apply(&center_to_block(format!("╰{}╯", "─".repeat(inner_width))));
+            let border = theme
+                .mermaid_border
+                .apply(&center_to_block(format!("╭{}╮", "─".repeat(inner_width))));
+            let label = theme
+                .mermaid_node
+                .apply(&center_to_block(format!("│{}│", padded)));
+            let bottom = theme
+                .mermaid_border
+                .apply(&center_to_block(format!("╰{}╯", "─".repeat(inner_width))));
             vec![border.to_string(), label.to_string(), bottom.to_string()]
         }
         NodeShape::Diamond => {
-            let border = theme.mermaid_border.apply(&center_to_block(format!("╔{}╗", "═".repeat(inner_width))));
-            let label = theme.mermaid_node_decision.apply(&center_to_block(format!("║{}║", padded)));
-            let bottom = theme.mermaid_border.apply(&center_to_block(format!("╚{}╝", "═".repeat(inner_width))));
+            let border = theme
+                .mermaid_border
+                .apply(&center_to_block(format!("╔{}╗", "═".repeat(inner_width))));
+            let label = theme
+                .mermaid_node_decision
+                .apply(&center_to_block(format!("║{}║", padded)));
+            let bottom = theme
+                .mermaid_border
+                .apply(&center_to_block(format!("╚{}╝", "═".repeat(inner_width))));
             vec![border.to_string(), label.to_string(), bottom.to_string()]
         }
     }
@@ -548,14 +582,18 @@ fn render_flowchart_td(
                             } else {
                                 target_center
                             };
-                            let arrow_line = theme.mermaid_edge.apply(
-                                &format!("{:source_center$}│", "", source_center = source_center),
-                            );
+                            let arrow_line = theme.mermaid_edge.apply(&format!(
+                                "{:source_center$}│",
+                                "",
+                                source_center = source_center
+                            ));
                             lines.push(arrow_line.to_string());
 
-                            let shaft_line = theme.mermaid_edge.apply(
-                                &format!("{:offset$}│", "", offset = offset),
-                            );
+                            let shaft_line = theme.mermaid_edge.apply(&format!(
+                                "{:offset$}│",
+                                "",
+                                offset = offset
+                            ));
                             lines.push(shaft_line.to_string());
 
                             let label = edge_labels
@@ -563,16 +601,28 @@ fn render_flowchart_td(
                                 .map(|s| s.as_str())
                                 .unwrap_or(label);
                             let arrow_head = if label.is_empty() {
-                                theme.mermaid_arrow_head.apply(
-                                    &format!("{:offset$}▼", "", offset = offset),
-                                ).to_string()
+                                theme
+                                    .mermaid_arrow_head
+                                    .apply(&format!("{:offset$}▼", "", offset = offset))
+                                    .to_string()
                             } else {
                                 let styled_label = theme.mermaid_label.apply(label);
                                 let styled_arrow = theme.mermaid_arrow_head.apply("▼");
                                 if UnicodeWidthStr::width(label) + offset > _max_width {
-                                    format!("{}{} {}", " ".repeat(offset), styled_label, styled_arrow)
+                                    format!(
+                                        "{}{} {}",
+                                        " ".repeat(offset),
+                                        styled_label,
+                                        styled_arrow
+                                    )
                                 } else {
-                                    format!("{:offset$}{}  {}", "", styled_arrow, styled_label, offset = offset)
+                                    format!(
+                                        "{:offset$}{}  {}",
+                                        "",
+                                        styled_arrow,
+                                        styled_label,
+                                        offset = offset
+                                    )
                                 }
                             };
                             lines.push(arrow_head);
@@ -718,7 +768,8 @@ fn render_flowchart_lr(
         order = (0..nodes.len()).collect();
     }
 
-    if let Some(branch_lines) = render_flowchart_lr_branch(nodes, edges, &order, inner_width, theme) {
+    if let Some(branch_lines) = render_flowchart_lr_branch(nodes, edges, &order, inner_width, theme)
+    {
         return branch_lines;
     }
 
@@ -928,19 +979,25 @@ fn render_flowchart_lr_branch(
     }
 
     lines.push(
-        theme.mermaid_edge.apply(&format!(
-            "{:branch_center$}│ {}",
-            "",
-            alternate_edge.1,
-            branch_center = branch_center
-        )).to_string()
+        theme
+            .mermaid_edge
+            .apply(&format!(
+                "{:branch_center$}│ {}",
+                "",
+                alternate_edge.1,
+                branch_center = branch_center
+            ))
+            .to_string(),
     );
     lines.push(
-        theme.mermaid_arrow_head.apply(&format!(
-            "{:branch_center$}▼",
-            "",
-            branch_center = branch_center
-        )).to_string()
+        theme
+            .mermaid_arrow_head
+            .apply(&format!(
+                "{:branch_center$}▼",
+                "",
+                branch_center = branch_center
+            ))
+            .to_string(),
     );
 
     for row_idx in 0..3 {
@@ -975,9 +1032,20 @@ fn lr_connector(label: &str, theme: &Theme) -> LrConnector {
     let label_row = if label.is_empty() {
         " ".repeat(width)
     } else {
-        theme.mermaid_label.apply(&format!("{}{}{}", " ".repeat(left_pad), label, " ".repeat(right_pad))).to_string()
+        theme
+            .mermaid_label
+            .apply(&format!(
+                "{}{}{}",
+                " ".repeat(left_pad),
+                label,
+                " ".repeat(right_pad)
+            ))
+            .to_string()
     };
-    let arrow_row = theme.mermaid_edge.apply(&format!("{}▶", "─".repeat(width.saturating_sub(1)))).to_string();
+    let arrow_row = theme
+        .mermaid_edge
+        .apply(&format!("{}▶", "─".repeat(width.saturating_sub(1))))
+        .to_string();
     let spacer_row = " ".repeat(width);
 
     LrConnector { rows: [label_row, arrow_row, spacer_row], width }
@@ -1436,11 +1504,7 @@ mod tests {
 
     #[test]
     fn test_render_mermaid_returns_some_for_sequence() {
-        let result = render_mermaid(
-            "sequenceDiagram\n  Alice->>Bob: Hello",
-            80,
-            &test_theme(),
-        );
+        let result = render_mermaid("sequenceDiagram\n  Alice->>Bob: Hello", 80, &test_theme());
         assert!(result.is_some());
         let lines = result.unwrap();
         assert!(!lines.is_empty());
@@ -1591,7 +1655,11 @@ mod tests {
 
     #[test]
     fn test_display_width_respected() {
-        let result = render_mermaid("graph TD\n  A[Hello World] --> B[Testing 123]", 40, &test_theme());
+        let result = render_mermaid(
+            "graph TD\n  A[Hello World] --> B[Testing 123]",
+            40,
+            &test_theme(),
+        );
         assert!(result.is_some());
     }
 }

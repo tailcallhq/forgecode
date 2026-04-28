@@ -62,8 +62,7 @@ impl Style {
 
     /// Returns the raw ANSI escape sequence for this style (no text, no reset).
     pub fn escapes(&self) -> String {
-        use crate::utils::fg_code;
-        use crate::utils::bg_code;
+        use crate::utils::{bg_code, fg_code};
         let mut s = String::new();
         if let Some(fg) = self.fg {
             s.push_str(&fg_code(fg));
@@ -369,17 +368,32 @@ impl Theme {
             // Mermaid diagrams - AA+ contrast with background colors for dark terminals
             // All mermaid styles include bg(Color::BrightBlack) so the diagram background is
             // consistent across every character.
-            mermaid_node: Style::new().fg(Color::BrightWhite).bg(Color::BrightBlack).bold(),
+            mermaid_node: Style::new()
+                .fg(Color::BrightWhite)
+                .bg(Color::BrightBlack)
+                .bold(),
             mermaid_edge: Style::new().fg(Color::BrightCyan).bg(Color::BrightBlack),
-            mermaid_label: Style::new().fg(Color::BrightYellow).bg(Color::BrightBlack).italic(),
+            mermaid_label: Style::new()
+                .fg(Color::BrightYellow)
+                .bg(Color::BrightBlack)
+                .italic(),
             mermaid_border: Style::new().fg(Color::BrightWhite).bg(Color::BrightBlack),
             mermaid_arrow_head: Style::new().fg(Color::BrightGreen).bg(Color::BrightBlack),
             mermaid_node_start: Style::new().fg(Color::BrightWhite).bg(Color::Green).bold(),
             mermaid_node_end: Style::new().fg(Color::BrightWhite).bg(Color::Blue).bold(),
             mermaid_node_process: Style::new().fg(Color::BrightWhite).bg(Color::Cyan).bold(),
-            mermaid_node_decision: Style::new().fg(Color::BrightWhite).bg(Color::BrightBlack).bold(),
-            mermaid_edge_yes: Style::new().fg(Color::BrightGreen).bg(Color::BrightBlack).bold(),
-            mermaid_edge_no: Style::new().fg(Color::BrightRed).bg(Color::BrightBlack).bold(),
+            mermaid_node_decision: Style::new()
+                .fg(Color::BrightWhite)
+                .bg(Color::BrightBlack)
+                .bold(),
+            mermaid_edge_yes: Style::new()
+                .fg(Color::BrightGreen)
+                .bg(Color::BrightBlack)
+                .bold(),
+            mermaid_edge_no: Style::new()
+                .fg(Color::BrightRed)
+                .bg(Color::BrightBlack)
+                .bold(),
             mermaid_bg: Style::new().bg(Color::BrightBlack),
         }
     }
@@ -434,7 +448,10 @@ impl Theme {
             // consistent across every character.
             mermaid_node: Style::new().fg(Color::Black).bg(Color::BrightWhite).bold(),
             mermaid_edge: Style::new().fg(Color::Blue).bg(Color::BrightWhite),
-            mermaid_label: Style::new().fg(Color::Yellow).bg(Color::BrightWhite).italic(),
+            mermaid_label: Style::new()
+                .fg(Color::Yellow)
+                .bg(Color::BrightWhite)
+                .italic(),
             mermaid_border: Style::new().fg(Color::Black).bg(Color::BrightWhite),
             mermaid_arrow_head: Style::new().fg(Color::Green).bg(Color::BrightWhite),
             mermaid_node_start: Style::new().fg(Color::Black).bg(Color::Green).bold(),
