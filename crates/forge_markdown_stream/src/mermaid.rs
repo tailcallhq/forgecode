@@ -27,7 +27,7 @@ fn build_colored_line(chars: &[char], styles: &[u8], theme: &Theme) -> String {
         while i < chars.len() && styles.get(i).copied().unwrap_or(0) == s {
             i += 1;
         }
-        let segment: String = chars[start..i].iter().collect();
+        let segment: String = chars.get(start..i).unwrap_or_default().iter().collect();
         let styled = match s {
             STYLE_BORDER => theme.mermaid_border.apply(&segment),
             STYLE_NODE => theme.mermaid_node.apply(&segment),
@@ -43,6 +43,12 @@ fn build_colored_line(chars: &[char], styles: &[u8], theme: &Theme) -> String {
 
 fn set_char(row: &mut [char], index: usize, value: char) {
     if let Some(slot) = row.get_mut(index) {
+        *slot = value;
+    }
+}
+
+fn set_style(styles: &mut [u8], index: usize, value: u8) {
+    if let Some(slot) = styles.get_mut(index) {
         *slot = value;
     }
 }
@@ -380,21 +386,21 @@ fn make_node_lines(node: &FlowNode, inner_width: usize, theme: &Theme) -> Vec<St
             let border = theme.mermaid_border.apply(&center_to_block(format!("┌{}┐", "─".repeat(inner_width))));
             let label = theme.mermaid_node.apply(&center_to_block(format!("│{}│", padded)));
             let bottom = theme.mermaid_border.apply(&center_to_block(format!("└{}┘", "─".repeat(inner_width))));
-            return vec![border.to_string(), label.to_string(), bottom.to_string()];
+            vec![border.to_string(), label.to_string(), bottom.to_string()]
         }
         NodeShape::RoundRect | NodeShape::Stadium => {
             let border = theme.mermaid_border.apply(&center_to_block(format!("╭{}╮", "─".repeat(inner_width))));
             let label = theme.mermaid_node.apply(&center_to_block(format!("│{}│", padded)));
             let bottom = theme.mermaid_border.apply(&center_to_block(format!("╰{}╯", "─".repeat(inner_width))));
-            return vec![border.to_string(), label.to_string(), bottom.to_string()];
+            vec![border.to_string(), label.to_string(), bottom.to_string()]
         }
         NodeShape::Diamond => {
             let border = theme.mermaid_border.apply(&center_to_block(format!("╔{}╗", "═".repeat(inner_width))));
             let label = theme.mermaid_node_decision.apply(&center_to_block(format!("║{}║", padded)));
             let bottom = theme.mermaid_border.apply(&center_to_block(format!("╚{}╝", "═".repeat(inner_width))));
-            return vec![border.to_string(), label.to_string(), bottom.to_string()];
+            vec![border.to_string(), label.to_string(), bottom.to_string()]
         }
-    };
+    }
 }
 
 fn render_flowchart_td(
@@ -592,14 +598,14 @@ fn render_flowchart_td(
                         let mut vertical_row = vec![' '; row_width];
                         let mut vert_styles = vec![STYLE_NONE; row_width];
                         set_char(&mut vertical_row, source_center, '│');
-                        vert_styles[source_center] = STYLE_EDGE;
+                        set_style(&mut vert_styles, source_center, STYLE_EDGE);
                         lines.push(build_colored_line(&vertical_row, &vert_styles, theme));
 
                         let mut branch_row = vec![' '; row_width];
                         let mut branch_styles = vec![STYLE_NONE; row_width];
                         for x in min_center..=max_center {
                             set_char(&mut branch_row, x, '─');
-                            branch_styles[x] = STYLE_EDGE;
+                            set_style(&mut branch_styles, x, STYLE_EDGE);
                         }
                         for (_, target_center, _) in &targets {
                             let marker = if *target_center == min_center {
@@ -610,7 +616,7 @@ fn render_flowchart_td(
                                 '┬'
                             };
                             set_char(&mut branch_row, *target_center, marker);
-                            branch_styles[*target_center] = STYLE_EDGE;
+                            set_style(&mut branch_styles, *target_center, STYLE_EDGE);
                         }
                         let source_marker = if source_center == min_center {
                             '├'
@@ -620,19 +626,19 @@ fn render_flowchart_td(
                             '┬'
                         };
                         set_char(&mut branch_row, source_center, source_marker);
-                        branch_styles[source_center] = STYLE_EDGE;
+                        set_style(&mut branch_styles, source_center, STYLE_EDGE);
                         lines.push(build_colored_line(&branch_row, &branch_styles, theme));
 
                         let mut arrow_row = vec![' '; row_width];
                         let mut arrow_styles = vec![STYLE_NONE; row_width];
                         for (_, target_center, label) in &targets {
                             set_char(&mut arrow_row, *target_center, '▼');
-                            arrow_styles[*target_center] = STYLE_ARROW;
+                            set_style(&mut arrow_styles, *target_center, STYLE_ARROW);
                             if !label.is_empty() {
                                 let label_start = target_center + 2;
                                 for (i, ch) in label.chars().enumerate() {
                                     set_char(&mut arrow_row, label_start + i, ch);
-                                    arrow_styles[label_start + i] = STYLE_LABEL;
+                                    set_style(&mut arrow_styles, label_start + i, STYLE_LABEL);
                                 }
                             }
                         }
@@ -1148,7 +1154,7 @@ fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
         let top_str = format!("┌{}┐", "─".repeat(w));
         for (j, c) in top_str.chars().enumerate() {
             set_char(&mut header_top, offset + j, c);
-            header_top_styles[offset + j] = STYLE_BORDER;
+            set_style(&mut header_top_styles, offset + j, STYLE_BORDER);
         }
         // Middle: │ Name │
         let mid_str = format!(
@@ -1161,16 +1167,16 @@ fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
             set_char(&mut header_mid, offset + j, c);
             // Style the │ borders as border, name text as node
             if j == 0 || j == mid_str.chars().count() - 1 {
-                header_mid_styles[offset + j] = STYLE_BORDER;
+                set_style(&mut header_mid_styles, offset + j, STYLE_BORDER);
             } else {
-                header_mid_styles[offset + j] = STYLE_NODE;
+                set_style(&mut header_mid_styles, offset + j, STYLE_NODE);
             }
         }
         // Bottom: └────┘
         let bot_str = format!("└{}┘", "─".repeat(w));
         for (j, c) in bot_str.chars().enumerate() {
             set_char(&mut header_bot, offset + j, c);
-            header_bot_styles[offset + j] = STYLE_BORDER;
+            set_style(&mut header_bot_styles, offset + j, STYLE_BORDER);
         }
         offset += w + 2 + 3;
     }
@@ -1201,7 +1207,7 @@ fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
                         let mut before_styles = vec![STYLE_NONE; total_width];
                         for &center in &col_centers {
                             set_char(&mut before, center, '│');
-                            before_styles[center] = STYLE_EDGE;
+                            set_style(&mut before_styles, center, STYLE_EDGE);
                         }
                         lines.push(build_colored_line(&before, &before_styles, theme));
 
@@ -1210,7 +1216,7 @@ fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
                         let mut arrow_styles = vec![STYLE_NONE; total_width];
                         for &center in &col_centers {
                             set_char(&mut arrow_row, center, '│');
-                            arrow_styles[center] = STYLE_EDGE;
+                            set_style(&mut arrow_styles, center, STYLE_EDGE);
                         }
 
                         // Draw horizontal arrow line
@@ -1220,7 +1226,7 @@ fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
                         if start <= end {
                             for x in start..=end {
                                 set_char(&mut arrow_row, x, line_char);
-                                arrow_styles[x] = STYLE_EDGE;
+                                set_style(&mut arrow_styles, x, STYLE_EDGE);
                             }
                         }
 
@@ -1232,7 +1238,7 @@ fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
                                 left_center
                             };
                             set_char(&mut arrow_row, head_pos, head_char);
-                            arrow_styles[head_pos] = STYLE_ARROW;
+                            set_style(&mut arrow_styles, head_pos, STYLE_ARROW);
                         }
 
                         lines.push(build_colored_line(&arrow_row, &arrow_styles, theme));
@@ -1243,12 +1249,12 @@ fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
                             let mut label_styles = vec![STYLE_NONE; total_width];
                             for &center in &col_centers {
                                 set_char(&mut label_row, center, '│');
-                                label_styles[center] = STYLE_EDGE;
+                                set_style(&mut label_styles, center, STYLE_EDGE);
                             }
                             let label_start = left_center + 2;
                             for (j, c) in label.chars().enumerate() {
                                 set_char(&mut label_row, label_start + j, c);
-                                label_styles[label_start + j] = STYLE_LABEL;
+                                set_style(&mut label_styles, label_start + j, STYLE_LABEL);
                             }
                             lines.push(build_colored_line(&label_row, &label_styles, theme));
                         }
@@ -1269,12 +1275,12 @@ fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
                     let mut note_top_styles = vec![STYLE_NONE; total_width];
                     for &center in &col_centers {
                         set_char(&mut note_top, center, '│');
-                        note_top_styles[center] = STYLE_EDGE;
+                        set_style(&mut note_top_styles, center, STYLE_EDGE);
                     }
                     for (j, c) in format!("┌{}┐", "─".repeat(note_width)).chars().enumerate()
                     {
                         set_char(&mut note_top, note_left + j, c);
-                        note_top_styles[note_left + j] = STYLE_BORDER;
+                        set_style(&mut note_top_styles, note_left + j, STYLE_BORDER);
                     }
                     lines.push(build_colored_line(&note_top, &note_top_styles, theme));
 
@@ -1282,7 +1288,7 @@ fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
                     let mut note_mid_styles = vec![STYLE_NONE; total_width];
                     for &center in &col_centers {
                         set_char(&mut note_mid, center, '│');
-                        note_mid_styles[center] = STYLE_EDGE;
+                        set_style(&mut note_mid_styles, center, STYLE_EDGE);
                     }
                     let pad = note_width.saturating_sub(text_width);
                     let lpad = pad / 2;
@@ -1291,9 +1297,9 @@ fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
                     for (j, c) in mid_str.chars().enumerate() {
                         set_char(&mut note_mid, note_left + j, c);
                         if j == 0 || j == mid_str.chars().count() - 1 {
-                            note_mid_styles[note_left + j] = STYLE_BORDER;
+                            set_style(&mut note_mid_styles, note_left + j, STYLE_BORDER);
                         } else {
-                            note_mid_styles[note_left + j] = STYLE_LABEL;
+                            set_style(&mut note_mid_styles, note_left + j, STYLE_LABEL);
                         }
                     }
                     lines.push(build_colored_line(&note_mid, &note_mid_styles, theme));
@@ -1302,12 +1308,12 @@ fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
                     let mut note_bot_styles = vec![STYLE_NONE; total_width];
                     for &center in &col_centers {
                         set_char(&mut note_bot, center, '│');
-                        note_bot_styles[center] = STYLE_EDGE;
+                        set_style(&mut note_bot_styles, center, STYLE_EDGE);
                     }
                     for (j, c) in format!("└{}┘", "─".repeat(note_width)).chars().enumerate()
                     {
                         set_char(&mut note_bot, note_left + j, c);
-                        note_bot_styles[note_left + j] = STYLE_BORDER;
+                        set_style(&mut note_bot_styles, note_left + j, STYLE_BORDER);
                     }
                     lines.push(build_colored_line(&note_bot, &note_bot_styles, theme));
                 }
@@ -1321,7 +1327,7 @@ fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
         let mut final_styles = vec![STYLE_NONE; total_width];
         for &center in &col_centers {
             set_char(&mut final_row, center, '│');
-            final_styles[center] = STYLE_EDGE;
+            set_style(&mut final_styles, center, STYLE_EDGE);
         }
         lines.push(build_colored_line(&final_row, &final_styles, theme));
     }
