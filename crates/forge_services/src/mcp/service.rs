@@ -103,12 +103,14 @@ where
     async fn init_mcp(&self) -> anyhow::Result<()> {
         let mcp = self.manager.read_mcp_config(None).await?;
 
-        // Fast path: if config is unchanged, skip reinitialization without acquiring the lock
+        // Fast path: if config is unchanged, skip reinitialization without acquiring
+        // the lock
         if !self.is_config_modified(&mcp).await {
             return Ok(());
         }
 
-        // Serialise concurrent initialisations so only one caller runs update_mcp at a time
+        // Serialise concurrent initialisations so only one caller runs update_mcp at a
+        // time
         let _guard = self.init_lock.lock().await;
 
         // Double-check under the lock: a concurrent caller may have already updated
@@ -121,7 +123,8 @@ where
 
     async fn update_mcp(&self, mcp: McpConfig) -> Result<(), anyhow::Error> {
         // Compute the hash early before mcp is consumed, but write it only after
-        // all connections are established so waiters on init_lock see a consistent state.
+        // all connections are established so waiters on init_lock see a consistent
+        // state.
         let new_hash = mcp.cache_key();
         self.clear_tools().await;
 
