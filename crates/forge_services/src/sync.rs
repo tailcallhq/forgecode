@@ -298,37 +298,35 @@ impl<F: 'static + WorkspaceIndexRepository + FileReaderInfra, D: FileDiscovery +
                 let infra = infra.clone();
                 async move {
                     let attempted = batch.len();
-                    let result = Self::upload_batch(&infra, &user_id, &workspace_id, &token, batch)
-                        .await;
+                    let result = async {
+                        let mut files = Vec::with_capacity(attempted);
+                        for file_path in &batch {
+                            let content = infra.read_utf8(file_path).await.with_context(|| {
+                                format!(
+                                    "Failed to read file '{}' for upload",
+                                    file_path.display()
+                                )
+                            })?;
+                            files.push(forge_domain::FileRead::new(
+                                file_path.to_string_lossy().into_owned(),
+                                content,
+                            ));
+                        }
+                        let upload = forge_domain::CodeBase::new(
+                            user_id.clone(),
+                            workspace_id.clone(),
+                            files,
+                        );
+                        infra
+                            .upload_files(&upload, &token)
+                            .await
+                            .context("Failed to upload files")?;
+                        Ok::<_, anyhow::Error>(())
+                    }
+                    .await;
                     (attempted, result)
                 }
             })
-    }
-
-    /// Reads and uploads a single batch of files in one HTTP request.
-    async fn upload_batch(
-        infra: &Arc<F>,
-        user_id: &UserId,
-        workspace_id: &WorkspaceId,
-        token: &ApiKey,
-        batch: Vec<PathBuf>,
-    ) -> Result<()> {
-        let mut files = Vec::with_capacity(batch.len());
-        for file_path in &batch {
-            let content = infra.read_utf8(file_path).await.with_context(|| {
-                format!("Failed to read file '{}' for upload", file_path.display())
-            })?;
-            files.push(forge_domain::FileRead::new(
-                file_path.to_string_lossy().into_owned(),
-                content,
-            ));
-        }
-        let upload = forge_domain::CodeBase::new(user_id.clone(), workspace_id.clone(), files);
-        infra
-            .upload_files(&upload, token)
-            .await
-            .context("Failed to upload files")?;
-        Ok(())
     }
 
     /// Discovers workspace files and streams their hashes without retaining
