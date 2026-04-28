@@ -140,6 +140,12 @@ function forge-accept-line() {
     #
     # Naming convention: shell commands should follow Object-Action (e.g., provider-login).
     #
+    # ZLE-dispatched Forge commands bypass zsh preexec/precmd hooks, so emit
+    # OSC 133 markers explicitly. Ghostty uses these markers to distinguish the
+    # prompt from command output during window resize/reflow.
+    _forge_osc133_emit "B"
+    _forge_osc133_emit "C"
+    
     # Dispatch to appropriate action handler using pattern matching
     case "$user_action" in
         new|n)
@@ -201,21 +207,30 @@ function forge-accept-line() {
         ;;
         edit|ed)
             _forge_action_editor "$input_text"
+            local action_status=$?
+            _forge_osc133_emit "D;$action_status"
+            _forge_osc133_emit "A"
             # Note: editor action intentionally modifies BUFFER and handles its own prompt reset
-            return
+            return $action_status
         ;;
         commit)
             _forge_action_commit "$input_text"
         ;;
         commit-preview)
             _forge_action_commit_preview "$input_text"
+            local action_status=$?
+            _forge_osc133_emit "D;$action_status"
+            _forge_osc133_emit "A"
             # Note: commit action intentionally modifies BUFFER and handles its own prompt reset
-            return
+            return $action_status
         ;;
         suggest|s)
             _forge_action_suggest "$input_text"
+            local action_status=$?
+            _forge_osc133_emit "D;$action_status"
+            _forge_osc133_emit "A"
             # Note: suggest action intentionally modifies BUFFER and handles its own prompt reset
-            return
+            return $action_status
         ;;
         clone)
             _forge_action_clone "$input_text"
@@ -252,8 +267,13 @@ function forge-accept-line() {
         ;;
     esac
     
+    local action_status=$?
+    _forge_osc133_emit "D;$action_status"
+    _forge_osc133_emit "A"
+    
     # Centralized reset after all actions complete
     # This ensures consistent prompt state without requiring each action to call _forge_reset
     # Exceptions: editor, commit-preview, and suggest actions return early as they intentionally modify BUFFER
     _forge_reset
+    return $action_status
 }

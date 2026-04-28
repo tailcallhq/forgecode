@@ -33,7 +33,7 @@ function _forge_osc133_should_emit() {
             if [[ -n "${KITTY_PID:-}" ]]; then _FORGE_TERM_OSC133_CACHED="1"; return 0; fi
             # Detect by TERM_PROGRAM
             case "${TERM_PROGRAM:-}" in
-                WezTerm|iTerm.app|vscode) _FORGE_TERM_OSC133_CACHED="1"; return 0 ;;
+                WezTerm|iTerm.app|vscode|WarpTerminal) _FORGE_TERM_OSC133_CACHED="1"; return 0 ;;
             esac
             # Foot terminal
             if [[ "${TERM:-}" == "foot"* ]]; then _FORGE_TERM_OSC133_CACHED="1"; return 0; fi

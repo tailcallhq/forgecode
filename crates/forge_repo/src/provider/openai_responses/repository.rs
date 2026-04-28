@@ -10,13 +10,14 @@ use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{BoxStream, ChatRepository, Provider};
 use forge_infra::sanitize_headers;
 use futures::StreamExt;
+use reqwest::StatusCode;
 use reqwest::header::AUTHORIZATION;
 use tracing::info;
 use url::Url;
 
 use crate::provider::FromDomain;
 use crate::provider::retry::into_retry;
-use crate::provider::utils::{create_headers, format_http_context};
+use crate::provider::utils::{create_headers, format_http_context, read_http_error_reason};
 
 #[derive(Clone)]
 pub(super) struct OpenAIResponsesProvider<H> {
@@ -72,16 +73,21 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
 
     fn get_headers_for_conversation(&self, conversation_id: Option<&str>) -> Vec<(String, String)> {
         let mut headers = Vec::new();
-        if let Some(api_key) = self
-            .provider
-            .credential
-            .as_ref()
-            .map(|c| match &c.auth_details {
-                forge_domain::AuthDetails::ApiKey(key) => key.as_str(),
-                forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => api_key.as_str(),
-                forge_domain::AuthDetails::OAuth { tokens, .. } => tokens.access_token.as_str(),
-                forge_domain::AuthDetails::GoogleAdc(token) => token.as_str(),
-            })
+        if let Some(api_key) =
+            self.provider
+                .credential
+                .as_ref()
+                .and_then(|c| match &c.auth_details {
+                    forge_domain::AuthDetails::ApiKey(key) => Some(key.as_str()),
+                    forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => {
+                        Some(api_key.as_str())
+                    }
+                    forge_domain::AuthDetails::OAuth { tokens, .. } => {
+                        Some(tokens.access_token.as_str())
+                    }
+                    forge_domain::AuthDetails::GoogleAdc(token) => Some(token.as_str()),
+                    forge_domain::AuthDetails::AwsProfile(_) => None,
+                })
         {
             headers.push((AUTHORIZATION.to_string(), format!("Bearer {api_key}")));
         }
@@ -112,6 +118,7 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
                     }
                 }
                 forge_domain::AuthMethod::GoogleAdc => {}
+                forge_domain::AuthMethod::AwsProfile => {}
             });
 
         // Codex provider requires the ChatGPT-Account-Id header extracted
@@ -189,43 +196,60 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
 
         // Parse SSE stream into domain messages and convert to domain type
         use reqwest_eventsource::Event;
+        let url = self.responses_url.clone();
         let event_stream = source
             .take_while(|message| {
                 let should_continue =
                     !matches!(message, Err(reqwest_eventsource::Error::StreamEnded));
                 async move { should_continue }
             })
-            .filter_map(|event_result| async move {
-                match event_result {
-                    Ok(Event::Open) => None,
-                    Ok(Event::Message(msg)) if ["[DONE]", ""].contains(&msg.data.as_str()) => None,
-                    Ok(Event::Message(msg)) => {
-                        let result = serde_json::from_str::<super::response::ResponsesStreamEvent>(
-                            &msg.data,
-                        )
-                        .with_context(|| format!("Failed to parse SSE event: {}", msg.data));
+            .filter_map(move |event_result| {
+                let url = url.clone();
+                async move {
+                    match event_result {
+                        Ok(Event::Open) => None,
+                        Ok(Event::Message(msg)) if ["[DONE]", ""].contains(&msg.data.as_str()) => {
+                            None
+                        }
+                        Ok(Event::Message(msg)) => {
+                            let result = serde_json::from_str::<
+                                super::response::ResponsesStreamEvent,
+                            >(&msg.data)
+                            .with_context(|| format!("Failed to parse SSE event: {}", msg.data));
 
-                        match result {
-                            Ok(super::response::ResponsesStreamEvent::Keepalive { .. }) => None,
-                            Ok(super::response::ResponsesStreamEvent::Ping { cost }) => {
-                                let usage =
-                                    forge_domain::Usage { cost: Some(cost), ..Default::default() };
-                                Some(Ok(super::response::StreamItem::Message(Box::new(
-                                    ChatCompletionMessage::assistant(forge_domain::Content::part(
-                                        "",
-                                    ))
-                                    .usage(usage),
-                                ))))
+                            match result {
+                                Ok(super::response::ResponsesStreamEvent::Keepalive { .. }) => None,
+                                Ok(super::response::ResponsesStreamEvent::Ping { cost }) => {
+                                    let usage = forge_domain::Usage {
+                                        cost: Some(cost),
+                                        ..Default::default()
+                                    };
+                                    Some(Ok(super::response::StreamItem::Message(Box::new(
+                                        ChatCompletionMessage::assistant(
+                                            forge_domain::Content::part(""),
+                                        )
+                                        .usage(usage),
+                                    ))))
+                                }
+                                Ok(super::response::ResponsesStreamEvent::Unknown(_)) => None,
+                                Ok(super::response::ResponsesStreamEvent::Response(inner)) => {
+                                    Some(Ok(super::response::StreamItem::Event(inner)))
+                                }
+                                Err(e) => Some(Err(e)),
                             }
-                            Ok(super::response::ResponsesStreamEvent::Unknown(_)) => None,
-                            Ok(super::response::ResponsesStreamEvent::Response(inner)) => {
-                                Some(Ok(super::response::StreamItem::Event(inner)))
-                            }
-                            Err(e) => Some(Err(e)),
+                        }
+                        Err(reqwest_eventsource::Error::StreamEnded) => None,
+                        Err(reqwest_eventsource::Error::InvalidStatusCode(_, response))
+                        | Err(reqwest_eventsource::Error::InvalidContentType(_, response)) => {
+                            let (_, reason) = read_http_error_reason(response).await;
+                            Some(Err(anyhow::anyhow!(reason)
+                                .context(format_http_context(None, "POST", &url))))
+                        }
+                        Err(e) => {
+                            Some(Err(anyhow::Error::from(e)
+                                .context(format_http_context(None, "POST", &url))))
                         }
                     }
-                    Err(reqwest_eventsource::Error::StreamEnded) => None,
-                    Err(e) => Some(Err(anyhow::Error::from(e))),
                 }
             });
 
@@ -255,7 +279,7 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unable to read response body".to_string());
-            return Err(anyhow::anyhow!(error_body))
+            return Err(status_code_error(status, error_body))
                 .with_context(|| format_http_context(Some(status), "POST", &self.responses_url));
         }
 
@@ -301,6 +325,13 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
         let stream: BoxStream<super::response::StreamItem, anyhow::Error> = Box::pin(event_stream);
         stream.into_domain()
     }
+}
+
+fn status_code_error(status: StatusCode, body: String) -> anyhow::Error {
+    anyhow::Error::from(forge_app::dto::openai::Error::InvalidStatusCode(
+        status.as_u16(),
+    ))
+    .context(body)
 }
 
 fn into_sse_parse_error<E>(error: eventsource_stream::EventStreamError<E>) -> anyhow::Error
@@ -433,11 +464,13 @@ mod tests {
         Content, Context as ChatContext, ContextMessage, FinishReason, ModelId, Provider,
         ProviderId, ProviderResponse,
     };
+    use pretty_assertions::assert_eq;
     use tokio_stream::StreamExt;
     use url::Url;
 
     use super::*;
     use crate::provider::mock_server::MockServer;
+    use crate::provider::retry;
 
     fn is_retryable(error: &anyhow::Error) -> bool {
         error
@@ -576,6 +609,26 @@ mod tests {
                 "output_tokens_details": {"reasoning_tokens": 0}
             }
         })
+    }
+
+    #[test]
+    fn test_status_code_error_preserves_retryable_status_code() {
+        let fixture = StatusCode::SERVICE_UNAVAILABLE;
+
+        let actual = status_code_error(fixture, "Connection refused".to_string());
+
+        let expected = Some(503);
+        assert_eq!(retry::get_api_status_code(&actual), expected);
+    }
+
+    #[test]
+    fn test_status_code_error_preserves_body_context() {
+        let fixture = "Connection refused".to_string();
+
+        let actual = status_code_error(StatusCode::SERVICE_UNAVAILABLE, fixture.clone());
+
+        let expected = true;
+        assert_eq!(actual.to_string().contains(&fixture), expected);
     }
 
     #[test]
@@ -1519,6 +1572,84 @@ mod tests {
 
         assert!(actual.is_err());
 
+        Ok(())
+    }
+
+    /// Tests that when the SSE endpoint returns a non-2xx status the stream
+    /// error includes both the response body and the URL.
+    #[tokio::test]
+    async fn test_stream_error_on_non_success_includes_body_and_url() -> anyhow::Result<()> {
+        let mut fixture = MockServer::new().await;
+        let error_body = r#"{"error":{"message":"The requested model is not supported.","code":"model_not_supported"}}"#;
+        let _mock = fixture
+            .mock_post_error("/v1/responses", error_body, 400)
+            .await;
+
+        let provider = openai_responses(
+            "test-api-key",
+            &format!("{}/v1/chat/completions", fixture.url()),
+        );
+        let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
+        let provider_impl = OpenAIResponsesProvider::new(provider, infra);
+        let context = ChatContext::default()
+            .add_message(ContextMessage::user("Hi", None))
+            .stream(true);
+
+        let mut stream = provider_impl
+            .chat(&ModelId::from("gpt-4o"), context)
+            .await?;
+
+        let actual = stream.next().await.expect("stream should yield one item");
+        assert!(actual.is_err());
+        let err_str = format!("{:#}", actual.unwrap_err());
+        assert!(
+            err_str.contains("400 Bad Request Reason:"),
+            "missing reason: {err_str}"
+        );
+        assert!(
+            err_str.contains("model_not_supported"),
+            "missing body: {err_str}"
+        );
+        assert!(err_str.contains("/v1/responses"), "missing url: {err_str}");
+        Ok(())
+    }
+
+    /// Tests that when the SSE endpoint returns 200 with a non-SSE content type
+    /// the stream error includes the response body and the URL.
+    #[tokio::test]
+    async fn test_stream_error_on_wrong_content_type_includes_body_and_url() -> anyhow::Result<()> {
+        let mut fixture = MockServer::new().await;
+        let error_body = r#"{"error":{"message":"internal server error"}}"#;
+        let _mock = fixture
+            .mock_post_wrong_content_type("/v1/responses", error_body)
+            .await;
+
+        let provider = openai_responses(
+            "test-api-key",
+            &format!("{}/v1/chat/completions", fixture.url()),
+        );
+        let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
+        let provider_impl = OpenAIResponsesProvider::new(provider, infra);
+        let context = ChatContext::default()
+            .add_message(ContextMessage::user("Hi", None))
+            .stream(true);
+
+        let mut stream = provider_impl
+            .chat(&ModelId::from("gpt-4o"), context)
+            .await?;
+
+        let actual = stream.next().await.expect("stream should yield one item");
+        assert!(actual.is_err());
+        let err_str = format!("{:#}", actual.unwrap_err());
+        assert!(
+            err_str.contains("200 OK Reason:"),
+            "missing reason: {err_str}"
+        );
+        assert!(
+            err_str.contains("internal server error"),
+            "missing body: {err_str}"
+        );
+        assert!(err_str.contains("/v1/responses"), "missing url: {err_str}");
         Ok(())
     }
 }

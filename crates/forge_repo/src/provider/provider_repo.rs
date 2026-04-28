@@ -79,6 +79,33 @@ struct ProviderConfig {
     custom_headers: Option<std::collections::HashMap<String, String>>,
 }
 
+/// Maps new environment variable names to their legacy fallback names.
+/// This enables backward compatibility when renaming env vars (e.g. OLLAMA_URL
+/// → OLLAMA_HOST).
+fn legacy_env_var_fallback(new_name: &str) -> Option<&'static str> {
+    match new_name {
+        "OLLAMA_HOST" => Some("OLLAMA_URL"),
+        "VLLM_HOST" => Some("VLLM_URL"),
+        "LM_STUDIO_HOST" => Some("LM_STUDIO_URL"),
+        "LLAMA_CPP_HOST" => Some("LLAMA_CPP_URL"),
+        "JAN_AI_HOST" => Some("JAN_AI_URL"),
+        _ => None,
+    }
+}
+
+/// Returns the default value for URL parameters that should be optional during
+/// environment migration.
+fn default_url_param_value(name: &str) -> Option<&'static str> {
+    match name {
+        "OLLAMA_SSL_SCHEME"
+        | "VLLM_SSL_SCHEME"
+        | "LM_STUDIO_SSL_SCHEME"
+        | "LLAMA_CPP_SSL_SCHEME"
+        | "JAN_AI_SSL_SCHEME" => Some("http"),
+        _ => None,
+    }
+}
+
 fn overwrite<T>(base: &mut T, other: T) {
     *base = other;
 }
@@ -351,8 +378,20 @@ impl<
 
         for env_var in &config.url_param_vars {
             let name = env_var.param_name();
-            if let Some(value) = self.infra.get_env_var(name) {
+            let value = self
+                .infra
+                .get_env_var(name)
+                // Fall back to legacy env var name for backward compatibility
+                .or_else(|| {
+                    legacy_env_var_fallback(name).and_then(|legacy| self.infra.get_env_var(legacy))
+                });
+            if let Some(value) = value {
                 url_params.insert(URLParam::from(name.to_string()), URLParamValue::from(value));
+            } else if let Some(value) = default_url_param_value(name) {
+                url_params.insert(
+                    URLParam::from(name.to_string()),
+                    URLParamValue::from(value.to_string()),
+                );
             } else {
                 return Err(Error::env_var_not_found(config.id.clone(), name).into());
             }
@@ -606,6 +645,21 @@ mod tests {
             openrouter_config.url.as_str(),
             "https://openrouter.ai/api/v1/chat/completions"
         );
+
+        let vivgrid_config = configs
+            .iter()
+            .find(|c| c.id == ProviderId::VIVGRID)
+            .unwrap();
+        assert_eq!(vivgrid_config.api_key_vars, Some("VIVGRID_KEY".to_string()));
+        assert!(vivgrid_config.url_param_vars.is_empty());
+        assert_eq!(
+            vivgrid_config.response_type,
+            Some(ProviderResponse::OpenAIResponses)
+        );
+        assert_eq!(
+            vivgrid_config.url.as_str(),
+            "https://api.vivgrid.com/v1/responses"
+        );
     }
 
     #[test]
@@ -763,6 +817,20 @@ mod tests {
         assert_eq!(
             config.url.as_str(),
             "https://api.intelligence.io.solutions/api/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_nvidia_config() {
+        let configs = get_provider_configs();
+        let config = configs.iter().find(|c| c.id == ProviderId::NVIDIA).unwrap();
+        assert_eq!(config.id, ProviderId::NVIDIA);
+        assert_eq!(config.api_key_vars, Some("NVIDIA_API_KEY".to_string()));
+        assert!(config.url_param_vars.is_empty());
+        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(
+            config.url.as_str(),
+            "https://integrate.api.nvidia.com/v1/chat/completions"
         );
     }
 }
@@ -1260,6 +1328,193 @@ mod env_tests {
         assert_eq!(
             anthropic_provider.url.template,
             "https://api.anthropic.com/v1/messages"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_migration_ollama_with_new_env_var() {
+        // New users use OLLAMA_HOST
+        let mut env_vars = HashMap::new();
+        env_vars.insert("OLLAMA_API_KEY".to_string(), "ollama-key".to_string());
+        env_vars.insert("OLLAMA_HOST".to_string(), "http://localhost".to_string());
+        env_vars.insert("OLLAMA_PORT".to_string(), "11434".to_string());
+
+        let infra = Arc::new(MockInfra::new(env_vars));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry.migrate_env_to_file().await.unwrap();
+
+        let credentials = infra.credentials.lock().await;
+        let creds = credentials.as_ref().unwrap();
+
+        let ollama_id = ProviderId::from("ollama".to_string());
+        let ollama_cred = creds.iter().find(|c| c.id == ollama_id).unwrap();
+        assert_eq!(
+            ollama_cred
+                .url_params
+                .get(&URLParam::from("OLLAMA_SSL_SCHEME".to_string()))
+                .map(|v| v.as_str()),
+            Some("http")
+        );
+        assert_eq!(
+            ollama_cred
+                .url_params
+                .get(&URLParam::from("OLLAMA_HOST".to_string()))
+                .map(|v| v.as_str()),
+            Some("http://localhost")
+        );
+        assert_eq!(
+            ollama_cred
+                .url_params
+                .get(&URLParam::from("OLLAMA_PORT".to_string()))
+                .map(|v| v.as_str()),
+            Some("11434")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_migration_ollama_with_legacy_env_var() {
+        // Old users still use OLLAMA_URL (backward compat)
+        let mut env_vars = HashMap::new();
+        env_vars.insert("OLLAMA_API_KEY".to_string(), "ollama-key".to_string());
+        env_vars.insert("OLLAMA_URL".to_string(), "http://localhost".to_string());
+        env_vars.insert("OLLAMA_PORT".to_string(), "11434".to_string());
+
+        let infra = Arc::new(MockInfra::new(env_vars));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry.migrate_env_to_file().await.unwrap();
+
+        let credentials = infra.credentials.lock().await;
+        let creds = credentials.as_ref().unwrap();
+
+        let ollama_id = ProviderId::from("ollama".to_string());
+        let ollama_cred = creds.iter().find(|c| c.id == ollama_id).unwrap();
+        // Should still be stored under OLLAMA_HOST key (the new param name)
+        assert_eq!(
+            ollama_cred
+                .url_params
+                .get(&URLParam::from("OLLAMA_HOST".to_string()))
+                .map(|v| v.as_str()),
+            Some("http://localhost")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_migration_ollama_new_env_var_takes_precedence_over_legacy() {
+        // If both OLLAMA_HOST and OLLAMA_URL are set, OLLAMA_HOST wins
+        let mut env_vars = HashMap::new();
+        env_vars.insert("OLLAMA_API_KEY".to_string(), "ollama-key".to_string());
+        env_vars.insert("OLLAMA_HOST".to_string(), "http://new-host".to_string());
+        env_vars.insert("OLLAMA_URL".to_string(), "http://old-host".to_string());
+        env_vars.insert("OLLAMA_PORT".to_string(), "11434".to_string());
+
+        let infra = Arc::new(MockInfra::new(env_vars));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry.migrate_env_to_file().await.unwrap();
+
+        let credentials = infra.credentials.lock().await;
+        let creds = credentials.as_ref().unwrap();
+
+        let ollama_id = ProviderId::from("ollama".to_string());
+        let ollama_cred = creds.iter().find(|c| c.id == ollama_id).unwrap();
+        assert_eq!(
+            ollama_cred
+                .url_params
+                .get(&URLParam::from("OLLAMA_HOST".to_string()))
+                .map(|v| v.as_str()),
+            Some("http://new-host")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_migration_vllm_with_legacy_env_var() {
+        let mut env_vars = HashMap::new();
+        env_vars.insert("VLLM_API_KEY".to_string(), "vllm-key".to_string());
+        env_vars.insert("VLLM_URL".to_string(), "http://vllm-host".to_string());
+        env_vars.insert("VLLM_PORT".to_string(), "8000".to_string());
+
+        let infra = Arc::new(MockInfra::new(env_vars));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry.migrate_env_to_file().await.unwrap();
+
+        let credentials = infra.credentials.lock().await;
+        let creds = credentials.as_ref().unwrap();
+
+        let vllm_id = ProviderId::from("vllm".to_string());
+        let vllm_cred = creds.iter().find(|c| c.id == vllm_id).unwrap();
+        assert_eq!(
+            vllm_cred
+                .url_params
+                .get(&URLParam::from("VLLM_HOST".to_string()))
+                .map(|v| v.as_str()),
+            Some("http://vllm-host")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_migration_lm_studio_with_legacy_env_var() {
+        let mut env_vars = HashMap::new();
+        env_vars.insert("LM_STUDIO_API_KEY".to_string(), "lm-key".to_string());
+        env_vars.insert("LM_STUDIO_URL".to_string(), "http://lm-host".to_string());
+        env_vars.insert("LM_STUDIO_PORT".to_string(), "1234".to_string());
+
+        let infra = Arc::new(MockInfra::new(env_vars));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry.migrate_env_to_file().await.unwrap();
+
+        let credentials = infra.credentials.lock().await;
+        let creds = credentials.as_ref().unwrap();
+
+        let cred_id = ProviderId::from("lm_studio".to_string());
+        let cred = creds.iter().find(|c| c.id == cred_id).unwrap();
+        assert_eq!(
+            cred.url_params
+                .get(&URLParam::from("LM_STUDIO_HOST".to_string()))
+                .map(|v| v.as_str()),
+            Some("http://lm-host")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ollama_config_uses_new_host_param() {
+        let configs = get_provider_configs();
+        let ollama_id = ProviderId::from("ollama".to_string());
+        let config = configs.iter().find(|c| c.id == ollama_id).unwrap();
+        assert_eq!(
+            config
+                .url_param_vars
+                .iter()
+                .map(|v| v.param_name())
+                .collect::<Vec<_>>(),
+            vec!["OLLAMA_SSL_SCHEME", "OLLAMA_HOST", "OLLAMA_PORT"]
+        );
+        assert!(config.url.contains("{{OLLAMA_SSL_SCHEME}}://"));
+        assert!(config.url.contains("{{OLLAMA_HOST}}"));
+        assert!(!config.url.contains("{{OLLAMA_URL}}"));
+    }
+
+    #[tokio::test]
+    async fn test_ollama_ssl_scheme_config_uses_options() {
+        let configs = get_provider_configs();
+        let ollama_id = ProviderId::from("ollama".to_string());
+        let config = configs.iter().find(|c| c.id == ollama_id).unwrap();
+        let ssl_scheme = config
+            .url_param_vars
+            .iter()
+            .find(|v| v.param_name() == "OLLAMA_SSL_SCHEME")
+            .unwrap()
+            .clone()
+            .into_spec();
+        assert_eq!(
+            ssl_scheme,
+            URLParamSpec::with_options(
+                URLParam::from("OLLAMA_SSL_SCHEME".to_string()),
+                vec!["http".to_string(), "https".to_string()]
+            )
         );
     }
 
