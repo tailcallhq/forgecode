@@ -17,6 +17,8 @@ pub enum AuthMethod {
     AwsProfile,
     #[serde(rename = "codex_device")]
     CodexDevice(OAuthConfig),
+    #[serde(rename = "command")]
+    Command { command: String, cache: bool },
 }
 
 impl AuthMethod {
@@ -42,7 +44,7 @@ impl AuthMethod {
             Self::OAuthDevice(config) | Self::OAuthCode(config) | Self::CodexDevice(config) => {
                 Some(config)
             }
-            Self::ApiKey | Self::GoogleAdc | Self::AwsProfile => None,
+            Self::ApiKey | Self::GoogleAdc | Self::AwsProfile | Self::Command { .. } => None,
         }
     }
 }
@@ -112,5 +114,28 @@ mod tests {
             actual.oauth_config().unwrap().client_id.as_str(),
             "app_EMoamEEZ73f0CkXaXp7hrann"
         );
+    }
+
+    #[test]
+    fn test_command_auth_method_serde_roundtrip() {
+        let method = AuthMethod::Command { command: "az token".to_string(), cache: true };
+        let serialized = serde_json::to_string(&method).unwrap();
+        let actual: AuthMethod = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(actual, method);
+    }
+
+    #[test]
+    fn test_command_no_cache_auth_method_serde_roundtrip() {
+        let method = AuthMethod::Command { command: "az token".to_string(), cache: false };
+        let serialized = serde_json::to_string(&method).unwrap();
+        let actual: AuthMethod = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(actual, method);
+    }
+
+    #[test]
+    fn test_command_auth_method_oauth_config_returns_none() {
+        let method = AuthMethod::Command { command: "az token".to_string(), cache: true };
+        let actual = method.oauth_config();
+        assert_eq!(actual, None);
     }
 }

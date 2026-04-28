@@ -3240,6 +3240,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 AuthMethod::GoogleAdc => "Google Application Default Credentials (ADC)".to_string(),
                 AuthMethod::AwsProfile => "AWS Profile (SSO/IAM)".to_string(),
                 AuthMethod::CodexDevice(_) => "OpenAI Codex Device Flow".to_string(),
+                AuthMethod::Command { .. } => "Command-based Authentication".to_string(),
             })
             .collect();
 
