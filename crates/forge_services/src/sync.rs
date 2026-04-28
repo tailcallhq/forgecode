@@ -410,7 +410,9 @@ mod tests {
     struct NoDiscovery;
     #[async_trait]
     impl FileDiscovery for NoDiscovery {
-        async fn discover(&self, _: &Path) -> anyhow::Result<Vec<PathBuf>> { Ok(vec![]) }
+        async fn discover(&self, _: &Path) -> anyhow::Result<Vec<PathBuf>> {
+            Ok(vec![])
+        }
     }
 
     fn fixture(fail_upload: bool) -> WorkspaceSyncEngine<MockInfra, NoDiscovery> {
