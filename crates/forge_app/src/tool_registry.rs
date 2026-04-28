@@ -245,7 +245,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
         let agent_tools = self.agent_executor.agent_definitions().await?;
 
         // Get agents for template rendering in Task tool description
-        let agents = self.services.get_agents().await?;
+        let mut agents = self.services.get_agents().await?;
 
         // Check if current working directory is indexed
         let environment = self.services.get_environment();
@@ -258,6 +258,15 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
 
         // Build TemplateConfig from ForgeConfig for tool description templates
         let config = self.services.get_config()?;
+
+        // Filter out research subagents from task tool description when disabled
+        if !config.research_subagent {
+            agents.retain(|agent| {
+                let id = agent.id.as_str();
+                id != "sage" && id != "agent"
+            });
+        }
+
         let template_config = TemplateConfig {
             max_read_size: config.max_read_lines as usize,
             max_line_length: config.max_line_chars,

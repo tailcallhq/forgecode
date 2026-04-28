@@ -38,7 +38,7 @@ fn test_stringified_tool_call_arguments_roundtrip() {
                         {
                             "name": "read",
                             "call_id": "call_001",
-                            "arguments": "{\"file_path\": \"/test/path\", \"start_line\": 1, \"end_line\": 10}"
+                            "arguments": "{\"file_path\": \"/test/path\", \"range\": {\"start_line\": 1, \"end_line\": 10}}"
                         }
                     ]
                 }
@@ -72,7 +72,7 @@ fn test_stringified_tool_call_arguments_roundtrip() {
     // Verify arguments are parsed correctly (can access fields)
     let parsed_args = tool_call.arguments.parse().expect("Should parse arguments");
     assert_eq!(parsed_args["file_path"], "/test/path");
-    assert_eq!(parsed_args["start_line"], 1);
+    assert_eq!(parsed_args["range"]["start_line"], 1);
 
     // Now serialize the context back to JSON (as we would send to API)
     let serialized = serde_json::to_string(&context).expect("Should serialize");
@@ -106,8 +106,8 @@ fn test_stringified_tool_call_arguments_roundtrip() {
 
     // Verify the values are preserved correctly
     assert_eq!(args["file_path"], "/test/path");
-    assert_eq!(args["start_line"], 1);
-    assert_eq!(args["end_line"], 10);
+    assert_eq!(args["range"]["start_line"], 1);
+    assert_eq!(args["range"]["end_line"], 10);
 
     println!("SUCCESS: Stringified arguments properly converted to JSON object");
 }
@@ -275,7 +275,7 @@ fn test_regular_json_objects_unchanged() {
                         {
                             "name": "read",
                             "call_id": "call_001",
-                            "arguments": {"file_path": "/test/path", "start_line": 1}
+                            "arguments": {"file_path": "/test/path", "range": {"start_line": 1, "end_line": 10}}
                         }
                     ]
                 }
@@ -307,7 +307,7 @@ fn test_regular_json_objects_unchanged() {
         "Regular JSON objects should remain as objects"
     );
     assert_eq!(args["file_path"], "/test/path");
-    assert_eq!(args["start_line"], 1);
+    assert_eq!(args["range"]["start_line"], 1);
 
     println!("SUCCESS: Regular JSON objects work correctly");
 }

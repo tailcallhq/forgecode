@@ -5,6 +5,7 @@ use url::Url;
 
 use super::default_reasoning_content::DefaultReasoningContent;
 use super::drop_tool_call::DropToolCalls;
+use super::ensure_system_first::MergeSystemMessages;
 use super::github_copilot_reasoning::GitHubCopilotReasoning;
 use super::make_cerebras_compat::MakeCerebrasCompat;
 use super::make_openai_compat::MakeOpenAiCompat;
@@ -58,8 +59,11 @@ impl Transformer for ProviderPipeline<'_> {
 
         let open_ai_compat = MakeOpenAiCompat.when(move |_| !supports_open_router_params(provider));
 
-        let set_reasoning_effort = SetReasoningEffort.when(move |_| {
-            provider.id == ProviderId::REQUESTY || provider.id == ProviderId::GITHUB_COPILOT
+        let set_reasoning_effort = SetReasoningEffort.when(move |request: &Request| {
+            provider.id == ProviderId::REQUESTY
+                || provider.id == ProviderId::GITHUB_COPILOT
+                || is_deepseek_compatible(provider, request)
+                || provider.id == ProviderId::NVIDIA
         });
 
         let github_copilot_reasoning =
@@ -67,16 +71,19 @@ impl Transformer for ProviderPipeline<'_> {
 
         let reasoning_content = ReasoningContent.when(move |request: &Request| {
             provider.id == ProviderId::FIREWORKS_AI
-                || is_deepseek_provider(provider)
+                || is_deepseek_compatible(provider, request)
                 || when_model("kimi")(request)
         });
 
-        let default_reasoning_content =
-            DefaultReasoningContent.when(move |_| is_deepseek_provider(provider));
+        let default_reasoning_content = DefaultReasoningContent
+            .when(move |request: &Request| is_deepseek_compatible(provider, request));
 
         let cerebras_compat = MakeCerebrasCompat.when(move |_| provider.id == ProviderId::CEREBRAS);
 
         let xai_compat = MakeXaiCompat.when(move |_| provider.id == ProviderId::XAI);
+
+        let ensure_system_first =
+            MergeSystemMessages.when(move |_| provider.id == ProviderId::NVIDIA);
 
         let trim_tool_call_ids = TrimToolCallIds.when(move |_| provider.id == ProviderId::OPENAI);
 
@@ -101,6 +108,7 @@ impl Transformer for ProviderPipeline<'_> {
             .pipe(default_reasoning_content)
             .pipe(cerebras_compat)
             .pipe(xai_compat)
+            .pipe(ensure_system_first)
             .pipe(trim_tool_call_ids)
             .pipe(strict_schema)
             .pipe(NormalizeToolSchema);
@@ -117,6 +125,24 @@ fn is_zai_provider(provider: &Provider<Url>) -> bool {
 /// a flat reasoning_content field.
 fn is_deepseek_provider(provider: &Provider<Url>) -> bool {
     provider.id.as_ref() == "deepseek"
+}
+
+/// Checks if a request should use DeepSeek-style reasoning replay.
+///
+/// This matches:
+/// - Direct DeepSeek provider (any model)
+/// - OpenCode Go provider with a DeepSeek model (e.g. `deepseek-v4-flash`)
+fn is_deepseek_compatible(provider: &Provider<Url>, request: &Request) -> bool {
+    if is_deepseek_provider(provider) {
+        return true;
+    }
+    if provider.id == ProviderId::OPENCODE_GO {
+        return request
+            .model
+            .as_ref()
+            .is_some_and(|m| m.as_str().contains("deepseek"));
+    }
+    false
 }
 
 /// Checks if the request model is a gemini-3 model (which supports thought
@@ -326,6 +352,20 @@ mod tests {
             models: Some(ModelSource::Url(
                 Url::parse("https://api.deepseek.com/models").unwrap(),
             )),
+        }
+    }
+
+    fn opencode_go(key: &str) -> Provider<Url> {
+        Provider {
+            id: ProviderId::OPENCODE_GO,
+            provider_type: Default::default(),
+            response: Some(ProviderResponse::OpenCode),
+            url: Url::parse("https://opencode.ai/zen/go").unwrap(),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            credential: make_credential(ProviderId::OPENCODE_GO, key),
+            custom_headers: None,
+            models: Some(ModelSource::Hardcoded(vec![])),
         }
     }
 
@@ -903,6 +943,154 @@ mod tests {
 
         let message = actual.messages.unwrap().into_iter().next().unwrap();
         assert_eq!(message.reasoning_content, Some(String::new()));
+    }
+
+    #[test]
+    fn test_deepseek_provider_applies_reasoning_effort() {
+        let provider = deepseek("deepseek");
+        let fixture = Request::default().reasoning(forge_domain::ReasoningConfig {
+            enabled: Some(true),
+            effort: Some(forge_domain::Effort::High),
+            max_tokens: None,
+            exclude: None,
+        });
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        assert_eq!(actual.reasoning_effort, Some("high".to_string()));
+        assert_eq!(actual.reasoning, None);
+    }
+
+    #[test]
+    fn test_deepseek_provider_sets_reasoning_effort_none_when_disabled() {
+        let provider = deepseek("deepseek");
+        let fixture = Request::default().reasoning(forge_domain::ReasoningConfig {
+            enabled: Some(false),
+            effort: Some(forge_domain::Effort::High),
+            max_tokens: None,
+            exclude: None,
+        });
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        assert_eq!(actual.reasoning_effort, Some("none".to_string()));
+        assert_eq!(actual.reasoning, None);
+    }
+
+    #[test]
+    fn test_opencode_go_deepseek_model_converts_reasoning_details_to_reasoning_content() {
+        let provider = opencode_go("opencode-go");
+        let fixture = Request::default()
+            .model(forge_domain::ModelId::new("deepseek-v4-flash"))
+            .messages(vec![crate::dto::openai::Message {
+                role: crate::dto::openai::Role::Assistant,
+                content: Some(crate::dto::openai::MessageContent::Text("test".to_string())),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning_details: Some(vec![crate::dto::openai::ReasoningDetail {
+                    r#type: "reasoning.text".to_string(),
+                    text: Some("thinking...".to_string()),
+                    signature: None,
+                    data: None,
+                    id: None,
+                    format: None,
+                    index: None,
+                }]),
+                reasoning_text: None,
+                reasoning_opaque: None,
+                reasoning_content: None,
+                extra_content: None,
+            }]);
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        let message = actual.messages.unwrap().into_iter().next().unwrap();
+        assert_eq!(message.reasoning_content, Some("thinking...".to_string()));
+        assert!(message.reasoning_details.is_none());
+    }
+
+    #[test]
+    fn test_opencode_go_deepseek_model_falls_back_to_empty_reasoning_content_when_none() {
+        let provider = opencode_go("opencode-go");
+        let fixture = Request::default()
+            .model(forge_domain::ModelId::new("deepseek-v4-pro"))
+            .messages(vec![crate::dto::openai::Message {
+                role: crate::dto::openai::Role::Assistant,
+                content: Some(crate::dto::openai::MessageContent::Text("test".to_string())),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning_details: None,
+                reasoning_text: None,
+                reasoning_opaque: None,
+                reasoning_content: None,
+                extra_content: None,
+            }]);
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        let message = actual.messages.unwrap().into_iter().next().unwrap();
+        assert_eq!(message.reasoning_content, Some(String::new()));
+    }
+
+    #[test]
+    fn test_opencode_go_deepseek_model_applies_reasoning_effort() {
+        let provider = opencode_go("opencode-go");
+        let fixture = Request::default()
+            .model(forge_domain::ModelId::new("deepseek-v4-flash"))
+            .reasoning(forge_domain::ReasoningConfig {
+                enabled: Some(true),
+                effort: Some(forge_domain::Effort::High),
+                max_tokens: None,
+                exclude: None,
+            });
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        assert_eq!(actual.reasoning_effort, Some("high".to_string()));
+        assert_eq!(actual.reasoning, None);
+    }
+
+    #[test]
+    fn test_opencode_go_non_deepseek_model_does_not_apply_deepseek_transforms() {
+        let provider = opencode_go("opencode-go");
+        let fixture = Request::default()
+            .model(forge_domain::ModelId::new("glm-5"))
+            .messages(vec![crate::dto::openai::Message {
+                role: crate::dto::openai::Role::Assistant,
+                content: Some(crate::dto::openai::MessageContent::Text("test".to_string())),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning_details: Some(vec![crate::dto::openai::ReasoningDetail {
+                    r#type: "reasoning.text".to_string(),
+                    text: Some("thinking...".to_string()),
+                    signature: None,
+                    data: None,
+                    id: None,
+                    format: None,
+                    index: None,
+                }]),
+                reasoning_text: None,
+                reasoning_opaque: None,
+                reasoning_content: None,
+                extra_content: None,
+            }]);
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        let message = actual.messages.unwrap().into_iter().next().unwrap();
+        // Non-deepseek models should NOT have reasoning_content set by
+        // DeepSeek transforms; reasoning_details should remain as-is.
+        assert_eq!(message.reasoning_content, None);
+        assert!(message.reasoning_details.is_some());
     }
 
     #[test]
