@@ -312,6 +312,7 @@ impl<
             }
             ToolCatalog::Skill(input) => {
                 let skill = self.services.fetch_skill(input.name.clone()).await?;
+                let skill = skill.with_arguments(input.arguments.as_deref());
                 ToolOperation::Skill { output: skill }
             }
             ToolCatalog::TodoWrite(input) => {

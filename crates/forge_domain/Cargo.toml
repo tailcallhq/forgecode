@@ -27,6 +27,7 @@ tracing.workspace = true
 url.workspace = true
 merge.workspace = true
 serde_yml.workspace = true
+shell-words.workspace = true
 forge_template.workspace = true
 base64.workspace = true
 derive-getters = "0.5.0"

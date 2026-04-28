@@ -249,6 +249,13 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum SkillArgumentList {
+    String(String),
+    List(Vec<String>),
+}
+
 /// Private type for parsing skill YAML front matter
 #[derive(Debug, Deserialize)]
 struct SkillMetadata {
@@ -256,6 +263,8 @@ struct SkillMetadata {
     name: Option<String>,
     /// Optional description of the skill
     description: Option<String>,
+    /// Optional named positional arguments for `$name` substitution
+    arguments: Option<SkillArgumentList>,
 }
 
 /// Extracts metadata from the skill markdown content using YAML front matter
@@ -276,11 +285,26 @@ fn extract_skill(path: &str, content: &str) -> Option<Skill> {
     let result = matter.parse::<SkillMetadata>(content);
     result.ok().and_then(|parsed| {
         let command = parsed.content;
-        parsed
-            .data
-            .and_then(|data| data.name.zip(data.description))
-            .map(|(name, description)| Skill::new(name, command, description).path(path))
+        parsed.data.and_then(|data| {
+            data.name.zip(data.description).map(|(name, description)| {
+                Skill::new(name, command, description)
+                    .path(path)
+                    .arguments(parse_skill_argument_names(data.arguments))
+            })
+        })
     })
+}
+
+fn parse_skill_argument_names(arguments: Option<SkillArgumentList>) -> Vec<String> {
+    match arguments {
+        Some(SkillArgumentList::String(value)) => value
+            .split_whitespace()
+            .filter(|name| !name.is_empty())
+            .map(std::string::ToString::to_string)
+            .collect(),
+        Some(SkillArgumentList::List(values)) => values,
+        None => vec![],
+    }
 }
 
 /// Resolves skill conflicts by keeping the last occurrence of each skill name
@@ -435,6 +459,9 @@ mod tests {
                 .contains("Execute structured task plans")
         );
         assert!(execute_plan.command.contains("Execute Plan"));
+        assert!(execute_plan.command.contains("Plan Path Input"));
+        assert!(execute_plan.command.contains("$ARGUMENTS"));
+        assert_eq!(execute_plan.arguments, vec!["plan_path".to_string()]);
 
         // Check github-pr-description
         let pr_description = actual
@@ -469,6 +496,58 @@ mod tests {
                 "This is a skill for handling PDF files",
             )
             .path(path),
+        );
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_extract_skill_parses_frontmatter_argument_list() {
+        // Fixture
+        let path = "test.md";
+        let content = r#"---
+name: execute-plan
+description: Execute plan
+arguments: [plan_path, mode]
+---
+# Execute Plan
+Path: $plan_path
+Mode: $mode"#;
+
+        // Act
+        let actual = extract_skill(path, content);
+
+        // Assert
+        let expected = Some(
+            Skill::new(
+                "execute-plan",
+                "# Execute Plan\nPath: $plan_path\nMode: $mode",
+                "Execute plan",
+            )
+            .path(path)
+            .arguments(vec!["plan_path".to_string(), "mode".to_string()]),
+        );
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_extract_skill_parses_frontmatter_argument_string() {
+        // Fixture
+        let path = "test.md";
+        let content = r#"---
+name: execute-plan
+description: Execute plan
+arguments: plan_path mode
+---
+# Execute Plan"#;
+
+        // Act
+        let actual = extract_skill(path, content);
+
+        // Assert
+        let expected = Some(
+            Skill::new("execute-plan", "# Execute Plan", "Execute plan")
+                .path(path)
+                .arguments(vec!["plan_path".to_string(), "mode".to_string()]),
         );
         assert_eq!(actual, expected);
     }

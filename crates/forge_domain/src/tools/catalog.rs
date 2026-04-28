@@ -680,6 +680,11 @@ pub struct PlanCreate {
 pub struct SkillFetch {
     /// The name of the skill to fetch (e.g., "pdf", "code_review")
     pub name: String,
+
+    /// Optional arguments passed to the skill. These are available to skill
+    /// templates through placeholders like `$ARGUMENTS`, `$1`, `$2`, etc.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<String>,
 }
 
 /// A single todo item sent by the model.
@@ -1103,6 +1108,7 @@ impl ToolCatalog {
     pub fn tool_call_skill(skill_name: &str) -> ToolCallFull {
         ToolCallFull::from(ToolCatalog::Skill(SkillFetch {
             name: skill_name.to_string(),
+            arguments: None,
         }))
     }
 
@@ -1217,7 +1223,7 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::Shell;
-    use crate::{ToolCatalog, ToolKind, ToolName};
+    use crate::{SkillFetch, ToolCatalog, ToolKind, ToolName};
 
     #[test]
     fn test_tool_definition() {
@@ -1908,5 +1914,27 @@ mod tests {
             "Should parse whitespace-padded 'patch' tool name"
         );
         assert!(matches!(actual.unwrap(), ToolCatalog::Patch(_)));
+    }
+
+    #[test]
+    fn test_try_from_tool_call_skill_with_arguments() {
+        use crate::{ToolCallArguments, ToolCallFull};
+
+        let fixture = ToolCallFull {
+            name: ToolName::new("skill"),
+            call_id: None,
+            arguments: ToolCallArguments::from_json(
+                r#"{"name":"pdf","arguments":"merge input.pdf output.pdf"}"#,
+            ),
+            thought_signature: None,
+        };
+
+        let actual = ToolCatalog::try_from(fixture).unwrap();
+
+        let expected = ToolCatalog::Skill(SkillFetch {
+            name: "pdf".to_string(),
+            arguments: Some("merge input.pdf output.pdf".to_string()),
+        });
+        assert_eq!(actual, expected);
     }
 }
