@@ -107,8 +107,8 @@ impl<
         + ValidationRepository,
 > ForgeServices<F>
 {
-    pub fn new(infra: Arc<F>) -> Self {
-        let mcp_manager = Arc::new(ForgeMcpManager::new(infra.clone()));
+    pub fn new(infra: Arc<F>, skip_local_mcp: bool) -> Self {
+        let mcp_manager = Arc::new(ForgeMcpManager::new(infra.clone(), skip_local_mcp));
         let mcp_service = Arc::new(ForgeMcpService::new(mcp_manager.clone(), infra.clone()));
         let template_service = Arc::new(ForgeTemplateService::new(infra.clone()));
         let attachment_service = Arc::new(ForgeChatRequest::new(infra.clone()));
