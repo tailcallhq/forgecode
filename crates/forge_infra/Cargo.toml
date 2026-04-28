@@ -52,6 +52,9 @@ open.workspace = true
 aws-config.workspace = true
 aws-credential-types.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
 serial_test = "3.4"

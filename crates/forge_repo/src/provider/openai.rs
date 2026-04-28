@@ -58,7 +58,9 @@ impl<H: HttpInfra> OpenAIProvider<H> {
                 .credential
                 .as_ref()
                 .and_then(|c| match &c.auth_details {
-                    forge_domain::AuthDetails::ApiKey(key) => Some(key.as_str()),
+                    forge_domain::AuthDetails::ApiKey(provider) => {
+                        Some(provider.api_key().as_str())
+                    }
                     forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => {
                         Some(api_key.as_str())
                     }
@@ -389,7 +391,7 @@ mod tests {
     fn make_credential(provider_id: ProviderId, key: &str) -> Option<forge_domain::AuthCredential> {
         Some(forge_domain::AuthCredential {
             id: provider_id,
-            auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+            auth_details: forge_domain::AuthDetails::static_api_key(forge_domain::ApiKey::from(
                 key.to_string(),
             )),
             url_params: HashMap::new(),

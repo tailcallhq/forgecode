@@ -176,7 +176,7 @@ mod tests {
     fn make_credential(provider_id: ProviderId, key: &str) -> Option<forge_domain::AuthCredential> {
         Some(forge_domain::AuthCredential {
             id: provider_id,
-            auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+            auth_details: forge_domain::AuthDetails::static_api_key(forge_domain::ApiKey::from(
                 key.to_string(),
             )),
             url_params: HashMap::new(),

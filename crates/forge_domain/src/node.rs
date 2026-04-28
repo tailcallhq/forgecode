@@ -94,7 +94,7 @@ pub struct WorkspaceAuth {
 
 impl From<WorkspaceAuth> for crate::AuthDetails {
     fn from(auth: WorkspaceAuth) -> Self {
-        crate::AuthDetails::ApiKey(auth.token)
+        crate::AuthDetails::static_api_key(auth.token)
     }
 }
 

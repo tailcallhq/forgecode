@@ -47,7 +47,7 @@ impl<H: HttpInfra> Anthropic<H> {
             .credential
             .as_ref()
             .and_then(|c| match &c.auth_details {
-                forge_domain::AuthDetails::ApiKey(key) => Some(key.as_str()),
+                forge_domain::AuthDetails::ApiKey(provider) => Some(provider.api_key().as_str()),
                 forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => {
                     Some(api_key.as_str())
                 }
@@ -454,9 +454,9 @@ mod tests {
             url: chat_url,
             credential: Some(forge_domain::AuthCredential {
                 id: forge_app::domain::ProviderId::ANTHROPIC,
-                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
-                    "sk-test-key".to_string(),
-                )),
+                auth_details: forge_domain::AuthDetails::static_api_key(
+                    forge_domain::ApiKey::from("sk-test-key".to_string()),
+                ),
                 url_params: std::collections::HashMap::new(),
             }),
             auth_methods: vec![forge_domain::AuthMethod::ApiKey],
@@ -522,9 +522,9 @@ mod tests {
             url: chat_url,
             credential: Some(forge_domain::AuthCredential {
                 id: forge_app::domain::ProviderId::ANTHROPIC,
-                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
-                    "sk-some-key".to_string(),
-                )),
+                auth_details: forge_domain::AuthDetails::static_api_key(
+                    forge_domain::ApiKey::from("sk-some-key".to_string()),
+                ),
                 url_params: std::collections::HashMap::new(),
             }),
             auth_methods: vec![forge_domain::AuthMethod::ApiKey],
@@ -662,9 +662,9 @@ mod tests {
             url: chat_url,
             credential: Some(forge_domain::AuthCredential {
                 id: forge_app::domain::ProviderId::ANTHROPIC,
-                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
-                    "sk-test-key".to_string(),
-                )),
+                auth_details: forge_domain::AuthDetails::static_api_key(
+                    forge_domain::ApiKey::from("sk-test-key".to_string()),
+                ),
                 url_params: std::collections::HashMap::new(),
             }),
             auth_methods: vec![forge_domain::AuthMethod::ApiKey],
@@ -810,9 +810,9 @@ mod tests {
             url: chat_url,
             credential: Some(forge_domain::AuthCredential {
                 id: forge_app::domain::ProviderId::ANTHROPIC,
-                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
-                    "sk-test-key".to_string(),
-                )),
+                auth_details: forge_domain::AuthDetails::static_api_key(
+                    forge_domain::ApiKey::from("sk-test-key".to_string()),
+                ),
                 url_params: std::collections::HashMap::new(),
             }),
             auth_methods: vec![forge_domain::AuthMethod::ApiKey],
@@ -866,9 +866,9 @@ mod tests {
             url: chat_url,
             credential: Some(forge_domain::AuthCredential {
                 id: forge_app::domain::ProviderId::ANTHROPIC,
-                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
-                    "sk-test-key".to_string(),
-                )),
+                auth_details: forge_domain::AuthDetails::static_api_key(
+                    forge_domain::ApiKey::from("sk-test-key".to_string()),
+                ),
                 url_params: std::collections::HashMap::new(),
             }),
             auth_methods: vec![forge_domain::AuthMethod::ApiKey],

@@ -72,6 +72,11 @@ pub struct ProviderEntry {
     /// Environment variable holding the API key for this provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_var: Option<String>,
+    /// Shell command that produces an API key on stdout.  When set, the
+    /// command is executed instead of reading a static key from an environment
+    /// variable.  Falls back to `{api_key_var}_HELPER` env var when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_helper: Option<String>,
     /// URL template for chat completions; may contain `{{VAR}}` placeholders
     /// that are substituted from the credential's url params.
     pub url: String,
@@ -371,5 +376,27 @@ mod tests {
         let actual = ConfigReader::default().read_toml(&toml).build().unwrap();
 
         assert_eq!(actual.temperature, fixture.temperature);
+    }
+
+    #[test]
+    fn test_provider_entry_api_key_helper_round_trip() {
+        let fixture = ForgeConfig {
+            providers: vec![ProviderEntry {
+                id: "test_provider".to_string(),
+                url: "https://api.example.com/v1/chat".to_string(),
+                api_key_helper: Some("vault read -field=token secret/key".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let toml = toml_edit::ser::to_string_pretty(&fixture).unwrap();
+        let actual = ConfigReader::default().read_toml(&toml).build().unwrap();
+
+        assert_eq!(actual.providers.len(), 1);
+        assert_eq!(
+            actual.providers[0].api_key_helper,
+            Some("vault read -field=token secret/key".to_string())
+        );
     }
 }
