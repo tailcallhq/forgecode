@@ -27,7 +27,7 @@ impl ModelSpecificReasoning {
 
     fn family(&self) -> AnthropicModelFamily {
         let id = self.model_id.to_lowercase();
-        if id.contains("opus-4-7") {
+        if id.contains("opus-4-7") || id.contains("47-opus") {
             AnthropicModelFamily::AdaptiveOnly
         } else if id.contains("opus-4-6") || id.contains("sonnet-4-6") {
             AnthropicModelFamily::AdaptiveFriendly
