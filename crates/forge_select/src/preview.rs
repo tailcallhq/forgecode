@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use std::{cmp, fmt};
 
 use bstr::ByteSlice;
-use crossterm::cursor::{Hide, MoveTo, Show};
+use crossterm::cursor::{Hide, MoveToColumn, MoveUp, RestorePosition, SavePosition, Show};
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
     KeyboardEnhancementFlags, MouseEventKind, PopKeyboardEnhancementFlags,
@@ -16,7 +16,7 @@ use crossterm::style::{
     Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
 };
 use crossterm::terminal::{self, Clear, ClearType, disable_raw_mode, enable_raw_mode};
-use crossterm::{execute, queue};
+use crossterm::{Command as CrosstermCommand, execute, queue};
 use derive_setters::Setters;
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config as NucleoConfig, Nucleo, Utf32String};
@@ -96,29 +96,115 @@ impl Default for PreviewLayout {
 
 const SELECT_VIEWPORT_PERCENT: u16 = 80;
 
-fn select_viewport(full_height: u16) -> (u16, u16) {
+fn max_select_viewport_height(full_height: u16) -> u16 {
     let full_height = full_height.max(1);
-    let viewport_height = ((full_height as u32 * SELECT_VIEWPORT_PERCENT as u32) / 100)
+    ((full_height as u32 * SELECT_VIEWPORT_PERCENT as u32) / 100)
         .max(1)
-        .min(full_height as u32) as u16;
-    (full_height.saturating_sub(viewport_height), viewport_height)
+        .min(full_height as u32) as u16
 }
 
-fn viewport_move_to(x: u16, y: u16, top_offset: u16) -> MoveTo {
-    MoveTo(x, top_offset.saturating_add(y))
+fn select_viewport_height(full_height: u16, desired_height: u16) -> u16 {
+    let full_height = full_height.max(1);
+    let desired_height = desired_height.max(1);
+    if desired_height <= full_height {
+        desired_height
+    } else {
+        max_select_viewport_height(full_height)
+    }
 }
 
-fn clear_viewport(stderr: &mut io::Stderr) -> io::Result<()> {
+fn reserve_inline_viewport_space(stderr: &mut io::Stderr, desired_height: u16) -> io::Result<u16> {
     let (_, full_height) = terminal::size()?;
-    let (top_offset, height) = select_viewport(full_height);
-    for row_index in 0..height {
+    let reserved_height = select_viewport_height(full_height, desired_height);
+
+    for _ in 0..reserved_height {
+        queue!(stderr, Print("\r\n"))?;
+    }
+    queue!(
+        stderr,
+        MoveUp(reserved_height),
+        MoveToColumn(0),
+        SavePosition
+    )?;
+    stderr.flush()?;
+
+    Ok(reserved_height)
+}
+
+fn desired_select_viewport_height(
+    header_rows: usize,
+    matched_rows: usize,
+    preview_lines: usize,
+    layout: PreviewLayout,
+) -> u16 {
+    let header_height = 3u16.saturating_add(header_rows as u16);
+    let list_height = (matched_rows as u16).max(1);
+    let preview_lines = preview_lines as u16;
+
+    match layout.placement {
+        PreviewPlacement::Right => header_height.saturating_add(list_height.max(preview_lines)),
+        PreviewPlacement::Bottom if preview_lines > 0 => header_height
+            .saturating_add(list_height)
+            .saturating_add(preview_lines.saturating_add(2)),
+        PreviewPlacement::Bottom => header_height.saturating_add(list_height),
+    }
+    .max(1)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DeleteLines(u16);
+
+impl CrosstermCommand for DeleteLines {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        if self.0 > 0 {
+            write!(f, "\u{1b}[{}M", self.0)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ViewportMoveTo {
+    x: u16,
+    y: u16,
+}
+
+impl CrosstermCommand for ViewportMoveTo {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        RestorePosition.write_ansi(f)?;
+        MoveToColumn(self.x).write_ansi(f)?;
+        write!(f, "\u{1b}[{}B", self.y)
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn viewport_move_to(x: u16, y: u16, _top_offset: u16) -> ViewportMoveTo {
+    ViewportMoveTo { x, y }
+}
+
+fn clear_rendered_viewport(stderr: &mut io::Stderr, reserved_height: u16) -> io::Result<()> {
+    for row_index in 0..reserved_height {
         queue!(
             stderr,
-            viewport_move_to(0, row_index, top_offset),
+            viewport_move_to(0, row_index, 0),
             Clear(ClearType::CurrentLine)
         )?;
     }
-    queue!(stderr, viewport_move_to(0, 0, top_offset))?;
+    queue!(
+        stderr,
+        RestorePosition,
+        MoveToColumn(0),
+        DeleteLines(reserved_height)
+    )?;
     stderr.flush()
 }
 
@@ -143,7 +229,6 @@ impl TerminalGuard {
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let mut stderr = io::stderr();
-        let _ = clear_viewport(&mut stderr);
         let _ = execute!(
             stderr,
             Show,
@@ -273,6 +358,14 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
     let mut stderr = io::stderr();
     let prompt = prompt.unwrap_or_else(|| "❯ ".to_string());
     let preview_command = preview.unwrap_or_default();
+    let initial_matched_rows = matched_rows(&matcher);
+    let initial_desired_height = desired_select_viewport_height(
+        header_rows.len(),
+        initial_matched_rows.len(),
+        0,
+        preview_layout,
+    );
+    let reserved_height = reserve_inline_viewport_space(&mut stderr, initial_desired_height)?;
     let mut selected_index = 0usize;
     let mut initial_raw = initial_raw;
     let mut initial_selection_applied = false;
@@ -337,6 +430,12 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
             last_preview_key = preview_key;
         }
 
+        let rendered_preview = if preview_command.is_empty() {
+            ""
+        } else {
+            &preview_cache
+        };
+
         draw_preview_ui(
             &mut stderr,
             PreviewUi {
@@ -347,9 +446,10 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                 header_rows: &header_rows,
                 selected_index,
                 scroll_offset: &mut scroll_offset,
-                preview: &preview_cache,
+                preview: rendered_preview,
                 preview_scroll_offset,
                 layout: preview_layout,
+                reserved_height,
             },
         )?;
 
@@ -371,17 +471,27 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                             preview_scroll_offset = preview_scroll_offset.saturating_add(1);
                         }
                         PickerAction::PreviewPageUp => {
-                            let page_size =
-                                preview_content_height(header_rows.len(), preview_layout)
-                                    .saturating_sub(1)
-                                    .max(1);
+                            let page_size = preview_content_height(
+                                header_rows.len(),
+                                matched_rows.len(),
+                                &preview_cache,
+                                preview_layout,
+                                reserved_height,
+                            )
+                            .saturating_sub(1)
+                            .max(1);
                             preview_scroll_offset = preview_scroll_offset.saturating_sub(page_size);
                         }
                         PickerAction::PreviewPageDown => {
-                            let page_size =
-                                preview_content_height(header_rows.len(), preview_layout)
-                                    .saturating_sub(1)
-                                    .max(1);
+                            let page_size = preview_content_height(
+                                header_rows.len(),
+                                matched_rows.len(),
+                                &preview_cache,
+                                preview_layout,
+                                reserved_height,
+                            )
+                            .saturating_sub(1)
+                            .max(1);
                             preview_scroll_offset = preview_scroll_offset.saturating_add(page_size);
                         }
                         PickerAction::Toggle => {
@@ -397,6 +507,7 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                         }
                         PickerAction::Accept => {
                             if mode == SelectMode::Multi && !queued_indices.is_empty() {
+                                clear_rendered_viewport(&mut stderr, reserved_height)?;
                                 drop(guard);
                                 let selected = queued_indices
                                     .iter()
@@ -407,11 +518,13 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                             }
 
                             if let Some(row) = selected_row {
+                                clear_rendered_viewport(&mut stderr, reserved_height)?;
                                 drop(guard);
                                 return Ok(Some(vec![row.raw.clone()]));
                             }
                         }
                         PickerAction::Exit => {
+                            clear_rendered_viewport(&mut stderr, reserved_height)?;
                             drop(guard);
                             return Ok(None);
                         }
@@ -423,7 +536,10 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                             mouse.column,
                             mouse.row,
                             header_rows.len(),
+                            matched_rows.len(),
+                            &preview_cache,
                             preview_layout,
+                            reserved_height,
                         )
                     {
                         match mouse.kind {
@@ -459,7 +575,9 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
             preview_scroll_offset = preview_scroll_offset.min(max_preview_scroll_offset(
                 &preview_cache,
                 header_rows.len(),
+                matched_rows.len(),
                 preview_layout,
+                reserved_height,
             ));
         }
     }
@@ -584,18 +702,31 @@ fn handle_key_event(
     }
 }
 
-fn max_preview_scroll_offset(preview: &str, header_rows: usize, layout: PreviewLayout) -> usize {
-    preview
-        .lines()
-        .count()
-        .saturating_sub(preview_content_height(header_rows, layout).max(1))
+fn max_preview_scroll_offset(
+    preview: &str,
+    header_rows: usize,
+    matched_rows: usize,
+    layout: PreviewLayout,
+    reserved_height: u16,
+) -> usize {
+    preview.lines().count().saturating_sub(
+        preview_content_height(header_rows, matched_rows, preview, layout, reserved_height).max(1),
+    )
 }
 
-fn preview_content_height(header_rows: usize, layout: PreviewLayout) -> usize {
+fn preview_content_height(
+    header_rows: usize,
+    matched_rows: usize,
+    preview: &str,
+    layout: PreviewLayout,
+    reserved_height: u16,
+) -> usize {
     let Ok((_, height)) = terminal::size() else {
         return 1;
     };
-    let (_, height) = select_viewport(height);
+    let desired_height =
+        desired_select_viewport_height(header_rows, matched_rows, preview.lines().count(), layout);
+    let height = select_viewport_height(height, desired_height).min(reserved_height);
     let header_height = 3u16.saturating_add(header_rows as u16);
     let body_height = height.saturating_sub(header_height).max(1);
 
@@ -610,16 +741,22 @@ fn preview_content_height(header_rows: usize, layout: PreviewLayout) -> usize {
     }) as usize
 }
 
-fn mouse_over_preview(column: u16, row: u16, header_rows: usize, layout: PreviewLayout) -> bool {
+fn mouse_over_preview(
+    column: u16,
+    row: u16,
+    header_rows: usize,
+    matched_rows: usize,
+    preview: &str,
+    layout: PreviewLayout,
+    reserved_height: u16,
+) -> bool {
     let Ok((width, height)) = terminal::size() else {
         return false;
     };
     let width = width.max(20);
-    let (top_offset, height) = select_viewport(height);
-    if row < top_offset {
-        return false;
-    }
-    let row = row.saturating_sub(top_offset);
+    let desired_height =
+        desired_select_viewport_height(header_rows, matched_rows, preview.lines().count(), layout);
+    let height = select_viewport_height(height, desired_height).min(reserved_height);
     let header_height = 3u16.saturating_add(header_rows as u16);
     let body_height = height.saturating_sub(header_height).max(1);
 
@@ -702,6 +839,7 @@ struct PreviewUi<'a> {
     preview: &'a str,
     preview_scroll_offset: usize,
     layout: PreviewLayout,
+    reserved_height: u16,
 }
 
 fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result<()> {
@@ -716,12 +854,20 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
         preview,
         preview_scroll_offset,
         layout,
+        reserved_height,
     } = ui;
     let (width, height) = terminal::size()?;
     let width = width.max(20);
-    let (top_offset, height) = select_viewport(height);
 
     let has_preview = !preview.is_empty();
+    let desired_height = desired_select_viewport_height(
+        header_rows.len(),
+        matched_rows.len(),
+        preview.lines().count(),
+        layout,
+    );
+    let height = select_viewport_height(height, desired_height).min(reserved_height);
+    let top_offset = 0;
     let header_height = 3u16.saturating_add(header_rows.len() as u16);
     let body_height = height.saturating_sub(header_height).max(1);
 
@@ -780,10 +926,10 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
         }
     }
 
-    for row_index in 0..height {
+    for row_index in 0..reserved_height {
         queue!(
             stderr,
-            viewport_move_to(0, row_index, top_offset),
+            viewport_move_to(0, row_index, 0),
             Clear(ClearType::CurrentLine)
         )?;
     }

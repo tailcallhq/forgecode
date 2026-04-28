@@ -6,7 +6,8 @@ use crate::select::SelectBuilder;
 
 /// Centralized fuzzy select functionality with consistent error handling.
 ///
-/// All interactive selection is handled by the shared nucleo-backed selector UI.
+/// All interactive selection is handled by the shared nucleo-backed selector
+/// UI.
 pub struct ForgeWidget;
 
 impl ForgeWidget {
