@@ -242,11 +242,26 @@ impl<W: Write> Renderer<W> {
                     // Render the complete mermaid diagram
                     if !self.mermaid_buffer.is_empty() {
                         if let Some(diagram_lines) =
-                            render_mermaid(&self.mermaid_buffer, self.current_width())
+                            render_mermaid(&self.mermaid_buffer, self.current_width(), &self.theme)
                         {
+                            let bg_esc = self.theme.mermaid_bg.escapes();
                             for line in diagram_lines {
                                 let margin = self.left_margin();
-                                self.writeln(&format!("{}{}", margin, line))?;
+                                // Re-apply background after every reset so there are no visible gaps
+                                let bg_line = format!(
+                                    "{}{}{}",
+                                    bg_esc,
+                                    line.replace("\x1b[0m", &format!("\x1b[0m{}", bg_esc)),
+                                    bg_esc
+                                );
+                                let visible = visible_length(&bg_line);
+                                let padding = self.current_width().saturating_sub(visible);
+                                let padded = if padding > 0 {
+                                    format!("{}{}\x1b[0m", bg_line, " ".repeat(padding))
+                                } else {
+                                    format!("{}\x1b[0m", bg_line)
+                                };
+                                self.writeln(&format!("{}{}", margin, padded))?;
                             }
                         } else {
                             // Fallback: render as code if mermaid parsing fails

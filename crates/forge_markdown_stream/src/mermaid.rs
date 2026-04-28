@@ -6,6 +6,41 @@
 
 use unicode_width::UnicodeWidthStr;
 
+use crate::theme::Theme;
+
+// Style constants for per-character style maps (sequence + flowchart multi-branch)
+const STYLE_NONE: u8 = 0;
+const STYLE_BORDER: u8 = 1;
+const STYLE_NODE: u8 = 2;
+const STYLE_EDGE: u8 = 3;
+const STYLE_ARROW: u8 = 4;
+const STYLE_LABEL: u8 = 5;
+
+/// Build a colored ANSI string from character and style buffers using theme.
+fn build_colored_line(chars: &[char], styles: &[u8], theme: &Theme) -> String {
+    let mut result = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let s = styles.get(i).copied().unwrap_or(0);
+        // Group consecutive chars with the same style
+        let start = i;
+        while i < chars.len() && styles.get(i).copied().unwrap_or(0) == s {
+            i += 1;
+        }
+        let segment: String = chars[start..i].iter().collect();
+        let styled = match s {
+            STYLE_BORDER => theme.mermaid_border.apply(&segment),
+            STYLE_NODE => theme.mermaid_node.apply(&segment),
+            STYLE_EDGE => theme.mermaid_edge.apply(&segment),
+            STYLE_ARROW => theme.mermaid_arrow_head.apply(&segment),
+            STYLE_LABEL => theme.mermaid_label.apply(&segment),
+            _ => theme.mermaid_bg.apply(&segment),
+        };
+        result.push_str(&styled.to_string());
+    }
+    result
+}
+
 fn set_char(row: &mut [char], index: usize, value: char) {
     if let Some(slot) = row.get_mut(index) {
         *slot = value;
@@ -26,7 +61,7 @@ fn set_bool(values: &mut [bool], index: usize, value: bool) {
 ///
 /// Returns `None` if the diagram type is unsupported (caller should fall back
 /// to raw code display).
-pub fn render_mermaid(diagram: &str, _width: usize) -> Option<Vec<String>> {
+pub fn render_mermaid(diagram: &str, width: usize, theme: &Theme) -> Option<Vec<String>> {
     let trimmed = diagram.trim();
     if trimmed.is_empty() {
         return None;
@@ -36,8 +71,10 @@ pub fn render_mermaid(diagram: &str, _width: usize) -> Option<Vec<String>> {
     let diagram_type = detect_diagram_type(trimmed)?;
 
     match diagram_type {
-        DiagramType::Flowchart { direction } => Some(render_flowchart(trimmed, direction, _width)),
-        DiagramType::Sequence => Some(render_sequence(trimmed, _width)),
+        DiagramType::Flowchart { direction } => {
+            Some(render_flowchart(trimmed, direction, width, theme))
+        }
+        DiagramType::Sequence => Some(render_sequence(trimmed, width, theme)),
     }
 }
 
@@ -292,7 +329,7 @@ fn parse_node_ref(text: &str) -> (String, Option<String>, NodeShape) {
 }
 
 /// Render a flowchart as Unicode box-drawing art.
-fn render_flowchart(diagram: &str, direction: FlowDirection, width: usize) -> Vec<String> {
+fn render_flowchart(diagram: &str, direction: FlowDirection, width: usize, theme: &Theme) -> Vec<String> {
     let (nodes, edges) = parse_flowchart(diagram);
     if nodes.is_empty() {
         return vec!["[empty diagram]".to_string()];
@@ -309,15 +346,15 @@ fn render_flowchart(diagram: &str, direction: FlowDirection, width: usize) -> Ve
 
     match direction {
         FlowDirection::TopDown => {
-            render_flowchart_td(&nodes, &edges, node_inner_width, node_total_width, width)
+            render_flowchart_td(&nodes, &edges, node_inner_width, node_total_width, width, theme)
         }
         FlowDirection::LeftRight => {
-            render_flowchart_lr(&nodes, &edges, node_inner_width, node_total_width, width)
+            render_flowchart_lr(&nodes, &edges, node_inner_width, node_total_width, width, theme)
         }
     }
 }
 
-fn make_node_lines(node: &FlowNode, inner_width: usize) -> Vec<String> {
+fn make_node_lines(node: &FlowNode, inner_width: usize, theme: &Theme) -> Vec<String> {
     let label = &node.label;
     let padded = if UnicodeWidthStr::width(label.as_str()) <= inner_width {
         let pad = inner_width - UnicodeWidthStr::width(label.as_str());
@@ -339,22 +376,25 @@ fn make_node_lines(node: &FlowNode, inner_width: usize) -> Vec<String> {
     };
 
     match node.shape {
-        NodeShape::Default | NodeShape::Rect => vec![
-            center_to_block(format!("┌{}┐", "─".repeat(inner_width))),
-            center_to_block(format!("│{}│", padded)),
-            center_to_block(format!("└{}┘", "─".repeat(inner_width))),
-        ],
-        NodeShape::RoundRect | NodeShape::Stadium => vec![
-            center_to_block(format!("╭{}╮", "─".repeat(inner_width))),
-            center_to_block(format!("│{}│", padded)),
-            center_to_block(format!("╰{}╯", "─".repeat(inner_width))),
-        ],
-        NodeShape::Diamond => vec![
-            center_to_block(format!("╔{}╗", "═".repeat(inner_width))),
-            center_to_block(format!("║{}║", padded)),
-            center_to_block(format!("╚{}╝", "═".repeat(inner_width))),
-        ],
-    }
+        NodeShape::Default | NodeShape::Rect => {
+            let border = theme.mermaid_border.apply(&center_to_block(format!("┌{}┐", "─".repeat(inner_width))));
+            let label = theme.mermaid_node.apply(&center_to_block(format!("│{}│", padded)));
+            let bottom = theme.mermaid_border.apply(&center_to_block(format!("└{}┘", "─".repeat(inner_width))));
+            return vec![border.to_string(), label.to_string(), bottom.to_string()];
+        }
+        NodeShape::RoundRect | NodeShape::Stadium => {
+            let border = theme.mermaid_border.apply(&center_to_block(format!("╭{}╮", "─".repeat(inner_width))));
+            let label = theme.mermaid_node.apply(&center_to_block(format!("│{}│", padded)));
+            let bottom = theme.mermaid_border.apply(&center_to_block(format!("╰{}╯", "─".repeat(inner_width))));
+            return vec![border.to_string(), label.to_string(), bottom.to_string()];
+        }
+        NodeShape::Diamond => {
+            let border = theme.mermaid_border.apply(&center_to_block(format!("╔{}╗", "═".repeat(inner_width))));
+            let label = theme.mermaid_node_decision.apply(&center_to_block(format!("║{}║", padded)));
+            let bottom = theme.mermaid_border.apply(&center_to_block(format!("╚{}╝", "═".repeat(inner_width))));
+            return vec![border.to_string(), label.to_string(), bottom.to_string()];
+        }
+    };
 }
 
 fn render_flowchart_td(
@@ -363,6 +403,7 @@ fn render_flowchart_td(
     inner_width: usize,
     total_width: usize,
     _max_width: usize,
+    theme: &Theme,
 ) -> Vec<String> {
     let mut lines = Vec::new();
 
@@ -440,7 +481,7 @@ fn render_flowchart_td(
         let node_blocks: Vec<Vec<String>> = layer
             .iter()
             .filter_map(|&idx| nodes.get(idx))
-            .map(|node| make_node_lines(node, inner_width))
+            .map(|node| make_node_lines(node, inner_width, theme))
             .collect();
 
         let max_rows = node_blocks.iter().map(|v| v.len()).max().unwrap_or(0);
@@ -501,23 +542,32 @@ fn render_flowchart_td(
                             } else {
                                 target_center
                             };
-                            let arrow_line =
-                                format!("{:source_center$}│", "", source_center = source_center);
-                            lines.push(arrow_line);
+                            let arrow_line = theme.mermaid_edge.apply(
+                                &format!("{:source_center$}│", "", source_center = source_center),
+                            );
+                            lines.push(arrow_line.to_string());
 
-                            let shaft_line = format!("{:offset$}│", "", offset = offset);
-                            lines.push(shaft_line);
+                            let shaft_line = theme.mermaid_edge.apply(
+                                &format!("{:offset$}│", "", offset = offset),
+                            );
+                            lines.push(shaft_line.to_string());
 
                             let label = edge_labels
                                 .get(&(node_idx, target_idx))
                                 .map(|s| s.as_str())
                                 .unwrap_or(label);
                             let arrow_head = if label.is_empty() {
-                                format!("{:offset$}▼", "", offset = offset)
-                            } else if UnicodeWidthStr::width(label) + offset > _max_width {
-                                format!("{}{} ▼", " ".repeat(offset), label)
+                                theme.mermaid_arrow_head.apply(
+                                    &format!("{:offset$}▼", "", offset = offset),
+                                ).to_string()
                             } else {
-                                format!("{:offset$}▼  {label}", "", offset = offset)
+                                let styled_label = theme.mermaid_label.apply(label);
+                                let styled_arrow = theme.mermaid_arrow_head.apply("▼");
+                                if UnicodeWidthStr::width(label) + offset > _max_width {
+                                    format!("{}{} {}", " ".repeat(offset), styled_label, styled_arrow)
+                                } else {
+                                    format!("{:offset$}{}  {}", "", styled_arrow, styled_label, offset = offset)
+                                }
                             };
                             lines.push(arrow_head);
                         }
@@ -540,12 +590,16 @@ fn render_flowchart_td(
                                 .unwrap_or(5);
 
                         let mut vertical_row = vec![' '; row_width];
+                        let mut vert_styles = vec![STYLE_NONE; row_width];
                         set_char(&mut vertical_row, source_center, '│');
-                        lines.push(vertical_row.into_iter().collect());
+                        vert_styles[source_center] = STYLE_EDGE;
+                        lines.push(build_colored_line(&vertical_row, &vert_styles, theme));
 
                         let mut branch_row = vec![' '; row_width];
+                        let mut branch_styles = vec![STYLE_NONE; row_width];
                         for x in min_center..=max_center {
                             set_char(&mut branch_row, x, '─');
+                            branch_styles[x] = STYLE_EDGE;
                         }
                         for (_, target_center, _) in &targets {
                             let marker = if *target_center == min_center {
@@ -556,6 +610,7 @@ fn render_flowchart_td(
                                 '┬'
                             };
                             set_char(&mut branch_row, *target_center, marker);
+                            branch_styles[*target_center] = STYLE_EDGE;
                         }
                         let source_marker = if source_center == min_center {
                             '├'
@@ -565,19 +620,23 @@ fn render_flowchart_td(
                             '┬'
                         };
                         set_char(&mut branch_row, source_center, source_marker);
-                        lines.push(branch_row.into_iter().collect());
+                        branch_styles[source_center] = STYLE_EDGE;
+                        lines.push(build_colored_line(&branch_row, &branch_styles, theme));
 
                         let mut arrow_row = vec![' '; row_width];
+                        let mut arrow_styles = vec![STYLE_NONE; row_width];
                         for (_, target_center, label) in &targets {
                             set_char(&mut arrow_row, *target_center, '▼');
+                            arrow_styles[*target_center] = STYLE_ARROW;
                             if !label.is_empty() {
                                 let label_start = target_center + 2;
                                 for (i, ch) in label.chars().enumerate() {
                                     set_char(&mut arrow_row, label_start + i, ch);
+                                    arrow_styles[label_start + i] = STYLE_LABEL;
                                 }
                             }
                         }
-                        lines.push(arrow_row.into_iter().collect());
+                        lines.push(build_colored_line(&arrow_row, &arrow_styles, theme));
                     }
                 }
             }
@@ -593,6 +652,7 @@ fn render_flowchart_lr(
     inner_width: usize,
     _total_width: usize,
     _max_width: usize,
+    theme: &Theme,
 ) -> Vec<String> {
     let mut lines = Vec::new();
 
@@ -652,7 +712,7 @@ fn render_flowchart_lr(
         order = (0..nodes.len()).collect();
     }
 
-    if let Some(branch_lines) = render_flowchart_lr_branch(nodes, edges, &order, inner_width) {
+    if let Some(branch_lines) = render_flowchart_lr_branch(nodes, edges, &order, inner_width, theme) {
         return branch_lines;
     }
 
@@ -660,7 +720,7 @@ fn render_flowchart_lr(
     let node_blocks: Vec<Vec<String>> = order
         .iter()
         .filter_map(|&idx| nodes.get(idx))
-        .map(|node| make_node_lines(node, inner_width))
+        .map(|node| make_node_lines(node, inner_width, theme))
         .collect();
 
     let max_rows = node_blocks.iter().map(|v| v.len()).max().unwrap_or(0);
@@ -717,6 +777,7 @@ fn render_flowchart_lr_branch(
     edges: &[FlowEdge],
     order: &[usize],
     inner_width: usize,
+    theme: &Theme,
 ) -> Option<Vec<String>> {
     let mut outgoing: Vec<Vec<(usize, String)>> = vec![Vec::new(); nodes.len()];
     for edge in edges {
@@ -792,12 +853,12 @@ fn render_flowchart_lr_branch(
     let main_blocks: Vec<Vec<String>> = main_path
         .iter()
         .filter_map(|&idx| nodes.get(idx))
-        .map(|node| make_node_lines(node, inner_width))
+        .map(|node| make_node_lines(node, inner_width, theme))
         .collect();
     let lower_blocks: Vec<Vec<String>> = lower_path
         .iter()
         .filter_map(|&idx| nodes.get(idx))
-        .map(|node| make_node_lines(node, inner_width))
+        .map(|node| make_node_lines(node, inner_width, theme))
         .collect();
 
     let block_width = inner_width + 6;
@@ -811,7 +872,7 @@ fn render_flowchart_lr_branch(
                 .find(|edge| edge.from == from.id && edge.to == to.id)
                 .map(|edge| edge.label.as_str())
                 .unwrap_or("");
-            main_connectors.push(lr_connector(label));
+            main_connectors.push(lr_connector(label, theme));
         }
     }
 
@@ -825,7 +886,7 @@ fn render_flowchart_lr_branch(
                 .find(|edge| edge.from == from.id && edge.to == to.id)
                 .map(|edge| edge.label.as_str())
                 .unwrap_or("");
-            lower_connectors.push(lr_connector(label));
+            lower_connectors.push(lr_connector(label, theme));
         }
     }
 
@@ -860,17 +921,21 @@ fn render_flowchart_lr_branch(
         lines.push(line);
     }
 
-    lines.push(format!(
-        "{:branch_center$}│ {}",
-        "",
-        alternate_edge.1,
-        branch_center = branch_center
-    ));
-    lines.push(format!(
-        "{:branch_center$}▼",
-        "",
-        branch_center = branch_center
-    ));
+    lines.push(
+        theme.mermaid_edge.apply(&format!(
+            "{:branch_center$}│ {}",
+            "",
+            alternate_edge.1,
+            branch_center = branch_center
+        )).to_string()
+    );
+    lines.push(
+        theme.mermaid_arrow_head.apply(&format!(
+            "{:branch_center$}▼",
+            "",
+            branch_center = branch_center
+        )).to_string()
+    );
 
     for row_idx in 0..3 {
         let mut line = " ".repeat(lower_start);
@@ -896,7 +961,7 @@ struct LrConnector {
     width: usize,
 }
 
-fn lr_connector(label: &str) -> LrConnector {
+fn lr_connector(label: &str, theme: &Theme) -> LrConnector {
     let label_width = UnicodeWidthStr::width(label);
     let width = (label_width + 4).max(7);
     let left_pad = (width.saturating_sub(label_width)) / 2;
@@ -904,9 +969,9 @@ fn lr_connector(label: &str) -> LrConnector {
     let label_row = if label.is_empty() {
         " ".repeat(width)
     } else {
-        format!("{}{}{}", " ".repeat(left_pad), label, " ".repeat(right_pad))
+        theme.mermaid_label.apply(&format!("{}{}{}", " ".repeat(left_pad), label, " ".repeat(right_pad))).to_string()
     };
-    let arrow_row = format!("{}▶", "─".repeat(width.saturating_sub(1)));
+    let arrow_row = theme.mermaid_edge.apply(&format!("{}▶", "─".repeat(width.saturating_sub(1)))).to_string();
     let spacer_row = " ".repeat(width);
 
     LrConnector { rows: [label_row, arrow_row, spacer_row], width }
@@ -1030,8 +1095,8 @@ fn parse_sequence(diagram: &str) -> (Vec<SeqParticipant>, Vec<SeqMessage>) {
     (participants, messages)
 }
 
-/// Render a sequence diagram to terminal art.
-fn render_sequence(diagram: &str, _width: usize) -> Vec<String> {
+/// Render a sequence diagram to terminal art with theme colors.
+fn render_sequence(diagram: &str, _width: usize, theme: &Theme) -> Vec<String> {
     let (participants, messages) = parse_sequence(diagram);
     if participants.is_empty() && messages.is_empty() {
         return vec!["[empty sequence diagram]".to_string()];
@@ -1062,20 +1127,16 @@ fn render_sequence(diagram: &str, _width: usize) -> Vec<String> {
         col_widths.iter().map(|w| w + 2).sum::<usize>() + (col_widths.len().saturating_sub(1)) * 3
     };
 
-    // Helper to create a blank row buffer
+    // Helper: build a blank row buffer
     let blank_row = || vec![' '; total_width];
-
-    // Helper to place a lifeline character in a row
-    let place_lifelines = |row: &mut Vec<char>| {
-        for &center in &col_centers {
-            set_char(row, center, '│');
-        }
-    };
 
     // Participant headers
     let mut header_top = blank_row();
+    let mut header_top_styles = vec![STYLE_NONE; total_width];
     let mut header_mid = blank_row();
+    let mut header_mid_styles = vec![STYLE_NONE; total_width];
     let mut header_bot = blank_row();
+    let mut header_bot_styles = vec![STYLE_NONE; total_width];
     let mut offset = 0usize;
     for (p, w) in participants.iter().zip(col_widths.iter().copied()) {
         let name = &p.name;
@@ -1084,8 +1145,10 @@ fn render_sequence(diagram: &str, _width: usize) -> Vec<String> {
         let pad_right = w.saturating_sub(name_width).saturating_sub(pad_left);
 
         // Top border: ┌────┐
-        for (j, c) in format!("┌{}┐", "─".repeat(w)).chars().enumerate() {
+        let top_str = format!("┌{}┐", "─".repeat(w));
+        for (j, c) in top_str.chars().enumerate() {
             set_char(&mut header_top, offset + j, c);
+            header_top_styles[offset + j] = STYLE_BORDER;
         }
         // Middle: │ Name │
         let mid_str = format!(
@@ -1096,17 +1159,24 @@ fn render_sequence(diagram: &str, _width: usize) -> Vec<String> {
         );
         for (j, c) in mid_str.chars().enumerate() {
             set_char(&mut header_mid, offset + j, c);
+            // Style the │ borders as border, name text as node
+            if j == 0 || j == mid_str.chars().count() - 1 {
+                header_mid_styles[offset + j] = STYLE_BORDER;
+            } else {
+                header_mid_styles[offset + j] = STYLE_NODE;
+            }
         }
         // Bottom: └────┘
         let bot_str = format!("└{}┘", "─".repeat(w));
         for (j, c) in bot_str.chars().enumerate() {
             set_char(&mut header_bot, offset + j, c);
+            header_bot_styles[offset + j] = STYLE_BORDER;
         }
         offset += w + 2 + 3;
     }
-    lines.push(header_top.into_iter().collect());
-    lines.push(header_mid.into_iter().collect());
-    lines.push(header_bot.into_iter().collect());
+    lines.push(build_colored_line(&header_top, &header_top_styles, theme));
+    lines.push(build_colored_line(&header_mid, &header_mid_styles, theme));
+    lines.push(build_colored_line(&header_bot, &header_bot_styles, theme));
 
     // Render each message
     for msg in &messages {
@@ -1128,12 +1198,20 @@ fn render_sequence(diagram: &str, _width: usize) -> Vec<String> {
 
                         // Lifeline row before arrow
                         let mut before = blank_row();
-                        place_lifelines(&mut before);
-                        lines.push(before.into_iter().collect());
+                        let mut before_styles = vec![STYLE_NONE; total_width];
+                        for &center in &col_centers {
+                            set_char(&mut before, center, '│');
+                            before_styles[center] = STYLE_EDGE;
+                        }
+                        lines.push(build_colored_line(&before, &before_styles, theme));
 
                         // Arrow row
                         let mut arrow_row = blank_row();
-                        place_lifelines(&mut arrow_row);
+                        let mut arrow_styles = vec![STYLE_NONE; total_width];
+                        for &center in &col_centers {
+                            set_char(&mut arrow_row, center, '│');
+                            arrow_styles[center] = STYLE_EDGE;
+                        }
 
                         // Draw horizontal arrow line
                         let line_char = if *solid { '─' } else { '┄' };
@@ -1142,6 +1220,7 @@ fn render_sequence(diagram: &str, _width: usize) -> Vec<String> {
                         if start <= end {
                             for x in start..=end {
                                 set_char(&mut arrow_row, x, line_char);
+                                arrow_styles[x] = STYLE_EDGE;
                             }
                         }
 
@@ -1153,24 +1232,25 @@ fn render_sequence(diagram: &str, _width: usize) -> Vec<String> {
                                 left_center
                             };
                             set_char(&mut arrow_row, head_pos, head_char);
+                            arrow_styles[head_pos] = STYLE_ARROW;
                         }
 
-                        // For reverse direction, also place the tail correctly
-                        if !direction_right && *arrow_head {
-                            // Already handled by head_char = '◄' at left_center
-                        }
-
-                        lines.push(arrow_row.into_iter().collect());
+                        lines.push(build_colored_line(&arrow_row, &arrow_styles, theme));
 
                         // Label row (if any)
                         if !label.is_empty() {
                             let mut label_row = blank_row();
-                            place_lifelines(&mut label_row);
+                            let mut label_styles = vec![STYLE_NONE; total_width];
+                            for &center in &col_centers {
+                                set_char(&mut label_row, center, '│');
+                                label_styles[center] = STYLE_EDGE;
+                            }
                             let label_start = left_center + 2;
                             for (j, c) in label.chars().enumerate() {
                                 set_char(&mut label_row, label_start + j, c);
+                                label_styles[label_start + j] = STYLE_LABEL;
                             }
-                            lines.push(label_row.into_iter().collect());
+                            lines.push(build_colored_line(&label_row, &label_styles, theme));
                         }
                     }
                     (None, _) | (_, None) => {
@@ -1186,31 +1266,50 @@ fn render_sequence(diagram: &str, _width: usize) -> Vec<String> {
                     let note_left = center.saturating_sub(note_width / 2);
 
                     let mut note_top = blank_row();
-                    place_lifelines(&mut note_top);
+                    let mut note_top_styles = vec![STYLE_NONE; total_width];
+                    for &center in &col_centers {
+                        set_char(&mut note_top, center, '│');
+                        note_top_styles[center] = STYLE_EDGE;
+                    }
                     for (j, c) in format!("┌{}┐", "─".repeat(note_width)).chars().enumerate()
                     {
                         set_char(&mut note_top, note_left + j, c);
+                        note_top_styles[note_left + j] = STYLE_BORDER;
                     }
-                    lines.push(note_top.into_iter().collect());
+                    lines.push(build_colored_line(&note_top, &note_top_styles, theme));
 
                     let mut note_mid = blank_row();
-                    place_lifelines(&mut note_mid);
+                    let mut note_mid_styles = vec![STYLE_NONE; total_width];
+                    for &center in &col_centers {
+                        set_char(&mut note_mid, center, '│');
+                        note_mid_styles[center] = STYLE_EDGE;
+                    }
                     let pad = note_width.saturating_sub(text_width);
                     let lpad = pad / 2;
                     let rpad = pad - lpad;
                     let mid_str = format!("│{}{}{}│", " ".repeat(lpad), text, " ".repeat(rpad));
                     for (j, c) in mid_str.chars().enumerate() {
                         set_char(&mut note_mid, note_left + j, c);
+                        if j == 0 || j == mid_str.chars().count() - 1 {
+                            note_mid_styles[note_left + j] = STYLE_BORDER;
+                        } else {
+                            note_mid_styles[note_left + j] = STYLE_LABEL;
+                        }
                     }
-                    lines.push(note_mid.into_iter().collect());
+                    lines.push(build_colored_line(&note_mid, &note_mid_styles, theme));
 
                     let mut note_bot = blank_row();
-                    place_lifelines(&mut note_bot);
+                    let mut note_bot_styles = vec![STYLE_NONE; total_width];
+                    for &center in &col_centers {
+                        set_char(&mut note_bot, center, '│');
+                        note_bot_styles[center] = STYLE_EDGE;
+                    }
                     for (j, c) in format!("└{}┘", "─".repeat(note_width)).chars().enumerate()
                     {
                         set_char(&mut note_bot, note_left + j, c);
+                        note_bot_styles[note_left + j] = STYLE_BORDER;
                     }
-                    lines.push(note_bot.into_iter().collect());
+                    lines.push(build_colored_line(&note_bot, &note_bot_styles, theme));
                 }
             }
         }
@@ -1219,8 +1318,12 @@ fn render_sequence(diagram: &str, _width: usize) -> Vec<String> {
     // Final lifelines
     if !participants.is_empty() {
         let mut final_row = blank_row();
-        place_lifelines(&mut final_row);
-        lines.push(final_row.into_iter().collect());
+        let mut final_styles = vec![STYLE_NONE; total_width];
+        for &center in &col_centers {
+            set_char(&mut final_row, center, '│');
+            final_styles[center] = STYLE_EDGE;
+        }
+        lines.push(build_colored_line(&final_row, &final_styles, theme));
     }
 
     lines
@@ -1231,6 +1334,11 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+    use crate::theme::Theme;
+
+    fn test_theme() -> Theme {
+        Theme::dark()
+    }
 
     #[test]
     fn test_detect_flowchart_td() {
@@ -1246,6 +1354,7 @@ mod tests {
         let result = render_mermaid(
             "graph LR\n  A[Rectangle] --> B(Round)\n  B --> C{Diamond}\n  C --> D([Stadium])",
             80,
+            &test_theme(),
         );
         assert!(result.is_some());
         let lines = result.unwrap();
@@ -1261,7 +1370,7 @@ mod tests {
     #[test]
     fn test_render_flowchart_lr_basic() {
         // Test that |label| syntax is parsed correctly for edges
-        let result = render_mermaid("graph LR\n  A -->|yes| B\n  B -->|no| C", 80);
+        let result = render_mermaid("graph LR\n  A -->|yes| B\n  B -->|no| C", 80, &test_theme());
         assert!(result.is_some());
         let lines = result.unwrap();
         let joined = lines.join("\n");
@@ -1274,6 +1383,7 @@ mod tests {
         let result = render_mermaid(
             "graph LR\n  A[Input Data] --> B{Valid?}\n  B -->|Yes| C[Process]\n  B -->|No| D[Reject]\n  C --> E[Output]",
             80,
+            &test_theme(),
         );
         assert!(result.is_some());
         let lines = result.unwrap();
@@ -1309,7 +1419,7 @@ mod tests {
 
     #[test]
     fn test_render_mermaid_returns_some_for_flowchart() {
-        let result = render_mermaid("graph TD\n  A[Start] --> B[End]", 80);
+        let result = render_mermaid("graph TD\n  A[Start] --> B[End]", 80, &test_theme());
         assert!(result.is_some());
         let lines = result.unwrap();
         assert!(!lines.is_empty());
@@ -1320,7 +1430,11 @@ mod tests {
 
     #[test]
     fn test_render_mermaid_returns_some_for_sequence() {
-        let result = render_mermaid("sequenceDiagram\n  Alice->>Bob: Hello", 80);
+        let result = render_mermaid(
+            "sequenceDiagram\n  Alice->>Bob: Hello",
+            80,
+            &test_theme(),
+        );
         assert!(result.is_some());
         let lines = result.unwrap();
         assert!(!lines.is_empty());
@@ -1328,13 +1442,13 @@ mod tests {
 
     #[test]
     fn test_render_mermaid_returns_none_for_unsupported() {
-        let result = render_mermaid("classDiagram\n  class Animal", 80);
+        let result = render_mermaid("classDiagram\n  class Animal", 80, &test_theme());
         assert!(result.is_none());
     }
 
     #[test]
     fn test_render_mermaid_returns_none_for_empty() {
-        let result = render_mermaid("", 80);
+        let result = render_mermaid("", 80, &test_theme());
         assert!(result.is_none());
     }
 
@@ -1364,7 +1478,7 @@ mod tests {
 
     #[test]
     fn test_render_flowchart_td_basic() {
-        let result = render_mermaid("graph TD\n  A --> B", 80);
+        let result = render_mermaid("graph TD\n  A --> B", 80, &test_theme());
         let lines = result.unwrap();
         let joined = lines.join("\n");
         // Should contain box-drawing characters
@@ -1380,7 +1494,7 @@ mod tests {
 
     #[test]
     fn test_render_flowchart_lr_abc() {
-        let result = render_mermaid("graph LR\n  A --> B\n  B --> C", 80);
+        let result = render_mermaid("graph LR\n  A --> B\n  B --> C", 80, &test_theme());
         let lines = result.unwrap();
         let joined = lines.join("\n");
         assert!(joined.contains('A'));
@@ -1395,6 +1509,7 @@ mod tests {
         let result = render_mermaid(
             "graph TD\n  A[Start] --> B{Decision}\n  B -->|Yes| C[Accept]\n  B -->|No| D[Reject]",
             80,
+            &test_theme(),
         );
         assert!(result.is_some());
         let lines = result.unwrap();
@@ -1408,7 +1523,11 @@ mod tests {
 
     #[test]
     fn test_render_flowchart_with_labels() {
-        let result = render_mermaid("graph TD\n  A[Start] -->|Next step| B[Process]", 80);
+        let result = render_mermaid(
+            "graph TD\n  A[Start] -->|Next step| B[Process]",
+            80,
+            &test_theme(),
+        );
         assert!(result.is_some());
         let lines = result.unwrap();
         let joined = lines.join("\n");
@@ -1420,7 +1539,7 @@ mod tests {
     #[test]
     fn test_render_flowchart_edge_label_syntax() {
         // Test that |label| syntax is parsed correctly for edges
-        let result = render_mermaid("graph LR\n  A -->|yes| B\n  B -->|no| C", 80);
+        let result = render_mermaid("graph LR\n  A -->|yes| B\n  B -->|no| C", 80, &test_theme());
         assert!(result.is_some());
         let lines = result.unwrap();
         let joined = lines.join("\n");
@@ -1433,6 +1552,7 @@ mod tests {
         let result = render_mermaid(
             "sequenceDiagram\n  Alice->>Bob: Hello Bob\n  Bob-->>Alice: Hi Alice",
             80,
+            &test_theme(),
         );
         assert!(result.is_some());
         let lines = result.unwrap();
@@ -1446,7 +1566,7 @@ mod tests {
 
     #[test]
     fn test_render_flowchart_round_rect() {
-        let result = render_mermaid("graph TD\n  A(Start) --> B(End)", 80);
+        let result = render_mermaid("graph TD\n  A(Start) --> B(End)", 80, &test_theme());
         assert!(result.is_some());
         let lines = result.unwrap();
         let joined = lines.join("\n");
@@ -1456,7 +1576,7 @@ mod tests {
 
     #[test]
     fn test_flowchart_without_edges() {
-        let result = render_mermaid("graph TD\n  A[Standalone]", 80);
+        let result = render_mermaid("graph TD\n  A[Standalone]", 80, &test_theme());
         assert!(result.is_some());
         let lines = result.unwrap();
         let joined = lines.join("\n");
@@ -1465,7 +1585,7 @@ mod tests {
 
     #[test]
     fn test_display_width_respected() {
-        let result = render_mermaid("graph TD\n  A[Hello World] --> B[Testing 123]", 40);
+        let result = render_mermaid("graph TD\n  A[Hello World] --> B[Testing 123]", 40, &test_theme());
         assert!(result.is_some());
     }
 }
