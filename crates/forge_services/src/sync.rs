@@ -4,8 +4,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use forge_app::{FileReaderInfra, SyncProgressCounter, WorkspaceStatus, compute_hash};
 use forge_domain::{ApiKey, FileHash, SyncProgress, UserId, WorkspaceId, WorkspaceIndexRepository};
-use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
+use futures::stream::{Stream, StreamExt};
 use tracing::{info, warn};
 
 use crate::fd::{FileDiscovery, discover_sync_file_paths};
