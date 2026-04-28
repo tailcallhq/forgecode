@@ -171,16 +171,19 @@ impl<F: 'static + WorkspaceIndexRepository + FileReaderInfra, D: FileDiscovery +
         // and each batch is sent in a single HTTP request, sequentially.
         let mut upload_stream = Box::pin(self.upload_files(sync_paths.upload));
 
-        // Process uploads as they complete, updating progress incrementally
-        while let Some(result) = upload_stream.next().await {
+        // Process uploads as they complete, updating progress incrementally.
+        // Each item carries the batch's attempted count so that a failed batch
+        // is accounted for as N failed files (not 1) when the batch contains N
+        // files.
+        while let Some((attempted, result)) = upload_stream.next().await {
             match result {
-                Ok(count) => {
-                    counter.complete(count);
+                Ok(()) => {
+                    counter.complete(attempted);
                     emit(counter.sync_progress()).await;
                 }
                 Err(e) => {
-                    warn!(workspace_id = %self.workspace_id, error = ?e, "Failed to upload file during sync");
-                    failed_files += 1;
+                    warn!(workspace_id = %self.workspace_id, error = ?e, attempted, "Failed to upload batch during sync");
+                    failed_files += attempted;
                     // Continue processing remaining uploads
                 }
             }
@@ -269,12 +272,17 @@ impl<F: 'static + WorkspaceIndexRepository + FileReaderInfra, D: FileDiscovery +
     /// [`forge_domain::FileUpload`] payload, and uploaded in one request.
     /// Batches are processed sequentially — only one HTTP request is in-flight
     /// at a time — which keeps both memory usage and server concurrency
-    /// bounded. The stream yields the number of files successfully uploaded
-    /// per batch.
+    /// bounded.
+    ///
+    /// The stream yields one item per batch as `(attempted, result)`, where
+    /// `attempted` is the number of files in the batch and `result` indicates
+    /// whether the batch upload succeeded. Callers can therefore correctly
+    /// account for all files in a failed batch rather than treating a batch
+    /// failure as a single-file failure.
     fn upload_files(
         &self,
         paths: Vec<PathBuf>,
-    ) -> impl Stream<Item = Result<usize, anyhow::Error>> + Send {
+    ) -> impl Stream<Item = (usize, Result<(), anyhow::Error>)> + Send {
         let user_id = self.user_id.clone();
         let workspace_id = self.workspace_id.clone();
         let token = self.token.clone();
@@ -289,26 +297,38 @@ impl<F: 'static + WorkspaceIndexRepository + FileReaderInfra, D: FileDiscovery +
                 let token = token.clone();
                 let infra = infra.clone();
                 async move {
-                    let mut files = Vec::with_capacity(batch.len());
-                    for file_path in &batch {
-                        let content = infra.read_utf8(file_path).await.with_context(|| {
-                            format!("Failed to read file '{}' for upload", file_path.display())
-                        })?;
-                        files.push(forge_domain::FileRead::new(
-                            file_path.to_string_lossy().into_owned(),
-                            content,
-                        ));
-                    }
-                    let count = files.len();
-                    let upload =
-                        forge_domain::CodeBase::new(user_id.clone(), workspace_id.clone(), files);
-                    infra
-                        .upload_files(&upload, &token)
-                        .await
-                        .context("Failed to upload files")?;
-                    Ok::<_, anyhow::Error>(count)
+                    let attempted = batch.len();
+                    let result = Self::upload_batch(&infra, &user_id, &workspace_id, &token, batch)
+                        .await;
+                    (attempted, result)
                 }
             })
+    }
+
+    /// Reads and uploads a single batch of files in one HTTP request.
+    async fn upload_batch(
+        infra: &Arc<F>,
+        user_id: &UserId,
+        workspace_id: &WorkspaceId,
+        token: &ApiKey,
+        batch: Vec<PathBuf>,
+    ) -> Result<()> {
+        let mut files = Vec::with_capacity(batch.len());
+        for file_path in &batch {
+            let content = infra.read_utf8(file_path).await.with_context(|| {
+                format!("Failed to read file '{}' for upload", file_path.display())
+            })?;
+            files.push(forge_domain::FileRead::new(
+                file_path.to_string_lossy().into_owned(),
+                content,
+            ));
+        }
+        let upload = forge_domain::CodeBase::new(user_id.clone(), workspace_id.clone(), files);
+        infra
+            .upload_files(&upload, token)
+            .await
+            .context("Failed to upload files")?;
+        Ok(())
     }
 
     /// Discovers workspace files and streams their hashes without retaining
