@@ -209,6 +209,10 @@ where
     /// when list() or call() is invoked, avoiding interactive OAuth during
     /// reload.
     async fn refresh_cache(&self) -> anyhow::Result<()> {
+        // Hold init_lock so we don't race with an in-flight update_mcp: without
+        // this, clear_tools could run while connections are still being
+        // established, leaving waiters released into an empty tool map.
+        let _guard = self.init_lock.lock().await;
         // Clear the infra cache and reset config hash to force re-init on next access
         self.infra.cache_clear().await?;
         *self.previous_config_hash.lock().await = Default::default();
@@ -438,7 +442,7 @@ mod tests {
     /// Verify that two concurrent callers of `get_mcp_servers` do not race:
     /// after both futures settle, every registered tool must be callable
     /// without a "Tool not found" error.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_concurrent_init_does_not_race() {
         let service = Arc::new(fixture());
 
