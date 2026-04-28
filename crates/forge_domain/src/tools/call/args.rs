@@ -106,7 +106,31 @@ impl ToolCallArguments {
     }
 
     pub fn from_json(str: &str) -> Self {
+        // Always store as Unparsed to preserve the original JSON string format
+        // for serialization. The parse_json method should be used when you need
+        // to handle parsing errors gracefully.
         ToolCallArguments::Unparsed(str.to_string())
+    }
+
+    /// Parse a JSON string into ToolCallArguments with proper error handling.
+    ///
+    /// This attempts to parse the string as JSON using json_repair for
+    /// recovery. Returns a retryable error if parsing fails, allowing the
+    /// system to retry the request with the model.
+    pub fn parse_json(str: &str) -> crate::Result<Self> {
+        match serde_json::from_str::<Value>(str) {
+            Ok(value) => Ok(ToolCallArguments::Parsed(value)),
+            Err(serde_err) => {
+                // Try json_repair as a fallback
+                match json_repair(str) {
+                    Ok(repaired) => Ok(ToolCallArguments::Parsed(repaired)),
+                    Err(_json_err) => Err(crate::Error::tool_call_json_error(
+                        serde_err,
+                        str.to_string(),
+                    )),
+                }
+            }
+        }
     }
 
     pub fn from_parameters(object: BTreeMap<String, String>) -> ToolCallArguments {
