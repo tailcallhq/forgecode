@@ -359,3 +359,104 @@ impl<F: 'static + WorkspaceIndexRepository + FileReaderInfra, D: FileDiscovery +
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use async_trait::async_trait;
+    use forge_app::FileReaderInfra;
+    use forge_domain::{
+        ApiKey, FileDeletion, FileHash, FileInfo, FileUpload, FileUploadInfo, Node, UserId,
+        WorkspaceAuth, WorkspaceFiles, WorkspaceId, WorkspaceIndexRepository, WorkspaceInfo,
+    };
+    use futures::StreamExt;
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    /// Minimal infra for `upload_files`: only `read_utf8` + `upload_files`
+    /// are exercised; everything else is intentionally unreachable.
+    struct MockInfra {
+        fail_upload: bool,
+    }
+
+    #[async_trait]
+    #[rustfmt::skip]
+    impl FileReaderInfra for MockInfra {
+        async fn read_utf8(&self, _path: &Path) -> anyhow::Result<String> { Ok(String::new()) }
+        fn read_batch_utf8(&self, _: usize, _: Vec<PathBuf>) -> impl futures::Stream<Item = (PathBuf, anyhow::Result<String>)> + Send { futures::stream::empty() }
+        async fn read(&self, _: &Path) -> anyhow::Result<Vec<u8>> { unreachable!() }
+        async fn range_read_utf8(&self, _: &Path, _: u64, _: u64) -> anyhow::Result<(String, FileInfo)> { unreachable!() }
+    }
+
+    #[async_trait]
+    #[rustfmt::skip]
+    impl WorkspaceIndexRepository for MockInfra {
+        async fn upload_files(&self, _: &FileUpload, _: &ApiKey) -> anyhow::Result<FileUploadInfo> {
+            if self.fail_upload { Err(anyhow::anyhow!("boom")) } else { Ok(FileUploadInfo::default()) }
+        }
+        async fn authenticate(&self) -> anyhow::Result<WorkspaceAuth> { unreachable!() }
+        async fn create_workspace(&self, _: &Path, _: &ApiKey) -> anyhow::Result<WorkspaceId> { unreachable!() }
+        async fn search(&self, _: &forge_domain::CodeSearchQuery<'_>, _: &ApiKey) -> anyhow::Result<Vec<Node>> { unreachable!() }
+        async fn list_workspaces(&self, _: &ApiKey) -> anyhow::Result<Vec<WorkspaceInfo>> { unreachable!() }
+        async fn get_workspace(&self, _: &WorkspaceId, _: &ApiKey) -> anyhow::Result<Option<WorkspaceInfo>> { unreachable!() }
+        async fn list_workspace_files(&self, _: &WorkspaceFiles, _: &ApiKey) -> anyhow::Result<Vec<FileHash>> { unreachable!() }
+        async fn delete_files(&self, _: &FileDeletion, _: &ApiKey) -> anyhow::Result<()> { unreachable!() }
+        async fn delete_workspace(&self, _: &WorkspaceId, _: &ApiKey) -> anyhow::Result<()> { unreachable!() }
+    }
+
+    /// Discovery is not invoked by `upload_files`; a no-op satisfies the bound.
+    struct NoDiscovery;
+    #[async_trait]
+    impl FileDiscovery for NoDiscovery {
+        async fn discover(&self, _: &Path) -> anyhow::Result<Vec<PathBuf>> { Ok(vec![]) }
+    }
+
+    fn fixture(fail_upload: bool) -> WorkspaceSyncEngine<MockInfra, NoDiscovery> {
+        WorkspaceSyncEngine::new(
+            Arc::new(MockInfra { fail_upload }),
+            Arc::new(NoDiscovery),
+            PathBuf::new(),
+            WorkspaceId::generate(),
+            UserId::generate(),
+            ApiKey::from(String::new()),
+            3, // batch_size
+        )
+    }
+
+    /// Regression test for the bug where a failed batch counted as 1 failure
+    /// instead of N. With batch_size=3 and 5 files, batches are [3, 2] and
+    /// each must report its full size on failure.
+    #[tokio::test]
+    async fn test_failed_batch_reports_full_batch_size() {
+        let engine = fixture(true);
+        let paths: Vec<PathBuf> = (0..5).map(|i| PathBuf::from(format!("f{i}"))).collect();
+
+        let actual: Vec<(usize, bool)> = engine
+            .upload_files(paths)
+            .map(|(n, r)| (n, r.is_ok()))
+            .collect()
+            .await;
+        let expected = vec![(3, false), (2, false)];
+
+        assert_eq!(actual, expected);
+    }
+
+    /// Successful batches must also yield their full size so the progress
+    /// counter advances correctly.
+    #[tokio::test]
+    async fn test_successful_batch_reports_full_batch_size() {
+        let engine = fixture(false);
+        let paths: Vec<PathBuf> = (0..5).map(|i| PathBuf::from(format!("f{i}"))).collect();
+
+        let actual: Vec<(usize, bool)> = engine
+            .upload_files(paths)
+            .map(|(n, r)| (n, r.is_ok()))
+            .collect()
+            .await;
+        let expected = vec![(3, true), (2, true)];
+
+        assert_eq!(actual, expected);
+    }
+}
