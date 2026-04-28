@@ -9,6 +9,7 @@ use crate::code::CodeHighlighter;
 use crate::heading::render_heading;
 use crate::inline::{render_inline_content, render_inline_elements};
 use crate::list::{ListState, render_list_item};
+use crate::mermaid::render_mermaid;
 use crate::style::InlineStyler;
 use crate::table::render_table;
 use crate::theme::Theme;
@@ -23,6 +24,9 @@ pub struct Renderer<W: Write> {
     highlighter: CodeHighlighter,
     current_language: Option<String>,
     code_buffer: String,
+    // Mermaid diagram state
+    in_mermaid: bool,
+    mermaid_buffer: String,
     // Table buffering
     table_rows: Vec<Vec<String>>,
     // Blockquote state
@@ -47,6 +51,8 @@ impl<W: Write> Renderer<W> {
             highlighter: CodeHighlighter::default(),
             current_language: None,
             code_buffer: String::new(),
+            in_mermaid: false,
+            mermaid_buffer: String::new(),
             table_rows: Vec::new(),
             in_blockquote: false,
             blockquote_depth: 0,
@@ -190,28 +196,80 @@ impl<W: Write> Renderer<W> {
             ParseEvent::CodeBlockStart { language, .. } => {
                 self.current_language = language.clone();
                 self.code_buffer.clear();
+                // Detect mermaid diagram blocks
+                self.in_mermaid = language.as_deref() == Some("mermaid")
+                    || language.as_deref() == Some("mermaid");
+                self.mermaid_buffer.clear();
+                // Show language label for mermaid blocks
+                if self.in_mermaid {
+                    let lang_label = self
+                        .theme
+                        .code_block_lang
+                        .apply(&format!(" {} ", language.as_deref().unwrap_or("mermaid")));
+                    self.writeln(&lang_label.to_string())?;
+                }
             }
 
             ParseEvent::CodeBlockLine(line) => {
-                if !self.code_buffer.is_empty() {
-                    self.code_buffer.push('\n');
-                }
-                self.code_buffer.push_str(line);
+                if self.in_mermaid {
+                    // Buffer mermaid lines instead of rendering inline
+                    if !self.mermaid_buffer.is_empty() {
+                        self.mermaid_buffer.push('\n');
+                    }
+                    self.mermaid_buffer.push_str(line);
+                } else {
+                    if !self.code_buffer.is_empty() {
+                        self.code_buffer.push('\n');
+                    }
+                    self.code_buffer.push_str(line);
 
-                let margin = self.left_margin();
-                let width = self.current_width();
-                let rendered_lines = self.highlighter.render_code_line(
-                    line,
-                    self.current_language.as_deref(),
-                    &margin,
-                    width,
-                );
-                for rendered in rendered_lines {
-                    self.writeln(&rendered)?;
+                    let margin = self.left_margin();
+                    let width = self.current_width();
+                    let rendered_lines = self.highlighter.render_code_line(
+                        line,
+                        self.current_language.as_deref(),
+                        &margin,
+                        width,
+                    );
+                    for rendered in rendered_lines {
+                        self.writeln(&rendered)?;
+                    }
                 }
             }
 
             ParseEvent::CodeBlockEnd => {
+                if self.in_mermaid {
+                    // Render the complete mermaid diagram
+                    if !self.mermaid_buffer.is_empty() {
+                        if let Some(diagram_lines) =
+                            render_mermaid(&self.mermaid_buffer, self.current_width())
+                        {
+                            for line in diagram_lines {
+                                let margin = self.left_margin();
+                                self.writeln(&format!("{}{}", margin, line))?;
+                            }
+                        } else {
+                            // Fallback: render as code if mermaid parsing fails
+                            let margin = self.left_margin();
+                            let width = self.current_width();
+                            let lines: Vec<String> =
+                                self.mermaid_buffer.lines().map(|l| l.to_string()).collect();
+                            for mermaid_line in lines {
+                                let rendered_lines = self.highlighter.render_code_line(
+                                    &mermaid_line,
+                                    Some("text"),
+                                    &margin,
+                                    width,
+                                );
+                                for rendered in rendered_lines {
+                                    self.writeln(&rendered)?;
+                                }
+                            }
+                        }
+                    }
+                    self.in_mermaid = false;
+                    self.mermaid_buffer.clear();
+                }
                 self.current_language = None;
                 self.code_buffer.clear();
             }

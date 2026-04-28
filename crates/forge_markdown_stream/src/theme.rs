@@ -134,8 +134,14 @@ pub struct Theme {
 
     // Horizontal rule
     pub hr: Style,
-}
 
+    // Mermaid diagram styles
+    pub mermaid_node: Style,
+    pub mermaid_edge: Style,
+    pub mermaid_label: Style,
+    pub mermaid_border: Style,
+    pub mermaid_arrow_head: Style,
+}
 impl Default for Theme {
     fn default() -> Self {
         Self::detect()
@@ -323,6 +329,13 @@ impl Theme {
 
             // HR
             hr: Style::new().fg(Color::BrightBlack),
+
+            // Mermaid diagrams
+            mermaid_node: Style::new().fg(Color::Cyan).bold(),
+            mermaid_edge: Style::new().fg(Color::BrightBlack),
+            mermaid_label: Style::new().fg(Color::Yellow),
+            mermaid_border: Style::new().fg(Color::BrightBlack),
+            mermaid_arrow_head: Style::new().fg(Color::Green),
         }
     }
 
@@ -370,6 +383,13 @@ impl Theme {
 
             // HR
             hr: Style::new().fg(Color::Black),
+
+            // Mermaid diagrams
+            mermaid_node: Style::new().bold(),
+            mermaid_edge: Style::new().fg(Color::Black),
+            mermaid_label: Style::new().fg(Color::Blue),
+            mermaid_border: Style::new().fg(Color::Black),
+            mermaid_arrow_head: Style::new().fg(Color::Green),
         }
     }
 }
