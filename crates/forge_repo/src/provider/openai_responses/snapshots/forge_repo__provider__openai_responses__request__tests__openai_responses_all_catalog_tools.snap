@@ -9,43 +9,60 @@ expression: actual.tools
     "parameters": {
       "additionalProperties": false,
       "properties": {
-        "end_line": {
+        "file_path": {
+          "description": "Absolute path to the file to read.",
+          "type": "string"
+        },
+        "range": {
           "anyOf": [
             {
-              "type": "integer"
+              "additionalProperties": false,
+              "properties": {
+                "end_line": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Inclusive 1-based last line."
+                },
+                "start_line": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "1-based first line."
+                }
+              },
+              "required": [
+                "end_line",
+                "start_line"
+              ],
+              "type": "object"
             },
             {
               "type": "null"
             }
           ],
-          "description": "The line number to stop reading at (inclusive). Only provide if the file\nis too large to read at once"
-        },
-        "file_path": {
-          "description": "The absolute path to the file to read",
-          "type": "string"
+          "description": "Optional line range for partial reads."
         },
         "show_line_numbers": {
           "default": true,
           "description": "If true, prefixes each line with its line index (starting at 1).\nDefaults to true.",
           "type": "boolean"
-        },
-        "start_line": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "The line number to start reading from starting from 1 not 0. Only\nprovide if the file is too large to read at once"
         }
       },
       "required": [
-        "end_line",
         "file_path",
-        "show_line_numbers",
-        "start_line"
+        "range",
+        "show_line_numbers"
       ],
       "title": "FSRead",
       "type": "object"

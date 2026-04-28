@@ -160,8 +160,16 @@ impl<
                     .services
                     .read(
                         normalized_path,
-                        input.start_line.map(|i| i as u64),
-                        input.end_line.map(|i| i as u64),
+                        input
+                            .range
+                            .as_ref()
+                            .and_then(|r| r.start_line)
+                            .map(|i| i as u64),
+                        input
+                            .range
+                            .as_ref()
+                            .and_then(|r| r.end_line)
+                            .map(|i| i as u64),
                     )
                     .await?;
 
