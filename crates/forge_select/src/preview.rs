@@ -15,10 +15,7 @@ use crossterm::event::{
 use crossterm::style::{
     Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
 };
-use crossterm::terminal::{
-    self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-    enable_raw_mode,
-};
+use crossterm::terminal::{self, Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use crossterm::{execute, queue};
 use derive_setters::Setters;
 use nucleo::pattern::{CaseMatching, Normalization};
@@ -97,6 +94,34 @@ impl Default for PreviewLayout {
     }
 }
 
+const SELECT_VIEWPORT_PERCENT: u16 = 80;
+
+fn select_viewport(full_height: u16) -> (u16, u16) {
+    let full_height = full_height.max(1);
+    let viewport_height = ((full_height as u32 * SELECT_VIEWPORT_PERCENT as u32) / 100)
+        .max(1)
+        .min(full_height as u32) as u16;
+    (full_height.saturating_sub(viewport_height), viewport_height)
+}
+
+fn viewport_move_to(x: u16, y: u16, top_offset: u16) -> MoveTo {
+    MoveTo(x, top_offset.saturating_add(y))
+}
+
+fn clear_viewport(stderr: &mut io::Stderr) -> io::Result<()> {
+    let (_, full_height) = terminal::size()?;
+    let (top_offset, height) = select_viewport(full_height);
+    for row_index in 0..height {
+        queue!(
+            stderr,
+            viewport_move_to(0, row_index, top_offset),
+            Clear(ClearType::CurrentLine)
+        )?;
+    }
+    queue!(stderr, viewport_move_to(0, 0, top_offset))?;
+    stderr.flush()
+}
+
 struct TerminalGuard {
     raw_mode_was_enabled: bool,
 }
@@ -107,7 +132,6 @@ impl TerminalGuard {
         enable_raw_mode()?;
         execute!(
             io::stderr(),
-            EnterAlternateScreen,
             EnableMouseCapture,
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
             Hide
@@ -118,12 +142,13 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
+        let mut stderr = io::stderr();
+        let _ = clear_viewport(&mut stderr);
         let _ = execute!(
-            io::stderr(),
+            stderr,
             Show,
             PopKeyboardEnhancementFlags,
-            DisableMouseCapture,
-            LeaveAlternateScreen
+            DisableMouseCapture
         );
         if !self.raw_mode_was_enabled {
             let _ = disable_raw_mode();
@@ -180,6 +205,22 @@ impl SelectUiOptions {
         let selected_raw = run_select_ui(self)?;
         Ok(selected_raw.and_then(|raw| rows.into_iter().find(|row| row.raw == raw)))
     }
+
+    /// Runs the selector and returns all selected rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if terminal setup, event handling, rendering, or
+    /// preview command execution setup fails.
+    pub fn prompt_multi(self) -> anyhow::Result<Option<Vec<SelectRow>>> {
+        let rows = self.rows.clone();
+        let selected_raws = run_select_ui_values(self)?;
+        Ok(selected_raws.map(|raws| {
+            raws.into_iter()
+                .filter_map(|raw| rows.iter().find(|row| row.raw == raw).cloned())
+                .collect()
+        }))
+    }
 }
 
 /// Runs the shared nucleo-backed selector UI and returns the selected raw
@@ -190,6 +231,10 @@ impl SelectUiOptions {
 /// Returns an error if terminal setup, event handling, rendering, or preview
 /// command execution setup fails.
 pub fn run_select_ui(options: SelectUiOptions) -> anyhow::Result<Option<String>> {
+    Ok(run_select_ui_values(options)?.and_then(|values| values.into_iter().next()))
+}
+
+fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<String>>> {
     let SelectUiOptions {
         prompt,
         query,
@@ -353,17 +398,17 @@ pub fn run_select_ui(options: SelectUiOptions) -> anyhow::Result<Option<String>>
                         PickerAction::Accept => {
                             if mode == SelectMode::Multi && !queued_indices.is_empty() {
                                 drop(guard);
-                                for index in &queued_indices {
-                                    if let Some(row) = matched_rows.get(*index) {
-                                        println!("{}", row.raw);
-                                    }
-                                }
-                                return Ok(None);
+                                let selected = queued_indices
+                                    .iter()
+                                    .filter_map(|index| matched_rows.get(*index))
+                                    .map(|row| row.raw.clone())
+                                    .collect::<Vec<_>>();
+                                return Ok(Some(selected));
                             }
 
                             if let Some(row) = selected_row {
                                 drop(guard);
-                                return Ok(Some(row.raw.clone()));
+                                return Ok(Some(vec![row.raw.clone()]));
                             }
                         }
                         PickerAction::Exit => {
@@ -550,7 +595,7 @@ fn preview_content_height(header_rows: usize, layout: PreviewLayout) -> usize {
     let Ok((_, height)) = terminal::size() else {
         return 1;
     };
-    let height = ((height.max(6) as u32 * 80) / 100).max(6) as u16;
+    let (_, height) = select_viewport(height);
     let header_height = 3u16.saturating_add(header_rows as u16);
     let body_height = height.saturating_sub(header_height).max(1);
 
@@ -570,7 +615,11 @@ fn mouse_over_preview(column: u16, row: u16, header_rows: usize, layout: Preview
         return false;
     };
     let width = width.max(20);
-    let height = ((height.max(6) as u32 * 80) / 100).max(6) as u16;
+    let (top_offset, height) = select_viewport(height);
+    if row < top_offset {
+        return false;
+    }
+    let row = row.saturating_sub(top_offset);
     let header_height = 3u16.saturating_add(header_rows as u16);
     let body_height = height.saturating_sub(header_height).max(1);
 
@@ -670,7 +719,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
     } = ui;
     let (width, height) = terminal::size()?;
     let width = width.max(20);
-    let height = ((height.max(6) as u32 * 80) / 100).max(6) as u16;
+    let (top_offset, height) = select_viewport(height);
 
     let has_preview = !preview.is_empty();
     let header_height = 3u16.saturating_add(header_rows.len() as u16);
@@ -731,10 +780,16 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
         }
     }
 
-    queue!(stderr, MoveTo(0, 0), Clear(ClearType::All))?;
+    for row_index in 0..height {
+        queue!(
+            stderr,
+            viewport_move_to(0, row_index, top_offset),
+            Clear(ClearType::CurrentLine)
+        )?;
+    }
     queue!(
         stderr,
-        MoveTo(0, 0),
+        viewport_move_to(0, 0, top_offset),
         SetAttribute(Attribute::Bold),
         SetForegroundColor(Color::AnsiValue(110)),
         Print(truncate_line(
@@ -746,7 +801,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
     )?;
     queue!(
         stderr,
-        MoveTo(2, 1),
+        viewport_move_to(2, 1, top_offset),
         SetForegroundColor(Color::AnsiValue(144)),
         Print(format!("{}/{}", matched_rows.len(), total_rows)),
         SetForegroundColor(Color::AnsiValue(59)),
@@ -762,7 +817,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
         if row_y < header_height {
             queue!(
                 stderr,
-                MoveTo(2, row_y),
+                viewport_move_to(2, row_y, top_offset),
                 SetAttribute(Attribute::Bold),
                 SetForegroundColor(Color::AnsiValue(109))
             )?;
@@ -780,7 +835,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
     for row_index in 0..list_height {
         queue!(
             stderr,
-            MoveTo(list_x, list_y + row_index),
+            viewport_move_to(list_x, list_y + row_index, top_offset),
             Clear(ClearType::CurrentLine)
         )?;
         let item_index = *scroll_offset + row_index as usize;
@@ -791,7 +846,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
             if is_selected {
                 queue!(
                     stderr,
-                    MoveTo(list_x, list_y + row_index),
+                    viewport_move_to(list_x, list_y + row_index, top_offset),
                     SetAttribute(Attribute::Bold),
                     SetForegroundColor(Color::AnsiValue(161)),
                     SetBackgroundColor(Color::AnsiValue(236)),
@@ -805,7 +860,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
             } else {
                 queue!(
                     stderr,
-                    MoveTo(list_x, list_y + row_index),
+                    viewport_move_to(list_x, list_y + row_index, top_offset),
                     SetForegroundColor(Color::AnsiValue(236)),
                     Print(marker),
                     ResetColor,
@@ -823,7 +878,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
                 for row_index in 0..body_height {
                     queue!(
                         stderr,
-                        MoveTo(divider_x, header_height + row_index),
+                        viewport_move_to(divider_x, header_height + row_index, top_offset),
                         Print("│")
                     )?;
                 }
@@ -831,7 +886,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
             PreviewPlacement::Bottom => {
                 queue!(
                     stderr,
-                    MoveTo(0, preview_y),
+                    viewport_move_to(0, preview_y, top_offset),
                     SetForegroundColor(Color::AnsiValue(59)),
                     Print("┌"),
                     Print("─".repeat(width.saturating_sub(2) as usize)),
@@ -861,7 +916,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
             {
                 queue!(
                     stderr,
-                    MoveTo(preview_x, y),
+                    viewport_move_to(preview_x, y, top_offset),
                     SetForegroundColor(Color::AnsiValue(59)),
                     Print("└"),
                     Print("─".repeat(preview_width.saturating_sub(2) as usize)),
@@ -874,10 +929,10 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
             let (content_x, content_width) = if layout.placement == PreviewPlacement::Bottom {
                 queue!(
                     stderr,
-                    MoveTo(preview_x, y),
+                    viewport_move_to(preview_x, y, top_offset),
                     SetForegroundColor(Color::AnsiValue(59)),
                     Print("│"),
-                    MoveTo(preview_x + preview_width.saturating_sub(1), y),
+                    viewport_move_to(preview_x + preview_width.saturating_sub(1), y, top_offset),
                     Print("│"),
                     ResetColor
                 )?;
@@ -888,7 +943,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
 
             queue!(
                 stderr,
-                MoveTo(content_x, y),
+                viewport_move_to(content_x, y, top_offset),
                 Print(" ".repeat(content_width as usize))
             )?;
             let line_index = if layout.placement == PreviewPlacement::Bottom {
@@ -899,7 +954,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
             if let Some(line) = preview_lines.get(line_index) {
                 queue!(
                     stderr,
-                    MoveTo(content_x, y),
+                    viewport_move_to(content_x, y, top_offset),
                     Print(truncate_line(line, content_width as usize))
                 )?;
             }
@@ -914,9 +969,10 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
                 if indicator_width.saturating_add(1) < preview_width {
                     queue!(
                         stderr,
-                        MoveTo(
+                        viewport_move_to(
                             preview_x + preview_width.saturating_sub(indicator_width + 2),
-                            y
+                            y,
+                            top_offset,
                         ),
                         SetAttribute(Attribute::Reverse),
                         SetForegroundColor(Color::AnsiValue(144)),

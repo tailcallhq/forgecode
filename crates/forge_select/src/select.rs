@@ -2,9 +2,8 @@ use std::io::IsTerminal;
 
 use anyhow::Result;
 use console::strip_ansi_codes;
-use nucleo_picker::PickerOptions;
-use nucleo_picker::error::PickError;
-use nucleo_picker::render::StrRenderer;
+
+use crate::preview::{PreviewLayout, PreviewPlacement, SelectMode, SelectRow, SelectUiOptions};
 
 /// Builder for select prompts with fuzzy search.
 pub struct SelectBuilder<T> {
@@ -27,24 +26,18 @@ impl<T: 'static> SelectBuilder<T> {
     }
 
     /// Set a preview command shown in a side panel as the user navigates items.
-    ///
-    /// This is a no-op with nucleo-picker and is retained for API
-    /// compatibility.
-    pub fn with_preview(mut self, _command: impl Into<String>) -> Self {
-        self.preview = Some(_command.into());
+    pub fn with_preview(mut self, command: impl Into<String>) -> Self {
+        self.preview = Some(command.into());
         self
     }
 
     /// Set the layout of the preview panel.
-    ///
-    /// This is a no-op with nucleo-picker and is retained for API
-    /// compatibility.
-    pub fn with_preview_window(mut self, _layout: impl Into<String>) -> Self {
-        self.preview_window = Some(_layout.into());
+    pub fn with_preview_window(mut self, layout: impl Into<String>) -> Self {
+        self.preview_window = Some(layout.into());
         self
     }
 
-    /// Set default for confirm (only works with bool options).
+    /// Set default for confirm prompts using bool options.
     pub fn with_default(mut self, default: bool) -> Self {
         self.default = Some(default);
         self
@@ -62,10 +55,7 @@ impl<T: 'static> SelectBuilder<T> {
         self
     }
 
-    /// Set the number of header lines (non-selectable) at the top of the list.
-    ///
-    /// Header lines are printed before the picker but are not injected as
-    /// selectable items.
+    /// Set the number of header lines treated as non-selectable options.
     pub fn with_header_lines(mut self, n: usize) -> Self {
         self.header_lines = n;
         self
@@ -75,12 +65,13 @@ impl<T: 'static> SelectBuilder<T> {
     ///
     /// # Returns
     ///
-    /// - `Ok(Some(T))` - User selected an option
-    /// - `Ok(None)` - No options available or user cancelled (ESC / Ctrl+C)
+    /// - `Ok(Some(T))` when the user selects an option.
+    /// - `Ok(None)` when no options are available or the user cancels.
     ///
     /// # Errors
     ///
-    /// Returns an error if the picker fails to start or interact.
+    /// Returns an error if the picker cannot set up terminal interaction,
+    /// render, process events, or run a preview command.
     pub fn prompt(self) -> Result<Option<T>>
     where
         T: std::fmt::Display + Clone,
@@ -97,110 +88,100 @@ impl<T: 'static> SelectBuilder<T> {
             return Ok(None);
         }
 
-        let display_options: Vec<String> = self
+        let rows = self
             .options
             .iter()
-            .map(|item| strip_ansi_codes(&item.to_string()).trim().to_string())
-            .collect();
-
-        let header_count = self.header_lines.min(display_options.len());
-        let data_items = display_options
-            .into_iter()
-            .skip(header_count)
+            .enumerate()
+            .map(|(index, item)| {
+                let display = strip_ansi_codes(&item.to_string()).trim().to_string();
+                if index < self.header_lines {
+                    SelectRow::header(display)
+                } else {
+                    SelectRow::new(index.to_string(), display.clone()).search(display)
+                }
+            })
             .collect::<Vec<_>>();
 
-        if data_items.is_empty() {
+        let header_count = self.header_lines.min(rows.len());
+        if rows.len() == header_count {
             return Ok(None);
         }
 
-        let mut picker_opts = PickerOptions::default()
-            .reversed(true)
-            .case_matching(nucleo_picker::CaseMatching::Smart);
+        let mut selector = SelectUiOptions::new(format!("{} ❯ ", self.message), rows)
+            .header_lines(header_count)
+            .mode(SelectMode::Single)
+            .preview_layout(parse_preview_layout(self.preview_window.as_deref()));
 
-        if let Some(query) = &self.initial_text {
-            picker_opts = picker_opts.query(query.clone());
+        if let Some(query) = self.initial_text {
+            selector = selector.query(Some(query));
         }
 
-        let mut picker: nucleo_picker::Picker<String, _> = picker_opts.picker(StrRenderer);
+        if let Some(preview) = self.preview {
+            selector = selector.preview(Some(preview));
+        }
 
         if let Some(cursor) = self.starting_cursor {
-            let effective_cursor = cursor;
-            if effective_cursor > 0 && effective_cursor < data_items.len() {
-                let mut reordered = data_items;
-                reordered.swap(0, effective_cursor);
-                picker.extend_exact(reordered);
-            } else {
-                picker.extend_exact(data_items);
-            }
-        } else {
-            picker.extend_exact(data_items);
+            selector = selector.initial_raw(Some(cursor.to_string()));
         }
 
         if let Some(help) = self.help_message {
-            eprintln!("{}", help);
-        }
-        for header in self.options.iter().take(header_count) {
-            eprintln!("{}", header);
+            selector.rows.insert(0, SelectRow::header(help));
+            selector.header_lines = selector.header_lines.saturating_add(1);
         }
 
-        match picker.pick() {
-            Ok(Some(selected)) => {
-                let selected_str: &str = selected.as_ref();
-                Ok(self
-                    .options
-                    .iter()
-                    .skip(header_count)
-                    .find(|opt| strip_ansi_codes(&opt.to_string()).trim() == selected_str)
-                    .cloned())
-            }
-            Ok(None) => Ok(None),
-            Err(PickError::NotInteractive) => Ok(None),
-            Err(PickError::UserInterrupted) => Ok(None),
-            Err(e) => Err(anyhow::anyhow!("Picker error: {e}")),
-        }
+        let selected = selector.prompt()?;
+        Ok(selected.and_then(|row| {
+            row.raw
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| self.options.get(index).cloned())
+        }))
     }
 }
 
-/// Runs a yes/no confirmation prompt via nucleo-picker.
+fn parse_preview_layout(layout: Option<&str>) -> PreviewLayout {
+    let Some(layout) = layout else {
+        return PreviewLayout::default();
+    };
+
+    let placement = if layout.contains("down") || layout.contains("bottom") {
+        PreviewPlacement::Bottom
+    } else {
+        PreviewPlacement::Right
+    };
+
+    let percent = layout
+        .split(|ch: char| !ch.is_ascii_digit())
+        .find_map(|part| part.parse::<u16>().ok())
+        .unwrap_or_else(|| PreviewLayout::default().percent)
+        .clamp(1, 99);
+
+    PreviewLayout { placement, percent }
+}
+
+/// Runs a yes/no confirmation prompt.
 ///
 /// Returns `Ok(Some(true))` for Yes, `Ok(Some(false))` for No, and `Ok(None)`
 /// if cancelled.
 fn prompt_confirm(message: &str, default: Option<bool>) -> Result<Option<bool>> {
-    let items = if default == Some(false) {
-        vec!["No".to_string(), "Yes".to_string()]
+    let rows = if default == Some(false) {
+        vec![SelectRow::new("no", "No"), SelectRow::new("yes", "Yes")]
     } else {
-        vec!["Yes".to_string(), "No".to_string()]
+        vec![SelectRow::new("yes", "Yes"), SelectRow::new("no", "No")]
     };
 
-    let mut picker: nucleo_picker::Picker<String, _> =
-        PickerOptions::default().reversed(true).picker(StrRenderer);
-
-    picker.extend_exact(items);
-
-    eprintln!("{}", message);
-
-    match picker.pick() {
-        Ok(Some(selected)) => {
-            let result = match selected.as_str() {
-                "Yes" => Some(true),
-                "No" => Some(false),
-                _ => None,
-            };
-            Ok(result)
-        }
-        Ok(None) => Ok(None),
-        Err(PickError::NotInteractive) => Ok(None),
-        Err(PickError::UserInterrupted) => Ok(None),
-        Err(e) => Err(anyhow::anyhow!("Picker error: {e}")),
-    }
+    let selected = SelectUiOptions::new(format!("{} ❯ ", message), rows).prompt()?;
+    Ok(selected.and_then(|row| match row.raw.as_str() {
+        "yes" => Some(true),
+        "no" => Some(false),
+        _ => None,
+    }))
 }
 
 /// Wrapper around [`prompt_confirm`] that safely converts the `bool` result
 /// into the generic type `T`.
 ///
-/// This must only be called when `T` is known to be `bool` (verified via
-/// `TypeId` at the call site). The conversion uses `Any` downcasting instead
-/// of `transmute_copy` to remain fully safe.
+/// This must only be called when `T` is known to be `bool`.
 fn prompt_confirm_as<T: 'static + Clone>(
     message: &str,
     default: Option<bool>,
@@ -248,13 +229,13 @@ mod tests {
 
     #[test]
     fn test_ansi_stripping() {
-        let options = ["\x1b[1mBold\x1b[0m", "\x1b[31mRed\x1b[0m"];
-        let display: Vec<String> = options
+        let fixture = ["\x1b[1mBold\x1b[0m", "\x1b[31mRed\x1b[0m"];
+        let actual: Vec<String> = fixture
             .iter()
             .map(|value| strip_ansi_codes(value).to_string())
             .collect();
-
-        assert_eq!(display, vec!["Bold", "Red"]);
+        let expected = vec!["Bold", "Red"];
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -278,5 +259,21 @@ mod tests {
     fn test_with_starting_cursor() {
         let builder = ForgeWidget::select("Test", vec!["a", "b", "c"]).with_starting_cursor(2);
         assert_eq!(builder.starting_cursor, Some(2));
+    }
+
+    #[test]
+    fn test_parse_preview_layout_defaults_to_right() {
+        let fixture = None;
+        let actual = parse_preview_layout(fixture);
+        let expected = PreviewLayout { placement: PreviewPlacement::Right, percent: 50 };
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_preview_layout_supports_bottom_percent() {
+        let fixture = Some("down,60%");
+        let actual = parse_preview_layout(fixture);
+        let expected = PreviewLayout { placement: PreviewPlacement::Bottom, percent: 60 };
+        assert_eq!(actual, expected);
     }
 }

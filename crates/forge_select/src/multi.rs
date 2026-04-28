@@ -2,9 +2,8 @@ use std::io::IsTerminal;
 
 use anyhow::Result;
 use console::strip_ansi_codes;
-use nucleo_picker::PickerOptions;
-use nucleo_picker::error::PickError;
-use nucleo_picker::render::StrRenderer;
+
+use crate::preview::{SelectMode, SelectRow, SelectUiOptions};
 
 /// Builder for multi-select prompts.
 pub struct MultiSelectBuilder<T> {
@@ -17,12 +16,12 @@ impl<T> MultiSelectBuilder<T> {
     ///
     /// # Returns
     ///
-    /// - `Ok(Some(Vec<T>))` - User selected one or more options
-    /// - `Ok(None)` - No options available or user cancelled (ESC / Ctrl+C)
+    /// - `Ok(Some(Vec<T>))` when the user selects one or more options.
+    /// - `Ok(None)` when no options are available or the user cancels.
     ///
     /// # Errors
     ///
-    /// Returns an error if the picker fails to start or interact
+    /// Returns an error if terminal setup, event handling, or rendering fails.
     pub fn prompt(self) -> Result<Option<Vec<T>>>
     where
         T: std::fmt::Display + Clone,
@@ -35,42 +34,37 @@ impl<T> MultiSelectBuilder<T> {
             return Ok(None);
         }
 
-        let display_options: Vec<String> = self
+        let rows = self
             .options
             .iter()
-            .map(|item| strip_ansi_codes(&item.to_string()).trim().to_string())
-            .collect();
+            .enumerate()
+            .map(|(index, item)| {
+                let display = strip_ansi_codes(&item.to_string()).trim().to_string();
+                SelectRow::new(index.to_string(), display.clone()).search(display)
+            })
+            .collect::<Vec<_>>();
 
-        let mut picker: nucleo_picker::Picker<String, _> =
-            PickerOptions::default().reversed(true).picker(StrRenderer);
+        let selected = SelectUiOptions::new(format!("{} ❯ ", self.message), rows)
+            .mode(SelectMode::Multi)
+            .prompt_multi()?;
 
-        picker.extend_exact(display_options);
+        Ok(selected.and_then(|rows| {
+            let selected_items = rows
+                .into_iter()
+                .filter_map(|row| {
+                    row.raw
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|index| self.options.get(index).cloned())
+                })
+                .collect::<Vec<_>>();
 
-        println!("{}", self.message);
-
-        match picker.pick_multi() {
-            Ok(selection) if selection.is_empty() => Ok(None),
-            Ok(selection) => {
-                let selected_items: Vec<T> = selection
-                    .iter()
-                    .filter_map(|selected_str| {
-                        self.options
-                            .iter()
-                            .find(|opt| strip_ansi_codes(&opt.to_string()).trim() == *selected_str)
-                            .cloned()
-                    })
-                    .collect();
-
-                if selected_items.is_empty() {
-                    Ok(None)
-                } else {
-                    Ok(Some(selected_items))
-                }
+            if selected_items.is_empty() {
+                None
+            } else {
+                Some(selected_items)
             }
-            Err(PickError::NotInteractive) => Ok(None),
-            Err(PickError::UserInterrupted) => Ok(None),
-            Err(e) => Err(anyhow::anyhow!("Picker error: {e}")),
-        }
+        }))
     }
 }
 
