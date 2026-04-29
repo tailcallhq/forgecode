@@ -67,6 +67,7 @@ fn styled_loader_line(
 
 struct ActiveSpinner<P: ConsoleWriter> {
     stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
     started_at: Instant,
     accumulated_elapsed: Duration,
@@ -76,27 +77,41 @@ struct ActiveSpinner<P: ConsoleWriter> {
 impl<P: ConsoleWriter + 'static> ActiveSpinner<P> {
     fn start(printer: Arc<P>, accumulated_elapsed: Duration, message: String) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
+        let paused = Arc::new(AtomicBool::new(false));
         let stop_signal = Arc::clone(&stop);
+        let paused_signal = Arc::clone(&paused);
         let thread_printer = Arc::clone(&printer);
         let started_at = Instant::now();
 
         let handle = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(TICK_DURATION_MS));
-            while !stop_signal.load(Ordering::Acquire) {
+            loop {
+                if stop_signal.load(Ordering::Acquire) {
+                    break;
+                }
+
+                if paused_signal.load(Ordering::Acquire) {
+                    thread::park_timeout(Duration::from_millis(TICK_DURATION_MS));
+                    continue;
+                }
+
                 let elapsed = accumulated_elapsed + started_at.elapsed();
                 let tick_index = ((elapsed.as_millis() / TICK_DURATION_MS as u128)
                     % TICKS.len() as u128) as usize;
                 let tick = TICKS.get(tick_index).unwrap_or(&"⠋");
                 let line = styled_loader_line(tick, &message, elapsed, terminal_width());
 
-                let _ = thread_printer.write_err(format!("\r\x1b[2K{line}").as_bytes());
-                let _ = thread_printer.flush_err();
-                thread::sleep(Duration::from_millis(TICK_DURATION_MS));
+                if !stop_signal.load(Ordering::Acquire) && !paused_signal.load(Ordering::Acquire) {
+                    let _ = thread_printer.write_err(format!("\r\x1b[2K{line}").as_bytes());
+                    let _ = thread_printer.flush_err();
+                }
+
+                thread::park_timeout(Duration::from_millis(TICK_DURATION_MS));
             }
         });
 
         Self {
             stop,
+            paused,
             handle: Some(handle),
             started_at,
             accumulated_elapsed,
@@ -110,14 +125,36 @@ impl<P: ConsoleWriter> ActiveSpinner<P> {
         self.accumulated_elapsed + self.started_at.elapsed()
     }
 
+    fn pause(&self) {
+        self.paused.store(true, Ordering::Release);
+        if let Some(handle) = &self.handle {
+            handle.thread().unpark();
+        }
+        self.clear_line();
+    }
+
+    fn resume(&self) {
+        self.paused.store(false, Ordering::Release);
+        if let Some(handle) = &self.handle {
+            handle.thread().unpark();
+        }
+    }
+
+    fn clear_line(&self) {
+        let _ = self.printer.write_err(b"\r\x1b[2K");
+        let _ = self.printer.flush_err();
+    }
+
     fn finish(&mut self) -> Duration {
         self.stop.store(true, Ordering::Release);
+        if let Some(handle) = &self.handle {
+            handle.thread().unpark();
+        }
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
         let elapsed = self.elapsed();
-        let _ = self.printer.write_err(b"\r\x1b[2K");
-        let _ = self.printer.flush_err();
+        self.clear_line();
         elapsed
     }
 }
@@ -125,11 +162,13 @@ impl<P: ConsoleWriter> ActiveSpinner<P> {
 impl<P: ConsoleWriter> Drop for ActiveSpinner<P> {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
+        if let Some(handle) = &self.handle {
+            handle.thread().unpark();
+        }
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
-        let _ = self.printer.write_err(b"\r\x1b[2K");
-        let _ = self.printer.flush_err();
+        self.clear_line();
     }
 }
 
@@ -220,6 +259,20 @@ impl<P: ConsoleWriter + 'static> SpinnerManager<P> {
         Ok(())
     }
 
+    /// Pauses the active spinner without stopping its render thread.
+    pub fn pause(&mut self) {
+        if let Some(spinner) = &self.spinner {
+            spinner.pause();
+        }
+    }
+
+    /// Resumes a previously paused spinner.
+    pub fn resume(&mut self) {
+        if let Some(spinner) = &self.spinner {
+            spinner.resume();
+        }
+    }
+
     /// Stop the active spinner if any
     pub fn stop(&mut self, message: Option<String>) -> Result<()> {
         if let Some(mut spinner) = self.spinner.take() {
@@ -258,13 +311,13 @@ impl<P: ConsoleWriter + 'static> SpinnerManager<P> {
     /// Writes a line to stdout, suspending the spinner if active.
     pub fn write_ln(&mut self, message: impl ToString) -> Result<()> {
         let msg = message.to_string();
-        let active_message = self.message.clone().filter(|_| self.spinner.is_some());
-        if self.spinner.is_some() {
-            self.stop(None)?;
+        let was_active = self.spinner.is_some();
+        if was_active {
+            self.pause();
         }
         self.println(&msg);
-        if let Some(active_message) = active_message {
-            self.start(Some(&active_message))?;
+        if was_active {
+            self.resume();
         }
         Ok(())
     }
@@ -272,13 +325,13 @@ impl<P: ConsoleWriter + 'static> SpinnerManager<P> {
     /// Writes a line to stderr, suspending the spinner if active.
     pub fn ewrite_ln(&mut self, message: impl ToString) -> Result<()> {
         let msg = message.to_string();
-        let active_message = self.message.clone().filter(|_| self.spinner.is_some());
-        if self.spinner.is_some() {
-            self.stop(None)?;
+        let was_active = self.spinner.is_some();
+        if was_active {
+            self.pause();
         }
         self.eprintln(&msg);
-        if let Some(active_message) = active_message {
-            self.start(Some(&active_message))?;
+        if was_active {
+            self.resume();
         }
         Ok(())
     }
@@ -315,6 +368,7 @@ impl<P: ConsoleWriter> Drop for SpinnerManager<P> {
 mod tests {
     use std::io::Write;
     use std::sync::Arc;
+    use std::sync::atomic::Ordering;
     use std::time::Duration;
 
     use forge_domain::ConsoleWriter;
@@ -409,6 +463,28 @@ mod tests {
 
         // Word index should be identical because it's cached
         assert_eq!(first_index, second_index);
+    }
+
+    #[test]
+    fn test_spinner_pause_resume_keeps_same_active_spinner() {
+        let mut fixture_spinner = fixture_spinner();
+        fixture_spinner.start(Some("Thinking")).unwrap();
+
+        fixture_spinner.pause();
+        let was_paused = fixture_spinner
+            .spinner
+            .as_ref()
+            .map(|spinner| spinner.paused.load(Ordering::Acquire));
+        fixture_spinner.resume();
+        let was_resumed = fixture_spinner
+            .spinner
+            .as_ref()
+            .map(|spinner| !spinner.paused.load(Ordering::Acquire));
+        let actual = (was_paused, was_resumed);
+        fixture_spinner.stop(None).unwrap();
+
+        let expected = (Some(true), Some(true));
+        assert_eq!(actual, expected);
     }
 
     #[test]
