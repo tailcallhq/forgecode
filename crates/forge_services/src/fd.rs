@@ -182,7 +182,7 @@ impl<F: CommandInfra + WalkerInfra + IgnorePatternsRepository + 'static> FileDis
             .into_iter()
             .filter(|p| {
                 !matcher
-                    .matched_path_or_any_parents(p, p.is_dir())
+                    .matched_path_or_any_parents(p, false)
                     .is_ignore()
             })
             .collect())
