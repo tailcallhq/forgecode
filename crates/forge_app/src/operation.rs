@@ -8,7 +8,7 @@ use forge_config::ForgeConfig;
 use forge_display::DiffFormat;
 use forge_domain::{
     CodebaseSearchResults, Environment, FSMultiPatch, FSPatch, FSRead, FSRemove, FSSearch, FSUndo,
-    FSWrite, FileOperation, LineNumbers, Metrics, NetFetch, PlanCreate, ToolKind,
+    FSWrite, FileOperation, LineNumbers, Metrics, NetFetch, PlanCreate, ToolKind, WebSearch,
 };
 use forge_template::Element;
 
@@ -19,7 +19,7 @@ use crate::truncation::{
 use crate::utils::{compute_hash, format_display_path};
 use crate::{
     FsRemoveOutput, FsUndoOutput, FsWriteOutput, HttpResponse, PatchOutput, PlanCreateOutput,
-    ReadOutput, ResponseContext, SearchResult, ShellOutput,
+    ReadOutput, ResponseContext, SearchResult, ShellOutput, WebSearchResponse,
 };
 
 #[derive(Debug, Default, Setters)]
@@ -65,6 +65,10 @@ pub enum ToolOperation {
     NetFetch {
         input: NetFetch,
         output: HttpResponse,
+    },
+    WebSearch {
+        input: WebSearch,
+        output: WebSearchResponse,
     },
     Shell {
         output: ShellOutput,
@@ -580,6 +584,73 @@ impl ToolOperation {
                             "Content is truncated to {} chars, remaining content can be read from path: {}",
                             config.max_fetch_chars, path.display())
                     ));
+                }
+
+                forge_domain::ToolOutput::text(elm)
+            }
+            ToolOperation::WebSearch { input, output } => {
+                let mut elm = Element::new("web_search_results")
+                    .attr("query", &input.query)
+                    .attr("engine", &output.engine)
+                    .attr("result_count", output.organic_results.len());
+
+                elm = elm.attr_if_some("search_id", output.search_id.as_ref());
+
+                if let Some(answer_box) = &output.answer_box {
+                    let mut answer_elm = Element::new("answer_box");
+                    answer_elm = answer_elm.attr_if_some("title", answer_box.title.as_ref());
+                    answer_elm = answer_elm.attr_if_some("link", answer_box.link.as_ref());
+                    answer_elm = answer_elm.attr_if_some("answer", answer_box.answer.as_ref());
+                    answer_elm = answer_elm.attr_if_some("snippet", answer_box.snippet.as_ref());
+                    elm = elm.append(answer_elm);
+                }
+
+                if let Some(knowledge_graph) = &output.knowledge_graph {
+                    let mut graph_elm = Element::new("knowledge_graph");
+                    graph_elm = graph_elm.attr_if_some("title", knowledge_graph.title.as_ref());
+                    graph_elm =
+                        graph_elm.attr_if_some("type", knowledge_graph.entity_type.as_ref());
+                    graph_elm =
+                        graph_elm.attr_if_some("website", knowledge_graph.website.as_ref());
+                    graph_elm = graph_elm.attr_if_some(
+                        "description",
+                        knowledge_graph.description.as_ref(),
+                    );
+                    elm = elm.append(graph_elm);
+                }
+
+                for result in &output.organic_results {
+                    let mut result_elm = Element::new("organic_result")
+                        .attr("title", &result.title)
+                        .attr("link", &result.link);
+                    let position = result.position.map(|value| value.to_string());
+                    result_elm = result_elm.attr_if_some("position", position.as_ref());
+                    result_elm =
+                        result_elm.attr_if_some("displayed_link", result.displayed_link.as_ref());
+                    result_elm = result_elm.attr_if_some("source", result.source.as_ref());
+                    result_elm = result_elm.attr_if_some("snippet", result.snippet.as_ref());
+                    elm = elm.append(result_elm);
+                }
+
+                for question in &output.related_questions {
+                    let mut question_elm =
+                        Element::new("related_question").attr("question", &question.question);
+                    question_elm =
+                        question_elm.attr_if_some("snippet", question.snippet.as_ref());
+                    elm = elm.append(question_elm);
+                }
+
+                for query in &output.related_searches {
+                    elm = elm.append(Element::new("related_search").attr("query", query));
+                }
+
+                for story in &output.top_stories {
+                    let mut story_elm = Element::new("top_story").attr("title", &story.title);
+                    story_elm = story_elm.attr_if_some("link", story.link.as_ref());
+                    story_elm = story_elm.attr_if_some("source", story.source.as_ref());
+                    story_elm = story_elm.attr_if_some("date", story.date.as_ref());
+                    story_elm = story_elm.attr_if_some("snippet", story.snippet.as_ref());
+                    elm = elm.append(story_elm);
                 }
 
                 forge_domain::ToolOutput::text(elm)
@@ -2371,6 +2442,103 @@ mod tests {
                 .unwrap()
                 .ends_with(&truncated_content)
         );
+        insta::assert_snapshot!(to_value(actual));
+    }
+
+    #[test]
+    fn test_web_search_success() {
+        let fixture = ToolOperation::WebSearch {
+            input: forge_domain::WebSearch::default()
+                .query("saturn facts")
+                .mode(forge_domain::WebSearchMode::Standard),
+            output: crate::WebSearchResponse {
+                query: "saturn facts".to_string(),
+                engine: "google".to_string(),
+                search_id: Some("search-123".to_string()),
+                answer_box: Some(crate::WebSearchAnswerBox {
+                    title: Some("Saturn".to_string()),
+                    answer: Some("A gas giant planet".to_string()),
+                    snippet: None,
+                    link: Some("https://example.com/saturn".to_string()),
+                }),
+                knowledge_graph: Some(crate::WebSearchKnowledgeGraph {
+                    title: Some("Saturn".to_string()),
+                    entity_type: Some("Planet".to_string()),
+                    description: Some("The sixth planet from the Sun.".to_string()),
+                    website: Some("https://science.nasa.gov/saturn/".to_string()),
+                }),
+                organic_results: vec![crate::WebSearchOrganicResult {
+                    position: Some(1),
+                    title: "Saturn Facts".to_string(),
+                    link: "https://science.nasa.gov/saturn/facts/".to_string(),
+                    displayed_link: Some("science.nasa.gov › saturn › facts".to_string()),
+                    source: Some("NASA".to_string()),
+                    snippet: Some("Saturn facts and figures.".to_string()),
+                }],
+                related_questions: vec![crate::WebSearchRelatedQuestion {
+                    question: "What is Saturn made of?".to_string(),
+                    snippet: Some("Mostly hydrogen and helium.".to_string()),
+                }],
+                related_searches: vec!["saturn rings".to_string()],
+                top_stories: vec![crate::WebSearchTopStory {
+                    title: "New Saturn mission announced".to_string(),
+                    link: Some("https://example.com/story".to_string()),
+                    source: Some("Space News".to_string()),
+                    date: Some("1 day ago".to_string()),
+                    snippet: Some("A new mission could launch soon.".to_string()),
+                }],
+            },
+        };
+
+        let env = fixture_environment();
+        let config = fixture_config();
+
+        let actual = fixture.into_tool_output(
+            ToolKind::Websearch,
+            TempContentFiles::default(),
+            &env,
+            &config,
+            &mut Metrics::default(),
+        );
+
+        insta::assert_snapshot!(to_value(actual));
+    }
+
+    #[test]
+    fn test_web_search_light_minimal_output() {
+        let fixture = ToolOperation::WebSearch {
+            input: forge_domain::WebSearch::default().query("coffee"),
+            output: crate::WebSearchResponse {
+                query: "coffee".to_string(),
+                engine: "google_light".to_string(),
+                search_id: None,
+                answer_box: None,
+                knowledge_graph: None,
+                organic_results: vec![crate::WebSearchOrganicResult {
+                    position: Some(1),
+                    title: "Coffee - Wikipedia".to_string(),
+                    link: "https://en.wikipedia.org/wiki/Coffee".to_string(),
+                    displayed_link: Some("en.wikipedia.org › wiki › Coffee".to_string()),
+                    source: None,
+                    snippet: Some("Coffee is a brewed drink.".to_string()),
+                }],
+                related_questions: vec![],
+                related_searches: vec![],
+                top_stories: vec![],
+            },
+        };
+
+        let env = fixture_environment();
+        let config = fixture_config();
+
+        let actual = fixture.into_tool_output(
+            ToolKind::Websearch,
+            TempContentFiles::default(),
+            &env,
+            &config,
+            &mut Metrics::default(),
+        );
+
         insta::assert_snapshot!(to_value(actual));
     }
 

@@ -116,6 +116,11 @@ impl FormatContent for ToolCatalog {
             ToolCatalog::Fetch(input) => {
                 Some(TitleFormat::debug("GET").sub_title(&input.url).into())
             }
+            ToolCatalog::Websearch(input) => Some(
+                TitleFormat::debug("Web Search")
+                    .sub_title(&input.query)
+                    .into(),
+            ),
             ToolCatalog::Followup(input) => Some(
                 TitleFormat::debug("Follow-up")
                     .sub_title(&input.question)

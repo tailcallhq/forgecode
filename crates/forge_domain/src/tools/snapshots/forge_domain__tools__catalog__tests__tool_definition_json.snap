@@ -333,6 +333,80 @@ expression: tools
   ]
 }
 {
+  "title": "WebSearch",
+  "type": "object",
+  "properties": {
+    "device": {
+      "description": "Device profile for the search.",
+      "type": "string",
+      "enum": [
+        "desktop",
+        "tablet",
+        "mobile",
+        null
+      ],
+      "nullable": true
+    },
+    "gl": {
+      "description": "Country code for Google search, such as \"us\".",
+      "type": "string",
+      "nullable": true
+    },
+    "google_domain": {
+      "description": "Google domain to use, such as \"google.com\".",
+      "type": "string",
+      "nullable": true
+    },
+    "hl": {
+      "description": "Language code for Google search, such as \"en\".",
+      "type": "string",
+      "nullable": true
+    },
+    "location": {
+      "description": "Geographic location to search from, such as \"Austin, Texas, United\nStates\".",
+      "type": "string",
+      "nullable": true
+    },
+    "mode": {
+      "description": "Search mode. Defaults to `light`.",
+      "type": "string",
+      "enum": [
+        "light",
+        "standard"
+      ]
+    },
+    "no_cache": {
+      "description": "Force a fresh SerpApi fetch instead of using an exact cached response.",
+      "type": "boolean",
+      "nullable": true
+    },
+    "query": {
+      "description": "Search query to send to SerpApi-backed Google search.",
+      "type": "string"
+    },
+    "safe": {
+      "description": "Safe search level.",
+      "type": "string",
+      "enum": [
+        "active",
+        "off",
+        null
+      ],
+      "nullable": true
+    },
+    "start": {
+      "description": "Result offset for pagination.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "nullable": true
+    }
+  },
+  "required": [
+    "query"
+  ]
+}
+{
   "title": "Followup",
   "type": "object",
   "properties": {

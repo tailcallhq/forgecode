@@ -357,6 +357,9 @@ fn extract_tool_info(call: &ToolCallFull, current_todos: &[Todo]) -> Option<Summ
             }
             ToolCatalog::Undo(input) => Some(SummaryTool::Undo { path: input.path }),
             ToolCatalog::Fetch(input) => Some(SummaryTool::Fetch { url: input.url }),
+            ToolCatalog::Websearch(input) => Some(SummaryTool::Search {
+                pattern: input.query,
+            }),
             ToolCatalog::Followup(input) => {
                 Some(SummaryTool::Followup { question: input.question })
             }

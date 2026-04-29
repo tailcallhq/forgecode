@@ -51,6 +51,7 @@ pub enum ToolCatalog {
     Undo(FSUndo),
     Shell(Shell),
     Fetch(NetFetch),
+    Websearch(WebSearch),
     Followup(Followup),
     Plan(PlanCreate),
     Skill(SkillFetch),
@@ -317,6 +318,77 @@ pub enum OutputMode {
     FilesWithMatches,
     /// Show match counts per file
     Count,
+}
+
+/// Search mode for websearch.
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, AsRefStr, EnumIter, Default,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum WebSearchMode {
+    /// Use SerpApi's lightweight Google engine for faster, smaller results.
+    #[default]
+    Light,
+    /// Use SerpApi's standard Google engine for richer SERP features.
+    Standard,
+}
+
+impl JsonSchema for WebSearchMode {
+    fn schema_name() -> Cow<'static, str> {
+        <Self as SimpleEnumSchema>::simple_enum_schema_name()
+    }
+
+    fn json_schema(r#gen: &mut schemars::generate::SchemaGenerator) -> Schema {
+        <Self as SimpleEnumSchema>::simple_enum_schema(r#gen)
+    }
+}
+
+/// Safe search level for Google web search.
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, AsRefStr, EnumIter, Default,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum WebSearchSafe {
+    /// Blur or filter explicit content.
+    #[default]
+    Active,
+    /// Disable safe search filtering.
+    Off,
+}
+
+impl JsonSchema for WebSearchSafe {
+    fn schema_name() -> Cow<'static, str> {
+        <Self as SimpleEnumSchema>::simple_enum_schema_name()
+    }
+
+    fn json_schema(r#gen: &mut schemars::generate::SchemaGenerator) -> Schema {
+        <Self as SimpleEnumSchema>::simple_enum_schema(r#gen)
+    }
+}
+
+/// Device profile used by SerpApi Google search.
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, AsRefStr, EnumIter, Default,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum WebSearchDevice {
+    /// Use desktop search results.
+    #[default]
+    Desktop,
+    /// Use tablet search results.
+    Tablet,
+    /// Use mobile search results.
+    Mobile,
+}
+
+impl JsonSchema for WebSearchDevice {
+    fn schema_name() -> Cow<'static, str> {
+        <Self as SimpleEnumSchema>::simple_enum_schema_name()
+    }
+
+    fn json_schema(r#gen: &mut schemars::generate::SchemaGenerator) -> Schema {
+        <Self as SimpleEnumSchema>::simple_enum_schema(r#gen)
+    }
 }
 
 /// A paired query and use_case for semantic search. Each query must have a
@@ -637,6 +709,62 @@ pub struct NetFetch {
     pub raw: Option<bool>,
 }
 
+#[derive(
+    Default,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    ToolDescription,
+    PartialEq,
+    derive_setters::Setters,
+)]
+#[tool_description_file = "crates/forge_domain/src/tools/descriptions/websearch.md"]
+#[setters(strip_option, into)]
+pub struct WebSearch {
+    /// Search query to send to SerpApi-backed Google search.
+    pub query: String,
+
+    /// Search mode. Defaults to `light`.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
+    pub mode: WebSearchMode,
+
+    /// Geographic location to search from, such as "Austin, Texas, United
+    /// States".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+
+    /// Google domain to use, such as "google.com".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google_domain: Option<String>,
+
+    /// Country code for Google search, such as "us".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gl: Option<String>,
+
+    /// Language code for Google search, such as "en".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hl: Option<String>,
+
+    /// Result offset for pagination.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<u32>,
+
+    /// Safe search level.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub safe: Option<WebSearchSafe>,
+
+    /// Device profile for the search.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device: Option<WebSearchDevice>,
+
+    /// Force a fresh SerpApi fetch instead of using an exact cached response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub no_cache: Option<bool>,
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
 #[tool_description_file = "crates/forge_domain/src/tools/descriptions/followup.md"]
 pub struct Followup {
@@ -816,6 +944,7 @@ impl ToolDescription for ToolCatalog {
             ToolCatalog::Shell(v) => v.description(),
             ToolCatalog::Followup(v) => v.description(),
             ToolCatalog::Fetch(v) => v.description(),
+            ToolCatalog::Websearch(v) => v.description(),
             ToolCatalog::FsSearch(v) => v.description(),
             ToolCatalog::SemSearch(v) => v.description(),
             ToolCatalog::Read(v) => v.description(),
@@ -875,6 +1004,7 @@ impl ToolCatalog {
             ToolCatalog::Shell(_) => r#gen.into_root_schema_for::<Shell>(),
             ToolCatalog::Followup(_) => r#gen.into_root_schema_for::<Followup>(),
             ToolCatalog::Fetch(_) => r#gen.into_root_schema_for::<NetFetch>(),
+            ToolCatalog::Websearch(_) => r#gen.into_root_schema_for::<WebSearch>(),
             ToolCatalog::FsSearch(_) => r#gen.into_root_schema_for::<FSSearch>(),
             ToolCatalog::SemSearch(_) => r#gen.into_root_schema_for::<SemanticSearch>(),
             ToolCatalog::Read(_) => r#gen.into_root_schema_for::<FSRead>(),
@@ -1003,6 +1133,11 @@ impl ToolCatalog {
                 cwd,
                 message: format!("Fetch content from URL: {}", input.url),
             }),
+            ToolCatalog::Websearch(input) => Some(crate::policies::PermissionOperation::Fetch {
+                url: "https://serpapi.com/search".to_string(),
+                cwd,
+                message: format!("Search the web for query: {}", input.query),
+            }),
             // Operations that don't require permission checks
             ToolCatalog::SemSearch(_)
             | ToolCatalog::Undo(_)
@@ -1085,6 +1220,14 @@ impl ToolCatalog {
     pub fn tool_call_fetch(url: &str) -> ToolCallFull {
         ToolCallFull::from(ToolCatalog::Fetch(NetFetch {
             url: url.to_string(),
+            ..Default::default()
+        }))
+    }
+
+    /// Creates a WebSearch tool call with the specified query.
+    pub fn tool_call_websearch(query: &str) -> ToolCallFull {
+        ToolCallFull::from(ToolCatalog::Websearch(WebSearch {
+            query: query.to_string(),
             ..Default::default()
         }))
     }
@@ -1225,7 +1368,7 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::Shell;
-    use crate::{ToolCatalog, ToolKind, ToolName};
+    use crate::{ToolCatalog, ToolKind, ToolName, WebSearchMode};
 
     #[test]
     fn test_tool_definition() {
@@ -1826,6 +1969,49 @@ mod tests {
         let expected = serde_json::json!({
             "command": "pwd"
         });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_websearch_defaults_to_light_mode() {
+        use crate::{ToolCallArguments, ToolCallFull};
+
+        let setup = ToolCallFull {
+            name: ToolName::new("websearch"),
+            call_id: None,
+            arguments: ToolCallArguments::from_json(r#"{"query":"rust async tutorial"}"#),
+            thought_signature: None,
+        };
+
+        let actual = ToolCatalog::try_from(setup).unwrap();
+        let expected = ToolCatalog::Websearch(
+            crate::WebSearch::default()
+                .query("rust async tutorial")
+                .mode(WebSearchMode::Light),
+        );
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_websearch_policy_operation_uses_query_message() {
+        use std::path::PathBuf;
+
+        use crate::policies::PermissionOperation;
+
+        let setup = ToolCatalog::Websearch(
+            crate::WebSearch::default()
+                .query("serpapi rust examples")
+                .mode(WebSearchMode::Standard),
+        );
+
+        let actual = setup.to_policy_operation(PathBuf::from("/test/cwd")).unwrap();
+        let expected = PermissionOperation::Fetch {
+            url: "https://serpapi.com/search".to_string(),
+            cwd: PathBuf::from("/test/cwd"),
+            message: "Search the web for query: serpapi rust examples".to_string(),
+        };
 
         assert_eq!(actual, expected);
     }
