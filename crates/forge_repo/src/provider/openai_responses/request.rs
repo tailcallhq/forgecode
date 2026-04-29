@@ -896,7 +896,8 @@ mod tests {
                     "description": "Status value"
                 },
                 "count": {
-                    "type": "integer"
+                    "type": "integer",
+                    "minimum": 1
                 },
                 "tags": {
                     "type": "array",

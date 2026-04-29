@@ -107,6 +107,7 @@ expression: actual.tools
         "-A": {
           "anyOf": [
             {
+              "minimum": 0,
               "type": "integer"
             },
             {
@@ -118,6 +119,7 @@ expression: actual.tools
         "-B": {
           "anyOf": [
             {
+              "minimum": 0,
               "type": "integer"
             },
             {
@@ -129,6 +131,7 @@ expression: actual.tools
         "-C": {
           "anyOf": [
             {
+              "minimum": 0,
               "type": "integer"
             },
             {
@@ -173,6 +176,7 @@ expression: actual.tools
         "head_limit": {
           "anyOf": [
             {
+              "minimum": 0,
               "type": "integer"
             },
             {
@@ -195,6 +199,7 @@ expression: actual.tools
         "offset": {
           "anyOf": [
             {
+              "minimum": 0,
               "type": "integer"
             },
             {

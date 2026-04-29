@@ -285,7 +285,6 @@ fn normalize_openai_schema_subset_keywords(map: &mut serde_json::Map<String, ser
         "minItems",
         "minLength",
         "minProperties",
-        "minimum",
         "multipleOf",
         "not",
         "pattern",
@@ -440,7 +439,8 @@ fn normalize_additional_properties(
 /// - `allOf` branches are merged into a single schema object when strict mode
 ///   is enabled
 /// - unsupported JSON Schema keywords are removed, matching Codex's limited
-///   Responses API schema subset, while preserving `default` values
+///   Responses API schema subset, while preserving `default` and `minimum`
+///   values
 /// - `const` is converted to a single-value `enum`
 ///
 /// # Arguments
@@ -926,7 +926,8 @@ mod tests {
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of records",
-                    "default": 10
+                    "default": 10,
+                    "minimum": 0
                 },
                 "output_mode": {
                     "type": "string",
@@ -945,7 +946,8 @@ mod tests {
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of records",
-                    "default": 10
+                    "default": 10,
+                    "minimum": 0
                 },
                 "output_mode": {
                     "type": "string",
