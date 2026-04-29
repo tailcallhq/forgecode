@@ -267,7 +267,6 @@ fn normalize_openai_schema_subset_keywords(map: &mut serde_json::Map<String, ser
         "$ref",
         "additionalItems",
         "contains",
-        "default",
         "definitions",
         "dependentRequired",
         "dependentSchemas",
@@ -441,7 +440,7 @@ fn normalize_additional_properties(
 /// - `allOf` branches are merged into a single schema object when strict mode
 ///   is enabled
 /// - unsupported JSON Schema keywords are removed, matching Codex's limited
-///   Responses API schema subset
+///   Responses API schema subset, while preserving `default` values
 /// - `const` is converted to a single-value `enum`
 ///
 /// # Arguments
@@ -917,6 +916,47 @@ mod tests {
 
         assert_eq!(schema["additionalProperties"], json!(false));
         assert_eq!(schema["required"], json!(["age", "name"]));
+    }
+
+    #[test]
+    fn test_strict_schema_preserves_default_values() {
+        let mut fixture = json!({
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of records",
+                    "default": 10
+                },
+                "output_mode": {
+                    "type": "string",
+                    "enum": ["content", "files_with_matches"],
+                    "default": "content"
+                }
+            }
+        });
+
+        enforce_strict_schema(&mut fixture, true);
+
+        let actual = fixture;
+        let expected = json!({
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of records",
+                    "default": 10
+                },
+                "output_mode": {
+                    "type": "string",
+                    "enum": ["content", "files_with_matches"],
+                    "default": "content"
+                }
+            },
+            "additionalProperties": false,
+            "required": ["limit", "output_mode"]
+        });
+        assert_eq!(actual, expected);
     }
 
     #[test]

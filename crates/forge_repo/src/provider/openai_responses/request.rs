@@ -892,6 +892,7 @@ mod tests {
                 "status": {
                     "type": "string",
                     "enum": ["ok"],
+                    "default": "ok",
                     "description": "Status value"
                 },
                 "count": {
