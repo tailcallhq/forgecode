@@ -9,6 +9,7 @@ diesel::table! {
         created_at -> Timestamp,
         updated_at -> Nullable<Timestamp>,
         metrics -> Nullable<Text>,
+        user_input_id -> Nullable<Text>,
     }
 }
 

@@ -144,6 +144,10 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             .apply(conversation);
         let conversation = SetConversationId.apply(conversation);
 
+        // Stamp the user_input_id on the conversation so that all file snapshots
+        // taken during this request are grouped together for prompt-level undo.
+        let conversation = conversation.user_input_id(UserInputId::new());
+
         // Create the orchestrator with all necessary dependencies
         let tracing_handler = TracingHandler::new();
         let title_handler = TitleGenerationHandler::new(services.clone());
@@ -176,7 +180,6 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             conversation,
             agent,
             forge_config,
-            chat.id,
         )
         .error_tracker(ToolErrorTracker::new(max_tool_failure_per_turn))
         .tool_definitions(tool_definitions)

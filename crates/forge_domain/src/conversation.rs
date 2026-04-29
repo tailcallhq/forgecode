@@ -6,7 +6,7 @@ use derive_setters::Setters;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{Context, Error, Metrics, Result, TokenCount};
+use crate::{Context, Error, Metrics, Result, TokenCount, UserInputId};
 
 #[derive(Debug, Default, Display, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 #[serde(transparent)]
@@ -46,6 +46,11 @@ pub struct Conversation {
     pub context: Option<Context>,
     pub metrics: Metrics,
     pub metadata: MetaData,
+    /// The ID of the most recent user prompt in this conversation.
+    /// Set when a new `ChatRequest` is processed and stamped on every file
+    /// snapshot taken during that request, enabling prompt-level undo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_input_id: Option<UserInputId>,
 }
 
 #[derive(Debug, Setters, Serialize, Deserialize, Clone)]
@@ -71,6 +76,7 @@ impl Conversation {
             metadata: MetaData::new(created_at),
             title: None,
             context: None,
+            user_input_id: None,
         }
     }
     /// Creates a new conversation with a new conversation ID.

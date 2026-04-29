@@ -128,13 +128,13 @@ impl Runner {
         let conversation =
             ApplyTunableParameters::new(agent.clone(), system_tools.clone()).apply(conversation);
         let conversation = SetConversationId.apply(conversation);
+        let conversation = conversation.user_input_id(UserInputId::new());
 
         let orch = Orchestrator::new(
             services.clone(),
             conversation,
             agent,
             setup.config.clone(),
-            UserInputId::new(),
         )
         .error_tracker(ToolErrorTracker::new(3))
         .tool_definitions(system_tools)
