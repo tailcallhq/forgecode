@@ -126,11 +126,13 @@ impl<P: ConsoleWriter> ActiveSpinner<P> {
     }
 
     fn pause(&self) {
-        self.paused.store(true, Ordering::Release);
+        let was_paused = self.paused.swap(true, Ordering::AcqRel);
+        if !was_paused {
+            self.clear_line();
+        }
         if let Some(handle) = &self.handle {
             handle.thread().unpark();
         }
-        self.clear_line();
     }
 
     fn resume(&self) {
