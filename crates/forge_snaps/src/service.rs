@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use forge_domain::Snapshot;
+use forge_domain::{ConversationId, Snapshot, UserInputId};
 use forge_fs::ForgeFS;
 
 /// Implementation of the SnapshotService
@@ -19,8 +19,13 @@ impl SnapshotService {
 }
 
 impl SnapshotService {
-    pub async fn create_snapshot(&self, path: PathBuf) -> Result<Snapshot> {
-        let snapshot = Snapshot::create(path)?;
+    pub async fn create_snapshot(
+        &self,
+        path: PathBuf,
+        user_input_id: UserInputId,
+        conversation_id: ConversationId,
+    ) -> Result<Snapshot> {
+        let snapshot = Snapshot::create(path, user_input_id, conversation_id)?;
 
         // Create intermediary directories if they don't exist
         let snapshot_path = snapshot.snapshot_path(Some(self.snapshots_directory.clone()));
@@ -55,7 +60,10 @@ impl SnapshotService {
     }
 
     pub async fn undo_snapshot(&self, path: PathBuf) -> Result<()> {
-        let snapshot = Snapshot::create(path.clone())?;
+        // Derive the per-file storage directory using a throwaway snapshot
+        // (UserInputId here is irrelevant — we only need the path hash).
+        let snapshot =
+            Snapshot::create(path.clone(), UserInputId::new(), ConversationId::generate())?;
 
         // All the snaps for `path` are stored in `snapshot.path_hash()` directory.
         let snapshot_dir = self.snapshots_directory.join(snapshot.path_hash());
@@ -125,7 +133,13 @@ mod tests {
         }
 
         async fn create_snapshot(&self) -> Result<Snapshot> {
-            self.service.create_snapshot(self.test_file.clone()).await
+            self.service
+                .create_snapshot(
+                    self.test_file.clone(),
+                    UserInputId::new(),
+                    ConversationId::generate(),
+                )
+                .await
         }
 
         async fn undo_snapshot(&self) -> Result<()> {
@@ -247,6 +261,47 @@ mod tests {
 
         // Assert
         assert_eq!(ctx.read_content().await?, "Initial content");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_filename_contains_user_input_id() -> Result<()> {
+        // Arrange
+        let ctx = TestContext::new().await?;
+        let user_input_id = UserInputId::new();
+
+        // Act
+        ctx.write_content("some content").await?;
+        ctx.service
+            .create_snapshot(
+                ctx.test_file.clone(),
+                user_input_id,
+                ConversationId::generate(),
+            )
+            .await?;
+
+        // Assert: find the .snap file and verify the UUID is in its name
+        let snapshot_dir = ctx
+            ._snapshots_dir
+            .read_dir()?
+            .filter_map(|e| e.ok())
+            .next()
+            .expect("snapshot subdirectory should exist")
+            .path();
+
+        let snap_file = snapshot_dir
+            .read_dir()?
+            .filter_map(|e| e.ok())
+            .next()
+            .expect("snap file should exist");
+
+        let filename = snap_file.file_name().to_string_lossy().to_string();
+        assert!(
+            filename.contains(&user_input_id.to_string()),
+            "filename '{filename}' should contain user_input_id '{user_input_id}'"
+        );
+        assert!(filename.ends_with(".snap"));
 
         Ok(())
     }

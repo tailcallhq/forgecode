@@ -9,9 +9,8 @@ use crate::operation::{TempContentFiles, ToolOperation};
 use crate::services::{Services, ShellService};
 use crate::{
     AgentRegistry, ConversationService, EnvironmentInfra, FollowUpService, FsPatchService,
-    FsReadService, FsRemoveService, FsSearchService, FsUndoService, FsWriteService,
-    ImageReadService, NetFetchService, PlanCreateService, ProviderService, SkillFetchService,
-    WorkspaceService,
+    FsReadService, FsRemoveService, FsSearchService, FsWriteService, ImageReadService,
+    NetFetchService, PlanCreateService, ProviderService, SkillFetchService, WorkspaceService,
 };
 
 pub struct ToolExecutor<S> {
@@ -27,7 +26,6 @@ impl<
         + NetFetchService
         + FsRemoveService
         + FsPatchService
-        + FsUndoService
         + ShellService
         + FollowUpService
         + ConversationService
@@ -143,6 +141,8 @@ impl<
                 path.to_string_lossy().to_string(),
                 content.to_string(),
                 true,
+                forge_domain::UserInputId::default(),
+                forge_domain::ConversationId::generate(),
             )
             .await?;
         Ok(path)
@@ -179,7 +179,13 @@ impl<
                 let normalized_path = self.normalize_path(input.file_path.clone());
                 let output = self
                     .services
-                    .write(normalized_path, input.content.clone(), input.overwrite)
+                    .write(
+                        normalized_path,
+                        input.content.clone(),
+                        input.overwrite,
+                        context.user_input_id,
+                        context.conversation_id,
+                    )
                     .await?;
                 (input, output).into()
             }
@@ -236,7 +242,14 @@ impl<
             }
             ToolCatalog::Remove(input) => {
                 let normalized_path = self.normalize_path(input.path.clone());
-                let output = self.services.remove(normalized_path).await?;
+                let output = self
+                    .services
+                    .remove(
+                        normalized_path,
+                        context.user_input_id,
+                        context.conversation_id,
+                    )
+                    .await?;
                 (input, output).into()
             }
             ToolCatalog::Patch(input) => {
@@ -248,6 +261,8 @@ impl<
                         input.old_string.clone(),
                         input.new_string.clone(),
                         input.replace_all,
+                        context.user_input_id,
+                        context.conversation_id,
                     )
                     .await?;
                 (input, output).into()
@@ -256,13 +271,13 @@ impl<
                 let normalized_path = self.normalize_path(input.file_path.clone());
                 let output = self
                     .services
-                    .multi_patch(normalized_path, input.edits.clone())
+                    .multi_patch(
+                        normalized_path,
+                        input.edits.clone(),
+                        context.user_input_id,
+                        context.conversation_id,
+                    )
                     .await?;
-                (input, output).into()
-            }
-            ToolCatalog::Undo(input) => {
-                let normalized_path = self.normalize_path(input.path.clone());
-                let output = self.services.undo(normalized_path).await?;
                 (input, output).into()
             }
             ToolCatalog::Shell(input) => {

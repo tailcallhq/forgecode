@@ -126,16 +126,6 @@ impl SummaryToolCall {
         }
     }
 
-    /// Creates an Undo tool call with default values (id: None, is_success:
-    /// true)
-    pub fn undo(path: impl Into<String>) -> Self {
-        Self {
-            id: None,
-            tool: SummaryTool::Undo { path: path.into() },
-            is_success: true,
-        }
-    }
-
     /// Creates a Fetch tool call with default values (id: None, is_success:
     /// true)
     pub fn fetch(url: impl Into<String>) -> Self {
@@ -186,7 +176,6 @@ pub enum SummaryTool {
     Shell { command: String },
     Search { pattern: String },
     SemSearch { queries: Vec<SearchQuery> },
-    Undo { path: String },
     Fetch { url: String },
     Followup { question: String },
     Plan { plan_name: String },
@@ -355,7 +344,6 @@ fn extract_tool_info(call: &ToolCallFull, current_todos: &[Todo]) -> Option<Summ
             ToolCatalog::SemSearch(input) => {
                 Some(SummaryTool::SemSearch { queries: input.queries })
             }
-            ToolCatalog::Undo(input) => Some(SummaryTool::Undo { path: input.path }),
             ToolCatalog::Fetch(input) => Some(SummaryTool::Fetch { url: input.url }),
             ToolCatalog::Followup(input) => {
                 Some(SummaryTool::Followup { question: input.question })
@@ -1143,19 +1131,6 @@ mod tests {
     }
 
     #[test]
-    fn test_summary_message_block_undo_helper() {
-        let actual: SummaryMessage = SummaryToolCall::undo("/test/file.rs").into();
-
-        let expected = Block::ToolCall(SummaryToolCall {
-            id: None,
-            tool: SummaryTool::Undo { path: "/test/file.rs".to_string() },
-            is_success: true,
-        });
-
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
     fn test_summary_message_block_fetch_helper() {
         let actual: SummaryMessage = SummaryToolCall::fetch("https://example.com").into();
 
@@ -1190,29 +1165,6 @@ mod tests {
             tool: SummaryTool::Plan { plan_name: "feature-implementation".to_string() },
             is_success: true,
         });
-
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_context_summary_extracts_undo_tool_calls() {
-        let fixture = context(vec![assistant_with_tools(
-            "Undoing changes",
-            vec![ToolCatalog::tool_call_undo("/test/file.rs").call_id("call_1")],
-        )]);
-
-        let actual = ContextSummary::from(&fixture);
-
-        let expected = ContextSummary::new(vec![SummaryBlock::new(
-            Role::Assistant,
-            vec![
-                Block::content("Undoing changes"),
-                SummaryToolCall::undo("/test/file.rs")
-                    .id("call_1")
-                    .is_success(false)
-                    .into(),
-            ],
-        )]);
 
         assert_eq!(actual, expected);
     }
@@ -1280,29 +1232,6 @@ mod tests {
                     .id("call_1")
                     .is_success(false)
                     .into(),
-            ],
-        )]);
-
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_context_summary_links_undo_results_to_calls() {
-        let fixture = context(vec![
-            assistant_with_tools(
-                "Undoing",
-                vec![ToolCatalog::tool_call_undo("/test/file.rs").call_id("call_1")],
-            ),
-            tool_result("undo", "call_1", false),
-        ]);
-
-        let actual = ContextSummary::from(&fixture);
-
-        let expected = ContextSummary::new(vec![SummaryBlock::new(
-            Role::Assistant,
-            vec![
-                Block::content("Undoing"),
-                SummaryToolCall::undo("/test/file.rs").id("call_1").into(),
             ],
         )]);
 
@@ -1390,10 +1319,9 @@ mod tests {
                 ToolCatalog::tool_call_remove("/test/old.txt").call_id("call_3"),
                 ToolCatalog::tool_call_shell("cargo build", "/test").call_id("call_4"),
                 ToolCatalog::tool_call_search("/test", "/test/src").call_id("call_5"),
-                ToolCatalog::tool_call_undo("/test/undo.txt").call_id("call_6"),
-                ToolCatalog::tool_call_fetch("https://example.com").call_id("call_7"),
-                ToolCatalog::tool_call_followup("Proceed?").call_id("call_8"),
-                ToolCatalog::tool_call_plan("implementation", "v1", "test").call_id("call_9"),
+                ToolCatalog::tool_call_fetch("https://example.com").call_id("call_6"),
+                ToolCatalog::tool_call_followup("Proceed?").call_id("call_7"),
+                ToolCatalog::tool_call_plan("implementation", "v1", "test").call_id("call_8"),
             ],
         )]);
 
@@ -1423,20 +1351,16 @@ mod tests {
                     .id("call_5")
                     .is_success(false)
                     .into(),
-                SummaryToolCall::undo("/test/undo.txt")
+                SummaryToolCall::fetch("https://example.com")
                     .id("call_6")
                     .is_success(false)
                     .into(),
-                SummaryToolCall::fetch("https://example.com")
+                SummaryToolCall::followup("Proceed?")
                     .id("call_7")
                     .is_success(false)
                     .into(),
-                SummaryToolCall::followup("Proceed?")
-                    .id("call_8")
-                    .is_success(false)
-                    .into(),
                 SummaryToolCall::plan("implementation")
-                    .id("call_9")
+                    .id("call_8")
                     .is_success(false)
                     .into(),
             ],

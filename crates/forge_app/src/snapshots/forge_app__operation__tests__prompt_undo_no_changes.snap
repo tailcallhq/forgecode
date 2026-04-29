@@ -1,0 +1,8 @@
+---
+source: crates/forge_app/src/operation.rs
+expression: to_value(actual)
+---
+<prompt_undo
+  status="no_changes"
+>No file changes found for the last prompt.
+</prompt_undo>

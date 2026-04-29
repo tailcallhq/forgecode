@@ -381,6 +381,7 @@ mod tests {
             updated_at: None,
             workspace_id: 0,
             metrics: None,
+            user_input_id: None,
         };
 
         let actual = Conversation::try_from(fixture)?;
@@ -825,6 +826,7 @@ mod tests {
             updated_at: None,
             workspace_id: 0,
             metrics: None,
+            user_input_id: None,
         };
 
         let result = Conversation::try_from(fixture);

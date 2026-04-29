@@ -7,7 +7,7 @@ use forge_app::{
     FileDirectoryInfra, FileInfoInfra, FileReaderInfra, FileWriterInfra, FsWriteOutput,
     FsWriteService, compute_hash,
 };
-use forge_domain::{SnapshotRepository, ValidationRepository};
+use forge_domain::{SnapshotMetadataRepository, SnapshotRepository, ValidationRepository};
 
 use crate::utils::assert_absolute_path;
 
@@ -38,6 +38,7 @@ impl<
         + FileReaderInfra
         + FileWriterInfra
         + SnapshotRepository
+        + SnapshotMetadataRepository
         + ValidationRepository
         + Send
         + Sync,
@@ -48,6 +49,8 @@ impl<
         path: String,
         content: String,
         overwrite: bool,
+        user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<FsWriteOutput> {
         let path = Path::new(&path);
         assert_absolute_path(path)?;
@@ -95,9 +98,20 @@ impl<
             (None, default_ending)
         };
 
-        // SNAPSHOT COORDINATION: Capture snapshot before writing if file exists
+        // SNAPSHOT COORDINATION: Capture snapshot before writing.
+        // For existing files, create a .snap backup and insert metadata.
+        // For new files, insert metadata with empty snap_file_path so that
+        // undo can delete the file instead of restoring it.
         if file_exists {
-            self.infra.insert_snapshot(path).await?;
+            self.infra
+                .insert_snapshot(path, user_input_id, conversation_id)
+                .await?;
+        } else {
+            let snapshot =
+                forge_domain::Snapshot::create(path.to_path_buf(), user_input_id, conversation_id)?;
+            self.infra
+                .insert_snapshot_metadata(&snapshot, String::new())
+                .await?;
         }
 
         // Normalize line endings to match the target style before writing

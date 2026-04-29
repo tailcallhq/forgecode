@@ -136,13 +136,18 @@ pub struct PlanCreateOutput {
     pub before: Option<String>,
 }
 
-#[derive(Default, Debug, derive_more::From)]
-pub struct FsUndoOutput {
-    pub before_undo: Option<String>,
-    pub after_undo: Option<String>,
+/// Output of a prompt-level undo operation that restores all files changed in
+/// the last user prompt.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct PromptUndoOutput {
+    /// List of file paths that were restored from their snapshots.
+    pub restored_files: Vec<String>,
+
+    /// List of new file paths that were deleted (files created during the
+    /// prompt that had no prior content to restore).
+    pub deleted_files: Vec<String>,
 }
 
-/// Output from todo_write tool execution
 #[derive(Debug)]
 pub struct TodoWriteOutput {
     /// List of todos that were saved
@@ -331,6 +336,8 @@ pub trait FsWriteService: Send + Sync {
         path: String,
         content: String,
         overwrite: bool,
+        user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<FsWriteOutput>;
 }
 
@@ -354,6 +361,8 @@ pub trait FsPatchService: Send + Sync {
         search: String,
         content: String,
         replace_all: bool,
+        user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<PatchOutput>;
 
     /// Applies multiple patches to a single file in sequence
@@ -361,6 +370,8 @@ pub trait FsPatchService: Send + Sync {
         &self,
         path: String,
         edits: Vec<forge_domain::PatchEdit>,
+        user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<PatchOutput>;
 }
 
@@ -384,7 +395,12 @@ pub trait ImageReadService: Send + Sync {
 #[async_trait::async_trait]
 pub trait FsRemoveService: Send + Sync {
     /// Removes a file at the specified path.
-    async fn remove(&self, path: String) -> anyhow::Result<FsRemoveOutput>;
+    async fn remove(
+        &self,
+        path: String,
+        user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
+    ) -> anyhow::Result<FsRemoveOutput>;
 }
 
 #[async_trait::async_trait]
@@ -414,12 +430,19 @@ pub trait FollowUpService: Send + Sync {
 }
 
 #[async_trait::async_trait]
-pub trait FsUndoService: Send + Sync {
-    /// Undoes the last file operation at the specified path.
-    /// And returns the content of the undone file.
-    // TODO: We should move Snapshot service to Services from infra
-    // and drop FsUndoService.
-    async fn undo(&self, path: String) -> anyhow::Result<FsUndoOutput>;
+pub trait PromptUndoService: Send + Sync {
+    /// Restores all files that were changed during the most recent user prompt
+    /// in the given conversation, using snapshot metadata from SQLite.
+    ///
+    /// # Arguments
+    /// * `conversation_id` - The conversation to look up snapshots for.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails or file restoration fails.
+    async fn undo_last_prompt(
+        &self,
+        conversation_id: forge_domain::ConversationId,
+    ) -> anyhow::Result<PromptUndoOutput>;
 }
 
 #[async_trait::async_trait]
@@ -548,7 +571,7 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     type FsRemoveService: FsRemoveService;
     type FsSearchService: FsSearchService;
     type FollowUpService: FollowUpService;
-    type FsUndoService: FsUndoService;
+    type PromptUndoService: PromptUndoService;
     type NetFetchService: NetFetchService;
     type ShellService: ShellService;
     type McpService: McpService;
@@ -575,7 +598,7 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     fn fs_remove_service(&self) -> &Self::FsRemoveService;
     fn fs_search_service(&self) -> &Self::FsSearchService;
     fn follow_up_service(&self) -> &Self::FollowUpService;
-    fn fs_undo_service(&self) -> &Self::FsUndoService;
+    fn prompt_undo_service(&self) -> &Self::PromptUndoService;
     fn net_fetch_service(&self) -> &Self::NetFetchService;
     fn shell_service(&self) -> &Self::ShellService;
     fn mcp_service(&self) -> &Self::McpService;
@@ -739,9 +762,11 @@ impl<I: Services> FsWriteService for I {
         path: String,
         content: String,
         overwrite: bool,
+        user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<FsWriteOutput> {
         self.fs_create_service()
-            .write(path, content, overwrite)
+            .write(path, content, overwrite, user_input_id, conversation_id)
             .await
     }
 }
@@ -768,9 +793,18 @@ impl<I: Services> FsPatchService for I {
         search: String,
         content: String,
         replace_all: bool,
+        user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<PatchOutput> {
         self.fs_patch_service()
-            .patch(path, search, content, replace_all)
+            .patch(
+                path,
+                search,
+                content,
+                replace_all,
+                user_input_id,
+                conversation_id,
+            )
             .await
     }
 
@@ -778,8 +812,12 @@ impl<I: Services> FsPatchService for I {
         &self,
         path: String,
         edits: Vec<forge_domain::PatchEdit>,
+        user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<PatchOutput> {
-        self.fs_patch_service().multi_patch(path, edits).await
+        self.fs_patch_service()
+            .multi_patch(path, edits, user_input_id, conversation_id)
+            .await
     }
 }
 
@@ -805,8 +843,15 @@ impl<I: Services> ImageReadService for I {
 
 #[async_trait::async_trait]
 impl<I: Services> FsRemoveService for I {
-    async fn remove(&self, path: String) -> anyhow::Result<FsRemoveOutput> {
-        self.fs_remove_service().remove(path).await
+    async fn remove(
+        &self,
+        path: String,
+        user_input_id: forge_domain::UserInputId,
+        conversation_id: forge_domain::ConversationId,
+    ) -> anyhow::Result<FsRemoveOutput> {
+        self.fs_remove_service()
+            .remove(path, user_input_id, conversation_id)
+            .await
     }
 }
 
@@ -832,9 +877,14 @@ impl<I: Services> FollowUpService for I {
 }
 
 #[async_trait::async_trait]
-impl<I: Services> FsUndoService for I {
-    async fn undo(&self, path: String) -> anyhow::Result<FsUndoOutput> {
-        self.fs_undo_service().undo(path).await
+impl<I: Services> PromptUndoService for I {
+    async fn undo_last_prompt(
+        &self,
+        conversation_id: forge_domain::ConversationId,
+    ) -> anyhow::Result<PromptUndoOutput> {
+        self.prompt_undo_service()
+            .undo_last_prompt(conversation_id)
+            .await
     }
 }
 

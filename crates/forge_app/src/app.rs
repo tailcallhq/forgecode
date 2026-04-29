@@ -144,6 +144,10 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             .apply(conversation);
         let conversation = SetConversationId.apply(conversation);
 
+        // Stamp the user_input_id on the conversation so that all file snapshots
+        // taken during this request are grouped together for prompt-level undo.
+        let conversation = conversation.user_input_id(UserInputId::new());
+
         // Create the orchestrator with all necessary dependencies
         let tracing_handler = TracingHandler::new();
         let title_handler = TitleGenerationHandler::new(services.clone());
@@ -171,16 +175,11 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             .on_toolcall_end(tracing_handler)
             .on_end(on_end_hook);
 
-        let orch = Orchestrator::new(
-            services.clone(),
-            conversation,
-            agent,
-            self.services.get_config()?,
-        )
-        .error_tracker(ToolErrorTracker::new(max_tool_failure_per_turn))
-        .tool_definitions(tool_definitions)
-        .models(models)
-        .hook(Arc::new(hook));
+        let orch = Orchestrator::new(services.clone(), conversation, agent, forge_config)
+            .error_tracker(ToolErrorTracker::new(max_tool_failure_per_turn))
+            .tool_definitions(tool_definitions)
+            .models(models)
+            .hook(Arc::new(hook));
 
         // Create and return the stream
         let stream = MpscStream::spawn(

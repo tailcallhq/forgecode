@@ -6,8 +6,65 @@ use url::Url;
 use crate::{
     AnyProvider, AuthCredential, ChatCompletionMessage, Context, Conversation, ConversationId,
     MigrationResult, Model, ModelId, Provider, ProviderId, ProviderTemplate, ResultStream,
-    SearchMatch, Skill, Snapshot, WorkspaceAuth, WorkspaceId,
+    SearchMatch, Skill, Snapshot, UserInputId, WorkspaceAuth, WorkspaceId,
 };
+
+/// Repository for persisting and querying snapshot metadata in SQLite.
+///
+/// Stores one row per snapshot created, allowing bulk-undo queries
+/// grouped by the `UserInputId` of the prompt that triggered the changes.
+#[async_trait::async_trait]
+pub trait SnapshotMetadataRepository: Send + Sync {
+    /// Persists metadata for one snapshot into the `snapshot_metadata` table.
+    ///
+    /// # Arguments
+    /// * `snapshot` - The domain snapshot whose metadata to persist.
+    /// * `snap_file_path` - Absolute path to the `.snap` file written to disk.
+    ///
+    /// # Errors
+    /// Returns an error if the database write fails.
+    async fn insert_snapshot_metadata(
+        &self,
+        snapshot: &Snapshot,
+        snap_file_path: String,
+    ) -> Result<()>;
+
+    /// Returns `(file_path, snap_file_path)` pairs for every snapshot belonging
+    /// to the given `UserInputId`, enabling prompt-level bulk undo.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
+    async fn find_snapshots_by_user_input_id(
+        &self,
+        user_input_id: UserInputId,
+    ) -> Result<Vec<(String, String)>>;
+
+    /// Returns all `(user_input_id, file_path, snap_file_path)` tuples for
+    /// every snapshot belonging to the given `ConversationId`, ordered by
+    /// creation time descending so that the latest `UserInputId` appears
+    /// first.
+    ///
+    /// Only returns snapshots that have not been undone.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
+    async fn find_snapshots_by_conversation_id(
+        &self,
+        conversation_id: ConversationId,
+    ) -> Result<Vec<(String, String, String)>>;
+
+    /// Marks all snapshot rows for the given `UserInputId` as undone by setting
+    /// their `undone_at` timestamp to the current time. This prevents those
+    /// snapshots from being returned by subsequent find queries or used again
+    /// during a future undo operation.
+    ///
+    /// # Arguments
+    /// * `user_input_id` - The ID of the user prompt whose snapshots to mark.
+    ///
+    /// # Errors
+    /// Returns an error if the database update fails.
+    async fn mark_snapshots_undone(&self, user_input_id: UserInputId) -> Result<()>;
+}
 
 /// Repository for managing file snapshots
 ///
@@ -15,14 +72,23 @@ use crate::{
 /// snapshots, enabling undo functionality for file modifications.
 #[async_trait::async_trait]
 pub trait SnapshotRepository: Send + Sync {
-    /// Inserts a new snapshot for the given file path
+    /// Inserts a new snapshot for the given file path, tagged with the
+    /// `UserInputId` of the prompt that triggered the mutation and the
+    /// `ConversationId` of the active conversation.
     ///
     /// # Arguments
-    /// * `file_path` - Path to the file to snapshot
+    /// * `file_path` - Path to the file to snapshot.
+    /// * `user_input_id` - ID of the user prompt causing the mutation.
+    /// * `conversation_id` - ID of the active conversation during the mutation.
     ///
     /// # Errors
     /// Returns an error if the snapshot creation fails
-    async fn insert_snapshot(&self, file_path: &Path) -> Result<Snapshot>;
+    async fn insert_snapshot(
+        &self,
+        file_path: &Path,
+        user_input_id: UserInputId,
+        conversation_id: ConversationId,
+    ) -> Result<Snapshot>;
 
     /// Restores the most recent snapshot for the given file path
     ///

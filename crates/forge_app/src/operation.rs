@@ -2,13 +2,12 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use console::strip_ansi_codes;
 use derive_setters::Setters;
 use forge_config::ForgeConfig;
 use forge_display::DiffFormat;
 use forge_domain::{
-    CodebaseSearchResults, Environment, FSMultiPatch, FSPatch, FSRead, FSRemove, FSSearch, FSUndo,
-    FSWrite, FileOperation, LineNumbers, Metrics, NetFetch, PlanCreate, ToolKind,
+    CodebaseSearchResults, Environment, FSMultiPatch, FSPatch, FSRead, FSRemove, FSSearch, FSWrite,
+    FileOperation, LineNumbers, Metrics, NetFetch, PlanCreate, ToolKind,
 };
 use forge_template::Element;
 
@@ -16,10 +15,12 @@ use crate::truncation::{
     Stderr, Stdout, TruncationMode, truncate_fetch_content, truncate_search_output,
     truncate_shell_output,
 };
-use crate::utils::{compute_hash, format_display_path};
+#[cfg(test)]
+use crate::utils::compute_hash;
+use crate::utils::format_display_path;
 use crate::{
-    FsRemoveOutput, FsUndoOutput, FsWriteOutput, HttpResponse, PatchOutput, PlanCreateOutput,
-    ReadOutput, ResponseContext, SearchResult, ShellOutput,
+    FsRemoveOutput, FsWriteOutput, HttpResponse, PatchOutput, PlanCreateOutput, ReadOutput,
+    ResponseContext, SearchResult, ShellOutput,
 };
 
 #[derive(Debug, Default, Setters)]
@@ -57,10 +58,6 @@ pub enum ToolOperation {
     FsMultiPatch {
         input: FSMultiPatch,
         output: PatchOutput,
-    },
-    FsUndo {
-        input: FSUndo,
-        output: FsUndoOutput,
     },
     NetFetch {
         input: NetFetch,
@@ -503,60 +500,6 @@ impl ToolOperation {
                 );
 
                 forge_domain::ToolOutput::text(elm)
-            }
-            ToolOperation::FsUndo { input, output } => {
-                // Diff between snapshot state (after_undo) and modified state
-                // (before_undo)
-                let diff = DiffFormat::format(
-                    output.after_undo.as_deref().unwrap_or(""),
-                    output.before_undo.as_deref().unwrap_or(""),
-                );
-                let content_hash = output.after_undo.as_ref().map(|s| compute_hash(s));
-
-                *metrics = metrics.clone().insert(
-                    input.path.clone(),
-                    FileOperation::new(tool_kind)
-                        .lines_added(diff.lines_added())
-                        .lines_removed(diff.lines_removed())
-                        .content_hash(content_hash),
-                );
-
-                match (&output.before_undo, &output.after_undo) {
-                    (None, None) => {
-                        let elm = Element::new("file_undo")
-                            .attr("path", input.path)
-                            .attr("status", "no_changes");
-                        forge_domain::ToolOutput::text(elm)
-                    }
-                    (None, Some(after)) => {
-                        let elm = Element::new("file_undo")
-                            .attr("path", input.path)
-                            .attr("status", "created")
-                            .attr("total_lines", after.lines().count())
-                            .cdata(after);
-                        forge_domain::ToolOutput::text(elm)
-                    }
-                    (Some(before), None) => {
-                        let elm = Element::new("file_undo")
-                            .attr("path", input.path)
-                            .attr("status", "removed")
-                            .attr("total_lines", before.lines().count())
-                            .cdata(before);
-                        forge_domain::ToolOutput::text(elm)
-                    }
-                    (Some(before), Some(after)) => {
-                        // This diff is between modified state (before_undo) and snapshot
-                        // state (after_undo)
-                        let diff = DiffFormat::format(before, after);
-
-                        let elm = Element::new("file_undo")
-                            .attr("path", input.path)
-                            .attr("status", "restored")
-                            .cdata(strip_ansi_codes(diff.diff()));
-
-                        forge_domain::ToolOutput::text(elm)
-                    }
-                }
             }
             ToolOperation::NetFetch { input, output } => {
                 let content_type = match output.context {
@@ -2170,125 +2113,6 @@ mod tests {
 
         let actual = fixture.into_tool_output(
             ToolKind::Patch,
-            TempContentFiles::default(),
-            &env,
-            &config,
-            &mut Metrics::default(),
-        );
-
-        insta::assert_snapshot!(to_value(actual));
-    }
-
-    #[test]
-    fn test_fs_undo_no_changes() {
-        let fixture = ToolOperation::FsUndo {
-            input: forge_domain::FSUndo { path: "/home/user/unchanged_file.txt".to_string() },
-            output: FsUndoOutput { before_undo: None, after_undo: None },
-        };
-
-        let env = fixture_environment();
-        let config = fixture_config();
-
-        let actual = fixture.into_tool_output(
-            ToolKind::Undo,
-            TempContentFiles::default(),
-            &env,
-            &config,
-            &mut Metrics::default(),
-        );
-
-        insta::assert_snapshot!(to_value(actual));
-    }
-
-    #[test]
-    fn test_fs_undo_file_created() {
-        let fixture = ToolOperation::FsUndo {
-            input: forge_domain::FSUndo { path: "/home/user/new_file.txt".to_string() },
-            output: FsUndoOutput {
-                before_undo: None,
-                after_undo: Some("New file content\nLine 2\nLine 3".to_string()),
-            },
-        };
-
-        let env = fixture_environment();
-        let config = fixture_config();
-
-        let actual = fixture.into_tool_output(
-            ToolKind::Undo,
-            TempContentFiles::default(),
-            &env,
-            &config,
-            &mut Metrics::default(),
-        );
-
-        insta::assert_snapshot!(to_value(actual));
-    }
-
-    #[test]
-    fn test_fs_undo_file_removed() {
-        let fixture = ToolOperation::FsUndo {
-            input: forge_domain::FSUndo { path: "/home/user/deleted_file.txt".to_string() },
-            output: FsUndoOutput {
-                before_undo: Some(
-                    "Original file content\nThat was deleted\nDuring undo".to_string(),
-                ),
-                after_undo: None,
-            },
-        };
-
-        let env = fixture_environment();
-        let config = fixture_config();
-
-        let actual = fixture.into_tool_output(
-            ToolKind::Undo,
-            TempContentFiles::default(),
-            &env,
-            &config,
-            &mut Metrics::default(),
-        );
-
-        insta::assert_snapshot!(to_value(actual));
-    }
-
-    #[test]
-    fn test_fs_undo_file_restored() {
-        let fixture = ToolOperation::FsUndo {
-            input: forge_domain::FSUndo { path: "/home/user/restored_file.txt".to_string() },
-            output: FsUndoOutput {
-                before_undo: Some("Original content\nBefore changes".to_string()),
-                after_undo: Some("Modified content\nAfter restoration".to_string()),
-            },
-        };
-
-        let env = fixture_environment();
-        let config = fixture_config();
-
-        let actual = fixture.into_tool_output(
-            ToolKind::Undo,
-            TempContentFiles::default(),
-            &env,
-            &config,
-            &mut Metrics::default(),
-        );
-
-        insta::assert_snapshot!(to_value(actual));
-    }
-
-    #[test]
-    fn test_fs_undo_success() {
-        let fixture = ToolOperation::FsUndo {
-            input: forge_domain::FSUndo { path: "/home/user/test.txt".to_string() },
-            output: FsUndoOutput {
-                before_undo: Some("ABC".to_string()),
-                after_undo: Some("PQR".to_string()),
-            },
-        };
-
-        let env = fixture_environment();
-        let config = fixture_config();
-
-        let actual = fixture.into_tool_output(
-            ToolKind::Undo,
             TempContentFiles::default(),
             &env,
             &config,

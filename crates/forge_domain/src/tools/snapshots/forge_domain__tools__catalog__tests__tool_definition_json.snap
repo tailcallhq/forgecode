@@ -1,5 +1,6 @@
 ---
 source: crates/forge_domain/src/tools/catalog.rs
+assertion_line: 1226
 expression: tools
 ---
 {
@@ -263,19 +264,6 @@ expression: tools
   "required": [
     "file_path",
     "edits"
-  ]
-}
-{
-  "title": "FSUndo",
-  "type": "object",
-  "properties": {
-    "path": {
-      "description": "The absolute path of the file to revert to its previous state.",
-      "type": "string"
-    }
-  },
-  "required": [
-    "path"
   ]
 }
 {

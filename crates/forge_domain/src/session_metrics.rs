@@ -163,67 +163,6 @@ mod tests {
     }
 
     #[test]
-    fn test_metrics_record_file_operation_and_undo() {
-        let path = "file_to_track.rs".to_string();
-
-        // Do operation
-        let metrics = Metrics::default().insert(
-            path.clone(),
-            FileOperation::new(ToolKind::Write)
-                .lines_added(2u64)
-                .lines_removed(1u64)
-                .content_hash(Some("hash_v1".to_string())),
-        );
-        let operation = metrics.file_operations.get(&path).unwrap();
-        assert_eq!(metrics.file_operations.len(), 1);
-        assert_eq!(operation.lines_added, 2);
-        assert_eq!(operation.lines_removed, 1);
-        assert_eq!(operation.content_hash, Some("hash_v1".to_string()));
-
-        // Undo operation replaces the previous operation
-        let metrics = metrics.insert(
-            path.clone(),
-            FileOperation::new(ToolKind::Undo).content_hash(Some("hash_v0".to_string())),
-        );
-        let operation = metrics.file_operations.get(&path).unwrap();
-        assert_eq!(operation.lines_added, 0);
-        assert_eq!(operation.lines_removed, 0);
-        assert_eq!(operation.content_hash, Some("hash_v0".to_string()));
-    }
-
-    #[test]
-    fn test_metrics_record_multiple_file_operations() {
-        let path = "file1.rs".to_string();
-
-        let metrics = Metrics::default()
-            .insert(
-                path.clone(),
-                FileOperation::new(ToolKind::Write)
-                    .lines_added(10u64)
-                    .lines_removed(5u64)
-                    .content_hash(Some("hash1".to_string())),
-            )
-            .insert(
-                path.clone(),
-                FileOperation::new(ToolKind::Patch)
-                    .lines_added(5u64)
-                    .lines_removed(1u64)
-                    .content_hash(Some("hash2".to_string())),
-            )
-            .insert(
-                path.clone(),
-                FileOperation::new(ToolKind::Undo).content_hash(Some("hash1".to_string())),
-            );
-
-        // Only the last operation is stored
-        let operation = metrics.file_operations.get(&path).unwrap();
-
-        // Last operation (undo) overwrites previous operations
-        assert_eq!(operation.lines_added, 0);
-        assert_eq!(operation.lines_removed, 0);
-        assert_eq!(operation.content_hash, Some("hash1".to_string()));
-    }
-    #[test]
     fn test_files_accessed_only_tracks_reads() {
         let metrics = Metrics::default()
             .insert("file1.rs".to_string(), FileOperation::new(ToolKind::Read))
