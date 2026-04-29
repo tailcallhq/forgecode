@@ -1,6 +1,6 @@
 ---
 name: execute-plan
-description: Execute structured task plans with status tracking. Use when the user provides a plan file path in the format `plans/{current-date}-{task-name}-{version}.md`, explicitly asks you to execute a plan file, or passes a plan path as skill arguments.
+description: Execute structured task plans with status tracking. Use when the user provides a plan file path in the format `plans/{current-date}-{task-name}-{version}.md` or explicitly asks you to execute a plan file.
 arguments: [plan_path]
 ---
 
@@ -10,13 +10,7 @@ Execute structured task plans with automatic status tracking and progress update
 
 ## Plan Path Input
 
-This skill supports receiving the plan path through skill arguments:
-
-- `$ARGUMENTS`: full raw argument string (expected to be the plan path)
-- `$0` / `$ARGUMENTS[0]`: first parsed argument
-- `$plan_path`: named argument from frontmatter (`arguments: [plan_path]`)
-
-When arguments are present, treat the resolved value as the authoritative plan path.
+Execute the plan at: `$plan_path`
 
 ## Commitment to Completion
 
@@ -28,7 +22,7 @@ When a plan is provided, **all tasks in the plan must be completed**. Before sta
 
 **STEP 1**: Recite the commitment to complete all tasks in the plan.
 
-**STEP 2**: Resolve the plan path from the request context. If skill arguments are provided, use `$plan_path` (or `$ARGUMENTS`/`$0`). Then read the entire plan file to identify pending tasks based on `task_status`.
+**STEP 2**: Read the plan file at `$plan_path` and identify all pending tasks based on `task_status`.
 
 **STEP 3**: Announce the next pending task and update its status to `IN_PROGRESS` in the plan file.
 
