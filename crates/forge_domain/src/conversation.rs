@@ -48,7 +48,8 @@ pub struct Conversation {
     pub metadata: MetaData,
     /// Optional working directory override for sub-agent conversations.
     /// When set, the agent uses this path as its CWD instead of the parent
-    /// process's CWD for system information (file listing, extensions, env.cwd).
+    /// process's CWD for system information (file listing, extensions,
+    /// env.cwd).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<std::path::PathBuf>,
 }
@@ -164,6 +165,21 @@ impl Conversation {
         }
 
         Some(costs.iter().sum())
+    }
+
+    /// Returns the number of messages in the conversation context.
+    ///
+    /// Returns `0` if the context has not been initialized yet.
+    pub fn len(&self) -> usize {
+        self.context
+            .as_ref()
+            .map(|ctx| ctx.messages.len())
+            .unwrap_or(0)
+    }
+
+    /// Returns `true` if the conversation context has no messages.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Extracts all related conversation IDs from agent tool calls.

@@ -322,7 +322,7 @@ pub fn setup_zsh_integration(
             // No markers - add them at the end
             // Add blank line before markers if file is not empty and doesn't end with blank
             // line
-            if !lines.is_empty() && !lines[lines.len() - 1].trim().is_empty() {
+            if lines.last().is_some_and(|l| !l.trim().is_empty()) {
                 lines.push(String::new());
             }
 
@@ -410,6 +410,20 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_generated_plugin_wraps_zle_commands_with_osc133_markers() {
+        use pretty_assertions::assert_eq;
+
+        let fixture = generate_zsh_plugin().unwrap();
+        let actual = fixture.contains(
+            "    _forge_osc133_emit \"B\"\n    _forge_osc133_emit \"C\"\n    case \"$user_action\" in",
+        ) && fixture.contains(
+            "    local action_status=$?\n    _forge_osc133_emit \"D;$action_status\"\n    _forge_osc133_emit \"A\"\n    _forge_reset",
+        );
+        let expected = true;
+        assert_eq!(actual, expected);
     }
 
     #[test]

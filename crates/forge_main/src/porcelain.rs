@@ -284,7 +284,9 @@ impl Porcelain {
             rows.push(new_headers);
         } else {
             // Replace the first row with new headers
-            rows[0] = new_headers;
+            if let Some(first) = rows.first_mut() {
+                *first = new_headers;
+            }
         }
 
         Porcelain(rows)
@@ -295,8 +297,10 @@ impl Porcelain {
             return self;
         }
 
-        let headers = &self.0[0];
-        let data_rows = &self.0[1..];
+        let Some(headers) = self.0.first() else {
+            return self;
+        };
+        let data_rows = self.0.get(1..).unwrap_or(&[]);
 
         if data_rows.is_empty() || headers.is_empty() {
             return self;
@@ -348,7 +352,9 @@ impl fmt::Display for Porcelain {
         for row in &self.0 {
             for (i, cell) in row.iter().enumerate() {
                 let width = cell.as_ref().map(|s| s.len()).unwrap_or(0);
-                col_widths[i] = col_widths[i].max(width);
+                if let Some(col_width) = col_widths.get_mut(i) {
+                    *col_width = (*col_width).max(width);
+                }
             }
         }
 
@@ -364,7 +370,8 @@ impl fmt::Display for Porcelain {
                     line.push_str(content);
                 } else {
                     // Pad to column width
-                    line.push_str(&format!("{:<width$}", content, width = col_widths[i]));
+                    let width = col_widths.get(i).copied().unwrap_or(0);
+                    line.push_str(&format!("{:<width$}", content, width = width));
                     line.push_str("  ");
                 }
             }

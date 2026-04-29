@@ -1,11 +1,12 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
+assertion_line: 731
 expression: "render_with_width(vec![vec![\"Title\", \"Content\"],\nvec![\"Article\",\n\"This has **bold** and *italic* and `code` in a long sentence that wraps\"],],\n50)"
 ---
-  ┌───────┬────────────────────────────────────────┐
-  │ Title │ Content                                │
-  ├───────┼────────────────────────────────────────┤
-  │ Artic │ This has <b>bold</b> and               │
-  │ le    │ <i>italic</i> and <code>code</code>    │
-  │       │ in a long sentence that wraps          │
-  └───────┴────────────────────────────────────────┘
+  ┌───────┬──────────────────────────────────────┐
+  │ Title │ Content                              │
+  ├───────┼──────────────────────────────────────┤
+  │ Artic │ This has <b>bold</b> and             │
+  │ le    │ <i>italic</i> and <code>code</code>  │
+  │       │ in a long sentence that wraps        │
+  └───────┴──────────────────────────────────────┘

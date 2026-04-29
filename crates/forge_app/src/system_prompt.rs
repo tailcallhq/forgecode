@@ -97,12 +97,20 @@ impl<S: SkillFetchService + ShellService> SystemPrompt<S> {
             // Fetch extension statistics from git
             let extensions = self.fetch_extensions(self.max_extensions).await;
 
-            // Build tool_names map from all available tools for template rendering
+            // Build tool_names map filtered to only the tools this agent actually has.
+            // This allows templates to use {{#if tool_names.task}} to conditionally
+            // render content based on whether the agent has access to a given tool.
+            let agent_tool_names: std::collections::HashSet<String> = self
+                .tool_definitions
+                .iter()
+                .map(|def| def.name.to_string())
+                .collect();
             let tool_names: Map<String, Value> = ToolCatalog::iter()
                 .map(|tool| {
                     let def = tool.definition();
                     (def.name.to_string(), json!(def.name.to_string()))
                 })
+                .filter(|(name, _)| agent_tool_names.contains(name))
                 .collect();
 
             let ctx = SystemContext {
@@ -116,7 +124,8 @@ impl<S: SkillFetchService + ShellService> SystemPrompt<S> {
                 model: None,
                 tool_names,
                 extensions,
-                config: Some(self.template_config.clone()),
+                agents: vec![],
+                config: None,
             };
 
             let static_block = TemplateEngine::default()

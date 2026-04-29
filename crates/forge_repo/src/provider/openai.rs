@@ -1,15 +1,14 @@
 use std::sync::{Arc, LazyLock};
 
 use anyhow::{Context as _, Result};
-use derive_setters::Setters;
-use forge_app::HttpInfra;
 use forge_app::domain::{
     ChatCompletionMessage, Context as ChatContext, Model, ModelId, ProviderId, ResultStream,
     Transformer,
 };
 use forge_app::dto::openai::{ListModelResponse, ProviderPipeline, Request, Response};
-use forge_config::RetryConfig;
+use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider};
+use forge_infra::sanitize_headers;
 use reqwest::header::AUTHORIZATION;
 use tokio_stream::StreamExt;
 use tracing::{debug, info};
@@ -17,7 +16,7 @@ use url::Url;
 
 use crate::provider::event::into_chat_completion_message;
 use crate::provider::retry::into_retry;
-use crate::provider::utils::{create_headers, format_http_context, join_url, sanitize_headers};
+use crate::provider::utils::{create_headers, format_http_context, join_url};
 
 /// Enhances error messages with provider-specific helpful information
 fn enhance_error(error: anyhow::Error, provider_id: &ProviderId) -> anyhow::Error {
@@ -54,16 +53,21 @@ impl<H: HttpInfra> OpenAIProvider<H> {
     // - `X-Title`: Sets/modifies your app's title
     fn get_headers(&self) -> Vec<(String, String)> {
         let mut headers = Vec::new();
-        if let Some(api_key) = self
-            .provider
-            .credential
-            .as_ref()
-            .map(|c| match &c.auth_details {
-                forge_domain::AuthDetails::ApiKey(key) => key.as_str(),
-                forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => api_key.as_str(),
-                forge_domain::AuthDetails::OAuth { tokens, .. } => tokens.access_token.as_str(),
-                forge_domain::AuthDetails::GoogleAdc(token) => token.as_str(),
-            })
+        if let Some(api_key) =
+            self.provider
+                .credential
+                .as_ref()
+                .and_then(|c| match &c.auth_details {
+                    forge_domain::AuthDetails::ApiKey(key) => Some(key.as_str()),
+                    forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => {
+                        Some(api_key.as_str())
+                    }
+                    forge_domain::AuthDetails::OAuth { tokens, .. } => {
+                        Some(tokens.access_token.as_str())
+                    }
+                    forge_domain::AuthDetails::GoogleAdc(token) => Some(token.as_str()),
+                    forge_domain::AuthDetails::AwsProfile(_) => None,
+                })
         {
             headers.push((AUTHORIZATION.to_string(), format!("Bearer {api_key}")));
         }
@@ -94,6 +98,7 @@ impl<H: HttpInfra> OpenAIProvider<H> {
                     }
                 }
                 forge_domain::AuthMethod::GoogleAdc => {}
+                forge_domain::AuthMethod::AwsProfile => {}
             });
         // Append provider-level custom headers (from provider.json config)
         if let Some(custom_headers) = &self.provider.custom_headers {
@@ -307,6 +312,59 @@ impl<T: HttpInfra> OpenAIProvider<T> {
 
     pub async fn models(&self) -> Result<Vec<forge_app::domain::Model>> {
         self.inner_models().await
+    }
+}
+
+/// Repository for OpenAI-compatible provider responses
+///
+/// Handles providers that use OpenAI's API format including:
+/// - OpenAI
+/// - Azure OpenAI
+/// - Vertex AI
+/// - OpenRouter
+/// - DeepSeek
+/// - Groq
+pub struct OpenAIResponseRepository<F> {
+    infra: Arc<F>,
+}
+
+impl<F> OpenAIResponseRepository<F> {
+    pub fn new(infra: Arc<F>) -> Self {
+        Self { infra }
+    }
+}
+
+#[async_trait::async_trait]
+impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + 'static> ChatRepository
+    for OpenAIResponseRepository<F>
+{
+    async fn chat(
+        &self,
+        model_id: &ModelId,
+        context: ChatContext,
+        provider: Provider<Url>,
+    ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
+        let retry_config = self.infra.get_config()?.retry.unwrap_or_default();
+        let provider_id = provider.id.clone();
+        let provider_client = OpenAIProvider::new(provider, self.infra.clone());
+        let stream = provider_client
+            .chat(model_id, context)
+            .await
+            .map_err(|e| into_retry(e, &retry_config))?;
+
+        Ok(Box::pin(stream.map(move |item| {
+            item.map_err(|e| enhance_error(into_retry(e, &retry_config), &provider_id))
+        })))
+    }
+
+    async fn models(&self, provider: Provider<Url>) -> anyhow::Result<Vec<Model>> {
+        let retry_config = self.infra.get_config()?.retry.unwrap_or_default();
+        let provider_client = OpenAIProvider::new(provider, self.infra.clone());
+        provider_client
+            .models()
+            .await
+            .map_err(|e| into_retry(e, &retry_config))
+            .context("Failed to fetch models from OpenAI-compatible provider")
     }
 }
 
@@ -1116,59 +1174,5 @@ mod tests {
                 .any(|(k, v)| k == "Openai-Intent" && v == "conversation-edits")
         );
         Ok(())
-    }
-}
-
-/// Repository for OpenAI-compatible provider responses
-///
-/// Handles providers that use OpenAI's API format including:
-/// - OpenAI
-/// - Azure OpenAI
-/// - Vertex AI
-/// - OpenRouter
-/// - DeepSeek
-/// - Groq
-#[derive(Setters)]
-#[setters(strip_option, into)]
-pub struct OpenAIResponseRepository<F> {
-    infra: Arc<F>,
-    retry_config: Arc<RetryConfig>,
-}
-
-impl<F> OpenAIResponseRepository<F> {
-    pub fn new(infra: Arc<F>) -> Self {
-        Self { infra, retry_config: Arc::new(RetryConfig::default()) }
-    }
-}
-
-#[async_trait::async_trait]
-impl<F: HttpInfra + 'static> ChatRepository for OpenAIResponseRepository<F> {
-    async fn chat(
-        &self,
-        model_id: &ModelId,
-        context: ChatContext,
-        provider: Provider<Url>,
-    ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
-        let retry_config = self.retry_config.clone();
-        let provider_id = provider.id.clone();
-        let provider_client = OpenAIProvider::new(provider, self.infra.clone());
-        let stream = provider_client
-            .chat(model_id, context)
-            .await
-            .map_err(|e| into_retry(e, &retry_config))?;
-
-        Ok(Box::pin(stream.map(move |item| {
-            item.map_err(|e| enhance_error(into_retry(e, &retry_config), &provider_id))
-        })))
-    }
-
-    async fn models(&self, provider: Provider<Url>) -> anyhow::Result<Vec<Model>> {
-        let retry_config = self.retry_config.clone();
-        let provider_client = OpenAIProvider::new(provider, self.infra.clone());
-        provider_client
-            .models()
-            .await
-            .map_err(|e| into_retry(e, &retry_config))
-            .context("Failed to fetch models from OpenAI-compatible provider")
     }
 }

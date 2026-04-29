@@ -21,16 +21,6 @@ lazy_static! {
 /// This addresses the ValidationException error:
 /// "messages.1.content.0.tool_use.id: String should match pattern
 /// '^[a-zA-Z0-9_-]+$'"
-///
-/// # Example
-///
-/// ```
-/// // Before transformation:
-/// tool_use.tool_use_id = "functions.shell:0"
-///
-/// // After transformation:
-/// tool_use.tool_use_id = "functions_shell_0"
-/// ```
 pub struct SanitizeToolIds;
 
 impl Transformer for SanitizeToolIds {

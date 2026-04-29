@@ -2,6 +2,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use bstr::ByteSlice;
 use forge_app::CommandInfra;
 use forge_domain::{CommandOutput, ConsoleWriter as OutputPrinterTrait, Environment};
 use tokio::io::AsyncReadExt;
@@ -117,11 +118,21 @@ impl ForgeCommandExecutorService {
         } else {
             let stdout_writer = OutputPrinterWriter::stdout(self.output_printer.clone());
             let stderr_writer = OutputPrinterWriter::stderr(self.output_printer.clone());
-            tokio::try_join!(
+            let result = tokio::try_join!(
                 child.wait(),
                 stream(&mut stdout_pipe, stdout_writer),
                 stream(&mut stderr_pipe, stderr_writer)
-            )?
+            )?;
+
+            // If the command's stdout did not end with a newline, the terminal
+            // cursor is left mid-line. Write a newline so that subsequent output
+            // (e.g. the LLM response) starts on a fresh line.
+            if result.1.last() != Some(&b'\n') && !result.1.is_empty() {
+                let _ = self.output_printer.write(b"\n");
+                let _ = self.output_printer.flush();
+            }
+
+            result
         };
 
         // Drop happens after `try_join` due to <https://github.com/tokio-rs/tokio/issues/4309>
@@ -130,8 +141,8 @@ impl ForgeCommandExecutorService {
         drop(ready);
 
         Ok(CommandOutput {
-            stdout: String::from_utf8_lossy(&stdout_buffer).into_owned(),
-            stderr: String::from_utf8_lossy(&stderr_buffer).into_owned(),
+            stdout: stdout_buffer.to_str_lossy().into_owned(),
+            stderr: stderr_buffer.to_str_lossy().into_owned(),
             exit_code: status.code(),
             command,
         })
@@ -180,18 +191,50 @@ async fn stream<A: AsyncReadExt + Unpin, W: Write>(
     let mut output = Vec::new();
     if let Some(io) = io.as_mut() {
         let mut buff = [0; 1024];
+        // Carry incomplete trailing UTF-8 codepoint bytes across reads — Windows
+        // console stdio rejects even one byte of a split codepoint.
+        let mut pending = Vec::<u8>::new();
         loop {
             let n = io.read(&mut buff).await?;
             if n == 0 {
                 break;
             }
-            writer.write_all(&buff[..n])?;
+            let chunk = buff.get(..n).unwrap_or(&[]);
+            output.extend_from_slice(chunk);
+
+            let mut working = std::mem::take(&mut pending);
+            working.extend_from_slice(chunk);
+            pending = write_lossy_utf8(&mut writer, &working)?;
             // note: flush is necessary else we get the cursor could not be found error.
             writer.flush()?;
-            output.extend_from_slice(&buff[..n]);
+        }
+        // Flush dangling bytes from a stream that ended mid-codepoint.
+        if !pending.is_empty() {
+            writer.write_all(pending.to_str_lossy().as_bytes())?;
+            writer.flush()?;
         }
     }
     Ok(output)
+}
+
+/// Writes `buf` as valid UTF-8 (invalid bytes → `U+FFFD`) and returns any
+/// incomplete trailing codepoint bytes for the caller to carry into the next
+/// chunk.
+fn write_lossy_utf8<W: Write>(writer: &mut W, buf: &[u8]) -> io::Result<Vec<u8>> {
+    let mut chunks = ByteSlice::utf8_chunks(buf).peekable();
+
+    while let Some(chunk) = chunks.next() {
+        writer.write_all(chunk.valid().as_bytes())?;
+
+        if !chunk.invalid().is_empty() {
+            if chunk.incomplete() && chunks.peek().is_none() {
+                return Ok(chunk.invalid().to_vec());
+            }
+            writer.write_all("\u{FFFD}".as_bytes())?;
+        }
+    }
+
+    Ok(Vec::new())
 }
 
 /// The implementation for CommandExecutorService
@@ -418,5 +461,78 @@ mod tests {
         assert_eq!(actual.stdout.trim(), expected.stdout.trim());
         assert_eq!(actual.stderr, expected.stderr);
         assert_eq!(actual.success(), expected.success());
+    }
+
+    mod write_lossy_utf8 {
+        use pretty_assertions::assert_eq;
+
+        use super::super::write_lossy_utf8;
+
+        fn run(buf: &[u8]) -> (Vec<u8>, Vec<u8>) {
+            let mut out = Vec::<u8>::new();
+            let pending = write_lossy_utf8(&mut out, buf).unwrap();
+            (out, pending)
+        }
+
+        #[test]
+        fn valid_ascii_passes_through() {
+            let (out, pending) = run(b"hello");
+            assert_eq!(out, b"hello");
+            assert!(pending.is_empty());
+        }
+
+        #[test]
+        fn valid_multibyte_passes_through() {
+            // "héllo ✓" — mixed 2-byte and 3-byte codepoints.
+            let input = "héllo ✓".as_bytes();
+            let (out, pending) = run(input);
+            assert_eq!(out, input);
+            assert!(pending.is_empty());
+        }
+
+        #[test]
+        fn incomplete_trailing_codepoint_is_buffered() {
+            // "é" is 0xC3 0xA9 — leading byte alone must be held back.
+            let (out, pending) = run(&[b'a', 0xC3]);
+            assert_eq!(out, b"a");
+            assert_eq!(pending, vec![0xC3]);
+        }
+
+        #[test]
+        fn multibyte_split_across_two_chunks_emits_once_whole() {
+            let mut out = Vec::<u8>::new();
+            let pending = write_lossy_utf8(&mut out, &[b'a', 0xC3]).unwrap();
+            assert_eq!(pending, vec![0xC3]);
+            assert_eq!(out, b"a");
+
+            let mut working = pending;
+            working.push(0xA9);
+            let pending = write_lossy_utf8(&mut out, &working).unwrap();
+            assert!(pending.is_empty());
+            assert_eq!(out, "aé".as_bytes());
+        }
+
+        #[test]
+        fn invalid_byte_in_middle_becomes_replacement() {
+            let (out, pending) = run(&[b'a', 0xFF, b'b']);
+            assert_eq!(out, "a\u{FFFD}b".as_bytes());
+            assert!(pending.is_empty());
+        }
+
+        #[test]
+        fn lone_continuation_byte_becomes_replacement() {
+            let (out, pending) = run(&[b'a', 0x80, b'b']);
+            assert_eq!(out, "a\u{FFFD}b".as_bytes());
+            assert!(pending.is_empty());
+        }
+
+        #[test]
+        fn windows_1252_smart_quote_becomes_replacement() {
+            // Regression: 0x91/0x92 land as bare continuation bytes and broke
+            // console stdio on Windows before this fix.
+            let (out, pending) = run(b"quote: \x91hi\x92");
+            assert_eq!(out, "quote: \u{FFFD}hi\u{FFFD}".as_bytes());
+            assert!(pending.is_empty());
+        }
     }
 }

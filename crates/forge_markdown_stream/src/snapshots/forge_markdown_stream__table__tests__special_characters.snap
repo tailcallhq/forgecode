@@ -1,5 +1,5 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
 expression: "render(vec![vec![\"Symbol\", \"Meaning\"], vec![\"<\", \"less than\"],\nvec![\">\", \"greater than\"], vec![\"&\", \"ampersand\"], vec![\"\\\"\", \"quote\"],])"
 ---
   ┌────────┬──────────────┐

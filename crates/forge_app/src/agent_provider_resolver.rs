@@ -33,10 +33,18 @@ where
             } else {
                 // TODO: Needs review, should we throw an err here?
                 // we can throw crate::Error::AgentNotFound
-                self.0.get_default_provider().await?
+                self.0
+                    .get_session_config()
+                    .await
+                    .map(|c| c.provider)
+                    .ok_or_else(|| forge_domain::Error::NoDefaultSession)?
             }
         } else {
-            self.0.get_default_provider().await?
+            self.0
+                .get_session_config()
+                .await
+                .map(|c| c.provider)
+                .ok_or_else(|| forge_domain::Error::NoDefaultSession)?
         };
 
         let provider = self.0.get_provider(provider_id).await?;
@@ -52,12 +60,18 @@ where
             } else {
                 // TODO: Needs review, should we throw an err here?
                 // we can throw crate::Error::AgentNotFound
-                let provider_id = self.get_provider(Some(agent_id)).await?.id;
-                Ok(self.0.get_provider_model(Some(&provider_id)).await?)
+                self.0
+                    .get_session_config()
+                    .await
+                    .map(|c| c.model)
+                    .ok_or_else(|| forge_domain::Error::NoDefaultSession.into())
             }
         } else {
-            let provider_id = self.get_provider(None).await?.id;
-            Ok(self.0.get_provider_model(Some(&provider_id)).await?)
+            self.0
+                .get_session_config()
+                .await
+                .map(|c| c.model)
+                .ok_or_else(|| forge_domain::Error::NoDefaultSession.into())
         }
     }
 }

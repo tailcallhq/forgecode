@@ -18,6 +18,7 @@ tokio.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
 
+bstr.workspace = true
 bytes.workspace = true
 pretty_assertions.workspace = true
 forge_select.workspace = true
@@ -35,7 +36,7 @@ reqwest-eventsource.workspace = true
 glob.workspace = true
 futures.workspace = true
 diesel = { version= "2.3.7", features = ["sqlite", "r2d2", "chrono"] }
-libsqlite3-sys = { version = "0.36.0", features = ["bundled"] }
+libsqlite3-sys = { version = "0.37.0", features = ["bundled"] }
 diesel_migrations = "2.2.0"
 chrono = { version = "0.4", features = ["serde"] }
 cacache = { version = "13.1.0", features = ["tokio-runtime"], default-features = false }
@@ -47,6 +48,9 @@ http.workspace = true
 url.workspace = true
 tonic.workspace = true
 google-cloud-auth.workspace = true
+open.workspace = true
+aws-config.workspace = true
+aws-credential-types.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }

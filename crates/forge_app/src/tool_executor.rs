@@ -31,7 +31,7 @@ impl<
         + ShellService
         + FollowUpService
         + ConversationService
-        + EnvironmentInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + PlanCreateService
         + SkillFetchService
         + AgentRegistry
@@ -49,7 +49,7 @@ impl<
         raw_path: &str,
         action: &str,
     ) -> anyhow::Result<()> {
-        let target_path = self.normalize_path(raw_path.to_string());
+        let target_path = self.normalize_path(raw_path.to_string(), context);
         let has_read = context.with_metrics(|metrics| {
             metrics.files_accessed.contains(&target_path)
                 || metrics.files_accessed.contains(raw_path)
@@ -68,8 +68,9 @@ impl<
     async fn dump_operation(&self, operation: &ToolOperation) -> anyhow::Result<TempContentFiles> {
         match operation {
             ToolOperation::NetFetch { input: _, output } => {
+                let config = self.services.get_config()?;
                 let original_length = output.content.len();
-                let is_truncated = original_length > self.services.get_config().max_fetch_chars;
+                let is_truncated = original_length > config.max_fetch_chars;
                 let mut files = TempContentFiles::default();
 
                 if is_truncated {
@@ -82,7 +83,7 @@ impl<
                 Ok(files)
             }
             ToolOperation::Shell { output } => {
-                let config = self.services.get_config();
+                let config = self.services.get_config()?;
                 let stdout_lines = output.output.stdout.lines().count();
                 let stderr_lines = output.output.stderr.lines().count();
                 let stdout_truncated =
@@ -111,16 +112,23 @@ impl<
         }
     }
 
+    fn effective_cwd(&self, context: &ToolCallContext) -> PathBuf {
+        context
+            .cwd_override_path()
+            .cloned()
+            .unwrap_or_else(|| self.services.get_environment().cwd)
+    }
+
     /// Converts a path to absolute by joining it with the current working
     /// directory if it's relative
-    fn normalize_path(&self, path: String) -> String {
-        let env = self.services.get_environment();
+    fn normalize_path(&self, path: String, context: &ToolCallContext) -> String {
+        let cwd = self.effective_cwd(context);
         let path_buf = PathBuf::from(&path);
 
         if path_buf.is_absolute() {
             path
         } else {
-            PathBuf::from(&env.cwd).join(path_buf).display().to_string()
+            cwd.join(path_buf).display().to_string()
         }
     }
 
@@ -154,20 +162,28 @@ impl<
     ) -> anyhow::Result<ToolOperation> {
         Ok(match input {
             ToolCatalog::Read(input) => {
-                let normalized_path = self.normalize_path(input.file_path.clone());
+                let normalized_path = self.normalize_path(input.file_path.clone(), context);
                 let output = self
                     .services
                     .read(
                         normalized_path,
-                        input.start_line.map(|i| i as u64),
-                        input.end_line.map(|i| i as u64),
+                        input
+                            .range
+                            .as_ref()
+                            .and_then(|r| r.start_line)
+                            .map(|i| i as u64),
+                        input
+                            .range
+                            .as_ref()
+                            .and_then(|r| r.end_line)
+                            .map(|i| i as u64),
                     )
                     .await?;
 
                 (input, output).into()
             }
             ToolCatalog::Write(input) => {
-                let normalized_path = self.normalize_path(input.file_path.clone());
+                let normalized_path = self.normalize_path(input.file_path.clone(), context);
                 let output = self
                     .services
                     .write(normalized_path, input.content.clone(), input.overwrite)
@@ -178,16 +194,15 @@ impl<
                 let mut params = input.clone();
                 // Normalize path if provided
                 if let Some(ref path) = params.path {
-                    params.path = Some(self.normalize_path(path.clone()));
+                    params.path = Some(self.normalize_path(path.clone(), context));
                 }
                 let output = self.services.search(params).await?;
                 (input, output).into()
             }
             ToolCatalog::SemSearch(input) => {
-                let env = self.services.get_environment();
-                let config = self.services.get_config();
+                let config = self.services.get_config()?;
+                let cwd = self.effective_cwd(context);
                 let services = self.services.clone();
-                let cwd = env.cwd.clone();
                 let limit = config.max_sem_search_results;
                 let top_k = config.sem_search_top_k as u32;
                 let params: Vec<_> = input
@@ -226,12 +241,12 @@ impl<
                 ToolOperation::CodebaseSearch { output }
             }
             ToolCatalog::Remove(input) => {
-                let normalized_path = self.normalize_path(input.path.clone());
+                let normalized_path = self.normalize_path(input.path.clone(), context);
                 let output = self.services.remove(normalized_path).await?;
                 (input, output).into()
             }
             ToolCatalog::Patch(input) => {
-                let normalized_path = self.normalize_path(input.file_path.clone());
+                let normalized_path = self.normalize_path(input.file_path.clone(), context);
                 let output = self
                     .services
                     .patch(
@@ -243,8 +258,16 @@ impl<
                     .await?;
                 (input, output).into()
             }
+            ToolCatalog::MultiPatch(input) => {
+                let normalized_path = self.normalize_path(input.file_path.clone(), context);
+                let output = self
+                    .services
+                    .multi_patch(normalized_path, input.edits.clone())
+                    .await?;
+                (input, output).into()
+            }
             ToolCatalog::Undo(input) => {
-                let normalized_path = self.normalize_path(input.path.clone());
+                let normalized_path = self.normalize_path(input.path.clone(), context);
                 let output = self.services.undo(normalized_path).await?;
                 (input, output).into()
             }
@@ -252,8 +275,8 @@ impl<
                 let cwd = input
                     .cwd
                     .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| self.services.get_environment().cwd.display().to_string());
-                let normalized_cwd = self.normalize_path(cwd);
+                    .unwrap_or_else(|| self.effective_cwd(context).display().to_string());
+                let normalized_cwd = self.normalize_path(cwd, context);
                 let output = self
                     .services
                     .execute(
@@ -315,6 +338,10 @@ impl<
                 let todos = context.get_todos()?;
                 ToolOperation::TodoRead { output: todos }
             }
+            ToolCatalog::Task(_) => {
+                // Task tools are handled in ToolRegistry before reaching here
+                unreachable!("Task tool should be handled in ToolRegistry")
+            }
         })
     }
 
@@ -325,11 +352,17 @@ impl<
     ) -> anyhow::Result<ToolOutput> {
         let tool_kind = tool_input.kind();
         let env = self.services.get_environment();
-        let config = self.services.get_config();
+        let config = self.services.get_config()?;
 
-        // Enforce read-before-edit for patch
-        if let ToolCatalog::Patch(input) = &tool_input {
-            self.require_prior_read(context, &input.file_path, "edit it")?;
+        // Enforce read-before-edit for patch operations
+        let file_path = match &tool_input {
+            ToolCatalog::Patch(input) => Some(&input.file_path),
+            ToolCatalog::MultiPatch(input) => Some(&input.file_path),
+            _ => None,
+        };
+
+        if let Some(path) = file_path {
+            self.require_prior_read(context, path, "edit it")?;
         }
 
         // Enforce read-before-edit for overwrite writes

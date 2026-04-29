@@ -7,8 +7,8 @@ use derive_setters::Setters;
 use forge_config::ForgeConfig;
 use forge_display::DiffFormat;
 use forge_domain::{
-    CodebaseSearchResults, Environment, FSPatch, FSRead, FSRemove, FSSearch, FSUndo, FSWrite,
-    FileOperation, LineNumbers, Metrics, NetFetch, PlanCreate, ToolKind,
+    CodebaseSearchResults, Environment, FSMultiPatch, FSPatch, FSRead, FSRemove, FSSearch, FSUndo,
+    FSWrite, FileOperation, LineNumbers, Metrics, NetFetch, PlanCreate, ToolKind,
 };
 use forge_template::Element;
 
@@ -52,6 +52,10 @@ pub enum ToolOperation {
     },
     FsPatch {
         input: FSPatch,
+        output: PatchOutput,
+    },
+    FsMultiPatch {
+        input: FSMultiPatch,
         output: PatchOutput,
     },
     FsUndo {
@@ -477,6 +481,29 @@ impl ToolOperation {
 
                 forge_domain::ToolOutput::text(elm)
             }
+            ToolOperation::FsMultiPatch { input, output } => {
+                let diff_result = DiffFormat::format(&output.before, &output.after);
+                let diff = console::strip_ansi_codes(diff_result.diff()).to_string();
+
+                let mut elm = Element::new("file_diff")
+                    .attr("path", &input.file_path)
+                    .attr("total_lines", output.after.lines().count())
+                    .cdata(diff);
+
+                if !output.errors.is_empty() {
+                    elm = elm.append(create_validation_warning(&input.file_path, &output.errors));
+                }
+
+                *metrics = metrics.clone().insert(
+                    input.file_path.clone(),
+                    FileOperation::new(tool_kind)
+                        .lines_added(diff_result.lines_added())
+                        .lines_removed(diff_result.lines_removed())
+                        .content_hash(Some(output.content_hash.clone())),
+                );
+
+                forge_domain::ToolOutput::text(elm)
+            }
             ToolOperation::FsUndo { input, output } => {
                 // Diff between snapshot state (after_undo) and modified state
                 // (before_undo)
@@ -714,7 +741,7 @@ mod tests {
     use std::fmt::Write;
     use std::path::PathBuf;
 
-    use forge_domain::{FSRead, FileInfo, ToolValue};
+    use forge_domain::{FSRead, FSReadRange, FileInfo, ToolValue};
 
     use super::*;
     use crate::{Content, Match, MatchResult};
@@ -834,8 +861,7 @@ mod tests {
         let fixture = ToolOperation::FsRead {
             input: FSRead {
                 file_path: "/home/user/test.txt".to_string(),
-                start_line: None,
-                end_line: None,
+                range: None,
                 show_line_numbers: true,
             },
             output: ReadOutput {
@@ -865,8 +891,7 @@ mod tests {
         let fixture = ToolOperation::FsRead {
             input: FSRead {
                 file_path: "/home/user/test.txt".to_string(),
-                start_line: None,
-                end_line: None,
+                range: None,
                 show_line_numbers: true,
             },
             output: ReadOutput {
@@ -895,8 +920,7 @@ mod tests {
         let fixture = ToolOperation::FsRead {
             input: FSRead {
                 file_path: "/home/user/test.txt".to_string(),
-                start_line: Some(2),
-                end_line: Some(3),
+                range: Some(FSReadRange { start_line: Some(2), end_line: Some(3) }),
                 show_line_numbers: true,
             },
             output: ReadOutput {
@@ -926,8 +950,7 @@ mod tests {
         let fixture = ToolOperation::FsRead {
             input: FSRead {
                 file_path: "/home/user/large_file.txt".to_string(),
-                start_line: None,
-                end_line: None,
+                range: None,
                 show_line_numbers: true,
             },
             output: ReadOutput {
@@ -2594,8 +2617,7 @@ mod tests {
         let fixture = ToolOperation::FsRead {
             input: FSRead {
                 file_path: "/home/user/test.png".to_string(),
-                start_line: None,
-                end_line: None,
+                range: None,
                 show_line_numbers: true,
             },
             output: ReadOutput {

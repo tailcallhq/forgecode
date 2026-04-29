@@ -1,20 +1,33 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 use std::path::PathBuf;
-use std::process::Command;
 
 use convert_case::{Case, Casing};
 use derive_setters::Setters;
-use forge_api::{AgentId, ModelId, Usage};
-use forge_tracker::VERSION;
+use forge_api::{AgentId, Effort, ModelId, Usage};
 use nu_ansi_term::{Color, Style};
 use reedline::{Prompt, PromptHistorySearchStatus};
 
 use crate::display_constants::markers;
+use crate::utils::humanize_number;
 
 // Constants
 const MULTILINE_INDICATOR: &str = "::: ";
-const RIGHT_CHEVRON: &str = "❯";
+
+// Nerd font symbols — left prompt
+const DIR_SYMBOL: &str = "\u{ea83}"; // 󪃃  folder icon
+const BRANCH_SYMBOL: &str = "\u{f418}"; //   branch icon
+const SUCCESS_SYMBOL: &str = "\u{f013e}"; // 󰄾  chevron
+
+// Nerd font symbols — right prompt (ZSH rprompt)
+const AGENT_SYMBOL: &str = "\u{f167a}";
+const MODEL_SYMBOL: &str = "\u{ec19}";
+
+/// Terminal width at which the reasoning effort label switches from the
+/// compact three-letter form (e.g. `MED`) to the full uppercase label
+/// (e.g. `MEDIUM`). Matches [`crate::zsh::rprompt`] so the CLI and zsh
+/// integration render identically on equivalent terminals.
+const WIDE_TERMINAL_THRESHOLD: usize = 100;
 
 /// Very Specialized Prompt for the Agent Chat
 #[derive(Clone, Setters)]
@@ -24,16 +37,52 @@ pub struct ForgePrompt {
     pub usage: Option<Usage>,
     pub agent_id: AgentId,
     pub model: Option<ModelId>,
+    /// Currently configured reasoning effort level for the active model,
+    /// rendered to the right of the model when set. `Effort::None` is
+    /// suppressed (see [`ForgePrompt::render_prompt_right`]).
+    pub reasoning_effort: Option<Effort>,
+    pub git_branch: Option<String>,
+}
+
+impl ForgePrompt {
+    /// Creates a new `ForgePrompt`, resolving the git branch once at
+    /// construction time.
+    pub fn new(cwd: PathBuf, agent_id: AgentId) -> Self {
+        let git_branch = get_git_branch();
+        Self {
+            cwd,
+            usage: None,
+            agent_id,
+            model: None,
+            reasoning_effort: None,
+            git_branch,
+        }
+    }
+
+    pub fn refresh(&mut self) -> &mut Self {
+        let git_branch = get_git_branch();
+        self.git_branch = git_branch;
+        self
+    }
 }
 
 impl Prompt for ForgePrompt {
     fn render_prompt_left(&self) -> Cow<'_, str> {
-        // Pre-compute styles to avoid repeated style creation
-        let mode_style = Style::new().fg(Color::White).bold();
-        let folder_style = Style::new().fg(Color::Cyan);
-        let branch_style = Style::new().fg(Color::LightGreen);
+        // Left prompt layout:
+        //
+        //   AGENT_NAME  󪃃 dir   branch
+        //   󰄾
+        //
+        // Colors:
+        //   agent  → bold white  (identifies the active agent)
+        //   dir    → bold cyan
+        //   branch → bold green
+        //   chevron → bold green
 
-        // Get current directory
+        let dir_style = Style::new().fg(Color::Cyan).bold();
+        let branch_style = Style::new().fg(Color::LightGreen).bold();
+        let chevron_style = Style::new().fg(Color::LightGreen).bold();
+
         let current_dir = self
             .cwd
             .file_name()
@@ -41,64 +90,122 @@ impl Prompt for ForgePrompt {
             .map(String::from)
             .unwrap_or_else(|| markers::EMPTY.to_string());
 
-        // Get git branch (only if we're in a git repo)
-        let branch_opt = get_git_branch();
+        let mut result = String::with_capacity(80);
 
-        // Use a string buffer to reduce allocations
-        let mut result = String::with_capacity(64); // Pre-allocate a reasonable size
-
-        // Build the string step-by-step
+        // Directory — folder icon + name, bold cyan
         write!(
             result,
-            "{} {}",
-            mode_style.paint(self.agent_id.as_str().to_case(Case::UpperSnake)),
-            folder_style.paint(&current_dir)
+            "{}",
+            dir_style.paint(format!("{DIR_SYMBOL} {current_dir}"))
         )
         .unwrap();
 
-        // Only append branch info if present
-        if let Some(branch) = branch_opt
+        // Git branch — branch icon + name, bold green (only when present and
+        // different from the directory name, matching existing behaviour)
+        if let Some(branch) = self.git_branch.as_deref()
             && branch != current_dir
         {
-            write!(result, " {} ", branch_style.paint(branch)).unwrap();
+            write!(
+                result,
+                " {}",
+                branch_style.paint(format!("{BRANCH_SYMBOL} {branch}"))
+            )
+            .unwrap();
         }
 
-        write!(result, "\n{} ", branch_style.paint(RIGHT_CHEVRON)).unwrap();
+        // Second line: success chevron
+        write!(result, "\n{} ", chevron_style.paint(SUCCESS_SYMBOL)).unwrap();
 
         Cow::Owned(result)
     }
 
     fn render_prompt_right(&self) -> Cow<'_, str> {
-        // Use a string buffer with pre-allocation to reduce allocations
-        let mut result = String::with_capacity(32);
+        // Right prompt layout: agent · tokens · cost · model
+        // Active (tokens > 0): bright white for agent/tokens, green for cost
+        // Inactive (no tokens): all segments dimmed
 
-        // Start with bracket and version
-        write!(result, "[{VERSION}").unwrap();
+        let total_tokens = self.usage.as_ref().map(|u| u.total_tokens);
+        let active = total_tokens.map(|t| *t > 0).unwrap_or(false);
 
-        // Append model if available
+        let agent_color = if active {
+            Color::LightGray
+        } else {
+            Color::DarkGray
+        };
+        let mut result = String::with_capacity(64);
+
+        // Agent name with nerd font symbol
+        let agent_str = format!(
+            "{AGENT_SYMBOL} {}",
+            self.agent_id.as_str().to_case(Case::UpperSnake)
+        );
+        write!(
+            result,
+            " {}",
+            Style::new().bold().fg(agent_color).paint(&agent_str)
+        )
+        .unwrap();
+
+        // Token count (only shown when active)
+        if let Some(tokens) = total_tokens
+            && active
+        {
+            let prefix = match tokens {
+                forge_api::TokenCount::Actual(_) => "",
+                forge_api::TokenCount::Approx(_) => "~",
+            };
+            let count_str = format!("{}{}", prefix, humanize_number(*tokens));
+            write!(
+                result,
+                " {}",
+                Style::new().bold().fg(Color::LightGray).paint(&count_str)
+            )
+            .unwrap();
+        }
+
+        // Cost (only shown when active)
+        if let Some(cost) = self.usage.as_ref().and_then(|u| u.cost)
+            && active
+        {
+            let cost_str = format!("\u{f155}{cost:.2}");
+            write!(
+                result,
+                " {}",
+                Style::new().bold().fg(Color::Green).paint(&cost_str)
+            )
+            .unwrap();
+        }
+
+        // Model with nerd font symbol
         if let Some(model) = self.model.as_ref() {
             let model_str = model.to_string();
-            let formatted_model = model_str
-                .split('/')
-                .next_back()
-                .unwrap_or_else(|| model.as_str());
-            write!(result, "/{formatted_model}").unwrap();
+            let short_model = model_str.split('/').next_back().unwrap_or(model.as_str());
+            let model_label = format!("{MODEL_SYMBOL} {short_model}");
+            let color = if active {
+                Color::LightMagenta
+            } else {
+                Color::DarkGray
+            };
+            write!(result, " {}", Style::new().fg(color).paint(&model_label)).unwrap();
         }
 
-        if let Some(usage) = self.usage.as_ref().map(|usage| &usage.total_tokens) {
-            write!(result, "/{usage}").unwrap();
+        // Reasoning effort — rendered to the right of the model, matching the
+        // ZSH rprompt. `Effort::None` is suppressed (see zsh/rprompt.rs). On
+        // narrow terminals the label collapses to its first three characters
+        // so the prompt stays compact.
+        if let Some(ref effort) = self.reasoning_effort
+            && !matches!(effort, Effort::None)
+        {
+            let effort_label = effort_label(effort, term_width());
+            let color = if active {
+                Color::Yellow
+            } else {
+                Color::DarkGray
+            };
+            write!(result, " {}", Style::new().fg(color).paint(&effort_label)).unwrap();
         }
 
-        write!(result, "]").unwrap();
-
-        // Apply styling once at the end
-        Cow::Owned(
-            Style::new()
-                .bold()
-                .fg(Color::DarkGray)
-                .paint(&result)
-                .to_string(),
-        )
+        Cow::Owned(result)
     }
 
     fn render_prompt_indicator(&self, _prompt_mode: reedline::PromptEditMode) -> Cow<'_, str> {
@@ -138,36 +245,34 @@ impl Prompt for ForgePrompt {
 
 /// Gets the current git branch name if available
 fn get_git_branch() -> Option<String> {
-    // First check if we're in a git repository
-    let git_check = Command::new("git")
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .output()
-        .ok()?;
+    let repo = gix::discover(".").ok()?;
+    let head = repo.head().ok()?;
+    head.referent_name().map(|r| r.shorten().to_string())
+}
 
-    if !git_check.status.success() || git_check.stdout.is_empty() {
-        return None;
-    }
+/// Returns the current terminal width in columns, falling back to 80 when
+/// the size cannot be detected.
+fn term_width() -> usize {
+    terminal_size::terminal_size()
+        .map(|(w, _)| w.0 as usize)
+        .unwrap_or(80)
+}
 
-    // If we are in a git repo, get the branch
-    let output = Command::new("git")
-        .args(["branch", "--show-current"])
-        .output()
-        .ok()?;
-
-    if output.status.success() {
-        String::from_utf8(output.stdout)
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+/// Formats an [`Effort`] as its uppercase label, collapsing to the first three
+/// characters on narrow terminals (< [`WIDE_TERMINAL_THRESHOLD`] columns).
+fn effort_label(effort: &Effort, width: usize) -> String {
+    let full = effort.to_string().to_uppercase();
+    if width >= WIDE_TERMINAL_THRESHOLD {
+        full
     } else {
-        None
+        // `chars().take(3)` rather than `&full[..3]` to satisfy the
+        // `clippy::string_slice` lint denied in CI.
+        full.chars().take(3).collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-
     use nu_ansi_term::Style;
     use pretty_assertions::assert_eq;
 
@@ -180,6 +285,8 @@ mod tests {
                 usage: None,
                 agent_id: AgentId::default(),
                 model: None,
+                reasoning_effort: None,
+                git_branch: None,
             }
         }
     }
@@ -187,36 +294,45 @@ mod tests {
     #[test]
     fn test_render_prompt_left() {
         let prompt = ForgePrompt::default();
-
         let actual = prompt.render_prompt_left();
 
-        // Check that it has the expected format with mode and directory displayed
-        assert!(actual.contains("FORGE"));
-        assert!(actual.contains(RIGHT_CHEVRON));
+        // Starship directory icon present
+        assert!(actual.contains(DIR_SYMBOL));
+        // Starship success chevron present
+        assert!(actual.contains(SUCCESS_SYMBOL));
     }
 
     #[test]
-    fn test_render_prompt_left_with_custom_prompt() {
-        // Set $PROMPT environment variable temporarily for this test
-        unsafe {
-            env::set_var("PROMPT", "CUSTOM_TEST_PROMPT");
-        }
-
-        let prompt = ForgePrompt::default();
+    fn test_render_prompt_left_with_branch() {
+        let prompt = ForgePrompt { git_branch: Some("main".to_string()), ..Default::default() };
         let actual = prompt.render_prompt_left();
 
-        // Clean up after test
-        unsafe {
-            env::remove_var("PROMPT");
-        }
-
-        // Verify the prompt contains expected elements regardless of $PROMPT var
-        assert!(actual.contains("FORGE"));
-        assert!(actual.contains(RIGHT_CHEVRON));
+        // Agent name is on the right prompt, not the left
+        // Branch icon and name present
+        assert!(actual.contains(BRANCH_SYMBOL));
+        assert!(actual.contains("main"));
     }
 
     #[test]
-    fn test_render_prompt_right_with_usage() {
+    fn test_render_prompt_right_inactive() {
+        // No tokens → dimmed agent + model, no token/cost segments
+        let mut prompt = ForgePrompt::default();
+        let _ = prompt.model(ModelId::new("gpt-4"));
+
+        let actual = prompt.render_prompt_right();
+        // Agent symbol and name present
+        assert!(actual.contains(AGENT_SYMBOL));
+        assert!(actual.contains("FORGE"));
+        // Model symbol and name present
+        assert!(actual.contains(MODEL_SYMBOL));
+        assert!(actual.contains("gpt-4"));
+        // No token count text in inactive state (no humanized number segment)
+        assert!(!actual.contains("1k") && !actual.contains("~"));
+    }
+
+    #[test]
+    fn test_render_prompt_right_active_with_tokens() {
+        // Tokens > 0 → active colours; approx tokens show "~" prefix
         let usage = Usage {
             prompt_tokens: forge_api::TokenCount::Actual(10),
             completion_tokens: forge_api::TokenCount::Actual(20),
@@ -227,16 +343,8 @@ mod tests {
         let _ = prompt.usage(usage);
 
         let actual = prompt.render_prompt_right();
-        assert!(actual.contains(&VERSION.to_string()));
         assert!(actual.contains("~30"));
-    }
-
-    #[test]
-    fn test_render_prompt_right_without_usage() {
-        let prompt = ForgePrompt::default();
-        let actual = prompt.render_prompt_right();
-        assert!(actual.contains(&VERSION.to_string()));
-        assert!(actual.contains("0"));
+        assert!(actual.contains(AGENT_SYMBOL));
     }
 
     #[test]
@@ -293,7 +401,8 @@ mod tests {
     }
 
     #[test]
-    fn test_render_prompt_right_with_model() {
+    fn test_render_prompt_right_strips_provider_prefix() {
+        // Model ID like "anthropic/claude-3" should show only "claude-3"
         let usage = Usage {
             prompt_tokens: forge_api::TokenCount::Actual(10),
             completion_tokens: forge_api::TokenCount::Actual(20),
@@ -305,9 +414,56 @@ mod tests {
         let _ = prompt.model(ModelId::new("anthropic/claude-3"));
 
         let actual = prompt.render_prompt_right();
-        assert!(actual.contains("claude-3")); // Only the last part after splitting by '/'
-        assert!(!actual.contains("anthropic/claude-3")); // Should not contain the full model ID
-        assert!(actual.contains(&VERSION.to_string()));
+        assert!(actual.contains("claude-3"));
+        assert!(!actual.contains("anthropic/claude-3"));
         assert!(actual.contains("30"));
+    }
+
+    #[test]
+    fn test_render_prompt_right_with_cost() {
+        // Cost shown when active
+        let usage = Usage {
+            total_tokens: forge_api::TokenCount::Actual(1500),
+            cost: Some(0.01),
+            ..Default::default()
+        };
+        let mut prompt = ForgePrompt::default();
+        let _ = prompt.usage(usage);
+
+        let actual = prompt.render_prompt_right();
+        assert!(actual.contains("0.01"));
+        assert!(actual.contains("1.5k"));
+    }
+
+    #[test]
+    fn test_render_prompt_right_with_reasoning_effort() {
+        // When reasoning effort is set, its uppercase label appears after the
+        // model segment.
+        let mut prompt = ForgePrompt::default();
+        let _ = prompt.model(ModelId::new("gpt-4"));
+        let _ = prompt.reasoning_effort(Effort::High);
+
+        let actual = prompt.render_prompt_right();
+        assert!(actual.contains("HIGH") || actual.contains("HIG"));
+    }
+
+    #[test]
+    fn test_render_prompt_right_hides_effort_none() {
+        // `Effort::None` carries no useful info — it must not be rendered.
+        let mut prompt = ForgePrompt::default();
+        let _ = prompt.model(ModelId::new("gpt-4"));
+        let _ = prompt.reasoning_effort(Effort::None);
+
+        let actual = prompt.render_prompt_right();
+        assert!(!actual.to_uppercase().contains("NONE"));
+    }
+
+    #[test]
+    fn test_effort_label_narrow_vs_wide() {
+        assert_eq!(effort_label(&Effort::Medium, 80), "MED");
+        assert_eq!(
+            effort_label(&Effort::Medium, WIDE_TERMINAL_THRESHOLD),
+            "MEDIUM"
+        );
     }
 }

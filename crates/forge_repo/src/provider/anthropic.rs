@@ -1,18 +1,16 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use derive_setters::Setters;
 use eventsource_stream::Eventsource;
-use forge_app::HttpInfra;
 use forge_app::domain::{
     ChatCompletionMessage, Context, Model, ModelId, ResultStream, Transformer,
 };
 use forge_app::dto::anthropic::{
     AuthSystemMessage, CapitalizeToolNames, DropInvalidToolUse, EnforceStrictObjectSchema,
-    EventData, ListModelResponse, ReasoningTransform, RemoveOutputFormat, Request, SanitizeToolIds,
-    SetCache,
+    EventData, ListModelResponse, McpToolNames, ReasoningTransform, RemoveOutputFormat, Request,
+    SanitizeToolIds, SetCache,
 };
-use forge_config::RetryConfig;
+use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider, ProviderId};
 use futures::StreamExt;
 use reqwest::Url;
@@ -36,7 +34,7 @@ impl<H: HttpInfra> Anthropic<H> {
         Self { http, provider, anthropic_version: version, use_oauth }
     }
 
-    fn get_headers(&self) -> Vec<(String, String)> {
+    fn get_headers(&self, model: Option<&ModelId>) -> Vec<(String, String)> {
         let mut headers = vec![(
             "anthropic-version".to_string(),
             self.anthropic_version.clone(),
@@ -48,11 +46,16 @@ impl<H: HttpInfra> Anthropic<H> {
             .provider
             .credential
             .as_ref()
-            .map(|c| match &c.auth_details {
-                forge_domain::AuthDetails::ApiKey(key) => key.as_str(),
-                forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => api_key.as_str(),
-                forge_domain::AuthDetails::OAuth { tokens, .. } => tokens.access_token.as_str(),
-                forge_domain::AuthDetails::GoogleAdc(api_key) => api_key.as_str(),
+            .and_then(|c| match &c.auth_details {
+                forge_domain::AuthDetails::ApiKey(key) => Some(key.as_str()),
+                forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => {
+                    Some(api_key.as_str())
+                }
+                forge_domain::AuthDetails::OAuth { tokens, .. } => {
+                    Some(tokens.access_token.as_str())
+                }
+                forge_domain::AuthDetails::GoogleAdc(api_key) => Some(api_key.as_str()),
+                forge_domain::AuthDetails::AwsProfile(_) => None,
             });
 
         if let Some(api_key) = api_key {
@@ -68,23 +71,34 @@ impl<H: HttpInfra> Anthropic<H> {
 
         // Add beta flags (not needed for Vertex AI)
         if self.provider.id != ProviderId::VERTEX_AI_ANTHROPIC {
+            let mut betas: Vec<&'static str> = Vec::new();
             if self.use_oauth {
-                // OAuth requires multiple beta flags including structured outputs
-                headers.push((
-                    "anthropic-beta".to_string(),
-                    "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,structured-outputs-2025-11-13".to_string(),
-                ));
-            } else {
-                // API key auth also needs beta flags for structured outputs and thinking
-                headers.push((
-                    "anthropic-beta".to_string(),
-                    "interleaved-thinking-2025-05-14,structured-outputs-2025-11-13".to_string(),
-                ));
+                betas.push("claude-code-20250219");
+                betas.push("oauth-2025-04-20");
             }
+            // Adaptive thinking auto-enables interleaved thinking on Opus 4.7,
+            // Opus 4.6, and Sonnet 4.6 — the beta header is redundant there per
+            // the Opus 4.7 migration guide. Keep it for older models so manual
+            // `extended-thinking` requests still get interleaved turns.
+            if interleaved_thinking_required(model) {
+                betas.push("interleaved-thinking-2025-05-14");
+            }
+            betas.push("structured-outputs-2025-11-13");
+            headers.push(("anthropic-beta".to_string(), betas.join(",")));
         }
 
         headers
     }
+}
+
+/// Returns false when the model auto-enables interleaved thinking through
+/// adaptive thinking (Opus 4.7, Opus 4.6, Sonnet 4.6). When the model is
+/// unknown (e.g., listing endpoints), the flag is included because it is
+/// harmless on non-chat endpoints and necessary on older chat models.
+fn interleaved_thinking_required(model: Option<&ModelId>) -> bool {
+    let Some(model) = model else { return true };
+    let id = model.as_str().to_lowercase();
+    !(id.contains("opus-4-7") || id.contains("opus-4-6") || id.contains("sonnet-4-6"))
 }
 
 impl<T: HttpInfra> Anthropic<T> {
@@ -114,6 +128,7 @@ impl<T: HttpInfra> Anthropic<T> {
 
         let pipeline = AuthSystemMessage::default()
             .when(|_| self.use_oauth)
+            .pipe(McpToolNames.when(|_| self.use_oauth))
             .pipe(CapitalizeToolNames)
             .pipe(DropInvalidToolUse)
             .pipe(SanitizeToolIds);
@@ -147,7 +162,7 @@ impl<T: HttpInfra> Anthropic<T> {
             serde_json::to_vec(&request).with_context(|| "Failed to serialize request")?;
 
         let parsed_url = Url::parse(&url).with_context(|| format!("Invalid URL: {}", url))?;
-        let headers = create_headers(self.get_headers());
+        let headers = create_headers(self.get_headers(Some(model)));
 
         if self.should_use_raw_sse() {
             return self.chat_raw_sse(&parsed_url, headers, json_bytes).await;
@@ -238,7 +253,7 @@ impl<T: HttpInfra> Anthropic<T> {
 
                 let response = self
                     .http
-                    .http_get(url, Some(create_headers(self.get_headers())))
+                    .http_get(url, Some(create_headers(self.get_headers(None))))
                     .await
                     .with_context(|| format_http_context(None, "GET", url))
                     .with_context(|| "Failed to fetch models")?;
@@ -282,6 +297,84 @@ where
         forge_domain::Error::Retryable(error).into()
     } else {
         error
+    }
+}
+
+/// Repository for Anthropic provider responses
+pub struct AnthropicResponseRepository<F> {
+    infra: Arc<F>,
+}
+
+impl<F> AnthropicResponseRepository<F> {
+    pub fn new(infra: Arc<F>) -> Self {
+        Self { infra }
+    }
+}
+
+impl<F: HttpInfra> AnthropicResponseRepository<F> {
+    /// Creates an Anthropic client from a provider configuration
+    fn create_client(&self, provider: Provider<Url>) -> anyhow::Result<Anthropic<F>> {
+        // Validate that credentials exist
+        provider
+            .credential
+            .as_ref()
+            .context("Anthropic provider requires credentials")?;
+
+        // Determine OAuth usage based on auth details
+        let is_oauth = provider
+            .credential
+            .as_ref()
+            .map(|c| matches!(c.auth_details, forge_domain::AuthDetails::OAuth { .. }))
+            .unwrap_or(false);
+
+        // Use different API version for Vertex AI
+        let version = if provider.id == ProviderId::VERTEX_AI_ANTHROPIC {
+            "vertex-2023-10-16".to_string()
+        } else {
+            "2023-06-01".to_string()
+        };
+
+        Ok(Anthropic::new(
+            self.infra.clone(),
+            provider,
+            version,
+            is_oauth,
+        ))
+    }
+}
+
+#[async_trait::async_trait]
+impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + 'static> ChatRepository
+    for AnthropicResponseRepository<F>
+{
+    async fn chat(
+        &self,
+        model_id: &ModelId,
+        context: Context,
+        provider: Provider<Url>,
+    ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
+        let retry_config = self.infra.get_config()?.retry.unwrap_or_default();
+        let provider_client = self.create_client(provider)?;
+
+        let stream = provider_client
+            .chat(model_id, context)
+            .await
+            .map_err(|e| into_retry(e, &retry_config))?;
+
+        Ok(Box::pin(stream.map(move |item| {
+            item.map_err(|e| into_retry(e, &retry_config))
+        })))
+    }
+
+    async fn models(&self, provider: Provider<Url>) -> anyhow::Result<Vec<Model>> {
+        let retry_config = self.infra.get_config()?.retry.unwrap_or_default();
+        let provider_client = self.create_client(provider)?;
+
+        provider_client
+            .models()
+            .await
+            .map_err(|e| into_retry(e, &retry_config))
+            .context("Failed to fetch models from Anthropic provider")
     }
 }
 
@@ -587,7 +680,7 @@ mod tests {
             false, // API key auth (not OAuth)
         );
 
-        let actual = fixture.get_headers();
+        let actual = fixture.get_headers(None);
 
         // Should contain anthropic-version header
         assert!(
@@ -615,9 +708,12 @@ mod tests {
             beta_value.contains("structured-outputs-2025-11-13"),
             "Beta header should include structured-outputs flag"
         );
+        // When the model is unknown (e.g., model listing), keep the
+        // interleaved-thinking header since it is harmless on non-chat
+        // endpoints and still required for older chat models.
         assert!(
             beta_value.contains("interleaved-thinking-2025-05-14"),
-            "Beta header should include interleaved-thinking flag"
+            "Beta header should include interleaved-thinking flag when model is unknown"
         );
     }
 
@@ -666,7 +762,7 @@ mod tests {
             true, // OAuth auth
         );
 
-        let actual = fixture.get_headers();
+        let actual = fixture.get_headers(None);
 
         // Should contain anthropic-version header
         assert!(
@@ -698,6 +794,115 @@ mod tests {
             beta_value.contains("oauth-2025-04-20"),
             "Beta header should include oauth flag for OAuth auth"
         );
+    }
+
+    #[test]
+    fn test_get_headers_drops_interleaved_thinking_for_4_6_plus_models() {
+        // Adaptive thinking auto-enables interleaved thinking on Opus 4.7,
+        // Opus 4.6, and Sonnet 4.6; the beta header is redundant there.
+        let chat_url = Url::parse("https://api.anthropic.com/v1/messages").unwrap();
+        let model_url = Url::parse("https://api.anthropic.com/v1/models").unwrap();
+
+        let provider = Provider {
+            id: forge_app::domain::ProviderId::ANTHROPIC,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(forge_app::domain::ProviderResponse::Anthropic),
+            url: chat_url,
+            credential: Some(forge_domain::AuthCredential {
+                id: forge_app::domain::ProviderId::ANTHROPIC,
+                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                    "sk-test-key".to_string(),
+                )),
+                url_params: std::collections::HashMap::new(),
+            }),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: Some(forge_domain::ModelSource::Url(model_url)),
+            custom_headers: None,
+        };
+
+        let fixture = Anthropic::new(
+            Arc::new(MockHttpClient::new()),
+            provider,
+            "2023-06-01".to_string(),
+            false,
+        );
+
+        for model_id in [
+            "claude-opus-4-7",
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "us.anthropic.claude-opus-4-7",
+            "global.anthropic.claude-sonnet-4-6",
+        ] {
+            let model = ModelId::new(model_id);
+            let actual = fixture.get_headers(Some(&model));
+            let (_, beta_value) = actual
+                .iter()
+                .find(|(k, _)| k == "anthropic-beta")
+                .expect("anthropic-beta header should be present");
+            assert!(
+                !beta_value.contains("interleaved-thinking-2025-05-14"),
+                "Beta header should NOT include interleaved-thinking flag for {} (auto-enabled by adaptive thinking)",
+                model_id
+            );
+            assert!(
+                beta_value.contains("structured-outputs-2025-11-13"),
+                "structured-outputs flag must still be present for {}",
+                model_id
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_headers_keeps_interleaved_thinking_for_pre_4_6_models() {
+        let chat_url = Url::parse("https://api.anthropic.com/v1/messages").unwrap();
+        let model_url = Url::parse("https://api.anthropic.com/v1/models").unwrap();
+
+        let provider = Provider {
+            id: forge_app::domain::ProviderId::ANTHROPIC,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(forge_app::domain::ProviderResponse::Anthropic),
+            url: chat_url,
+            credential: Some(forge_domain::AuthCredential {
+                id: forge_app::domain::ProviderId::ANTHROPIC,
+                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                    "sk-test-key".to_string(),
+                )),
+                url_params: std::collections::HashMap::new(),
+            }),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: Some(forge_domain::ModelSource::Url(model_url)),
+            custom_headers: None,
+        };
+
+        let fixture = Anthropic::new(
+            Arc::new(MockHttpClient::new()),
+            provider,
+            "2023-06-01".to_string(),
+            false,
+        );
+
+        for model_id in [
+            "claude-opus-4-5-20251101",
+            "claude-sonnet-4-5-20250929",
+            "claude-haiku-4-5-20251001",
+            "claude-opus-4-1-20250805",
+            "claude-3-7-sonnet-20250219",
+        ] {
+            let model = ModelId::new(model_id);
+            let actual = fixture.get_headers(Some(&model));
+            let (_, beta_value) = actual
+                .iter()
+                .find(|(k, _)| k == "anthropic-beta")
+                .expect("anthropic-beta header should be present");
+            assert!(
+                beta_value.contains("interleaved-thinking-2025-05-14"),
+                "Beta header should include interleaved-thinking flag for pre-4.6 model {}",
+                model_id
+            );
+        }
     }
 
     #[test]
@@ -778,84 +983,5 @@ mod tests {
             Some("vertex-2023-10-16".to_string()),
             "Vertex AI requests should include anthropic_version"
         );
-    }
-}
-
-/// Repository for Anthropic provider responses
-#[derive(Setters)]
-#[setters(strip_option, into)]
-pub struct AnthropicResponseRepository<F> {
-    infra: Arc<F>,
-    retry_config: Arc<RetryConfig>,
-}
-
-impl<F> AnthropicResponseRepository<F> {
-    pub fn new(infra: Arc<F>) -> Self {
-        Self { infra, retry_config: Arc::new(RetryConfig::default()) }
-    }
-}
-
-impl<F: HttpInfra> AnthropicResponseRepository<F> {
-    /// Creates an Anthropic client from a provider configuration
-    fn create_client(&self, provider: Provider<Url>) -> anyhow::Result<Anthropic<F>> {
-        // Validate that credentials exist
-        provider
-            .credential
-            .as_ref()
-            .context("Anthropic provider requires credentials")?;
-
-        // Determine OAuth usage based on auth details
-        let is_oauth = provider
-            .credential
-            .as_ref()
-            .map(|c| matches!(c.auth_details, forge_domain::AuthDetails::OAuth { .. }))
-            .unwrap_or(false);
-
-        // Use different API version for Vertex AI
-        let version = if provider.id == ProviderId::VERTEX_AI_ANTHROPIC {
-            "vertex-2023-10-16".to_string()
-        } else {
-            "2023-06-01".to_string()
-        };
-
-        Ok(Anthropic::new(
-            self.infra.clone(),
-            provider,
-            version,
-            is_oauth,
-        ))
-    }
-}
-
-#[async_trait::async_trait]
-impl<F: HttpInfra + 'static> ChatRepository for AnthropicResponseRepository<F> {
-    async fn chat(
-        &self,
-        model_id: &ModelId,
-        context: Context,
-        provider: Provider<Url>,
-    ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
-        let retry_config = self.retry_config.clone();
-        let provider_client = self.create_client(provider)?;
-
-        let stream = provider_client
-            .chat(model_id, context)
-            .await
-            .map_err(|e| into_retry(e, &retry_config))?;
-
-        Ok(Box::pin(stream.map(move |item| {
-            item.map_err(|e| into_retry(e, &retry_config))
-        })))
-    }
-
-    async fn models(&self, provider: Provider<Url>) -> anyhow::Result<Vec<Model>> {
-        let retry_config = self.retry_config.clone();
-        let provider_client = self.create_client(provider)?;
-
-        provider_client
-            .models()
-            .await
-            .map_err(|e| into_retry(e, &retry_config))
-            .context("Failed to fetch models from Anthropic provider")
     }
 }
