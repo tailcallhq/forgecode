@@ -4,10 +4,11 @@
 
 How skills work:
 
-1. **Invocation**: Use the `skill` tool with just the skill name parameter
+1. **Invocation**: Use the `skill` tool with the skill name, and pass `arguments` when the user provides context that the skill needs (e.g. a file path, version number, or keyword)
 
-   - Example: Call skill tool with `{"name": "mock-calculator"}`
-   - No additional arguments needed
+   - Example: `{"name": "mock-calculator"}`
+   - When the user provides context the skill needs (e.g. a file path, version, or keyword), pass it via the `arguments` field
+   - The `arguments` string is injected into the skill template wherever `$ARGUMENTS`, `$1`, `$2`, etc. appear
 
 2. **Response**: The tool returns the skill's details wrapped in `<skill_details>` containing:
 
