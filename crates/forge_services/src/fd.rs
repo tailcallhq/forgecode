@@ -38,6 +38,31 @@ fn is_symlink(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Returns `true` if the file at `path` should be excluded based on its name,
+/// regardless of extension. This covers lock files and other generated
+/// dependency manifest files that are not useful to index.
+fn is_ignored_by_name(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    let name_lower = name.to_lowercase();
+
+    // Lock files: *-lock.json, *.lock, *.lockb, *.lock.json, etc.
+    if name_lower.ends_with(".lock")
+        || name_lower.ends_with(".lockb")
+        || name_lower.ends_with("-lock.json")
+        || name_lower.ends_with("-lock.yaml")
+        || name_lower.ends_with("-lock.yml")
+        || name_lower.ends_with(".lock.json")
+        || name_lower.ends_with(".lockfile")
+        || name == "Package.resolved"
+    {
+        return true;
+    }
+
+    false
+}
+
 /// Filters relative path strings down to those with an allowed extension,
 /// resolves each against `dir_path`, and returns them as absolute `PathBuf`s.
 ///
@@ -141,7 +166,13 @@ impl<F: CommandInfra + WalkerInfra + IgnorePatternsRepository + 'static> FileDis
         };
 
         let Some(matcher) = self.ignore.get().await else {
-            return Ok(files);
+            // Server patterns unavailable — fall back to the built-in
+            // lock/manifest filter so generated dependency files are still
+            // excluded from indexing.
+            return Ok(files
+                .into_iter()
+                .filter(|p| !is_ignored_by_name(p))
+                .collect());
         };
 
         Ok(files
