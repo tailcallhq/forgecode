@@ -185,20 +185,24 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
     // - `X-Title`: Sets/modifies your app's title
     fn headers(&self, headers: Option<HeaderMap>) -> HeaderMap {
         let mut headers = headers.unwrap_or_default();
-        // Only set User-Agent if the provider hasn't already set one
+        // Only set Forge defaults if the provider hasn't already set them.
         if !headers.contains_key("User-Agent") {
             headers.insert("User-Agent", HeaderValue::from_static("Forge"));
         }
-        headers.insert("X-Title", HeaderValue::from_static("forge"));
+        if !headers.contains_key("X-Title") {
+            headers.insert("X-Title", HeaderValue::from_static("forge"));
+        }
         headers.insert(
             "x-app-version",
             HeaderValue::from_str(format!("v{VERSION}").as_str())
                 .unwrap_or(HeaderValue::from_static("v0.1.0-dev")),
         );
-        headers.insert(
-            "HTTP-Referer",
-            HeaderValue::from_static("https://forgecode.dev"),
-        );
+        if !headers.contains_key("HTTP-Referer") {
+            headers.insert(
+                "HTTP-Referer",
+                HeaderValue::from_static("https://forgecode.dev"),
+            );
+        }
         headers.insert(
             reqwest::header::CONNECTION,
             HeaderValue::from_static("keep-alive"),
@@ -505,6 +509,41 @@ mod tests {
         let mut expected = body.to_vec();
         expected.push(b'\n');
         assert_eq!(writes[0].1, Bytes::from(expected));
+    }
+
+    #[test]
+    fn test_headers_preserve_provider_overrides() {
+        use reqwest::header::HeaderValue;
+
+        let file_writer = MockFileWriter::new();
+        let fixture = ForgeHttpInfra::new(create_test_config(None), Arc::new(file_writer));
+
+        let mut headers = HeaderMap::new();
+        headers.insert("user-agent", HeaderValue::from_static("Kilo-Code/5.10.0"));
+        headers.insert("x-title", HeaderValue::from_static("Kilo Code"));
+        headers.insert(
+            "http-referer",
+            HeaderValue::from_static("https://kilocode.ai"),
+        );
+
+        let actual = fixture.headers(Some(headers));
+
+        assert_eq!(
+            actual.get("user-agent"),
+            Some(&HeaderValue::from_static("Kilo-Code/5.10.0"))
+        );
+        assert_eq!(
+            actual.get("x-title"),
+            Some(&HeaderValue::from_static("Kilo Code"))
+        );
+        assert_eq!(
+            actual.get("http-referer"),
+            Some(&HeaderValue::from_static("https://kilocode.ai"))
+        );
+        assert!(
+            actual.get("x-app-version").is_some(),
+            "x-app-version should still be added"
+        );
     }
 
     #[test]
