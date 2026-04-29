@@ -180,11 +180,7 @@ impl<F: CommandInfra + WalkerInfra + IgnorePatternsRepository + 'static> FileDis
 
         Ok(files
             .into_iter()
-            .filter(|p| {
-                !matcher
-                    .matched_path_or_any_parents(p, false)
-                    .is_ignore()
-            })
+            .filter(|p| !matcher.matched_path_or_any_parents(p, false).is_ignore())
             .collect())
     }
 }
