@@ -82,8 +82,9 @@ impl Transformer for ProviderPipeline<'_> {
 
         let xai_compat = MakeXaiCompat.when(move |_| provider.id == ProviderId::XAI);
 
-        let ensure_system_first =
-            MergeSystemMessages.when(move |_| provider.id == ProviderId::NVIDIA);
+        let vllm = ProviderId::from_str("vllm").unwrap();
+        let ensure_system_first = MergeSystemMessages
+            .when(move |_| provider.id == ProviderId::NVIDIA || provider.id == vllm);
 
         let trim_tool_call_ids = TrimToolCallIds.when(move |_| provider.id == ProviderId::OPENAI);
 
@@ -171,6 +172,7 @@ mod tests {
 
     use super::*;
     use crate::domain::{ModelSource, ProviderResponse};
+    use crate::dto::openai::{Message, MessageContent, Role};
 
     // Test helper functions
     fn make_credential(provider_id: ProviderId, key: &str) -> Option<forge_domain::AuthCredential> {
@@ -244,6 +246,21 @@ mod tests {
             models: Some(ModelSource::Url(
                 Url::parse("https://api.openai.com/v1/models").unwrap(),
             )),
+        }
+    }
+
+    fn vllm(key: &str) -> Provider<Url> {
+        let id = ProviderId::from_str("vllm").unwrap();
+        Provider {
+            id: id.clone(),
+            provider_type: Default::default(),
+            response: Some(ProviderResponse::OpenAI),
+            url: Url::parse("http://localhost:8000/v1/chat/completions").unwrap(),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            credential: make_credential(id, key),
+            custom_headers: None,
+            models: Some(ModelSource::Hardcoded(vec![])),
         }
     }
 
@@ -369,6 +386,21 @@ mod tests {
         }
     }
 
+    fn message(role: Role, content: &str) -> Message {
+        Message {
+            role,
+            content: Some(MessageContent::Text(content.to_string())),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning_details: None,
+            reasoning_text: None,
+            reasoning_opaque: None,
+            reasoning_content: None,
+            extra_content: None,
+        }
+    }
+
     #[test]
     fn test_supports_open_router_params() {
         assert!(supports_open_router_params(&forge("forge")));
@@ -448,6 +480,31 @@ mod tests {
         assert_eq!(actual.thinking, None);
         // OpenAI compat transformer removes reasoning field
         assert_eq!(actual.reasoning, None);
+    }
+
+    #[test]
+    fn test_vllm_provider_merges_system_messages() {
+        let provider = vllm("vllm");
+        let fixture = Request::default().messages(vec![
+            message(Role::User, "hello"),
+            message(Role::System, "you are helpful"),
+            message(Role::Assistant, "hi"),
+            message(Role::System, "be concise"),
+        ]);
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture).messages.unwrap();
+
+        assert_eq!(actual.len(), 3);
+        assert_eq!(actual[0].role, Role::System);
+        assert_eq!(
+            actual[0].content.as_ref(),
+            Some(&MessageContent::Text(
+                "you are helpful\n\nbe concise".to_string()
+            ))
+        );
+        assert_eq!(actual[1].role, Role::User);
+        assert_eq!(actual[2].role, Role::Assistant);
     }
 
     #[test]
