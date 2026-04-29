@@ -22,6 +22,7 @@ use super::tool_choice::SetToolChoice;
 use super::trim_tool_call_ids::TrimToolCallIds;
 use super::when_model::when_model;
 use super::zai_reasoning::SetZaiThinking;
+use crate::domain::ProviderResponse;
 use crate::dto::openai::{Request, ToolChoice};
 
 /// Pipeline for transforming requests based on the provider type
@@ -82,8 +83,13 @@ impl Transformer for ProviderPipeline<'_> {
 
         let xai_compat = MakeXaiCompat.when(move |_| provider.id == ProviderId::XAI);
 
-        let ensure_system_first =
-            MergeSystemMessages.when(move |_| provider.id == ProviderId::NVIDIA);
+        // Apply to all OpenAI-compatible providers to ensure system messages are first
+        let ensure_system_first = MergeSystemMessages.when(move |_| {
+            matches!(
+                provider.response,
+                Some(ProviderResponse::OpenAI) | Some(ProviderResponse::OpenCode)
+            )
+        });
 
         let trim_tool_call_ids = TrimToolCallIds.when(move |_| provider.id == ProviderId::OPENAI);
 
