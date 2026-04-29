@@ -10,6 +10,7 @@ mod discovery;
 mod error;
 mod fd;
 mod fd_git;
+mod fd_ignore;
 mod fd_walker;
 mod forge_services;
 mod instructions;

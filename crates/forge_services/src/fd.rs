@@ -2,16 +2,14 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
-use anyhow::Context;
 use async_trait::async_trait;
 use forge_app::{CommandInfra, WalkerInfra};
 use forge_domain::{IgnorePatternsRepository, WorkspaceId};
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use tokio::sync::OnceCell;
 use tracing::{info, warn};
 
 use crate::error::Error as ServiceError;
 use crate::fd_git::FsGit;
+use crate::fd_ignore::ServerIgnoreMatcher;
 use crate::fd_walker::FdWalker;
 
 pub(crate) static ALLOWED_EXTENSIONS: LazyLock<HashSet<String>> = LazyLock::new(|| {
@@ -112,10 +110,9 @@ pub async fn discover_sync_file_paths(
 /// the response cannot be compiled the filter is skipped and a warning is
 /// logged, so discovery keeps working offline.
 pub struct FdDefault<F> {
-    infra: Arc<F>,
     git: FsGit<F>,
     walker: FdWalker<F>,
-    matcher: OnceCell<Option<Gitignore>>,
+    ignore: ServerIgnoreMatcher<F>,
 }
 
 impl<F> FdDefault<F> {
@@ -125,28 +122,9 @@ impl<F> FdDefault<F> {
         Self {
             git: FsGit::new(infra.clone()),
             walker: FdWalker::new(infra.clone()),
-            infra,
-            matcher: OnceCell::new(),
+            ignore: ServerIgnoreMatcher::new(infra),
         }
     }
-}
-
-/// Compiles a [`Gitignore`] from the raw contents of the server's
-/// `ignore_patterns.txt` using the same semantics as the server: builder root
-/// `/` (non-anchored globs match absolute and relative paths alike), blank /
-/// `#`-prefixed lines skipped.
-fn build_matcher(contents: &str) -> anyhow::Result<Gitignore> {
-    let mut builder = GitignoreBuilder::new("/");
-    for line in contents.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        builder
-            .add_line(None, line)
-            .with_context(|| format!("invalid ignore pattern: {line}"))?;
-    }
-    builder.build().context("failed to build ignore matcher")
 }
 
 #[async_trait]
@@ -162,19 +140,7 @@ impl<F: CommandInfra + WalkerInfra + IgnorePatternsRepository + 'static> FileDis
             }
         };
 
-        let Some(matcher) = self
-            .matcher
-            .get_or_init(|| async {
-                match self.infra.list_ignore_patterns().await.and_then(|contents| build_matcher(&contents)) {
-                    Ok(gi) => Some(gi),
-                    Err(err) => {
-                        warn!(error = ?err, "failed to load server ignore patterns; continuing without");
-                        None
-                    }
-                }
-            })
-            .await
-        else {
+        let Some(matcher) = self.ignore.get().await else {
             return Ok(files);
         };
 
