@@ -460,7 +460,7 @@ mod tests {
         );
         assert!(execute_plan.command.contains("Execute Plan"));
         assert!(execute_plan.command.contains("Plan Path Input"));
-        assert!(execute_plan.command.contains("$ARGUMENTS"));
+        assert!(execute_plan.command.contains("$plan_path"));
         assert_eq!(execute_plan.arguments, vec!["plan_path".to_string()]);
 
         // Check github-pr-description
