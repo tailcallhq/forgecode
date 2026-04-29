@@ -62,9 +62,10 @@ impl<F: FileReaderInfra + FileWriterInfra + FileRemoverInfra + SnapshotMetadataR
                 // Tolerate NotFound — if the file was already manually deleted,
                 // the desired end state is already achieved.
                 if let Err(err) = self.infra.remove(Path::new(file_path)).await
-                    && !is_not_found(&err) {
-                        return Err(err);
-                    }
+                    && !is_not_found(&err)
+                {
+                    return Err(err);
+                }
                 deleted_files.push(file_path.clone());
             } else {
                 // Existing file modified: restore from snapshot.
