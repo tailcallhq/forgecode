@@ -1,5 +1,7 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use anyhow::ensure;
 use forge_app::domain::{
     Attachment, AttachmentContent, DirectoryEntry, FileTag, Image, LineNumbers,
 };
@@ -9,6 +11,14 @@ use forge_app::{
 };
 
 use crate::range::resolve_range;
+
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "Attachment path does not exist: `{path}`. If you pasted a shortened display path, paste the full path instead."
+)]
+struct MissingAttachmentPathError {
+    path: PathBuf,
+}
 
 #[derive(Clone)]
 pub struct ForgeChatRequest<F> {
@@ -26,6 +36,23 @@ impl<
         Self { infra }
     }
 
+    fn resolve_attachment_path(&self, tag: &FileTag) -> PathBuf {
+        let path = tag.as_ref();
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.infra.get_environment().cwd.join(path)
+        }
+    }
+
+    async fn validate_attachment_path(&self, path: &Path) -> anyhow::Result<()> {
+        ensure!(
+            self.infra.exists(path).await?,
+            MissingAttachmentPathError { path: path.to_path_buf() }
+        );
+        Ok(())
+    }
+
     async fn prepare_attachments(&self, paths: Vec<FileTag>) -> anyhow::Result<Vec<Attachment>> {
         futures::future::join_all(paths.into_iter().map(|v| self.populate_attachments(v)))
             .await
@@ -34,15 +61,12 @@ impl<
     }
 
     async fn populate_attachments(&self, tag: FileTag) -> anyhow::Result<Attachment> {
-        let mut path = tag.as_ref().to_path_buf();
+        let path = self.resolve_attachment_path(&tag);
+        self.validate_attachment_path(&path).await?;
         let extension = path.extension().map(|v| v.to_string_lossy().to_string());
 
-        if !path.is_absolute() {
-            path = self.infra.get_environment().cwd.join(path);
-        }
-
         // Check if path is a directory (exists but is not a file)
-        if self.infra.exists(&path).await? && !self.infra.is_file(&path).await? {
+        if !self.infra.is_file(&path).await? {
             // List all entries (files and directories) efficiently without reading file
             // contents
             let dir_entries = self.infra.list_directory_entries(&path).await?;
@@ -145,6 +169,7 @@ pub mod tests {
     };
     use forge_domain::{ConfigOperation, FileInfo};
     use futures::stream;
+    use pretty_assertions::assert_eq;
 
     use crate::attachment::ForgeChatRequest;
 
@@ -690,15 +715,32 @@ pub mod tests {
         let infra = Arc::new(MockCompositeService::new());
         let chat_request = ForgeChatRequest::new(infra.clone());
 
-        // Test with a file that doesn't exist
-        let url = "@[/test/nonexistent.txt]".to_string();
+        // Execute
+        let actual = chat_request
+            .attachments("@[/test/nonexistent.txt]")
+            .await
+            .unwrap_err();
+        let expected = "Attachment path does not exist: `/test/nonexistent.txt`. If you pasted a shortened display path, paste the full path instead.";
 
-        // Execute - Let's handle the error properly
-        let result = chat_request.attachments(&url).await;
+        // Assert
+        assert_eq!(actual.to_string(), expected);
+    }
 
-        // Assert - we expect an error for nonexistent files
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("File not found"));
+    #[tokio::test]
+    async fn test_add_url_with_truncated_display_path() {
+        // Setup
+        let infra = Arc::new(MockCompositeService::new());
+        let chat_request = ForgeChatRequest::new(infra.clone());
+
+        // Execute
+        let actual = chat_request
+            .attachments("@[/Volumes/990Pro2TB/OtherProjects/forgecode-fork/...]")
+            .await
+            .unwrap_err();
+        let expected = "Attachment path does not exist: `/Volumes/990Pro2TB/OtherProjects/forgecode-fork/...`. If you pasted a shortened display path, paste the full path instead.";
+
+        // Assert
+        assert_eq!(actual.to_string(), expected);
     }
 
     #[tokio::test]
