@@ -797,7 +797,14 @@ impl<I: Services> FsPatchService for I {
         conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<PatchOutput> {
         self.fs_patch_service()
-            .patch(path, search, content, replace_all, user_input_id, conversation_id)
+            .patch(
+                path,
+                search,
+                content,
+                replace_all,
+                user_input_id,
+                conversation_id,
+            )
             .await
     }
 
@@ -875,7 +882,9 @@ impl<I: Services> PromptUndoService for I {
         &self,
         conversation_id: forge_domain::ConversationId,
     ) -> anyhow::Result<PromptUndoOutput> {
-        self.prompt_undo_service().undo_last_prompt(conversation_id).await
+        self.prompt_undo_service()
+            .undo_last_prompt(conversation_id)
+            .await
     }
 }
 

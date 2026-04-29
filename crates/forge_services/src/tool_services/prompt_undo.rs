@@ -2,7 +2,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use forge_app::{FileReaderInfra, FileRemoverInfra, FileWriterInfra, PromptUndoOutput, PromptUndoService};
+use forge_app::{
+    FileReaderInfra, FileRemoverInfra, FileWriterInfra, PromptUndoOutput, PromptUndoService,
+};
 use forge_domain::{ConversationId, SnapshotMetadataRepository, UserInputId};
 
 /// Restores all files that were changed during the most recent user prompt in a
@@ -20,8 +22,8 @@ impl<F> ForgePromptUndo<F> {
 }
 
 #[async_trait::async_trait]
-impl<F: FileReaderInfra + FileWriterInfra + FileRemoverInfra + SnapshotMetadataRepository> PromptUndoService
-    for ForgePromptUndo<F>
+impl<F: FileReaderInfra + FileWriterInfra + FileRemoverInfra + SnapshotMetadataRepository>
+    PromptUndoService for ForgePromptUndo<F>
 {
     async fn undo_last_prompt(
         &self,
@@ -59,11 +61,10 @@ impl<F: FileReaderInfra + FileWriterInfra + FileRemoverInfra + SnapshotMetadataR
                 // New file created during prompt: delete it on undo.
                 // Tolerate NotFound — if the file was already manually deleted,
                 // the desired end state is already achieved.
-                if let Err(err) = self.infra.remove(Path::new(file_path)).await {
-                    if !is_not_found(&err) {
+                if let Err(err) = self.infra.remove(Path::new(file_path)).await
+                    && !is_not_found(&err) {
                         return Err(err);
                     }
-                }
                 deleted_files.push(file_path.clone());
             } else {
                 // Existing file modified: restore from snapshot.
@@ -79,14 +80,9 @@ impl<F: FileReaderInfra + FileWriterInfra + FileRemoverInfra + SnapshotMetadataR
         }
 
         // Step 5: Mark those snapshot rows as undone.
-        self.infra
-            .mark_snapshots_undone(user_input_id)
-            .await?;
+        self.infra.mark_snapshots_undone(user_input_id).await?;
 
-        Ok(PromptUndoOutput {
-            restored_files,
-            deleted_files,
-        })
+        Ok(PromptUndoOutput { restored_files, deleted_files })
     }
 }
 
@@ -160,14 +156,11 @@ mod tests {
                     .insert(file_path.to_string(), "current content".to_string());
             }
 
-            self.conversation_snapshots
-                .lock()
-                .unwrap()
-                .push((
-                    user_input_id.to_string(),
-                    file_path.to_string(),
-                    snap_file_path.to_string(),
-                ));
+            self.conversation_snapshots.lock().unwrap().push((
+                user_input_id.to_string(),
+                file_path.to_string(),
+                snap_file_path.to_string(),
+            ));
 
             self.user_input_snapshots
                 .lock()
@@ -281,10 +274,7 @@ mod tests {
         }
 
         async fn mark_snapshots_undone(&self, user_input_id: UserInputId) -> anyhow::Result<()> {
-            self.undone
-                .lock()
-                .unwrap()
-                .push(user_input_id.to_string());
+            self.undone.lock().unwrap().push(user_input_id.to_string());
             Ok(())
         }
     }

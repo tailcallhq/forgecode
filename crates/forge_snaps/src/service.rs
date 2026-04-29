@@ -62,7 +62,8 @@ impl SnapshotService {
     pub async fn undo_snapshot(&self, path: PathBuf) -> Result<()> {
         // Derive the per-file storage directory using a throwaway snapshot
         // (UserInputId here is irrelevant — we only need the path hash).
-        let snapshot = Snapshot::create(path.clone(), UserInputId::new(), ConversationId::generate())?;
+        let snapshot =
+            Snapshot::create(path.clone(), UserInputId::new(), ConversationId::generate())?;
 
         // All the snaps for `path` are stored in `snapshot.path_hash()` directory.
         let snapshot_dir = self.snapshots_directory.join(snapshot.path_hash());
@@ -273,7 +274,11 @@ mod tests {
         // Act
         ctx.write_content("some content").await?;
         ctx.service
-            .create_snapshot(ctx.test_file.clone(), user_input_id, ConversationId::generate())
+            .create_snapshot(
+                ctx.test_file.clone(),
+                user_input_id,
+                ConversationId::generate(),
+            )
             .await?;
 
         // Assert: find the .snap file and verify the UUID is in its name

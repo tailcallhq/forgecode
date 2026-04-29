@@ -10,8 +10,7 @@ use crate::services::{Services, ShellService};
 use crate::{
     AgentRegistry, ConversationService, EnvironmentInfra, FollowUpService, FsPatchService,
     FsReadService, FsRemoveService, FsSearchService, FsWriteService, ImageReadService,
-    NetFetchService, PlanCreateService, ProviderService, SkillFetchService,
-    WorkspaceService,
+    NetFetchService, PlanCreateService, ProviderService, SkillFetchService, WorkspaceService,
 };
 
 pub struct ToolExecutor<S> {
@@ -237,7 +236,11 @@ impl<
                 let normalized_path = self.normalize_path(input.path.clone());
                 let output = self
                     .services
-                    .remove(normalized_path, context.user_input_id, context.conversation_id)
+                    .remove(
+                        normalized_path,
+                        context.user_input_id,
+                        context.conversation_id,
+                    )
                     .await?;
                 (input, output).into()
             }

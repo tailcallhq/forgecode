@@ -4555,12 +4555,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     /// Uses `--conversation-id` if provided, otherwise falls back to the last
     /// active conversation.
     async fn handle_cli_undo(&mut self) -> anyhow::Result<()> {
-        let conversation_id = self
-            .state
-            .conversation_id
-            .ok_or_else(|| anyhow::anyhow!(
-                "No conversation to undo. Use --conversation-id to specify one."
-            ))?;
+        let conversation_id = self.state.conversation_id.ok_or_else(|| {
+            anyhow::anyhow!("No conversation to undo. Use --conversation-id to specify one.")
+        })?;
 
         let output = self.api.undo_last_prompt(conversation_id).await?;
 

@@ -107,11 +107,8 @@ impl<
                 .insert_snapshot(path, user_input_id, conversation_id)
                 .await?;
         } else {
-            let snapshot = forge_domain::Snapshot::create(
-                path.to_path_buf(),
-                user_input_id,
-                conversation_id,
-            )?;
+            let snapshot =
+                forge_domain::Snapshot::create(path.to_path_buf(), user_input_id, conversation_id)?;
             self.infra
                 .insert_snapshot_metadata(&snapshot, String::new())
                 .await?;

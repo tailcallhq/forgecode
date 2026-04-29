@@ -39,9 +39,10 @@ pub trait SnapshotMetadataRepository: Send + Sync {
         user_input_id: UserInputId,
     ) -> Result<Vec<(String, String)>>;
 
-    /// Returns all `(user_input_id, file_path, snap_file_path)` tuples for every
-    /// snapshot belonging to the given `ConversationId`, ordered by creation time
-    /// descending so that the latest `UserInputId` appears first.
+    /// Returns all `(user_input_id, file_path, snap_file_path)` tuples for
+    /// every snapshot belonging to the given `ConversationId`, ordered by
+    /// creation time descending so that the latest `UserInputId` appears
+    /// first.
     ///
     /// Only returns snapshots that have not been undone.
     ///

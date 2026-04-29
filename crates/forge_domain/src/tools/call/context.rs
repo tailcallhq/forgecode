@@ -2,7 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use derive_setters::Setters;
 
-use crate::{ArcSender, ChatResponse, ConversationId, Metrics, TitleFormat, Todo, TodoItem, UserInputId};
+use crate::{
+    ArcSender, ChatResponse, ConversationId, Metrics, TitleFormat, Todo, TodoItem, UserInputId,
+};
 
 /// Provides additional context for tool calls.
 #[derive(Debug, Clone, Setters)]
@@ -108,16 +110,14 @@ mod tests {
     #[test]
     fn test_create_context() {
         let metrics = Metrics::default();
-        let context =
-            ToolCallContext::new(metrics, UserInputId::new(), ConversationId::generate());
+        let context = ToolCallContext::new(metrics, UserInputId::new(), ConversationId::generate());
         assert!(context.sender.is_none());
     }
 
     #[test]
     fn test_with_sender() {
         let metrics = Metrics::default();
-        let context =
-            ToolCallContext::new(metrics, UserInputId::new(), ConversationId::generate());
+        let context = ToolCallContext::new(metrics, UserInputId::new(), ConversationId::generate());
         assert!(context.sender.is_none());
     }
 }

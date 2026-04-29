@@ -162,7 +162,6 @@ mod tests {
         assert_eq!(file2_metrics.lines_removed, 2);
     }
 
-
     #[test]
     fn test_files_accessed_only_tracks_reads() {
         let metrics = Metrics::default()

@@ -130,20 +130,15 @@ impl Runner {
         let conversation = SetConversationId.apply(conversation);
         let conversation = conversation.user_input_id(UserInputId::new());
 
-        let orch = Orchestrator::new(
-            services.clone(),
-            conversation,
-            agent,
-            setup.config.clone(),
-        )
-        .error_tracker(ToolErrorTracker::new(3))
-        .tool_definitions(system_tools)
-        .hook(Arc::new(
-            Hook::default()
-                .on_request(DoomLoopDetector::default())
-                .on_end(PendingTodosHandler::new()),
-        ))
-        .sender(tx);
+        let orch = Orchestrator::new(services.clone(), conversation, agent, setup.config.clone())
+            .error_tracker(ToolErrorTracker::new(3))
+            .tool_definitions(system_tools)
+            .hook(Arc::new(
+                Hook::default()
+                    .on_request(DoomLoopDetector::default())
+                    .on_end(PendingTodosHandler::new()),
+            ))
+            .sender(tx);
 
         let (mut orch, runner) = (orch, services);
 

@@ -175,16 +175,11 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             .on_toolcall_end(tracing_handler)
             .on_end(on_end_hook);
 
-        let orch = Orchestrator::new(
-            services.clone(),
-            conversation,
-            agent,
-            forge_config,
-        )
-        .error_tracker(ToolErrorTracker::new(max_tool_failure_per_turn))
-        .tool_definitions(tool_definitions)
-        .models(models)
-        .hook(Arc::new(hook));
+        let orch = Orchestrator::new(services.clone(), conversation, agent, forge_config)
+            .error_tracker(ToolErrorTracker::new(max_tool_failure_per_turn))
+            .tool_definitions(tool_definitions)
+            .models(models)
+            .hook(Arc::new(hook));
 
         // Create and return the stream
         let stream = MpscStream::spawn(

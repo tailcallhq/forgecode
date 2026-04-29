@@ -26,7 +26,6 @@ pub struct Orchestrator<S> {
     error_tracker: ToolErrorTracker,
     hook: Arc<Hook>,
     config: forge_config::ForgeConfig,
-
 }
 
 impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orchestrator<S> {
@@ -267,13 +266,12 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             .conversation
             .user_input_id
             .ok_or_else(|| anyhow::anyhow!("Conversation has no user_input_id"))?;
-        let tool_context =
-            ToolCallContext::new(
-                self.conversation.metrics.clone(),
-                user_input_id,
-                self.conversation.id,
-            )
-            .sender(self.sender.clone());
+        let tool_context = ToolCallContext::new(
+            self.conversation.metrics.clone(),
+            user_input_id,
+            self.conversation.id,
+        )
+        .sender(self.sender.clone());
 
         while !should_yield {
             // Set context for the current loop iteration

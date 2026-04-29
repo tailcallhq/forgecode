@@ -4,8 +4,8 @@ use diesel::prelude::*;
 use forge_domain::{ConversationId, Snapshot, SnapshotMetadataRepository, UserInputId};
 
 use super::snapshot_record::SnapshotRecord;
-use crate::database::schema::snapshot_metadata;
 use crate::database::DatabasePool;
+use crate::database::schema::snapshot_metadata;
 
 /// SQLite-backed repository for snapshot metadata.
 ///
@@ -52,7 +52,10 @@ impl SnapshotMetadataRepository for SnapshotMetadataRepositoryImpl {
             .filter(snapshot_metadata::user_input_id.eq(user_input_id.to_string()))
             .filter(snapshot_metadata::undone_at.is_null())
             .order(snapshot_metadata::created_at.asc())
-            .select((snapshot_metadata::file_path, snapshot_metadata::snap_file_path))
+            .select((
+                snapshot_metadata::file_path,
+                snapshot_metadata::snap_file_path,
+            ))
             .load(&mut conn)?;
 
         // Deduplicate by file_path, keeping only the first (earliest) entry.

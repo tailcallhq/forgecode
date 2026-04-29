@@ -80,7 +80,8 @@ impl Snapshot {
     /// # Arguments
     /// * `path` - Absolute or canonicalizable file path to snapshot.
     /// * `user_input_id` - ID of the user prompt that caused this mutation.
-    /// * `conversation_id` - ID of the active conversation during this mutation.
+    /// * `conversation_id` - ID of the active conversation during this
+    ///   mutation.
     ///
     /// # Errors
     /// Returns an error when the path is relative and cannot be canonicalized,
