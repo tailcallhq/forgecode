@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::io::{self, Write};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{cmp, fmt};
 
 use bstr::ByteSlice;
@@ -375,8 +375,8 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
     let mut preview_cache = String::new();
     let mut last_preview_key = String::new();
     let mut last_query = query.clone();
-    let mut last_tick = Instant::now();
 
+    let mut needs_render = true;
     loop {
         if query != last_query {
             matcher.pattern.reparse(
@@ -396,9 +396,7 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
             };
             scroll_offset = 0;
             preview_scroll_offset = 0;
-        } else if last_tick.elapsed() >= Duration::from_millis(25) {
-            let _ = matcher.tick(10);
-            last_tick = Instant::now();
+            needs_render = true;
         }
 
         let matched_rows = matched_rows(&matcher);
@@ -407,15 +405,20 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                 && let Some(index) = matched_rows.iter().position(|row| row.raw == initial_raw)
             {
                 selected_index = index;
+                needs_render = true;
             }
             initial_selection_applied = true;
         }
 
         if matched_rows.is_empty() {
+            if selected_index != 0 || scroll_offset != 0 {
+                needs_render = true;
+            }
             selected_index = 0;
             scroll_offset = 0;
         } else if selected_index >= matched_rows.len() {
             selected_index = matched_rows.len().saturating_sub(1);
+            needs_render = true;
         }
 
         let selected_row = matched_rows.get(selected_index).copied();
@@ -428,6 +431,7 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                 .unwrap_or_else(|| "No matches".to_string());
             preview_scroll_offset = 0;
             last_preview_key = preview_key;
+            needs_render = true;
         }
 
         let rendered_preview = if preview_command.is_empty() {
@@ -436,24 +440,27 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
             &preview_cache
         };
 
-        draw_preview_ui(
-            &mut stderr,
-            PreviewUi {
-                prompt: &prompt,
-                query: &query,
-                total_rows: data_rows.len(),
-                matched_rows: &matched_rows,
-                header_rows: &header_rows,
-                selected_index,
-                scroll_offset: &mut scroll_offset,
-                preview: rendered_preview,
-                preview_scroll_offset,
-                layout: preview_layout,
-                reserved_height,
-            },
-        )?;
+        if needs_render {
+            draw_preview_ui(
+                &mut stderr,
+                PreviewUi {
+                    prompt: &prompt,
+                    query: &query,
+                    total_rows: data_rows.len(),
+                    matched_rows: &matched_rows,
+                    header_rows: &header_rows,
+                    selected_index,
+                    scroll_offset: &mut scroll_offset,
+                    preview: rendered_preview,
+                    preview_scroll_offset,
+                    layout: preview_layout,
+                    reserved_height,
+                },
+            )?;
+            needs_render = false;
+        }
 
-        if event::poll(Duration::from_millis(50))? {
+        if event::poll(Duration::from_millis(250))? {
             match event::read()? {
                 Event::Key(key) => {
                     match handle_key_event(
@@ -463,12 +470,16 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                         &mut selected_index,
                         !preview_command.is_empty(),
                     ) {
-                        PickerAction::Continue => {}
+                        PickerAction::Continue => {
+                            needs_render = true;
+                        }
                         PickerAction::PreviewScrollUp => {
                             preview_scroll_offset = preview_scroll_offset.saturating_sub(1);
+                            needs_render = true;
                         }
                         PickerAction::PreviewScrollDown => {
                             preview_scroll_offset = preview_scroll_offset.saturating_add(1);
+                            needs_render = true;
                         }
                         PickerAction::PreviewPageUp => {
                             let page_size = preview_content_height(
@@ -481,6 +492,7 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                             .saturating_sub(1)
                             .max(1);
                             preview_scroll_offset = preview_scroll_offset.saturating_sub(page_size);
+                            needs_render = true;
                         }
                         PickerAction::PreviewPageDown => {
                             let page_size = preview_content_height(
@@ -493,6 +505,7 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                             .saturating_sub(1)
                             .max(1);
                             preview_scroll_offset = preview_scroll_offset.saturating_add(page_size);
+                            needs_render = true;
                         }
                         PickerAction::Toggle => {
                             if mode == SelectMode::Multi && selected_row.is_some() {
@@ -503,6 +516,7 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                                     selected_index + 1,
                                     matched_rows.len().saturating_sub(1),
                                 );
+                                needs_render = true;
                             }
                         }
                         PickerAction::Accept => {
@@ -545,9 +559,11 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                         match mouse.kind {
                             MouseEventKind::ScrollUp => {
                                 preview_scroll_offset = preview_scroll_offset.saturating_sub(3);
+                                needs_render = true;
                             }
                             MouseEventKind::ScrollDown => {
                                 preview_scroll_offset = preview_scroll_offset.saturating_add(3);
+                                needs_render = true;
                             }
                             _ => {}
                         }
@@ -555,30 +571,38 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                         match mouse.kind {
                             MouseEventKind::ScrollUp => {
                                 selected_index = selected_index.saturating_sub(1);
+                                needs_render = true;
                             }
                             MouseEventKind::ScrollDown => {
                                 selected_index = cmp::min(
                                     selected_index.saturating_add(1),
                                     matched_rows.len().saturating_sub(1),
                                 );
+                                needs_render = true;
                             }
                             _ => {}
                         }
                     }
                 }
-                Event::Resize(_, _) => {}
+                Event::Resize(_, _) => {
+                    needs_render = true;
+                }
                 _ => {}
             }
         }
 
         if !preview_command.is_empty() {
-            preview_scroll_offset = preview_scroll_offset.min(max_preview_scroll_offset(
+            let clamped_offset = preview_scroll_offset.min(max_preview_scroll_offset(
                 &preview_cache,
                 header_rows.len(),
                 matched_rows.len(),
                 preview_layout,
                 reserved_height,
             ));
+            if clamped_offset != preview_scroll_offset {
+                preview_scroll_offset = clamped_offset;
+                needs_render = true;
+            }
         }
     }
 }
