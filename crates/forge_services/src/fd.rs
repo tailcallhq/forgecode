@@ -31,13 +31,6 @@ pub(crate) fn has_allowed_extension(path: &Path) -> bool {
     }
 }
 
-/// Returns `true` if `path` is a symlink (does not follow the link).
-fn is_symlink(path: &Path) -> bool {
-    path.symlink_metadata()
-        .map(|m| m.file_type().is_symlink())
-        .unwrap_or(false)
-}
-
 /// Returns `true` if the file at `path` should be excluded based on its name,
 /// regardless of extension. This covers lock files and other generated
 /// dependency manifest files that are not useful to index.
@@ -61,6 +54,13 @@ fn is_ignored_by_name(path: &Path) -> bool {
     }
 
     false
+}
+
+/// Returns `true` if `path` is a symlink (does not follow the link).
+fn is_symlink(path: &Path) -> bool {
+    path.symlink_metadata()
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
 }
 
 /// Filters relative path strings down to those with an allowed extension,
