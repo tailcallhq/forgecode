@@ -27,8 +27,7 @@ use crate::provider_service::ForgeProviderService;
 use crate::template::ForgeTemplateService;
 use crate::tool_services::{
     ForgeFetch, ForgeFollowup, ForgeFsPatch, ForgeFsRead, ForgeFsRemove, ForgeFsSearch,
-    ForgeFsUndo, ForgeFsWrite, ForgeImageRead, ForgePlanCreate, ForgePromptUndo, ForgeShell,
-    ForgeSkillFetch,
+    ForgeFsWrite, ForgeImageRead, ForgePlanCreate, ForgePromptUndo, ForgeShell, ForgeSkillFetch,
 };
 
 type McpService<F> = ForgeMcpService<ForgeMcpManager<F>, F, <F as McpServerInfra>::Client>;
@@ -72,7 +71,6 @@ pub struct ForgeServices<
     file_search_service: Arc<ForgeFsSearch<F>>,
     file_remove_service: Arc<ForgeFsRemove<F>>,
     file_patch_service: Arc<ForgeFsPatch<F>>,
-    file_undo_service: Arc<ForgeFsUndo<F>>,
     prompt_undo_service: Arc<ForgePromptUndo<F>>,
     shell_service: Arc<ForgeShell<F>>,
     fetch_service: Arc<ForgeFetch>,
@@ -129,7 +127,6 @@ impl<
         let file_search_service = Arc::new(ForgeFsSearch::new(infra.clone()));
         let file_remove_service = Arc::new(ForgeFsRemove::new(infra.clone()));
         let file_patch_service = Arc::new(ForgeFsPatch::new(infra.clone()));
-        let file_undo_service = Arc::new(ForgeFsUndo::new(infra.clone()));
         let prompt_undo_service = Arc::new(ForgePromptUndo::new(infra.clone()));
         let shell_service = Arc::new(ForgeShell::new(infra.clone()));
         let fetch_service = Arc::new(ForgeFetch::new());
@@ -160,7 +157,6 @@ impl<
             file_search_service,
             file_remove_service,
             file_patch_service,
-            file_undo_service,
             prompt_undo_service,
             shell_service,
             fetch_service,
@@ -231,7 +227,6 @@ impl<
     type FsRemoveService = ForgeFsRemove<F>;
     type FsSearchService = ForgeFsSearch<F>;
     type FollowUpService = ForgeFollowup<F>;
-    type FsUndoService = ForgeFsUndo<F>;
     type PromptUndoService = ForgePromptUndo<F>;
     type NetFetchService = ForgeFetch;
     type ShellService = ForgeShell<F>;
@@ -298,10 +293,6 @@ impl<
 
     fn follow_up_service(&self) -> &Self::FollowUpService {
         &self.followup_service
-    }
-
-    fn fs_undo_service(&self) -> &Self::FsUndoService {
-        &self.file_undo_service
     }
 
     fn prompt_undo_service(&self) -> &Self::PromptUndoService {

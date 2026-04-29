@@ -104,6 +104,11 @@ forge_prompt() {
     "$FORGE_BIN" -C "$TEST_DIR" -p "$prompt" $conv_flag 2>&1 || true
 }
 
+# Run forge --undo and return the output. Requires CONVERSATION_ID to be set.
+forge_undo() {
+    "$FORGE_BIN" -C "$TEST_DIR" --undo --conversation-id "$CONVERSATION_ID" 2>&1 || true
+}
+
 # Extract conversation ID from forge output (appears on "Initialize" or "Continue" lines).
 extract_conversation_id() {
     local output="$1"
@@ -213,24 +218,24 @@ echo "--- Test 2: Sequential undo (3 undos) ---"
 
 # Undo 1: undo prompt 3 → file reverts to "change2"
 echo -e "${YELLOW}Undo 1: undo last prompt${NC}"
-UNDO1=$(forge_prompt "undo last prompt using toolcall")
-assert_contains "Undo 1 executed" "$UNDO1" "Undo"
+UNDO1=$(forge_undo)
+assert_contains "Undo 1 executed" "$UNDO1" "Restored"
 assert_file_content "File content after undo 1" "$TEST_FILE" "change2"
 assert_eq "DB active rows after undo 1" "$(db_count_active)" "2"
 assert_eq "DB undone rows after undo 1" "$(db_count_undone)" "1"
 
 # Undo 2: undo prompt 2 → file reverts to "change1"
 echo -e "${YELLOW}Undo 2: undo last prompt${NC}"
-UNDO2=$(forge_prompt "undo last prompt using toolcall")
-assert_contains "Undo 2 executed" "$UNDO2" "Undo"
+UNDO2=$(forge_undo)
+assert_contains "Undo 2 executed" "$UNDO2" "Restored"
 assert_file_content "File content after undo 2" "$TEST_FILE" "change1"
 assert_eq "DB active rows after undo 2" "$(db_count_active)" "1"
 assert_eq "DB undone rows after undo 2" "$(db_count_undone)" "2"
 
 # Undo 3: undo prompt 1 → file reverts to "original content"
 echo -e "${YELLOW}Undo 3: undo last prompt${NC}"
-UNDO3=$(forge_prompt "undo last prompt using toolcall")
-assert_contains "Undo 3 executed" "$UNDO3" "Undo"
+UNDO3=$(forge_undo)
+assert_contains "Undo 3 executed" "$UNDO3" "Restored"
 assert_file_content "File content after undo 3" "$TEST_FILE" "original content"
 assert_eq "DB active rows after undo 3" "$(db_count_active)" "0"
 assert_eq "DB undone rows after undo 3" "$(db_count_undone)" "3"
@@ -240,8 +245,8 @@ echo ""
 # ── Test 3: Undo with no active snapshots ───────────────────────────────────
 
 echo "--- Test 3: Undo with no active snapshots ---"
-UNDO4=$(forge_prompt "undo last prompt using toolcall")
-assert_contains "Undo 4 reports no changes" "$UNDO4" "no"
+UNDO4=$(forge_undo)
+assert_contains "Undo 4 reports no changes" "$UNDO4" "No file changes"
 
 echo ""
 
@@ -261,8 +266,8 @@ SNAP_PATH=$(db_get_snap_file_path "$NEW_FILE")
 assert_eq "snap_file_path is empty for new file" "$SNAP_PATH" ""
 
 echo -e "${YELLOW}Undo new file creation${NC}"
-UNDO_NEW=$(forge_prompt "undo last prompt using toolcall")
-assert_contains "Undo new file executed" "$UNDO_NEW" "Undo"
+UNDO_NEW=$(forge_undo)
+assert_contains "Undo new file executed" "$UNDO_NEW" "Deleted"
 assert_file_not_exists "New file deleted after undo" "$NEW_FILE"
 assert_true "New file row marked undone in DB" "$(db_is_undone "$NEW_FILE")"
 
@@ -286,8 +291,8 @@ assert_file_content "New file created" "$MIXED_FILE" "mixed new file"
 ACTIVE_BEFORE=$(db_count_active)
 
 echo -e "${YELLOW}Undo mixed prompt${NC}"
-MIXED_UNDO=$(forge_prompt "undo last prompt using toolcall")
-assert_contains "Mixed undo executed" "$MIXED_UNDO" "Undo"
+MIXED_UNDO=$(forge_undo)
+assert_contains "Mixed undo executed" "$MIXED_UNDO" "Restored"
 assert_file_content "Existing file restored" "$TEST_FILE" "original content"
 assert_file_not_exists "New file deleted" "$MIXED_FILE"
 
@@ -311,8 +316,8 @@ rm -f "$MANUAL_FILE"
 assert_file_not_exists "File manually deleted" "$MANUAL_FILE"
 
 echo -e "${YELLOW}Undo — should succeed even though file is gone${NC}"
-MANUAL_UNDO=$(forge_prompt "undo last prompt using toolcall")
-assert_contains "Undo of manually deleted file succeeded" "$MANUAL_UNDO" "Undo"
+MANUAL_UNDO=$(forge_undo)
+assert_contains "Undo of manually deleted file succeeded" "$MANUAL_UNDO" "Deleted"
 
 echo ""
 
@@ -334,8 +339,8 @@ assert_file_content "New file C has correct content" "$NEW_FILE_C" "content C"
 ACTIVE_BEFORE_MULTI_CREATE=$(db_count_active)
 
 echo -e "${YELLOW}Undo — all 3 new files should be deleted${NC}"
-MULTI_CREATE_UNDO=$(forge_prompt "undo last prompt using toolcall")
-assert_contains "Multi-create undo executed" "$MULTI_CREATE_UNDO" "Undo"
+MULTI_CREATE_UNDO=$(forge_undo)
+assert_contains "Multi-create undo executed" "$MULTI_CREATE_UNDO" "Deleted"
 assert_file_not_exists "New file A deleted after undo" "$NEW_FILE_A"
 assert_file_not_exists "New file B deleted after undo" "$NEW_FILE_B"
 assert_file_not_exists "New file C deleted after undo" "$NEW_FILE_C"
@@ -371,8 +376,8 @@ assert_file_content "File C modified" "$MULTI_EDIT_C" "modified C"
 ACTIVE_BEFORE_MULTI_EDIT=$(db_count_active)
 
 echo -e "${YELLOW}Undo — all 3 files should revert to original content${NC}"
-MULTI_EDIT_UNDO=$(forge_prompt "undo last prompt using toolcall")
-assert_contains "Multi-edit undo executed" "$MULTI_EDIT_UNDO" "Undo"
+MULTI_EDIT_UNDO=$(forge_undo)
+assert_contains "Multi-edit undo executed" "$MULTI_EDIT_UNDO" "Restored"
 assert_file_content "File A reverted" "$MULTI_EDIT_A" "original A"
 assert_file_content "File B reverted" "$MULTI_EDIT_B" "original B"
 assert_file_content "File C reverted" "$MULTI_EDIT_C" "original C"

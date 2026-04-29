@@ -136,12 +136,6 @@ pub struct PlanCreateOutput {
     pub before: Option<String>,
 }
 
-#[derive(Default, Debug, derive_more::From)]
-pub struct FsUndoOutput {
-    pub before_undo: Option<String>,
-    pub after_undo: Option<String>,
-}
-
 /// Output of a prompt-level undo operation that restores all files changed in
 /// the last user prompt.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -154,7 +148,6 @@ pub struct PromptUndoOutput {
     pub deleted_files: Vec<String>,
 }
 
-/// Output from todo_write tool execution
 #[derive(Debug)]
 pub struct TodoWriteOutput {
     /// List of todos that were saved
@@ -437,15 +430,6 @@ pub trait FollowUpService: Send + Sync {
 }
 
 #[async_trait::async_trait]
-pub trait FsUndoService: Send + Sync {
-    /// Undoes the last file operation at the specified path.
-    /// And returns the content of the undone file.
-    // TODO: We should move Snapshot service to Services from infra
-    // and drop FsUndoService.
-    async fn undo(&self, path: String) -> anyhow::Result<FsUndoOutput>;
-}
-
-#[async_trait::async_trait]
 pub trait PromptUndoService: Send + Sync {
     /// Restores all files that were changed during the most recent user prompt
     /// in the given conversation, using snapshot metadata from SQLite.
@@ -587,7 +571,6 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     type FsRemoveService: FsRemoveService;
     type FsSearchService: FsSearchService;
     type FollowUpService: FollowUpService;
-    type FsUndoService: FsUndoService;
     type PromptUndoService: PromptUndoService;
     type NetFetchService: NetFetchService;
     type ShellService: ShellService;
@@ -615,7 +598,6 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     fn fs_remove_service(&self) -> &Self::FsRemoveService;
     fn fs_search_service(&self) -> &Self::FsSearchService;
     fn follow_up_service(&self) -> &Self::FollowUpService;
-    fn fs_undo_service(&self) -> &Self::FsUndoService;
     fn prompt_undo_service(&self) -> &Self::PromptUndoService;
     fn net_fetch_service(&self) -> &Self::NetFetchService;
     fn shell_service(&self) -> &Self::ShellService;
@@ -884,13 +866,6 @@ impl<I: Services> FollowUpService for I {
         self.follow_up_service()
             .follow_up(question, options, multiple)
             .await
-    }
-}
-
-#[async_trait::async_trait]
-impl<I: Services> FsUndoService for I {
-    async fn undo(&self, path: String) -> anyhow::Result<FsUndoOutput> {
-        self.fs_undo_service().undo(path).await
     }
 }
 

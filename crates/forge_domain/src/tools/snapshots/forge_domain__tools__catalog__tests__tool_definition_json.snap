@@ -1,5 +1,6 @@
 ---
 source: crates/forge_domain/src/tools/catalog.rs
+assertion_line: 1226
 expression: tools
 ---
 {
@@ -255,11 +256,6 @@ expression: tools
     "file_path",
     "edits"
   ]
-}
-{
-  "title": "FSUndo",
-  "const": null,
-  "nullable": true
 }
 {
   "title": "Shell",

@@ -15,7 +15,7 @@ pub struct TrimContextSummary;
 /// on the same resource (e.g., same file path, same shell command).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Operation<'a> {
-    /// File operation (read, update, remove, undo) on a specific path
+    /// File operation (read, update, remove) on a specific path
     File(&'a str),
     /// Shell command execution
     Shell(&'a str),
@@ -43,14 +43,13 @@ enum Operation<'a> {
 
 /// Converts the tool call to its operation type for comparison.
 ///
-/// File operations (read, update, remove, undo) on the same path are
+/// File operations (read, update, remove) on the same path are
 /// considered the same operation type for deduplication purposes.
 fn to_op(tool: &SummaryTool) -> Operation<'_> {
     match tool {
         SummaryTool::FileRead { path } => Operation::File(path),
         SummaryTool::FileUpdate { path } => Operation::File(path),
         SummaryTool::FileRemove { path } => Operation::File(path),
-        SummaryTool::Undo => Operation::File("undo"),
         SummaryTool::Shell { command } => Operation::Shell(command),
         SummaryTool::Search { pattern } => Operation::Search(pattern),
         SummaryTool::SemSearch { queries } => Operation::CodebaseSearch { queries },

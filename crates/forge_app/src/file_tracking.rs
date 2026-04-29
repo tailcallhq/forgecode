@@ -576,36 +576,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_write_then_undo_then_detect() {
-        // Agent writes a file, then undoes it. The undo operation records
-        // the restored content hash. Disk should match.
-        let original = "original";
-        let original_hash = compute_hash(original);
-
-        let fs = MockFsReadService::new().with_file("/test/file.txt", original);
-        let detector = FileChangeDetector::new(Arc::new(fs));
-
-        let metrics = Metrics::default()
-            .insert(
-                "/test/file.txt".to_string(),
-                FileOperation::new(ToolKind::Read).content_hash(Some(original_hash.clone())),
-            )
-            .insert(
-                "/test/file.txt".to_string(),
-                FileOperation::new(ToolKind::Write).content_hash(Some(compute_hash("modified"))),
-            )
-            .insert(
-                "/test/file.txt".to_string(),
-                FileOperation::new(ToolKind::Undo).content_hash(Some(original_hash)),
-            );
-
-        let actual = detector.detect(&metrics, 64).await;
-        let expected = vec![];
-
-        assert_eq!(actual, expected);
-    }
-
-    #[tokio::test]
     async fn test_truncated_read_then_write_no_false_positive() {
         // Read a file with long lines (content gets truncated in display),
         // then write to it. The write hash should match disk.

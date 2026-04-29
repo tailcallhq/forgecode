@@ -44,12 +44,27 @@ impl SnapshotMetadataRepository for SnapshotMetadataRepositoryImpl {
         user_input_id: UserInputId,
     ) -> anyhow::Result<Vec<(String, String)>> {
         let mut conn = self.pool.get_connection()?;
+        // Order by created_at ASC so that the earliest snapshot per file path
+        // appears first. When the same file is modified multiple times within
+        // a single prompt, only the earliest snapshot captures the state before
+        // any changes in that prompt — which is the correct state to restore to.
         let rows: Vec<(String, String)> = snapshot_metadata::table
             .filter(snapshot_metadata::user_input_id.eq(user_input_id.to_string()))
             .filter(snapshot_metadata::undone_at.is_null())
+            .order(snapshot_metadata::created_at.asc())
             .select((snapshot_metadata::file_path, snapshot_metadata::snap_file_path))
             .load(&mut conn)?;
-        Ok(rows)
+
+        // Deduplicate by file_path, keeping only the first (earliest) entry.
+        // This ensures that when a file is modified multiple times in the same
+        // prompt, we restore it to the state before the first modification.
+        let mut seen = std::collections::HashSet::new();
+        let deduped: Vec<(String, String)> = rows
+            .into_iter()
+            .filter(|(file_path, _)| seen.insert(file_path.clone()))
+            .collect();
+
+        Ok(deduped)
     }
 
     async fn find_snapshots_by_conversation_id(

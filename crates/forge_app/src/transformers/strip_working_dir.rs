@@ -74,7 +74,6 @@ impl Transformer for StripWorkingDir {
                         SummaryTool::FileRemove { path } => {
                             *path = self.strip_prefix(path);
                         }
-                        SummaryTool::Undo => {}
                         SummaryTool::Shell { .. }
                         | SummaryTool::Search { .. }
                         | SummaryTool::SemSearch { .. }

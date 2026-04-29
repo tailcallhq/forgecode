@@ -48,7 +48,6 @@ impl FormatContent for ToolOperation {
             | ToolOperation::FsRemove { input: _, output: _ }
             | ToolOperation::FsSearch { input: _, output: _ }
             | ToolOperation::CodebaseSearch { output: _ }
-            | ToolOperation::FsUndo { output: _ }
             | ToolOperation::NetFetch { input: _, output: _ }
             | ToolOperation::Shell { output: _ }
             | ToolOperation::FollowUp { output: _ }
@@ -72,7 +71,7 @@ mod tests {
     use crate::operation::ToolOperation;
     use crate::{
         Content, FsRemoveOutput, FsWriteOutput, HttpResponse, Match, MatchResult,
-        PatchOutput, PromptUndoOutput, ReadOutput, ResponseContext, SearchResult, ShellOutput,
+        PatchOutput, ReadOutput, ResponseContext, SearchResult, ShellOutput,
     };
 
     // ContentFormat methods are now implemented in ChatResponseContent
@@ -351,22 +350,6 @@ mod tests {
         let output = actual.unwrap();
         assert!(output.contains("line1"));
         assert!(output.contains("new line"));
-    }
-
-    #[test]
-    fn test_prompt_undo() {
-        let fixture = ToolOperation::FsUndo {
-            output: PromptUndoOutput {
-                restored_files: vec!["/home/user/project/test.txt".to_string()],
-                deleted_files: vec![],
-            },
-        };
-        let env = fixture_environment();
-
-        let actual = fixture.to_content(&env);
-        let expected = None;
-
-        assert_eq!(actual, expected);
     }
 
     #[test]

@@ -34,11 +34,15 @@ impl<F: FileReaderInfra + FileWriterInfra + FileRemoverInfra + SnapshotMetadataR
             .find_snapshots_by_conversation_id(conversation_id)
             .await?;
 
-        // Step 2: Determine the latest user_input_id from the first row.
-        let latest_user_input_id = conversation_snapshots
-            .first()
-            .map(|(user_input_id, _, _)| user_input_id.clone())
-            .ok_or_else(|| anyhow::anyhow!("No snapshots found for this conversation"))?;
+        // Step 2: If there are no active snapshots, return an empty result
+        // rather than an error. This makes the API ergonomic: calling /undo
+        // when there's nothing to undo simply reports "no changes".
+        let latest_user_input_id = match conversation_snapshots.first() {
+            Some((user_input_id, _, _)) => user_input_id.clone(),
+            None => {
+                return Ok(PromptUndoOutput::default());
+            }
+        };
 
         // Step 3: Fetch all (file_path, snap_file_path) pairs for that prompt.
         let user_input_id = UserInputId::parse(&latest_user_input_id)?;
@@ -347,14 +351,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_undo_last_prompt_no_snapshots_returns_error() {
+    async fn test_undo_last_prompt_no_snapshots_returns_empty() {
         let conversation_id = ConversationId::generate();
         let fixture = MockUndoInfra::new();
 
         let service = ForgePromptUndo::new(Arc::new(fixture));
-        let result = service.undo_last_prompt(conversation_id).await;
+        let actual = service.undo_last_prompt(conversation_id).await.unwrap();
 
-        assert!(result.is_err());
+        let expected = PromptUndoOutput::default();
+        assert_eq!(actual, expected);
     }
 
     #[tokio::test]

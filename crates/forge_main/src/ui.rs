@@ -319,6 +319,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.hydrate_caches();
         self.init_conversation().await?;
 
+        // Handle --undo flag: undo last prompt's file changes and exit.
+        if self.cli.undo {
+            return self.handle_cli_undo().await;
+        }
+
         // Check for dispatch flag first
         if let Some(dispatch_json) = self.cli.event.clone() {
             return self.handle_dispatch(dispatch_json).await;
@@ -4540,6 +4545,44 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 ));
             }
             self.writeln_title(TitleFormat::info(parts.join(". ")))?;
+        }
+
+        Ok(())
+    }
+
+    /// Handles the `--undo` CLI flag by performing an undo and exiting.
+    ///
+    /// Uses `--conversation-id` if provided, otherwise falls back to the last
+    /// active conversation.
+    async fn handle_cli_undo(&mut self) -> anyhow::Result<()> {
+        let conversation_id = self
+            .state
+            .conversation_id
+            .ok_or_else(|| anyhow::anyhow!(
+                "No conversation to undo. Use --conversation-id to specify one."
+            ))?;
+
+        let output = self.api.undo_last_prompt(conversation_id).await?;
+
+        if output.restored_files.is_empty() && output.deleted_files.is_empty() {
+            println!("No file changes found for the last prompt.");
+        } else {
+            let mut parts = Vec::new();
+            if !output.restored_files.is_empty() {
+                let restored_count = output.restored_files.len();
+                let restored_list = output.restored_files.join(", ");
+                parts.push(format!(
+                    "Restored {restored_count} file(s) to their state before the last prompt: {restored_list}"
+                ));
+            }
+            if !output.deleted_files.is_empty() {
+                let deleted_count = output.deleted_files.len();
+                let deleted_list = output.deleted_files.join(", ");
+                parts.push(format!(
+                    "Deleted {deleted_count} new file(s) created during the last prompt: {deleted_list}"
+                ));
+            }
+            println!("{}", parts.join(". "));
         }
 
         Ok(())

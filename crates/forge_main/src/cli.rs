@@ -50,6 +50,14 @@ pub struct Cli {
     #[arg(long)]
     pub sandbox: Option<String>,
 
+    /// Undo all file changes from the last prompt in the current conversation.
+    ///
+    /// When provided, restores all files modified or created during the most
+    /// recent user prompt, then exits. Requires `--conversation-id` to identify
+    /// which conversation to undo.
+    #[arg(long, default_value_t = false)]
+    pub undo: bool,
+
     /// Enable verbose logging output.
     #[arg(long, default_value_t = false)]
     pub verbose: bool,
@@ -73,7 +81,10 @@ impl Cli {
     /// Returns true when no prompt, piped input, or subcommand is provided,
     /// indicating the user wants to enter interactive mode.
     pub fn is_interactive(&self) -> bool {
-        self.prompt.is_none() && self.piped_input.is_none() && self.subcommands.is_none()
+        self.prompt.is_none()
+            && self.piped_input.is_none()
+            && self.subcommands.is_none()
+            && !self.undo
     }
 }
 

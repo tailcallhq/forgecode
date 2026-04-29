@@ -48,7 +48,6 @@ pub enum ToolCatalog {
     Remove(FSRemove),
     Patch(FSPatch),
     MultiPatch(FSMultiPatch),
-    Undo(FSUndo),
     Shell(Shell),
     Fetch(NetFetch),
     Followup(Followup),
@@ -573,10 +572,6 @@ pub struct FSMultiPatch {
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
-#[tool_description_file = "crates/forge_domain/src/tools/descriptions/fs_undo.md"]
-pub struct FSUndo;
-
-#[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
 #[tool_description_file = "crates/forge_domain/src/tools/descriptions/shell.md"]
 pub struct Shell {
     /// The shell command to execute.
@@ -755,16 +750,6 @@ pub struct FSFileInfoInput {
     pub path: String,
 }
 
-#[derive(Deserialize, JsonSchema)]
-pub struct UndoInput {
-    /// The absolute path of the file to revert to its previous state. Must be
-    /// the exact path that was previously modified, created, or deleted by
-    /// a Forge file operation. If the file was deleted, provide the
-    /// original path it had before deletion. The system requires a prior
-    /// snapshot for this path.
-    pub path: String,
-}
-
 /// Input for the select tool
 #[derive(Deserialize, JsonSchema)]
 pub struct SelectInput {
@@ -809,7 +794,6 @@ impl ToolDescription for ToolCatalog {
             ToolCatalog::SemSearch(v) => v.description(),
             ToolCatalog::Read(v) => v.description(),
             ToolCatalog::Remove(v) => v.description(),
-            ToolCatalog::Undo(v) => v.description(),
             ToolCatalog::Write(v) => v.description(),
             ToolCatalog::Plan(v) => v.description(),
             ToolCatalog::Skill(v) => v.description(),
@@ -868,7 +852,6 @@ impl ToolCatalog {
             ToolCatalog::SemSearch(_) => r#gen.into_root_schema_for::<SemanticSearch>(),
             ToolCatalog::Read(_) => r#gen.into_root_schema_for::<FSRead>(),
             ToolCatalog::Remove(_) => r#gen.into_root_schema_for::<FSRemove>(),
-            ToolCatalog::Undo(_) => r#gen.into_root_schema_for::<FSUndo>(),
             ToolCatalog::Write(_) => r#gen.into_root_schema_for::<FSWrite>(),
             ToolCatalog::Plan(_) => r#gen.into_root_schema_for::<PlanCreate>(),
             ToolCatalog::Skill(_) => r#gen.into_root_schema_for::<SkillFetch>(),
@@ -994,7 +977,6 @@ impl ToolCatalog {
             }),
             // Operations that don't require permission checks
             ToolCatalog::SemSearch(_)
-            | ToolCatalog::Undo(_)
             | ToolCatalog::Followup(_)
             | ToolCatalog::Plan(_)
             | ToolCatalog::Skill(_)
@@ -1063,11 +1045,6 @@ impl ToolCatalog {
     /// Creates a Semantic Search tool call with the specified queries
     pub fn tool_call_semantic_search(queries: Vec<SearchQuery>) -> ToolCallFull {
         ToolCallFull::from(ToolCatalog::SemSearch(SemanticSearch { queries }))
-    }
-
-    /// Creates an Undo tool call that reverts all file changes from the last prompt
-    pub fn tool_call_undo() -> ToolCallFull {
-        ToolCallFull::from(ToolCatalog::Undo(FSUndo))
     }
 
     /// Creates a Fetch tool call with the specified url
