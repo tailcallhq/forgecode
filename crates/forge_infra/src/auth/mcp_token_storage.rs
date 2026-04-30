@@ -98,11 +98,11 @@ impl CredentialStore for McpTokenStorage {
         if let Some(entry) = store.get(&self.server_url) {
             use oauth2::basic::BasicTokenType;
             use oauth2::{AccessToken, RefreshToken};
-            use rmcp::transport::auth::OAuthTokenResponse;
+            use rmcp::transport::auth::{OAuthTokenResponse, VendorExtraTokenFields};
 
             let access_token = AccessToken::new(entry.tokens.access_token.clone());
             let token_type = BasicTokenType::Bearer;
-            let extra_fields = oauth2::EmptyExtraTokenFields {};
+            let extra_fields = VendorExtraTokenFields::default();
 
             let mut token_response =
                 OAuthTokenResponse::new(access_token, token_type, extra_fields);
@@ -127,14 +127,23 @@ impl CredentialStore for McpTokenStorage {
                 }
             }
 
-            Ok(Some(StoredCredentials {
-                client_id: entry
+            let granted_scopes = entry
+                .tokens
+                .scope
+                .as_deref()
+                .map(|s| s.split_whitespace().map(str::to_string).collect())
+                .unwrap_or_default();
+
+            Ok(Some(StoredCredentials::new(
+                entry
                     .client_registration
                     .as_ref()
                     .map(|r| r.client_id.clone())
                     .unwrap_or_default(),
-                token_response: Some(token_response),
-            }))
+                Some(token_response),
+                granted_scopes,
+                None,
+            )))
         } else {
             Ok(None)
         }

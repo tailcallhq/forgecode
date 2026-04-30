@@ -55,7 +55,7 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
             root_cert_paths: None,
         });
 
-        let mut client = reqwest::Client::builder()
+        let mut client = forge_reqwest::builder()
             .connect_timeout(Duration::from_secs(http.connect_timeout_secs))
             .read_timeout(Duration::from_secs(http.read_timeout_secs))
             .pool_idle_timeout(Duration::from_secs(http.pool_idle_timeout_secs))

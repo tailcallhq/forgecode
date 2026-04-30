@@ -18,15 +18,13 @@ pub struct Tracker {
 
 impl Tracker {
     pub fn new(api_secret: &'static str) -> Self {
-        // Configure HTTP client with connection pooling similar to forge_provider
-        let client = Client::builder()
+        let client = forge_reqwest::builder()
             .connect_timeout(Duration::from_secs(10))
             .read_timeout(Duration::from_secs(30))
             .pool_idle_timeout(Duration::from_secs(90))
             .pool_max_idle_per_host(5)
             .build()
             .expect("Failed to build HTTP client for PostHog tracker");
-
         Self { api_secret, client }
     }
 }
