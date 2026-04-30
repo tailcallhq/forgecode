@@ -345,12 +345,21 @@ impl ForgeMcpClient {
             .map_err(|e| anyhow::anyhow!("Failed to get credentials: {}", e))?;
 
         {
+            use oauth2::TokenResponse;
             use rmcp::transport::auth::CredentialStore;
             let save_store = McpTokenStorage::new(http.url.clone(), self.environment.clone());
+            // Prefer scopes granted by the server (from the token response); fall
+            // back to the scopes we requested if the server didn't echo them back.
+            let granted_scopes = credentials
+                .1
+                .as_ref()
+                .and_then(|t| t.scopes())
+                .map(|s| s.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+                .unwrap_or_else(|| oauth_config.scopes.clone());
             let stored = rmcp::transport::auth::StoredCredentials::new(
                 credentials.0,
                 credentials.1,
-                Vec::new(),
+                granted_scopes,
                 None,
             );
             save_store
