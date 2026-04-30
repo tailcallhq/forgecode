@@ -44,6 +44,16 @@ impl<P: ConsoleWriter + 'static> SharedSpinner<P> {
             .stop(message)
     }
 
+    /// Pause the active spinner if any.
+    pub fn pause(&self) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).pause()
+    }
+
+    /// Resume the active spinner if any.
+    pub fn resume(&self) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).resume()
+    }
+
     /// Resets the stopwatch to zero.
     pub fn reset(&self) {
         self.0.lock().unwrap_or_else(|e| e.into_inner()).reset()
@@ -181,11 +191,11 @@ struct StreamDirectWriter<P: ConsoleWriter> {
 
 impl<P: ConsoleWriter + 'static> StreamDirectWriter<P> {
     fn pause_spinner(&self) {
-        let _ = self.spinner.stop(None);
+        self.spinner.pause();
     }
 
     fn resume_spinner(&self) {
-        let _ = self.spinner.start(None);
+        self.spinner.resume();
     }
 }
 
