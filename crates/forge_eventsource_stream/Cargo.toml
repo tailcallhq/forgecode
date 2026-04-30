@@ -10,7 +10,7 @@ std = ["futures-core/std", "nom/std"]
 
 [dependencies]
 futures-core = { version = "0.3", default-features = false }
-nom = { version = "7.1", default-features = false }
+nom = { version = "8.0", default-features = false }
 pin-project-lite = "0.2.8"
 
 [dev-dependencies]
