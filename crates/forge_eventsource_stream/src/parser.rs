@@ -1,8 +1,10 @@
 use nom::IResult;
+use nom::Parser;
 use nom::branch::alt;
+use nom::bytes::complete::take_while_m_n as take_while_m_n_complete;
 use nom::bytes::streaming::{tag, take_while, take_while_m_n, take_while1};
 use nom::combinator::opt;
-use nom::sequence::{preceded, terminated, tuple};
+use nom::sequence::{preceded, terminated};
 
 /// ; ABNF definition from HTML spec
 ///
@@ -74,16 +76,17 @@ pub fn is_any_char(c: char) -> bool {
 
 #[inline]
 fn crlf(input: &str) -> IResult<&str, &str> {
-    tag("\u{000D}\u{000A}")(input)
+    tag("\u{000D}\u{000A}").parse(input)
 }
 
 #[inline]
 fn end_of_line(input: &str) -> IResult<&str, &str> {
     alt((
         crlf,
-        take_while_m_n(1, 1, is_cr),
-        take_while_m_n(1, 1, is_lf),
-    ))(input)
+        take_while_m_n_complete(1, 1, is_cr),
+        take_while_m_n_complete(1, 1, is_lf),
+    ))
+    .parse(input)
 }
 
 #[inline]
@@ -91,22 +94,24 @@ fn comment(input: &str) -> IResult<&str, RawEventLine<'_>> {
     preceded(
         take_while_m_n(1, 1, is_colon),
         terminated(take_while(is_any_char), end_of_line),
-    )(input)
+    )
+    .parse(input)
     .map(|(input, comment)| (input, RawEventLine::Comment(comment)))
 }
 
 #[inline]
 fn field(input: &str) -> IResult<&str, RawEventLine<'_>> {
     terminated(
-        tuple((
+        (
             take_while1(is_name_char),
             opt(preceded(
                 take_while_m_n(1, 1, is_colon),
                 preceded(opt(take_while_m_n(1, 1, is_space)), take_while(is_any_char)),
             )),
-        )),
+        ),
         end_of_line,
-    )(input)
+    )
+    .parse(input)
     .map(|(input, (field, data))| (input, RawEventLine::Field(field, data)))
 }
 
@@ -116,5 +121,5 @@ fn empty(input: &str) -> IResult<&str, RawEventLine<'_>> {
 }
 
 pub fn line(input: &str) -> IResult<&str, RawEventLine<'_>> {
-    alt((comment, field, empty))(input)
+    alt((comment, field, empty)).parse(input)
 }
