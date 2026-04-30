@@ -14,7 +14,7 @@ use forge_domain::{
 };
 use reqwest::header::HeaderMap;
 use reqwest::{Response, Url};
-use reqwest_eventsource::EventSource;
+use forge_eventsource::EventSource;
 
 use crate::auth::{AnyAuthStrategy, ForgeAuthStrategyFactory};
 use crate::console::StdConsoleWriter;

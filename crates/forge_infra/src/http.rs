@@ -10,7 +10,7 @@ use forge_config::{ForgeConfig, TlsBackend, TlsVersion};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use reqwest::redirect::Policy;
 use reqwest::{Certificate, Client, Response, StatusCode, Url};
-use reqwest_eventsource::{EventSource, RequestBuilderExt};
+use forge_eventsource::{EventSource, RequestBuilderExt};
 use tracing::{debug, warn};
 
 const VERSION: &str = match option_env!("APP_VERSION") {

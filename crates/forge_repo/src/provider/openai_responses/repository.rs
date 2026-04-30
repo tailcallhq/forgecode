@@ -195,12 +195,12 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
             .with_context(|| format_http_context(None, "POST", &self.responses_url))?;
 
         // Parse SSE stream into domain messages and convert to domain type
-        use reqwest_eventsource::Event;
+        use forge_eventsource::Event;
         let url = self.responses_url.clone();
         let event_stream = source
             .take_while(|message| {
                 let should_continue =
-                    !matches!(message, Err(reqwest_eventsource::Error::StreamEnded));
+                    !matches!(message, Err(forge_eventsource::Error::StreamEnded));
                 async move { should_continue }
             })
             .filter_map(move |event_result| {
@@ -238,9 +238,9 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                                 Err(e) => Some(Err(e)),
                             }
                         }
-                        Err(reqwest_eventsource::Error::StreamEnded) => None,
-                        Err(reqwest_eventsource::Error::InvalidStatusCode(_, response))
-                        | Err(reqwest_eventsource::Error::InvalidContentType(_, response)) => {
+                        Err(forge_eventsource::Error::StreamEnded) => None,
+                        Err(forge_eventsource::Error::InvalidStatusCode(_, response))
+                        | Err(forge_eventsource::Error::InvalidContentType(_, response)) => {
                             let (_, reason) = read_http_error_reason(response).await;
                             Some(Err(anyhow::anyhow!(reason)
                                 .context(format_http_context(None, "POST", &url))))
@@ -544,12 +544,12 @@ mod tests {
             url: &reqwest::Url,
             headers: Option<reqwest::header::HeaderMap>,
             body: bytes::Bytes,
-        ) -> anyhow::Result<reqwest_eventsource::EventSource> {
+        ) -> anyhow::Result<forge_eventsource::EventSource> {
             let mut request = self.client.post(url.clone()).body(body);
             if let Some(headers) = headers {
                 request = request.headers(headers);
             }
-            Ok(reqwest_eventsource::EventSource::new(request)?)
+            Ok(forge_eventsource::EventSource::new(request)?)
         }
     }
 

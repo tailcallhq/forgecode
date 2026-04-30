@@ -12,7 +12,7 @@ use forge_domain::{
 };
 use reqwest::Response;
 use reqwest::header::HeaderMap;
-use reqwest_eventsource::EventSource;
+use forge_eventsource::EventSource;
 use url::Url;
 
 use crate::user::{User, UserUsage};

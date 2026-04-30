@@ -388,7 +388,7 @@ mod tests {
         ToolResult,
     };
     use reqwest::header::HeaderMap;
-    use reqwest_eventsource::EventSource;
+    use forge_eventsource::EventSource;
 
     use super::*;
     use crate::provider::mock_server::{MockServer, normalize_ports};

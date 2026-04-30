@@ -20,7 +20,7 @@ use forge_domain::{
 pub use forge_infra::CacacheStorage;
 use reqwest::Response;
 use reqwest::header::HeaderMap;
-use reqwest_eventsource::EventSource;
+use forge_eventsource::EventSource;
 use url::Url;
 
 use crate::agent::ForgeAgentRepository;

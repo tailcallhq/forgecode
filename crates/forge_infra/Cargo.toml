@@ -32,7 +32,7 @@ forge_app.workspace = true
 forge_walker.workspace = true
 
 
-reqwest-eventsource.workspace = true
+forge_eventsource.workspace = true
 glob.workspace = true
 futures.workspace = true
 diesel = { version= "2.3.7", features = ["sqlite", "r2d2", "chrono"] }

@@ -379,7 +379,7 @@ mod tests {
     use forge_app::domain::{Provider, ProviderId, ProviderResponse};
     use forge_app::dto::openai::{ContentPart, ImageUrl, Message, MessageContent, Role};
     use reqwest::header::HeaderMap;
-    use reqwest_eventsource::EventSource;
+    use forge_eventsource::EventSource;
     use url::Url;
 
     use super::*;
