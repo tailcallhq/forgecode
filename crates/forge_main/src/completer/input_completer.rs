@@ -12,7 +12,6 @@ use crate::model::ForgeCommandManager;
 pub fn select_workspace_file(cwd: &Path, query: Option<String>) -> anyhow::Result<Option<String>> {
     let files: Vec<String> = Walker::max_all()
         .cwd(cwd.to_path_buf())
-        .skip_binary(true)
         .get_blocking()
         .unwrap_or_default()
         .into_iter()

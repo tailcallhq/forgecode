@@ -177,8 +177,11 @@ struct ViewportMoveTo {
 impl CrosstermCommand for ViewportMoveTo {
     fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
         RestorePosition.write_ansi(f)?;
+        for _ in 0..self.y {
+            write!(f, "\r\n")?;
+        }
         MoveToColumn(self.x).write_ansi(f)?;
-        write!(f, "\u{1b}[{}B", self.y)
+        Ok(())
     }
 
     #[cfg(windows)]
