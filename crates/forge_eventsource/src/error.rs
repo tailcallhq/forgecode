@@ -1,17 +1,15 @@
 use core::fmt;
-use forge_eventsource_stream::EventStreamError;
-use nom::error::Error as NomError;
-use reqwest::header::HeaderValue;
-use reqwest::Error as ReqwestError;
-use reqwest::Response;
-use reqwest::StatusCode;
 use std::string::FromUtf8Error;
 
+use forge_eventsource_stream::EventStreamError;
+use nom::error::Error as NomError;
 #[cfg(doc)]
 use reqwest::RequestBuilder;
+use reqwest::header::HeaderValue;
+use reqwest::{Error as ReqwestError, Response, StatusCode};
 
-/// Error raised when a [`RequestBuilder`] cannot be cloned. See [`RequestBuilder::try_clone`] for
-/// more information
+/// Error raised when a [`RequestBuilder`] cannot be cloned. See
+/// [`RequestBuilder::try_clone`] for more information
 #[derive(Debug, Clone, Copy)]
 pub struct CannotCloneRequestError;
 
@@ -41,7 +39,8 @@ pub enum Error {
     /// The status code returned by the server is invalid
     #[error("Invalid status code: {0}")]
     InvalidStatusCode(StatusCode, Box<Response>),
-    /// The `Last-Event-ID` cannot be formed into a Header to be submitted to the server
+    /// The `Last-Event-ID` cannot be formed into a Header to be submitted to
+    /// the server
     #[error("Invalid `Last-Event-ID`: {0}")]
     InvalidLastEventId(String),
     /// The stream ended

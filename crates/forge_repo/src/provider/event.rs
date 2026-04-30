@@ -1,8 +1,8 @@
 use anyhow::Context;
 use forge_app::domain::ChatCompletionMessage;
 use forge_app::dto::openai::Error;
-use reqwest::Url;
 use forge_eventsource::{Event, EventSource};
+use reqwest::Url;
 use serde::de::DeserializeOwned;
 use tokio_stream::{Stream, StreamExt};
 use tracing::debug;

@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use async_openai::types::responses as oai;
-use forge_eventsource_stream::Eventsource;
 use forge_app::domain::{
     ChatCompletionMessage, Context as ChatContext, Model, ModelId, ResultStream,
 };
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{BoxStream, ChatRepository, Provider};
+use forge_eventsource_stream::Eventsource;
 use forge_infra::sanitize_headers;
 use futures::StreamExt;
 use reqwest::StatusCode;
@@ -338,7 +338,10 @@ fn into_sse_parse_error<E>(error: forge_eventsource_stream::EventStreamError<E>)
 where
     E: std::fmt::Debug + std::fmt::Display + Send + Sync + 'static,
 {
-    let is_retryable = matches!(&error, forge_eventsource_stream::EventStreamError::Transport(_));
+    let is_retryable = matches!(
+        &error,
+        forge_eventsource_stream::EventStreamError::Transport(_)
+    );
     let error = anyhow::anyhow!("SSE parse error: {}", error);
 
     if is_retryable {
@@ -997,10 +1000,11 @@ mod tests {
 
     #[test]
     fn test_into_sse_parse_error_keeps_utf8_errors_non_retryable() {
-        let error =
-            into_sse_parse_error(forge_eventsource_stream::EventStreamError::<anyhow::Error>::Utf8(
+        let error = into_sse_parse_error(
+            forge_eventsource_stream::EventStreamError::<anyhow::Error>::Utf8(
                 String::from_utf8(vec![0xFF]).unwrap_err(),
-            ));
+            ),
+        );
 
         assert!(!is_retryable(&error));
         assert_eq!(

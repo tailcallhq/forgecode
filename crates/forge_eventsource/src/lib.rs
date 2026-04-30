@@ -1,8 +1,8 @@
-//! Provides a simple wrapper for [`reqwest`] to provide an Event Source implementation.
-//! You can learn more about Server Sent Events (SSE) take a look at [the MDN
-//! docs](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
-//! This crate uses [`forge_eventsource_stream`] to wrap the underlying Bytes stream, and retries failed
-//! requests.
+//! Provides a simple wrapper for [`reqwest`] to provide an Event Source
+//! implementation. You can learn more about Server Sent Events (SSE) take a
+//! look at [the MDN docs](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
+//! This crate uses [`forge_eventsource_stream`] to wrap the underlying Bytes
+//! stream, and retries failed requests.
 //!
 //! # Example
 //!

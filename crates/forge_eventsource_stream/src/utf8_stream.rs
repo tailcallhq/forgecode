@@ -3,11 +3,10 @@ use alloc::{
     string::{FromUtf8Error, String},
     vec::Vec,
 };
-
+use core::pin::Pin;
 #[cfg(feature = "std")]
 use std::string::FromUtf8Error;
 
-use core::pin::Pin;
 use futures_core::stream::Stream;
 use futures_core::task::{Context, Poll};
 use pin_project_lite::pin_project;
@@ -23,11 +22,7 @@ pub struct Utf8Stream<S> {
 
 impl<S> Utf8Stream<S> {
     pub fn new(stream: S) -> Self {
-        Self {
-            stream,
-            buffer: Vec::new(),
-            terminated: false,
-        }
+        Self { stream, buffer: Vec::new(), terminated: false }
     }
 }
 
@@ -89,8 +84,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use futures::prelude::*;
+
+    use super::*;
 
     #[tokio::test]
     async fn valid_streams() {

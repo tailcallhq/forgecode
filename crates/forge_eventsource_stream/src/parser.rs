@@ -1,8 +1,8 @@
+use nom::IResult;
 use nom::branch::alt;
-use nom::bytes::streaming::{tag, take_while, take_while1, take_while_m_n};
+use nom::bytes::streaming::{tag, take_while, take_while_m_n, take_while1};
 use nom::combinator::opt;
 use nom::sequence::{preceded, terminated, tuple};
-use nom::IResult;
 
 /// ; ABNF definition from HTML spec
 ///
@@ -19,9 +19,10 @@ use nom::IResult;
 /// colon         = %x003A ; U+003A COLON (:)
 /// bom           = %xFEFF ; U+FEFF BYTE ORDER MARK
 /// name-char     = %x0000-0009 / %x000B-000C / %x000E-0039 / %x003B-10FFFF
-///                 ; a scalar value other than U+000A LINE FEED (LF), U+000D CARRIAGE RETURN (CR), or U+003A COLON (:)
-/// any-char      = %x0000-0009 / %x000B-000C / %x000E-10FFFF
-///                 ; a scalar value other than U+000A LINE FEED (LF) or U+000D CARRIAGE RETURN (CR)
+///                 ; a scalar value other than U+000A LINE FEED (LF), U+000D
+/// CARRIAGE RETURN (CR), or U+003A COLON (:) any-char      = %x0000-0009 /
+/// %x000B-000C / %x000E-10FFFF                 ; a scalar value other than
+/// U+000A LINE FEED (LF) or U+000D CARRIAGE RETURN (CR)
 
 #[derive(Debug)]
 #[allow(dead_code)]

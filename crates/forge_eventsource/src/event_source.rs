@@ -1,6 +1,6 @@
-use crate::error::{CannotCloneRequestError, Error};
-use crate::retry::{RetryPolicy, DEFAULT_RETRY};
 use core::pin::Pin;
+use std::time::Duration;
+
 use forge_eventsource_stream::Eventsource;
 pub use forge_eventsource_stream::{Event as MessageEvent, EventStreamError};
 #[cfg(not(target_arch = "wasm32"))]
@@ -18,7 +18,9 @@ use futures_timer::Delay;
 use pin_project_lite::pin_project;
 use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::{Error as ReqwestError, IntoUrl, RequestBuilder, Response, StatusCode};
-use std::time::Duration;
+
+use crate::error::{CannotCloneRequestError, Error};
+use crate::retry::{DEFAULT_RETRY, RetryPolicy};
 
 #[cfg(not(target_arch = "wasm32"))]
 type ResponseFuture = BoxFuture<'static, Result<Response, ReqwestError>>;
@@ -145,7 +147,10 @@ fn check_response(response: Response) -> Result<Response, Error> {
     {
         Ok(response)
     } else {
-        Err(Error::InvalidContentType(content_type.clone(), Box::new(response)))
+        Err(Error::InvalidContentType(
+            content_type.clone(),
+            Box::new(response),
+        ))
     }
 }
 

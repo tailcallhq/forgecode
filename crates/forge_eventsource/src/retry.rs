@@ -1,15 +1,16 @@
 //! Helpers to handle connection delays when receiving errors
 
-use crate::error::Error;
 use std::time::Duration;
 
+use crate::error::Error;
 #[cfg(doc)]
 use crate::event_source::{Event, EventSource};
 
 /// Describes how an [`EventSource`] should retry on receiving an [`enum@Error`]
 pub trait RetryPolicy {
-    /// Submit a new retry delay based on the [`enum@Error`], last retry number and duration, if
-    /// available. A policy may also return `None` if it does not want to retry
+    /// Submit a new retry delay based on the [`enum@Error`], last retry number
+    /// and duration, if available. A policy may also return `None` if it
+    /// does not want to retry
     fn retry(&self, error: &Error, last_retry: Option<(usize, Duration)>) -> Option<Duration>;
 
     /// Set a new reconnection time if received from an [`Event`]
@@ -37,12 +38,7 @@ impl ExponentialBackoff {
         max_duration: Option<Duration>,
         max_retries: Option<usize>,
     ) -> Self {
-        Self {
-            start,
-            factor,
-            max_duration,
-            max_retries,
-        }
+        Self { start, factor, max_duration, max_retries }
     }
 }
 

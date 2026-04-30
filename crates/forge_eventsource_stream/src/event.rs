@@ -1,6 +1,5 @@
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
-
 use core::time::Duration;
 
 /// An Event

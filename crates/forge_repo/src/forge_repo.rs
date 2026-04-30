@@ -16,11 +16,11 @@ use forge_domain::{
     ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository, Snapshot,
     SnapshotRepository, TextPatchBlock, TextPatchRepository,
 };
+use forge_eventsource::EventSource;
 // Re-export CacacheStorage from forge_infra
 pub use forge_infra::CacacheStorage;
 use reqwest::Response;
 use reqwest::header::HeaderMap;
-use forge_eventsource::EventSource;
 use url::Url;
 
 use crate::agent::ForgeAgentRepository;

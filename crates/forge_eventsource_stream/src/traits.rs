@@ -1,5 +1,6 @@
-use crate::event_stream::EventStream;
 use futures_core::stream::Stream;
+
+use crate::event_stream::EventStream;
 
 /// Main entrypoint for creating [`crate::Event`] streams
 pub trait Eventsource: Sized {
