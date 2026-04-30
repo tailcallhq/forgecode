@@ -49,7 +49,7 @@ grep-searcher = "0.1.14"
 grep-regex = "0.1.13"
 handlebars = "6.4.0"
 html2md = "0.2.15"
-http = "1.2.0"
+http = "1.4.0"
 ignore = "0.4.23"
 is_ci = "1.2.0"
 indexmap = "2.13.0"
@@ -135,7 +135,7 @@ gray_matter = "0.3.2"
 num-format = "0.4"
 humantime = "2.1.0"
 dashmap = "7.0.0-rc2"
-async-openai = { version = "0.34.0", default-features = false, features = ["response-types"] } # Using only types, not the API client - reduces dependencies
+async-openai = { version = "0.36.1", default-features = false, features = ["response-types"] } # Using only types, not the API client - reduces dependencies
 gix = "0.83"
 google-cloud-auth = "1.8.0" # Google Cloud authentication with automatic token refresh
 
