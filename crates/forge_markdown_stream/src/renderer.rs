@@ -197,8 +197,7 @@ impl<W: Write> Renderer<W> {
                 self.current_language = language.clone();
                 self.code_buffer.clear();
                 // Detect mermaid diagram blocks
-                self.in_mermaid = language.as_deref() == Some("mermaid")
-                    || language.as_deref() == Some("mermaid");
+                self.in_mermaid = language.as_deref() == Some("mermaid");
                 self.mermaid_buffer.clear();
                 // Show language label for mermaid blocks
                 if self.in_mermaid {
