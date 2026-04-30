@@ -2415,7 +2415,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "futures-core",
- "http 0.2.12",
+ "http 1.4.0",
  "nom 7.1.3",
  "pin-project-lite",
  "reqwest 0.11.27",

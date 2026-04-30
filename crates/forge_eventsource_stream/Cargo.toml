@@ -15,7 +15,7 @@ pin-project-lite = "0.2.8"
 
 [dev-dependencies]
 futures = "0.3"
-http = "0.2"
+http = "1.0"
 reqwest = { version = "0.11", features = ["stream"] }
 tokio = { version = "1.0", features = ["macros", "rt"] }
 url = "2.2"
