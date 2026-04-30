@@ -719,10 +719,19 @@ pub async fn mcp_auth(server_url: &str, env: &Environment) -> anyhow::Result<()>
         .map_err(|e| anyhow::anyhow!("Failed to get credentials: {}", e))?;
 
     let save_store = McpTokenStorage::new(server_url.to_string(), env.clone());
+    let granted_scopes = {
+        use oauth2::TokenResponse;
+        credentials
+            .1
+            .as_ref()
+            .and_then(|t| t.scopes())
+            .map(|s| s.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
     let stored = rmcp::transport::auth::StoredCredentials::new(
         credentials.0,
         credentials.1,
-        Vec::new(),
+        granted_scopes,
         None,
     );
     save_store
