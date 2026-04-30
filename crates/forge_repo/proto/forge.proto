@@ -47,6 +47,10 @@ service ForgeService {
 
   // Searches for needle in haystack using fuzzy search
   rpc FuzzySearch(FuzzySearchRequest) returns (FuzzySearchResponse);
+
+  // Returns the raw server-side ignore patterns (gitignore syntax) so
+  // clients (e.g. the CLI) can filter files identically to the server.
+  rpc ListIgnorePatterns(ListIgnorePatternsRequest) returns (ListIgnorePatternsResponse);
 }
 
 // Node types
@@ -359,4 +363,11 @@ message FuzzySearchResponse {
 message SearchMatch {
   uint32 start_line = 1;
   uint32 end_line   = 2;
+}
+
+message ListIgnorePatternsRequest {}
+
+message ListIgnorePatternsResponse {
+  // Raw contents of the server's ignore_patterns file (gitignore syntax).
+  string patterns = 1;
 }

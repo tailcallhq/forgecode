@@ -6,8 +6,9 @@ use forge_app::{
     McpServerInfra, Services, StrategyFactory, UserInfra, WalkerInfra,
 };
 use forge_domain::{
-    ChatRepository, ConversationRepository, FuzzySearchRepository, ProviderRepository,
-    SkillRepository, SnapshotRepository, ValidationRepository, WorkspaceIndexRepository,
+    ChatRepository, ConversationRepository, FuzzySearchRepository, IgnorePatternsRepository,
+    ProviderRepository, SkillRepository, SnapshotRepository, ValidationRepository,
+    WorkspaceIndexRepository,
 };
 
 use crate::ForgeProviderAuthService;
@@ -53,7 +54,8 @@ pub struct ForgeServices<
         + WorkspaceIndexRepository
         + AgentRepository
         + SkillRepository
-        + ValidationRepository,
+        + ValidationRepository
+        + IgnorePatternsRepository,
 > {
     chat_service: Arc<ForgeProviderService<F>>,
     config_service: Arc<ForgeAppConfigService<F>>,
@@ -104,7 +106,8 @@ impl<
         + WorkspaceIndexRepository
         + AgentRepository
         + SkillRepository
-        + ValidationRepository,
+        + ValidationRepository
+        + IgnorePatternsRepository,
 > ForgeServices<F>
 {
     pub fn new(infra: Arc<F>) -> Self {
@@ -199,6 +202,7 @@ impl<
         + WorkspaceIndexRepository
         + ValidationRepository
         + FuzzySearchRepository
+        + IgnorePatternsRepository
         + Clone
         + 'static,
 > Services for ForgeServices<F>
@@ -353,6 +357,7 @@ impl<
         + AgentRepository
         + SkillRepository
         + ValidationRepository
+        + IgnorePatternsRepository
         + Send
         + Sync,
 > forge_app::EnvironmentInfra for ForgeServices<F>

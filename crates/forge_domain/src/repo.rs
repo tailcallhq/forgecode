@@ -232,3 +232,20 @@ pub trait FuzzySearchRepository: Send + Sync {
         search_all: bool,
     ) -> Result<Vec<SearchMatch>>;
 }
+
+/// Repository for fetching server-side ignore patterns.
+///
+/// The backend owns the canonical list of gitignore-style patterns used to
+/// decide which files are indexable. Clients (e.g. the CLI) fetch the raw
+/// patterns through this repository so they can filter files identically to
+/// the server without duplicating the rules.
+#[async_trait::async_trait]
+pub trait IgnorePatternsRepository: Send + Sync {
+    /// Returns the raw contents of the server's ignore_patterns file
+    /// (gitignore syntax).
+    ///
+    /// # Errors
+    /// Returns an error if the server cannot be reached or returns an invalid
+    /// response.
+    async fn list_ignore_patterns(&self) -> Result<String>;
+}
