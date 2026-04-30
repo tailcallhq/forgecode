@@ -1,10 +1,9 @@
-use nom::IResult;
-use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::take_while_m_n as take_while_m_n_complete;
 use nom::bytes::streaming::{tag, take_while, take_while_m_n, take_while1};
 use nom::combinator::opt;
 use nom::sequence::{preceded, terminated};
+use nom::{IResult, Parser};
 
 /// ; ABNF definition from HTML spec
 ///
