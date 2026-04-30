@@ -12,7 +12,7 @@ pin-project-lite = "0.2.8"
 nom = "8.0.0"
 mime = "0.3.16"
 futures-timer = "3.0.2"
-thiserror = "1.0.30"
+thiserror = "2.0.0"
 
 [dev-dependencies]
 futures = "0.3.5"

@@ -2405,7 +2405,7 @@ dependencies = [
  "pin-utils",
  "reqwest 0.12.28",
  "rocket",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
