@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -99,6 +100,28 @@ fn format_mcp_headers(server: &forge_domain::McpServerConfig) -> Option<String> 
                 )
             }
         }
+    }
+}
+
+fn uninstall_current_executable() -> anyhow::Result<PathBuf> {
+    let binary_path =
+        std::env::current_exe().context("Failed to resolve the current Forge executable")?;
+
+    #[cfg(unix)]
+    {
+        fs::remove_file(&binary_path).context(format!(
+            "Failed to remove Forge binary at {}",
+            binary_path.display()
+        ))?;
+        Ok(binary_path)
+    }
+
+    #[cfg(not(unix))]
+    {
+        anyhow::bail!(
+            "Automatic binary removal is only supported on Unix-like systems. Forge binary path: {}",
+            binary_path.display()
+        );
     }
 }
 
@@ -727,6 +750,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             TopLevelCommand::Update(args) => {
                 let update = forge_config::Update::default().auto_update(args.no_confirm);
                 on_update(self.api.clone(), Some(&update)).await;
+                return Ok(());
+            }
+            TopLevelCommand::Uninstall => {
+                self.on_uninstall().await?;
                 return Ok(());
             }
             TopLevelCommand::Setup => {
@@ -1874,6 +1901,41 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
 
         doctor_result
+    }
+
+    /// Remove Forge shell integration and the installed binary
+    async fn on_uninstall(&mut self) -> anyhow::Result<()> {
+        self.spinner.start(Some("Uninstalling Forge"))?;
+        let result = match crate::zsh::uninstall_zsh_integration().and_then(|result| {
+            uninstall_current_executable().map(|binary_path| (result, binary_path))
+        }) {
+            Ok(result) => result,
+            Err(error) => {
+                self.spinner.stop(None)?;
+                return Err(error);
+            }
+        };
+        self.spinner.stop(None)?;
+
+        let (result, binary_path) = result;
+
+        if let Some(backup_path) = result.backup_path {
+            self.writeln_title(TitleFormat::debug(format!(
+                "backup created at {}",
+                backup_path.display()
+            )))?;
+        }
+
+        self.writeln_title(TitleFormat::info(result.message))?;
+        self.writeln_title(TitleFormat::info(format!(
+            "Forge binary removed from {}",
+            binary_path.display()
+        )))?;
+        self.writeln_title(TitleFormat::action(
+            "Open a new terminal window to unload shell integration",
+        ))?;
+
+        Ok(())
     }
 
     /// Handle the cmd command - generates shell command from natural language

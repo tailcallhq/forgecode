@@ -23,6 +23,6 @@ pub(crate) fn normalize_script(content: &str) -> String {
 
 pub use plugin::{
     generate_zsh_plugin, generate_zsh_theme, run_zsh_doctor, run_zsh_keyboard,
-    setup_zsh_integration,
+    setup_zsh_integration, uninstall_zsh_integration,
 };
 pub use rprompt::ZshRPrompt;

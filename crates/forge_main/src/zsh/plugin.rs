@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use anyhow::{Context, Result};
@@ -13,6 +13,8 @@ use crate::cli::Cli;
 
 /// Embeds shell plugin files for zsh integration
 static ZSH_PLUGIN_LIB: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/../../shell-plugin/lib");
+const START_MARKER: &str = "# >>> forge initialize >>>";
+const END_MARKER: &str = "# <<< forge initialize <<<";
 
 /// Generates the complete zsh plugin by combining embedded files and clap
 /// completions
@@ -232,6 +234,51 @@ pub struct ZshSetupResult {
     pub backup_path: Option<PathBuf>,
 }
 
+/// Result of removing Forge ZSH integration.
+#[derive(Debug)]
+pub struct ZshUninstallResult {
+    /// Status message describing what was done.
+    pub message: String,
+    /// Path to backup file if one was created.
+    pub backup_path: Option<PathBuf>,
+}
+
+/// Returns the path to the active ZSH configuration file.
+///
+/// # Errors
+///
+/// Returns an error when the `HOME` environment variable is not set.
+fn zshrc_path() -> Result<PathBuf> {
+    let home = std::env::var("HOME").context("HOME environment variable not set")?;
+    let zdotdir = std::env::var("ZDOTDIR").unwrap_or(home);
+    Ok(PathBuf::from(&zdotdir).join(".zshrc"))
+}
+
+/// Creates a timestamped backup beside a shell configuration file.
+///
+/// # Arguments
+///
+/// * `path` - Shell configuration file to copy before mutation.
+///
+/// # Errors
+///
+/// Returns an error when the backup path cannot be derived or the file cannot
+/// be copied.
+fn backup_shell_config(path: &Path) -> Result<PathBuf> {
+    let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
+    let parent = path
+        .parent()
+        .context("zshrc path has no parent directory")?;
+    let filename = path.file_name().context("zshrc path has no filename")?;
+    let filename_str = filename
+        .to_str()
+        .context("zshrc filename is not valid UTF-8")?;
+
+    let backup = parent.join(format!("{}.bak.{}", filename_str, timestamp));
+    fs::copy(path, &backup).context(format!("Failed to create backup at {}", backup.display()))?;
+    Ok(backup)
+}
+
 /// Sets up ZSH integration with optional nerd font and editor configuration
 ///
 /// # Arguments
@@ -250,14 +297,10 @@ pub fn setup_zsh_integration(
     disable_nerd_font: bool,
     forge_editor: Option<&str>,
 ) -> Result<ZshSetupResult> {
-    const START_MARKER: &str = "# >>> forge initialize >>>";
-    const END_MARKER: &str = "# <<< forge initialize <<<";
     const FORGE_INIT_CONFIG_RAW: &str = include_str!("../../../../shell-plugin/forge.setup.zsh");
     let forge_init_config = super::normalize_script(FORGE_INIT_CONFIG_RAW);
 
-    let home = std::env::var("HOME").context("HOME environment variable not set")?;
-    let zdotdir = std::env::var("ZDOTDIR").unwrap_or_else(|_| home.clone());
-    let zshrc_path = PathBuf::from(&zdotdir).join(".zshrc");
+    let zshrc_path = zshrc_path()?;
 
     // Read existing .zshrc or create new one
     let content = if zshrc_path.exists() {
@@ -333,24 +376,7 @@ pub fn setup_zsh_integration(
 
     // Create backup of existing .zshrc if it exists
     let backup_path = if zshrc_path.exists() {
-        // Generate timestamp for backup filename
-        let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
-
-        // Safe to unwrap: zshrc_path was constructed from a valid HOME/ZDOTDIR path
-        let parent = zshrc_path
-            .parent()
-            .context("zshrc path has no parent directory")?;
-        let filename = zshrc_path
-            .file_name()
-            .context("zshrc path has no filename")?;
-        let filename_str = filename
-            .to_str()
-            .context("zshrc filename is not valid UTF-8")?;
-
-        let backup = parent.join(format!("{}.bak.{}", filename_str, timestamp));
-        fs::copy(&zshrc_path, &backup)
-            .context(format!("Failed to create backup at {}", backup.display()))?;
-        Some(backup)
+        Some(backup_shell_config(&zshrc_path)?)
     } else {
         None
     };
@@ -363,6 +389,73 @@ pub fn setup_zsh_integration(
         message: format!("forge plugins {}", config_action),
         backup_path,
     })
+}
+
+/// Removes Forge ZSH integration from the active ZSH configuration file.
+///
+/// # Errors
+///
+/// Returns error if:
+/// - The HOME environment variable is not set
+/// - The .zshrc file cannot be read or written
+/// - Invalid forge markers are found
+/// - A backup of the existing .zshrc cannot be created
+pub fn uninstall_zsh_integration() -> Result<ZshUninstallResult> {
+    let zshrc_path = zshrc_path()?;
+
+    if !zshrc_path.exists() {
+        return Ok(ZshUninstallResult {
+            message: format!("No ZSH config found at {}", zshrc_path.display()),
+            backup_path: None,
+        });
+    }
+
+    let content = fs::read_to_string(&zshrc_path)
+        .context(format!("Failed to read {}", zshrc_path.display()))?;
+    let mut lines: Vec<String> = content.lines().map(String::from).collect();
+
+    match parse_markers(&lines, START_MARKER, END_MARKER) {
+        MarkerState::Valid { start, end } => {
+            let backup_path = backup_shell_config(&zshrc_path)?;
+            lines.drain(start..=end);
+            while lines.last().is_some_and(|line| line.trim().is_empty()) {
+                lines.pop();
+            }
+
+            let new_content = if lines.is_empty() {
+                String::new()
+            } else {
+                lines.join("\n") + "\n"
+            };
+
+            fs::write(&zshrc_path, new_content)
+                .context(format!("Failed to write to {}", zshrc_path.display()))?;
+
+            Ok(ZshUninstallResult {
+                message: "Forge ZSH integration removed".to_string(),
+                backup_path: Some(backup_path),
+            })
+        }
+        MarkerState::NotFound => Ok(ZshUninstallResult {
+            message: format!("No Forge ZSH integration found in {}", zshrc_path.display()),
+            backup_path: None,
+        }),
+        MarkerState::Invalid { start, end } => {
+            let location = match (start, end) {
+                (Some(s), Some(e)) => Some(format!("{}:{}-{}", zshrc_path.display(), s + 1, e + 1)),
+                (Some(s), None) => Some(format!("{}:{}", zshrc_path.display(), s + 1)),
+                (None, Some(e)) => Some(format!("{}:{}", zshrc_path.display(), e + 1)),
+                (None, None) => None,
+            };
+
+            let mut error =
+                anyhow::anyhow!("Invalid forge markers found in {}", zshrc_path.display());
+            if let Some(loc) = location {
+                error = error.context(format!("Markers found at {}", loc));
+            }
+            Err(error)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -774,5 +867,99 @@ mod tests {
                 std::env::remove_var("ZDOTDIR");
             }
         }
+    }
+
+    #[test]
+    fn test_uninstall_zsh_integration_removes_forge_block() {
+        use pretty_assertions::assert_eq;
+        use tempfile::TempDir;
+
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        let temp_dir = TempDir::new().unwrap();
+        let zshrc_path = temp_dir.path().join(".zshrc");
+        fs::write(
+            &zshrc_path,
+            "export KEEP=1\n\n# >>> forge initialize >>>\nsource forge\n# <<< forge initialize <<<\n",
+        )
+        .unwrap();
+
+        let original_home = std::env::var("HOME").ok();
+        let original_zdotdir = std::env::var("ZDOTDIR").ok();
+
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        unsafe {
+            std::env::set_var("HOME", temp_dir.path());
+            std::env::remove_var("ZDOTDIR");
+        }
+
+        let actual = uninstall_zsh_integration();
+
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        unsafe {
+            if let Some(home) = original_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(zdotdir) = original_zdotdir {
+                std::env::set_var("ZDOTDIR", zdotdir);
+            } else {
+                std::env::remove_var("ZDOTDIR");
+            }
+        }
+
+        assert!(actual.is_ok(), "Uninstall should succeed: {:?}", actual);
+
+        let content = fs::read_to_string(&zshrc_path).unwrap();
+        let expected = "export KEEP=1\n";
+        assert_eq!(content, expected);
+
+        let backup_path = actual.unwrap().backup_path.unwrap();
+        assert!(backup_path.exists(), "Backup file should exist");
+    }
+
+    #[test]
+    fn test_uninstall_zsh_integration_without_forge_block_is_noop() {
+        use pretty_assertions::assert_eq;
+        use tempfile::TempDir;
+
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        let temp_dir = TempDir::new().unwrap();
+        let zshrc_path = temp_dir.path().join(".zshrc");
+        fs::write(&zshrc_path, "export KEEP=1\n").unwrap();
+
+        let original_home = std::env::var("HOME").ok();
+        let original_zdotdir = std::env::var("ZDOTDIR").ok();
+
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        unsafe {
+            std::env::set_var("HOME", temp_dir.path());
+            std::env::remove_var("ZDOTDIR");
+        }
+
+        let actual = uninstall_zsh_integration();
+
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        unsafe {
+            if let Some(home) = original_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(zdotdir) = original_zdotdir {
+                std::env::set_var("ZDOTDIR", zdotdir);
+            } else {
+                std::env::remove_var("ZDOTDIR");
+            }
+        }
+
+        assert!(actual.is_ok(), "Uninstall should succeed: {:?}", actual);
+        assert!(actual.unwrap().backup_path.is_none());
+
+        let content = fs::read_to_string(&zshrc_path).unwrap();
+        let expected = "export KEEP=1\n";
+        assert_eq!(content, expected);
     }
 }

@@ -143,6 +143,9 @@ pub enum TopLevelCommand {
     /// Update forge to the latest version.
     Update(UpdateArgs),
 
+    /// Remove Forge shell integration and the installed binary.
+    Uninstall,
+
     /// Setup zsh integration by updating .zshrc with plugin and theme (alias
     /// for `zsh setup`).
     Setup,
@@ -1925,5 +1928,13 @@ mod tests {
             _ => panic!("Expected Update command"),
         };
         assert!(!actual);
+    }
+
+    #[test]
+    fn test_uninstall() {
+        let fixture = Cli::parse_from(["forge", "uninstall"]);
+        let actual = matches!(fixture.subcommands, Some(TopLevelCommand::Uninstall));
+        let expected = true;
+        assert_eq!(actual, expected);
     }
 }
