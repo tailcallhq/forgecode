@@ -137,7 +137,7 @@ fn desired_select_viewport_height(
     preview_lines: usize,
     layout: PreviewLayout,
 ) -> u16 {
-    let header_height = 3u16.saturating_add(header_rows as u16);
+    let header_height = 2u16.saturating_add(header_rows as u16);
     let list_height = (matched_rows as u16).max(1);
     let preview_lines = preview_lines as u16;
 
@@ -754,7 +754,7 @@ fn preview_content_height(
     let desired_height =
         desired_select_viewport_height(header_rows, matched_rows, preview.lines().count(), layout);
     let height = select_viewport_height(height, desired_height).min(reserved_height);
-    let header_height = 3u16.saturating_add(header_rows as u16);
+    let header_height = 2u16.saturating_add(header_rows as u16);
     let body_height = height.saturating_sub(header_height).max(1);
 
     (match layout.placement {
@@ -784,7 +784,7 @@ fn mouse_over_preview(
     let desired_height =
         desired_select_viewport_height(header_rows, matched_rows, preview.lines().count(), layout);
     let height = select_viewport_height(height, desired_height).min(reserved_height);
-    let header_height = 3u16.saturating_add(header_rows as u16);
+    let header_height = 2u16.saturating_add(header_rows as u16);
     let body_height = height.saturating_sub(header_height).max(1);
 
     match layout.placement {
@@ -986,7 +986,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
         ResetColor
     )?;
     for (index, row) in header_rows.iter().enumerate() {
-        let row_y = 3u16.saturating_add(index as u16);
+        let row_y = 2u16.saturating_add(index as u16);
         if row_y < header_height {
             queue!(
                 stderr,
@@ -1026,7 +1026,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
                     Print(marker),
                     SetForegroundColor(Color::AnsiValue(254)),
                     Print(" "),
-                    Print(truncate_line(&row.display, content_width)),
+                    Print(truncate_line_with_ellipsis(&row.display, content_width)),
                     ResetColor,
                     SetAttribute(Attribute::Reset)
                 )?;
@@ -1038,7 +1038,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
                     Print(marker),
                     ResetColor,
                     Print(" "),
-                    Print(truncate_line(&row.display, content_width))
+                    Print(truncate_line_with_ellipsis(&row.display, content_width))
                 )?;
             }
         }
@@ -1069,11 +1069,15 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
             }
         }
 
-        let preview_lines = preview.lines().collect::<Vec<_>>();
         let preview_content_height = match layout.placement {
             PreviewPlacement::Bottom => preview_height.saturating_sub(2),
             PreviewPlacement::Right => preview_height,
         } as usize;
+        let preview_width_for_content = match layout.placement {
+            PreviewPlacement::Bottom => preview_width.saturating_sub(4),
+            PreviewPlacement::Right => preview_width,
+        } as usize;
+        let preview_lines = wrap_preview_lines(preview, preview_width_for_content.max(1));
         let preview_scroll_offset = preview_scroll_offset.min(
             preview_lines
                 .len()
@@ -1170,6 +1174,81 @@ fn preview_scroll_indicator(scroll_offset: usize, line_count: usize) -> String {
     format!("{}/{line_count}", scroll_offset.saturating_add(1))
 }
 
+fn wrap_preview_lines(preview: &str, max_width: usize) -> Vec<String> {
+    if max_width == 0 {
+        return Vec::new();
+    }
+
+    preview
+        .lines()
+        .flat_map(|line| wrap_ansi_line(line, max_width))
+        .collect()
+}
+
+fn wrap_ansi_line(line: &str, max_width: usize) -> Vec<String> {
+    const WRAP_ICON: &str = "↪ ";
+    const WRAP_ICON_WIDTH: usize = 2;
+
+    if line.is_empty() {
+        return vec![String::new()];
+    }
+
+    let mut wrapped_lines = Vec::new();
+    let mut current_line = String::new();
+    let mut visible_width = 0usize;
+    let mut chars = line.chars().peekable();
+    let mut is_continuation = false;
+
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            current_line.push(ch);
+            for ansi_ch in chars.by_ref() {
+                current_line.push(ansi_ch);
+                if ansi_ch.is_ascii_alphabetic() || ansi_ch == '~' {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        let current_limit = if is_continuation {
+            max_width.saturating_sub(WRAP_ICON_WIDTH).max(1)
+        } else {
+            max_width
+        };
+
+        if visible_width >= current_limit {
+            let pushed = if is_continuation {
+                format!("{WRAP_ICON}{current_line}")
+            } else {
+                current_line.clone()
+            };
+            wrapped_lines.push(pushed);
+            current_line = String::new();
+            visible_width = 0;
+            is_continuation = true;
+        }
+
+        current_line.push(ch);
+        visible_width = visible_width.saturating_add(1);
+    }
+
+    if !current_line.is_empty() {
+        let pushed = if is_continuation {
+            format!("{WRAP_ICON}{current_line}")
+        } else {
+            current_line
+        };
+        wrapped_lines.push(pushed);
+    }
+
+    if wrapped_lines.is_empty() {
+        vec![String::new()]
+    } else {
+        wrapped_lines
+    }
+}
+
 fn format_prompt_query(prompt: &str, query: &str) -> String {
     if query.is_empty() || prompt.ends_with(char::is_whitespace) {
         format!("{prompt}{query}")
@@ -1180,6 +1259,22 @@ fn format_prompt_query(prompt: &str, query: &str) -> String {
 
 fn match_count_width(matched: usize, total: usize) -> u16 {
     format!("{matched}/{total}").chars().count() as u16
+}
+
+fn truncate_line_with_ellipsis(value: &str, max_width: usize) -> String {
+    const ELLIPSIS: &str = "…";
+    let full_width = value.chars().count();
+    if full_width <= max_width {
+        return value.to_string();
+    }
+
+    if max_width <= ELLIPSIS.len() {
+        return ELLIPSIS.chars().take(max_width).collect();
+    }
+
+    let keep_width = max_width.saturating_sub(ELLIPSIS.len());
+    let prefix: String = value.chars().take(keep_width).collect();
+    format!("{prefix}{ELLIPSIS}")
 }
 
 fn truncate_line(value: &str, max_width: usize) -> String {
