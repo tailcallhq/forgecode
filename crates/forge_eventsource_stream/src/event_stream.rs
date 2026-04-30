@@ -54,10 +54,7 @@ impl EventBuilder {
                         self.event.data.push_str(val);
                         self.event.data.push('\u{000A}');
                     }
-                    "id"
-                        if !val.contains('\u{0000}') => {
-                            self.event.id = val.to_string()
-                        }
+                    "id" if !val.contains('\u{0000}') => self.event.id = val.to_string(),
                     "retry" => {
                         if let Ok(val) = val.parse::<u64>() {
                             self.event.retry = Some(Duration::from_millis(val))
