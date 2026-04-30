@@ -37,10 +37,10 @@ pub enum Error {
     Transport(ReqwestError),
     /// The `Content-Type` returned by the server is invalid
     #[error("Invalid header value: {0:?}")]
-    InvalidContentType(HeaderValue, Response),
+    InvalidContentType(HeaderValue, Box<Response>),
     /// The status code returned by the server is invalid
     #[error("Invalid status code: {0}")]
-    InvalidStatusCode(StatusCode, Response),
+    InvalidStatusCode(StatusCode, Box<Response>),
     /// The `Last-Event-ID` cannot be formed into a Header to be submitted to the server
     #[error("Invalid `Last-Event-ID`: {0}")]
     InvalidLastEventId(String),

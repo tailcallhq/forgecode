@@ -119,7 +119,7 @@ fn check_response(response: Response) -> Result<Response, Error> {
     match response.status() {
         StatusCode::OK => {}
         status => {
-            return Err(Error::InvalidStatusCode(status, response));
+            return Err(Error::InvalidStatusCode(status, Box::new(response)));
         }
     }
     let content_type =
@@ -128,7 +128,7 @@ fn check_response(response: Response) -> Result<Response, Error> {
         } else {
             return Err(Error::InvalidContentType(
                 HeaderValue::from_static(""),
-                response,
+                Box::new(response),
             ));
         };
     if content_type
@@ -145,7 +145,7 @@ fn check_response(response: Response) -> Result<Response, Error> {
     {
         Ok(response)
     } else {
-        Err(Error::InvalidContentType(content_type.clone(), response))
+        Err(Error::InvalidContentType(content_type.clone(), Box::new(response)))
     }
 }
 

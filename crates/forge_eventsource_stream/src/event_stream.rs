@@ -221,10 +221,10 @@ fn parse_event<E>(
                 let consumed = buffer.len() - rem.len();
                 let rem = buffer.split_off(consumed);
                 *buffer = rem;
-                if builder.is_complete {
-                    if let Some(event) = builder.dispatch() {
-                        return Ok(Some(event));
-                    }
+                if builder.is_complete
+                    && let Some(event) = builder.dispatch()
+                {
+                    return Ok(Some(event));
                 }
             }
             Err(nom::Err::Incomplete(_)) => return Ok(None),

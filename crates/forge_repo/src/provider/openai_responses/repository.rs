@@ -241,7 +241,7 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                         Err(forge_eventsource::Error::StreamEnded) => None,
                         Err(forge_eventsource::Error::InvalidStatusCode(_, response))
                         | Err(forge_eventsource::Error::InvalidContentType(_, response)) => {
-                            let (_, reason) = read_http_error_reason(response).await;
+                            let (_, reason) = read_http_error_reason(*response).await;
                             Some(Err(anyhow::anyhow!(reason)
                                 .context(format_http_context(None, "POST", &url))))
                         }
