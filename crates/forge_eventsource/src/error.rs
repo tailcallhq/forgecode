@@ -1,5 +1,5 @@
 use core::fmt;
-use eventsource_stream::EventStreamError;
+use forge_eventsource_stream::EventStreamError;
 use nom::error::Error as NomError;
 use reqwest::header::HeaderValue;
 use reqwest::Error as ReqwestError;

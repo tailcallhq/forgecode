@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use async_openai::types::responses as oai;
-use eventsource_stream::Eventsource;
+use forge_eventsource_stream::Eventsource;
 use forge_app::domain::{
     ChatCompletionMessage, Context as ChatContext, Model, ModelId, ResultStream,
 };
@@ -334,11 +334,11 @@ fn status_code_error(status: StatusCode, body: String) -> anyhow::Error {
     .context(body)
 }
 
-fn into_sse_parse_error<E>(error: eventsource_stream::EventStreamError<E>) -> anyhow::Error
+fn into_sse_parse_error<E>(error: forge_eventsource_stream::EventStreamError<E>) -> anyhow::Error
 where
     E: std::fmt::Debug + std::fmt::Display + Send + Sync + 'static,
 {
-    let is_retryable = matches!(&error, eventsource_stream::EventStreamError::Transport(_));
+    let is_retryable = matches!(&error, forge_eventsource_stream::EventStreamError::Transport(_));
     let error = anyhow::anyhow!("SSE parse error: {}", error);
 
     if is_retryable {
@@ -984,7 +984,7 @@ mod tests {
 
     #[test]
     fn test_into_sse_parse_error_marks_transport_errors_retryable() {
-        let error = into_sse_parse_error(eventsource_stream::EventStreamError::Transport(
+        let error = into_sse_parse_error(forge_eventsource_stream::EventStreamError::Transport(
             anyhow::anyhow!("error decoding response body"),
         ));
 
@@ -998,7 +998,7 @@ mod tests {
     #[test]
     fn test_into_sse_parse_error_keeps_utf8_errors_non_retryable() {
         let error =
-            into_sse_parse_error(eventsource_stream::EventStreamError::<anyhow::Error>::Utf8(
+            into_sse_parse_error(forge_eventsource_stream::EventStreamError::<anyhow::Error>::Utf8(
                 String::from_utf8(vec![0xFF]).unwrap_err(),
             ));
 

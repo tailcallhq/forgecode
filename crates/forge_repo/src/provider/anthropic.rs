@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use eventsource_stream::Eventsource;
+use forge_eventsource_stream::Eventsource;
 use forge_app::domain::{
     ChatCompletionMessage, Context, Model, ModelId, ResultStream, Transformer,
 };
@@ -286,11 +286,11 @@ impl<T: HttpInfra> Anthropic<T> {
     }
 }
 
-fn into_sse_parse_error<E>(error: eventsource_stream::EventStreamError<E>) -> anyhow::Error
+fn into_sse_parse_error<E>(error: forge_eventsource_stream::EventStreamError<E>) -> anyhow::Error
 where
     E: std::fmt::Debug + std::fmt::Display + Send + Sync + 'static,
 {
-    let is_retryable = matches!(&error, eventsource_stream::EventStreamError::Transport(_));
+    let is_retryable = matches!(&error, forge_eventsource_stream::EventStreamError::Transport(_));
     let error = anyhow::anyhow!("SSE parse error: {}", error);
 
     if is_retryable {

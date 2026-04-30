@@ -1,8 +1,8 @@
 use crate::error::{CannotCloneRequestError, Error};
 use crate::retry::{RetryPolicy, DEFAULT_RETRY};
 use core::pin::Pin;
-use eventsource_stream::Eventsource;
-pub use eventsource_stream::{Event as MessageEvent, EventStreamError};
+use forge_eventsource_stream::Eventsource;
+pub use forge_eventsource_stream::{Event as MessageEvent, EventStreamError};
 #[cfg(not(target_arch = "wasm32"))]
 use futures_core::future::BoxFuture;
 use futures_core::future::Future;
