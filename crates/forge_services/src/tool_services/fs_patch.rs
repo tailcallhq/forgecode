@@ -4,7 +4,10 @@ use std::sync::Arc;
 use bytes::Bytes;
 use forge_app::domain::PatchOperation;
 use forge_app::{FileWriterInfra, FsPatchService, PatchOutput, compute_hash};
-use forge_domain::{FuzzySearchRepository, SearchMatch, SnapshotRepository, ValidationRepository};
+use forge_domain::{
+    FuzzySearchRepository, SearchMatch, SnapshotRepository, TextPatchRepository,
+    ValidationRepository,
+};
 use thiserror::Error;
 use tokio::fs;
 
@@ -145,6 +148,8 @@ enum Error {
         "Match range [{0}..{1}) is out of bounds for content of length {2}. File may have changed externally, consider reading the file again."
     )]
     RangeOutOfBounds(usize, usize, usize),
+    #[error("Failed to build fuzzy patch: {message}")]
+    PatchBuild { message: String },
 }
 
 /// Compute a range from search text, with operation-aware error handling
@@ -371,8 +376,13 @@ impl<F> ForgeFsPatch<F> {
 }
 
 #[async_trait::async_trait]
-impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearchRepository>
-    FsPatchService for ForgeFsPatch<F>
+impl<
+    F: FileWriterInfra
+        + SnapshotRepository
+        + ValidationRepository
+        + FuzzySearchRepository
+        + TextPatchRepository,
+> FsPatchService for ForgeFsPatch<F>
 {
     async fn patch(
         &self,
@@ -400,35 +410,27 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
         // Save the old content before modification for diff generation
         let old_content = current_content.clone();
 
-        // Compute range from search if provided
-        let range = match compute_range(&current_content, Some(&search), &operation) {
-            Ok(r) => r,
+        current_content = match compute_range(&current_content, Some(&search), &operation) {
+            Ok(range) => apply_replacement(current_content, range, &operation, &content)?,
             Err(Error::NoMatch(search_text))
                 if matches!(
                     operation,
                     PatchOperation::Replace | PatchOperation::ReplaceAll | PatchOperation::Swap
                 ) =>
             {
-                // Try fuzzy search as fallback
-                match self
+                let normalized_search =
+                    Range::normalize_search_line_endings(&current_content, &search_text);
+                let normalized_content =
+                    Range::normalize_search_line_endings(&current_content, &content);
+                let patch = self
                     .infra
-                    .fuzzy_search(&search_text, &current_content, false)
+                    .build_text_patch(&current_content, &normalized_search, &normalized_content)
                     .await
-                {
-                    Ok(matches) if !matches.is_empty() => {
-                        // Use the first fuzzy match
-                        matches
-                            .first()
-                            .map(|m| Range::from_search_match(&current_content, m))
-                    }
-                    _ => return Err(Error::NoMatch(search_text).into()),
-                }
+                    .map_err(|error| Error::PatchBuild { message: error.to_string() })?;
+                patch.patched_text
             }
             Err(e) => return Err(e.into()),
         };
-
-        // Apply the replacement
-        current_content = apply_replacement(current_content, range, &operation, &content)?;
 
         // SNAPSHOT COORDINATION: Always capture snapshot before modifying
         self.infra.insert_snapshot(path).await?;

@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use async_openai::types::responses as oai;
-use eventsource_stream::Eventsource;
 use forge_app::domain::{
     ChatCompletionMessage, Context as ChatContext, Model, ModelId, ResultStream,
 };
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{BoxStream, ChatRepository, Provider};
+use forge_eventsource_stream::Eventsource;
 use forge_infra::sanitize_headers;
 use futures::StreamExt;
 use reqwest::StatusCode;
@@ -195,12 +195,12 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
             .with_context(|| format_http_context(None, "POST", &self.responses_url))?;
 
         // Parse SSE stream into domain messages and convert to domain type
-        use reqwest_eventsource::Event;
+        use forge_eventsource::Event;
         let url = self.responses_url.clone();
         let event_stream = source
             .take_while(|message| {
                 let should_continue =
-                    !matches!(message, Err(reqwest_eventsource::Error::StreamEnded));
+                    !matches!(message, Err(forge_eventsource::Error::StreamEnded));
                 async move { should_continue }
             })
             .filter_map(move |event_result| {
@@ -238,10 +238,10 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                                 Err(e) => Some(Err(e)),
                             }
                         }
-                        Err(reqwest_eventsource::Error::StreamEnded) => None,
-                        Err(reqwest_eventsource::Error::InvalidStatusCode(_, response))
-                        | Err(reqwest_eventsource::Error::InvalidContentType(_, response)) => {
-                            let (_, reason) = read_http_error_reason(response).await;
+                        Err(forge_eventsource::Error::StreamEnded) => None,
+                        Err(forge_eventsource::Error::InvalidStatusCode(_, response))
+                        | Err(forge_eventsource::Error::InvalidContentType(_, response)) => {
+                            let (_, reason) = read_http_error_reason(*response).await;
                             Some(Err(anyhow::anyhow!(reason)
                                 .context(format_http_context(None, "POST", &url))))
                         }
@@ -334,11 +334,14 @@ fn status_code_error(status: StatusCode, body: String) -> anyhow::Error {
     .context(body)
 }
 
-fn into_sse_parse_error<E>(error: eventsource_stream::EventStreamError<E>) -> anyhow::Error
+fn into_sse_parse_error<E>(error: forge_eventsource_stream::EventStreamError<E>) -> anyhow::Error
 where
     E: std::fmt::Debug + std::fmt::Display + Send + Sync + 'static,
 {
-    let is_retryable = matches!(&error, eventsource_stream::EventStreamError::Transport(_));
+    let is_retryable = matches!(
+        &error,
+        forge_eventsource_stream::EventStreamError::Transport(_)
+    );
     let error = anyhow::anyhow!("SSE parse error: {}", error);
 
     if is_retryable {
@@ -544,12 +547,12 @@ mod tests {
             url: &reqwest::Url,
             headers: Option<reqwest::header::HeaderMap>,
             body: bytes::Bytes,
-        ) -> anyhow::Result<reqwest_eventsource::EventSource> {
+        ) -> anyhow::Result<forge_eventsource::EventSource> {
             let mut request = self.client.post(url.clone()).body(body);
             if let Some(headers) = headers {
                 request = request.headers(headers);
             }
-            Ok(reqwest_eventsource::EventSource::new(request)?)
+            Ok(forge_eventsource::EventSource::new(request)?)
         }
     }
 
@@ -984,7 +987,7 @@ mod tests {
 
     #[test]
     fn test_into_sse_parse_error_marks_transport_errors_retryable() {
-        let error = into_sse_parse_error(eventsource_stream::EventStreamError::Transport(
+        let error = into_sse_parse_error(forge_eventsource_stream::EventStreamError::Transport(
             anyhow::anyhow!("error decoding response body"),
         ));
 
@@ -997,10 +1000,11 @@ mod tests {
 
     #[test]
     fn test_into_sse_parse_error_keeps_utf8_errors_non_retryable() {
-        let error =
-            into_sse_parse_error(eventsource_stream::EventStreamError::<anyhow::Error>::Utf8(
+        let error = into_sse_parse_error(
+            forge_eventsource_stream::EventStreamError::<anyhow::Error>::Utf8(
                 String::from_utf8(vec![0xFF]).unwrap_err(),
-            ));
+            ),
+        );
 
         assert!(!is_retryable(&error));
         assert_eq!(

@@ -74,8 +74,6 @@ reqwest = { version = "0.12.23", features = [
     "http2",
 ], default-features = false }
 rustls = { version = "0.23", features = ["ring"], default-features = false }
-reqwest-eventsource = "0.6.0"
-eventsource-stream = "0.2.3"
 include_dir = "0.7.4"
 schemars = "1.2"
 serde = { version = "1.0.217", features = ["derive"] }
@@ -166,3 +164,5 @@ forge_test_kit = { path = "crates/forge_test_kit" }
 
 forge_markdown_stream = { path = "crates/forge_markdown_stream" }
 forge_config = { path = "crates/forge_config" }
+forge_eventsource = { path = "crates/forge_eventsource" }
+forge_eventsource_stream = { path = "crates/forge_eventsource_stream" }
