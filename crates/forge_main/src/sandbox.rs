@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
+use bstr::ByteSlice;
 use forge_domain::TitleFormat;
 
 use crate::title_display::TitleDisplayExt;
@@ -120,7 +121,7 @@ impl<'a> Sandbox<'a> {
             .context("Failed to create git worktree")?;
 
         if !worktree_output.status.success() {
-            let stderr = String::from_utf8_lossy(&worktree_output.stderr);
+            let stderr = worktree_output.stderr.to_str_lossy();
             bail!("Failed to create git worktree: {stderr}");
         }
 

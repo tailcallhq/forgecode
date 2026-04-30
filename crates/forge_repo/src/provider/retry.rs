@@ -36,7 +36,7 @@ fn is_anthropic_overloaded_error(error: &anyhow::Error) -> bool {
         .is_some_and(|e| matches!(e, AnthropicError::OverloadedError { .. }))
 }
 
-fn get_api_status_code(error: &anyhow::Error) -> Option<u16> {
+pub(crate) fn get_api_status_code(error: &anyhow::Error) -> Option<u16> {
     error.downcast_ref::<Error>().and_then(|error| match error {
         Error::Response(error) => error
             .get_code_deep()
@@ -55,12 +55,12 @@ fn get_req_status_code(error: &anyhow::Error) -> Option<u16> {
 
 fn get_event_req_status_code(error: &anyhow::Error) -> Option<u16> {
     error
-        .downcast_ref::<reqwest_eventsource::Error>()
+        .downcast_ref::<forge_eventsource::Error>()
         .and_then(|error| match error {
-            reqwest_eventsource::Error::InvalidStatusCode(_, response) => {
+            forge_eventsource::Error::InvalidStatusCode(_, response) => {
                 Some(response.status().as_u16())
             }
-            reqwest_eventsource::Error::InvalidContentType(_, response) => {
+            forge_eventsource::Error::InvalidContentType(_, response) => {
                 Some(response.status().as_u16())
             }
             _ => None,
@@ -141,8 +141,8 @@ fn is_req_transport_error(error: &anyhow::Error) -> bool {
 
 fn is_event_transport_error(error: &anyhow::Error) -> bool {
     error
-        .downcast_ref::<reqwest_eventsource::Error>()
-        .is_some_and(|e| matches!(e, reqwest_eventsource::Error::Transport(_)))
+        .downcast_ref::<forge_eventsource::Error>()
+        .is_some_and(|e| matches!(e, forge_eventsource::Error::Transport(_)))
 }
 
 #[cfg(test)]

@@ -188,27 +188,35 @@ impl Todo {
     }
 }
 
+/// Optional line range for partial file reads.
+#[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[schemars(deny_unknown_fields)]
+pub struct FSReadRange {
+    /// 1-based first line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_line: Option<i32>,
+
+    /// Inclusive 1-based last line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_line: Option<i32>,
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
 #[tool_description_file = "crates/forge_domain/src/tools/descriptions/fs_read.md"]
+#[schemars(deny_unknown_fields)]
 pub struct FSRead {
-    /// The absolute path to the file to read
+    /// Absolute path to the file to read.
     #[serde(alias = "path")]
     pub file_path: String,
 
-    /// The line number to start reading from starting from 1 not 0. Only
-    /// provide if the file is too large to read at once
+    /// Optional line range for partial reads.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_line: Option<i32>,
+    pub range: Option<FSReadRange>,
 
     /// If true, prefixes each line with its line index (starting at 1).
     /// Defaults to true.
     #[serde(default = "default_true")]
     pub show_line_numbers: bool,
-
-    /// The line number to stop reading at (inclusive). Only provide if the file
-    /// is too large to read at once
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_line: Option<i32>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
@@ -1261,7 +1269,7 @@ mod tests {
             name: ToolName::new("read"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"path": "/test/path.rs", "start_line": "10", "end_line": "20"}"#,
+                r#"{"path": "/test/path.rs", "range": {"start_line": 10, "end_line": 20}}"#,
             ),
             thought_signature: None,
         };
@@ -1276,8 +1284,8 @@ mod tests {
 
         if let Ok(ToolCatalog::Read(fs_read)) = actual {
             assert_eq!(fs_read.file_path, "/test/path.rs");
-            assert_eq!(fs_read.start_line, Some(10));
-            assert_eq!(fs_read.end_line, Some(20));
+            assert_eq!(fs_read.range.as_ref().and_then(|r| r.start_line), Some(10));
+            assert_eq!(fs_read.range.as_ref().and_then(|r| r.end_line), Some(20));
         } else {
             panic!("Expected FSRead variant");
         }
@@ -1292,7 +1300,7 @@ mod tests {
             name: ToolName::new("read"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"path": "/test/path.rs", "start_line": 10, "end_line": 20}"#,
+                r#"{"path": "/test/path.rs", "range": {"start_line": 10, "end_line": 20}}"#,
             ),
             thought_signature: None,
         };
@@ -1306,8 +1314,8 @@ mod tests {
 
         if let Ok(ToolCatalog::Read(fs_read)) = actual {
             assert_eq!(fs_read.file_path, "/test/path.rs");
-            assert_eq!(fs_read.start_line, Some(10));
-            assert_eq!(fs_read.end_line, Some(20));
+            assert_eq!(fs_read.range.as_ref().and_then(|r| r.start_line), Some(10));
+            assert_eq!(fs_read.range.as_ref().and_then(|r| r.end_line), Some(20));
         } else {
             panic!("Expected FSRead variant");
         }
@@ -1322,7 +1330,7 @@ mod tests {
             name: ToolName::new("Read"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"path": "/test/path.rs", "start_line": 10, "end_line": 20}"#,
+                r#"{"path": "/test/path.rs", "range": {"start_line": 10, "end_line": 20}}"#,
             ),
             thought_signature: None,
         };
@@ -1336,8 +1344,8 @@ mod tests {
 
         if let Ok(ToolCatalog::Read(fs_read)) = actual {
             assert_eq!(fs_read.file_path, "/test/path.rs");
-            assert_eq!(fs_read.start_line, Some(10));
-            assert_eq!(fs_read.end_line, Some(20));
+            assert_eq!(fs_read.range.as_ref().and_then(|r| r.start_line), Some(10));
+            assert_eq!(fs_read.range.as_ref().and_then(|r| r.end_line), Some(20));
         } else {
             panic!("Expected FSRead variant");
         }

@@ -355,6 +355,11 @@
         }
       ]
     },
+    "use_forge_committer": {
+      "description": "Whether `forge commit` should override `GIT_COMMITTER_NAME` and\n`GIT_COMMITTER_EMAIL` with the Forge identity. Defaults to `true` via\nthe embedded `.forge.toml` defaults.",
+      "type": "boolean",
+      "default": false
+    },
     "verify_todos": {
       "description": "Enables the pending todos hook that checks for incomplete todo items\nwhen a task ends and reminds the LLM about them.",
       "type": "boolean",
@@ -884,7 +889,7 @@
           ]
         },
         "frequency": {
-          "description": "How frequently forge checks for updates",
+          "description": "How frequently forge checks for updates: daily, weekly, always, or never",
           "anyOf": [
             {
               "$ref": "#/$defs/UpdateFrequency"
@@ -902,6 +907,7 @@
       "enum": [
         "daily",
         "weekly",
+        "never",
         "always"
       ]
     },
