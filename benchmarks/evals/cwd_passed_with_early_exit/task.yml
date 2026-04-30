@@ -1,0 +1,47 @@
+run:
+  - git clone --depth=1 --branch main https://github.com/tailcallhq/forgecode .
+  - mkdir ../cwd-target-a ../cwd-target-b
+  - FORGE_DEBUG_REQUESTS='{{dir}}/context.jsonl' forgee -p '{{task}}'
+
+parallelism: 4
+timeout: 180
+early_exit: true
+
+validations:
+  - name: "Last JSONL line task call args preserve inferred target path"
+    type: shell
+    command: |
+      jq -se '
+        (.[-1].input
+         | map(select(.role == "user") | .content)
+         | join("\n")) as $user_prompt
+        | (
+            if ($user_prompt | test("\\.\\./cwd-target-a")) then "../cwd-target-a"
+            elif ($user_prompt | test("\\.\\./cwd-target-b")) then "../cwd-target-b"
+            elif ($user_prompt | test("/tmp")) then "/tmp"
+            elif ($user_prompt | test("/Users")) then "/Users"
+            else ""
+            end
+          ) as $expected_path
+        | [.[-1].input[]?
+           | select(.type == "function_call" and .name == "task")
+           | .arguments
+           | fromjson
+           | select(
+               ($expected_path != "")
+               and (
+                 (.cwd // "") == $expected_path
+                 or ([.tasks[]? | tostring] | join("\n") | contains($expected_path))
+               )
+             )
+          ] | length > 0
+      ' {{dir}}/context.jsonl
+sources:
+  - value:
+      - model: "anthropic/claude-sonnet-4.6"
+      - model: "z-ai/glm-4.6:exacto"
+  - value:
+      - task: "Use the task tool to launch a forge sub-agent that inspects files under /Users and reports what it found."
+      - task: "Use the task tool to delegate work in ../cwd-target-a and report directory contents."
+      - task: "Use the task tool to run a forge sub-agent that checks ../cwd-target-b and summarizes what is there."
+      - task: "Use the task tool to have a forge sub-agent inspect /tmp and report back."

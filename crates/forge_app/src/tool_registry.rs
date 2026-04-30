@@ -118,9 +118,13 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
                     .ok()
                     .flatten();
                 // NOTE: Agents should not timeout
-                let outputs = join_all(task_input.tasks.into_iter().map(|task| {
+                let outputs = join_all(task_input.tasks.into_iter().map(|task_input| {
                     let agent_id = agent_id.clone();
-                    let cwd = cwd_override.clone();
+                    let cwd = task_input
+                        .cwd()
+                        .map(std::path::PathBuf::from)
+                        .or_else(|| cwd_override.clone());
+                    let task = task_input.task().to_string();
                     let executor = executor.clone();
                     async move {
                         executor
@@ -173,8 +177,12 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
             let executor = self.agent_executor.clone();
             let agent_name = input.name.as_str().to_string();
             // NOTE: Agents should not timeout
-            let outputs = join_all(agent_input.tasks.into_iter().map(|task| {
-                let cwd = cwd_override.clone();
+            let outputs = join_all(agent_input.tasks.into_iter().map(|task_input| {
+                let cwd = task_input
+                    .cwd()
+                    .map(std::path::PathBuf::from)
+                    .or_else(|| cwd_override.clone());
+                let task = task_input.task().to_string();
                 let agent_name = agent_name.clone();
                 let executor = executor.clone();
                 async move {

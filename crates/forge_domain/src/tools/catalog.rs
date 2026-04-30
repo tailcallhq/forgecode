@@ -60,6 +60,43 @@ pub enum ToolCatalog {
     Task(TaskInput),
 }
 
+/// Represents a single task for agent execution.
+///
+/// Supports both legacy string-only tasks and structured tasks with an
+/// optional per-task working directory override.
+#[derive(Debug, Clone, Serialize, serde::Deserialize, JsonSchema, PartialEq)]
+#[serde(untagged)]
+pub enum AgentTask {
+    /// Legacy task format: just the task description.
+    Text(String),
+    /// Structured task format with optional per-task cwd.
+    Structured {
+        /// Task description to execute.
+        task: String,
+        /// Optional working directory override for this specific task.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+    },
+}
+
+impl AgentTask {
+    /// Returns the task description.
+    pub fn task(&self) -> &str {
+        match self {
+            Self::Text(task) => task,
+            Self::Structured { task, .. } => task,
+        }
+    }
+
+    /// Returns the per-task cwd override if provided.
+    pub fn cwd(&self) -> Option<&str> {
+        match self {
+            Self::Text(_) => None,
+            Self::Structured { cwd, .. } => cwd.as_deref(),
+        }
+    }
+}
+
 /// Input structure for agent tool calls. This serves as the generic schema
 /// for dynamically registered agent tools, allowing users to specify tasks
 /// for specific agents.
@@ -69,7 +106,8 @@ pub struct AgentInput {
     /// by the agent in parallel. Provide sufficient context and specific
     /// requirements to enable the agent to understand and execute the work
     /// accurately.
-    pub tasks: Vec<String>,
+    #[eserde(compat)]
+    pub tasks: Vec<AgentTask>,
     /// Optional working directory override for the agent. When provided, the
     /// agent will treat this path as its current working directory instead of
     /// the parent process's CWD. This affects the system information shown to
@@ -86,7 +124,8 @@ pub struct TaskInput {
     /// by the agent in parallel. Provide sufficient context and specific
     /// requirements to enable the agent to understand and execute the work
     /// accurately.
-    pub tasks: Vec<String>,
+    #[eserde(compat)]
+    pub tasks: Vec<AgentTask>,
 
     /// The ID of the specialized agent to delegate to (e.g., "forge", "muse",
     /// "sage")
