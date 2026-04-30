@@ -897,7 +897,7 @@
           ]
         },
         "frequency": {
-          "description": "How frequently forge checks for updates",
+          "description": "How frequently forge checks for updates: daily, weekly, always, or never",
           "anyOf": [
             {
               "$ref": "#/$defs/UpdateFrequency"
@@ -915,6 +915,7 @@
       "enum": [
         "daily",
         "weekly",
+        "never",
         "always"
       ]
     },
