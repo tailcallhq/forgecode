@@ -239,10 +239,7 @@ mod tests {
             let pid_file =
                 std::env::temp_dir().join(format!("forge_test_pgkill_{}", std::process::id()));
 
-            let command = format!(
-                "(echo $$ > {}; sleep 300) & sleep 300",
-                pid_file.display()
-            );
+            let command = format!("(echo $$ > {}; sleep 300) & sleep 300", pid_file.display());
 
             unsafe { std::env::set_var("FORGE_API_KEY_HELPER_TIMEOUT", "1") };
 

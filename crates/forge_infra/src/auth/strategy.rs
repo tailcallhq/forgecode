@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use forge_app::{AuthStrategy, OAuthHttpProvider, StrategyFactory};
 use forge_domain::{
-    ApiKey, ApiKeyProvider, ApiKeyRequest, AuthContextRequest, AuthContextResponse,
-    AuthCredential, AuthDetails, CodeRequest, DeviceCodeRequest, OAuthConfig, OAuthTokenResponse,
-    OAuthTokens, ProviderId, URLParam, URLParamSpec,
+    ApiKey, ApiKeyProvider, ApiKeyRequest, AuthContextRequest, AuthContextResponse, AuthCredential,
+    AuthDetails, CodeRequest, DeviceCodeRequest, OAuthConfig, OAuthTokenResponse, OAuthTokens,
+    ProviderId, URLParam, URLParamSpec,
 };
 use google_cloud_auth::credentials::Builder;
 use oauth2::basic::BasicClient;
