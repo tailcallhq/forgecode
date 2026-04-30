@@ -47,6 +47,9 @@ service ForgeService {
 
   // Searches for needle in haystack using fuzzy search
   rpc FuzzySearch(FuzzySearchRequest) returns (FuzzySearchResponse);
+
+  // Builds a serialized text patch for fuzzy replacement
+  rpc BuildTextPatch(BuildTextPatchRequest) returns (BuildTextPatchResponse);
 }
 
 // Node types
@@ -354,6 +357,17 @@ message FuzzySearchRequest {
 
 message FuzzySearchResponse {
   repeated SearchMatch matches = 1;
+}
+
+message BuildTextPatchRequest {
+  string haystack   = 1;
+  string old_string = 2;
+  string new_string = 3;
+}
+
+message BuildTextPatchResponse {
+  string patch        = 1;
+  string patched_text = 2;
 }
 
 message SearchMatch {
