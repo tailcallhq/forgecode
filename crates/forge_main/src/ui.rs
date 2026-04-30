@@ -19,7 +19,8 @@ use forge_app::{CommitResult, ToolResolver};
 use forge_config::ForgeConfig;
 use forge_display::MarkdownFormat;
 use forge_domain::{
-    AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, Role, TitleFormat, UserCommand,
+    AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, ProviderModels, Role,
+    TitleFormat, UserCommand,
 };
 use forge_fs::ForgeFS;
 use forge_select::ForgeWidget;
@@ -130,6 +131,37 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     fn writeln_to_stderr(&mut self, title: String) -> anyhow::Result<()> {
         self.spinner.ewrite_ln(title)
+    }
+
+    /// Partitions provider model results into successes, writing
+    /// per-provider errors to stderr. If every provider failed, the
+    /// first error is returned so callers surface a real failure rather
+    /// than silently treating it as "no models configured".
+    fn collect_provider_models(
+        &mut self,
+        results: Vec<Result<ProviderModels>>,
+    ) -> anyhow::Result<Vec<ProviderModels>> {
+        let mut models = Vec::new();
+        let mut first_error: Option<anyhow::Error> = None;
+        for result in results {
+            match result {
+                Ok(pm) => models.push(pm),
+                Err(err) => {
+                    self.writeln_to_stderr(
+                        TitleFormat::error(format!("{err:#}")).display().to_string(),
+                    )?;
+                    if first_error.is_none() {
+                        first_error = Some(err);
+                    }
+                }
+            }
+        }
+        if models.is_empty()
+            && let Some(err) = first_error
+        {
+            return Err(err);
+        }
+        Ok(models)
     }
 
     /// Helper to get provider for an optional agent, defaulting to the current
@@ -1261,13 +1293,15 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_show_models(&mut self, porcelain: bool) -> anyhow::Result<()> {
         self.spinner.start(Some("Fetching Models"))?;
 
-        let mut all_provider_models = match self.api.get_all_provider_models().await {
-            Ok(provider_models) => provider_models,
+        let results = match self.api.get_all_provider_models().await {
+            Ok(results) => results,
             Err(err) => {
                 self.spinner.stop(None)?;
                 return Err(err);
             }
         };
+        self.spinner.stop(None)?;
+        let mut all_provider_models = self.collect_provider_models(results)?;
 
         if all_provider_models.is_empty() {
             return Ok(());
@@ -2762,8 +2796,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // Fetch models from ALL configured providers (matches shell plugin's
         // `forge list models --porcelain`), then optionally filter by provider.
         self.spinner.start(Some("Loading"))?;
-        let mut all_provider_models = self.api.get_all_provider_models().await?;
+        let results = self.api.get_all_provider_models().await?;
         self.spinner.stop(None)?;
+        let mut all_provider_models = self.collect_provider_models(results)?;
 
         // When a provider filter is specified (e.g. during onboarding after a
         // provider was just selected), restrict the list to that provider's
@@ -3578,7 +3613,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let (needs_model_selection, compatible_model) = match current_model {
             None => (true, None),
             Some(current_model) => {
-                let provider_models = self.api.get_all_provider_models().await?;
+                let results = self.api.get_all_provider_models().await?;
+                let provider_models = self.collect_provider_models(results)?;
                 let model_available = provider_models
                     .iter()
                     .find(|pm| pm.provider_id == provider.id)
@@ -4484,6 +4520,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     .get_all_provider_models()
                     .await?
                     .into_iter()
+                    .filter_map(Result::ok)
                     .find(|pm| &pm.provider_id == provider_id)
                     .with_context(|| {
                         format!("Provider '{provider_id}' not found or returned no models")
