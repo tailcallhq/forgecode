@@ -1,4 +1,4 @@
-use forge_tracker::{EventKind, ToolCallPayload};
+use forge_tracker::{AiGenerationPayload, EventKind, ToolCallPayload};
 
 use crate::TRACKER;
 
@@ -49,4 +49,9 @@ pub fn set_model(model: String) {
 
 pub fn login(login: String) {
     tokio::spawn(TRACKER.login(login));
+}
+
+/// For AI generation events with LLM telemetry data
+pub fn ai_generation(payload: AiGenerationPayload) {
+    dispatch(EventKind::AiGeneration(payload));
 }

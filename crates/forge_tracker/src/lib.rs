@@ -9,5 +9,5 @@ mod rate_limit;
 pub use can_track::VERSION;
 pub use dispatch::Tracker;
 use error::Result;
-pub use event::{Event, EventKind, ToolCallPayload};
+pub use event::{AiGenerationPayload, Event, EventKind, ToolCallPayload};
 pub use log::{Guard, init_tracing};

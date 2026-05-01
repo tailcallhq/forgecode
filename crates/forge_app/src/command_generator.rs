@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use forge_domain::*;
+use forge_tracker::{AiGenerationPayload, EventKind};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::hooks::tracing::TRACKER;
 use crate::{
     AppConfigService, EnvironmentInfra, FileDiscoveryService, ProviderService, TemplateEngine,
     TerminalContextService,
@@ -93,8 +95,27 @@ where
         let ctx = self.create_context(rendered_system_prompt, user_content, &model);
 
         // Send message to LLM
+        let provider_id = provider.id.clone();
+        let model_id = model.clone();
         let stream = self.services.chat(&model, ctx, provider).await?;
         let message = stream.into_full(false).await?;
+
+        // Dispatch AI generation event with LLM telemetry
+        if let Some(tracker) = TRACKER.get() {
+            let payload = AiGenerationPayload {
+                provider: provider_id.to_string(),
+                model: model_id.as_str().to_string(),
+                input_tokens: *message.usage.prompt_tokens,
+                output_tokens: *message.usage.completion_tokens,
+                latency_ms: 0.0,
+                cost: message.usage.cost,
+                conversation_id: String::new(),
+            };
+            let tracker = tracker.clone();
+            tokio::spawn(async move {
+                let _ = tracker.dispatch(EventKind::AiGeneration(payload)).await;
+            });
+        }
 
         // Parse the structured JSON response
         let response: ShellCommandResponse =
