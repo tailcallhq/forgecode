@@ -2504,6 +2504,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "forge_loop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dirs",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "forge_main"
 version = "0.1.0"
 dependencies = [

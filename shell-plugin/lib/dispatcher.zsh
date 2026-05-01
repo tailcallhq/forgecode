@@ -96,7 +96,15 @@ function forge-accept-line() {
     local input_text=""
     
     # Check if the line starts with any of the supported patterns
-    if [[ "$BUFFER" =~ "^:([a-zA-Z][a-zA-Z0-9_-]*)( (.*))?$" ]]; then
+    if [[ "$BUFFER" =~ "^\\$loop( (.*))?$" ]]; then
+        # $loop <interval> <prompt> - Start autonomous loop
+        user_action="loop"
+        input_text="${match[1]:-}"
+    elif [[ "$BUFFER" =~ "^\\$monitor( (.*))?$" ]]; then
+        # $monitor <condition> - Start condition monitor
+        user_action="monitor"
+        input_text="${match[1]:-}"
+    elif [[ "$BUFFER" =~ "^:([a-zA-Z][a-zA-Z0-9_-]*)( (.*))?$" ]]; then
         # Action with or without parameters: :foo or :foo bar baz
         user_action="${match[1]}"
         # Only use match[3] if the second group (space + params) was actually matched

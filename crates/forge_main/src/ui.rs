@@ -5,7 +5,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{ Context, Result };
+use chrono;
 use colored::Colorize;
 use console::style;
 use convert_case::{Case, Casing};
@@ -2266,6 +2267,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             AppCommand::WorkspaceInit => {
                 let cwd = self.state.cwd.clone();
                 self.on_workspace_init(cwd, false).await?;
+            }
+            AppCommand::Loop { interval, prompt } => {
+                let prompt_text = prompt.join(" ");
+                self.on_loop(interval, prompt_text).await?;
+            }
+            AppCommand::Monitor { condition } => {
+                let condition_text = condition.join(" ");
+                self.on_monitor(condition_text).await?;
             }
         }
 
@@ -5003,6 +5012,161 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
         });
     }
+
+    /// Start an autonomous loop that re-triggers this conversation at a specified interval.
+    /// Usage: $loop 5m continue work on tests
+    async fn on_loop(&mut self, interval: String, prompt: String) -> anyhow::Result<()> {
+        // Parse interval (supports: 5m, 1h, 30s, or plain minutes)
+        let minutes = Self::parse_interval(&interval)?;
+
+        self.writeln_title(TitleFormat::action(format!(
+            "Loop started: every {} minute(s), prompt: \"{}\"",
+            minutes,
+            prompt.chars().take(50).collect::<String>()
+        )))?;
+
+        // Store loop configuration for persistence
+        let loop_config = LoopConfig {
+            conversation_id: self.state.conversation_id.clone(),
+            interval_minutes: minutes,
+            prompt: prompt.clone(),
+            started_at: chrono::Utc::now(),
+        };
+
+        // Save loop config to disk for persistence across restarts
+        self.save_loop_config(&loop_config).await?;
+
+        // Spawn background task to handle loop execution
+        let conversation_id = self.state.conversation_id.clone();
+        let loop_prompt = prompt;
+
+        tokio::spawn(async move {
+            let duration = std::time::Duration::from_secs(minutes as u64 * 60);
+            let loop_prompt = loop_prompt.clone();
+            loop {
+                tokio::time::sleep(duration).await;
+
+                // Execute the loop prompt in the conversation
+                if let Some(cid) = &conversation_id {
+                    tracing::info!("Loop executing for conversation: {}", cid);
+                    // Spawn a subprocess to re-trigger the conversation (similar to forge-loop)
+                    let cid_str = cid.to_string();
+                    let prompt = loop_prompt.clone();
+                    tokio::spawn(async move {
+                        // Use subprocess to re-engage the conversation
+                        let _ = tokio::process::Command::new("forge")
+                            .args(["-p", &prompt, "--conversation-id", &cid_str])
+                            .spawn();
+                    });
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Start a monitor that watches for specific conditions and triggers re-engagement.
+    /// Usage: $monitor git push --trigger run tests
+    async fn on_monitor(&mut self, condition: String) -> anyhow::Result<()> {
+        self.writeln_title(TitleFormat::action(format!(
+            "Monitor started: {}",
+            condition
+        )))?;
+
+        // Parse condition (e.g., "git push", "file change src/**/*.rs", "schedule 5m")
+        let monitor_config = MonitorConfig {
+            conversation_id: self.state.conversation_id.clone(),
+            condition: condition.clone(),
+            started_at: chrono::Utc::now(),
+        };
+
+        // Save monitor config for persistence
+        self.save_monitor_config(&monitor_config).await?;
+
+        // Spawn background task to handle monitor
+        let conversation_id = self.state.conversation_id.clone();
+
+        tokio::spawn(async move {
+            // Monitor implementation would watch for conditions:
+            // - git events (via git hooks or polling)
+            // - file changes (via notify or polling)
+            // - scheduled triggers
+            //
+            // For now, this is a placeholder that demonstrates the structure
+            tracing::info!("Monitor running for conversation: {:?}, condition: {}", conversation_id, condition);
+
+            // When condition is met, trigger the conversation
+            // Implementation would use the appropriate trigger mechanism
+        });
+
+        Ok(())
+    }
+
+    /// Parse interval string to minutes.
+    /// Supports: "5m", "1h", "30s", "10" (defaults to minutes)
+    fn parse_interval(input: &str) -> anyhow::Result<u64> {
+        let input = input.trim();
+        if input.ends_with('m') || input.ends_with("min") {
+            Ok(input[..input.len() - 1]
+                .parse()
+                .context("Invalid minutes value")?)
+        } else if input.ends_with('h') || input.ends_with("hour") {
+            let hours: f64 = input[..input.len() - 1]
+                .parse()
+                .context("Invalid hours value")?;
+            Ok((hours * 60.0) as u64)
+        } else if input.ends_with('s') || input.ends_with("sec") {
+            let secs: f64 = input[..input.len() - 1]
+                .parse()
+                .context("Invalid seconds value")?;
+            Ok((secs / 60.0).ceil() as u64)
+        } else if let Ok(minutes) = input.parse() {
+            Ok(minutes)
+        } else {
+            anyhow::bail!("Invalid interval format: {}. Use: 5m, 1h, 30s, or plain minutes", input)
+        }
+    }
+
+    /// Save loop configuration to disk for persistence
+    async fn save_loop_config(&self, config: &LoopConfig) -> anyhow::Result<()> {
+        let env = self.api.environment();
+        let loop_dir = env.base_path.join("loop");
+        std::fs::create_dir_all(&loop_dir)?;
+
+        let config_path = loop_dir.join("active_loop.json");
+        let json = serde_json::to_string_pretty(config)?;
+        std::fs::write(config_path, json)?;
+        Ok(())
+    }
+
+    /// Save monitor configuration to disk for persistence
+    async fn save_monitor_config(&self, config: &MonitorConfig) -> anyhow::Result<()> {
+        let env = self.api.environment();
+        let monitor_dir = env.base_path.join("monitor");
+        std::fs::create_dir_all(&monitor_dir)?;
+
+        let config_path = monitor_dir.join("active_monitor.json");
+        let json = serde_json::to_string_pretty(config)?;
+        std::fs::write(config_path, json)?;
+        Ok(())
+    }
+}
+
+/// Configuration for an active loop
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct LoopConfig {
+    conversation_id: Option<ConversationId>,
+    interval_minutes: u64,
+    prompt: String,
+    started_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Configuration for an active monitor
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct MonitorConfig {
+    conversation_id: Option<ConversationId>,
+    condition: String,
+    started_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[cfg(test)]

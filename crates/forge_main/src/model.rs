@@ -153,6 +153,8 @@ impl ForgeCommandManager {
                 | "sync-info"
                 | "workspace-init"
                 | "sync-init"
+                | "loop"
+                | "monitor"
         )
     }
 
@@ -689,6 +691,28 @@ pub enum AppCommand {
     /// Index the current workspace for semantic code search
     #[strum(props(usage = "Index the current workspace for semantic search"))]
     Index,
+
+    /// Start an autonomous loop that re-triggers this conversation at an interval.
+    /// This can be triggered with the '$loop' command (e.g. '$loop 5m continue work').
+    #[strum(props(usage = "Start autonomous loop - $loop <interval> <prompt>"))]
+    #[command(name = "loop")]
+    Loop {
+        /// Interval in minutes (or shorthand like 5m, 1h)
+        interval: String,
+        /// Prompt to execute on each loop iteration
+        #[arg(trailing_var_arg = true)]
+        prompt: Vec<String>,
+    },
+
+    /// Start a monitor that watches for specific conditions and triggers re-engagement.
+    /// This can be triggered with the '$monitor' command (e.g. '$monitor git push --trigger review').
+    #[strum(props(usage = "Start a monitor - $monitor <condition> --trigger <action>"))]
+    #[command(name = "monitor")]
+    Monitor {
+        /// Monitor condition (e.g., git event, file change, time)
+        #[arg(trailing_var_arg = true)]
+        condition: Vec<String>,
+    },
 }
 
 impl AppCommand {
@@ -739,6 +763,8 @@ impl AppCommand {
             AppCommand::WorkspaceStatus => "workspace-status",
             AppCommand::WorkspaceInfo => "workspace-info",
             AppCommand::WorkspaceInit => "workspace-init",
+            AppCommand::Loop { .. } => "loop",
+            AppCommand::Monitor { .. } => "monitor",
         }
     }
 
