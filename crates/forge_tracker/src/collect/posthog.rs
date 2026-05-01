@@ -1,103 +1,102 @@
-use std::collections::HashMap;
-use std::time::Duration;
-
-use chrono::NaiveDateTime;
-use http::header::{HeaderName, HeaderValue};
-use reqwest::Client;
-use serde::Serialize;
-use serde_json::Value;
+use posthog_rs::{Client, ClientOptions, Event as PhEvent};
+use tokio::sync::OnceCell;
 
 use super::super::Result;
 use super::Collect;
 use crate::Event;
 
+/// PostHog event collector backed by the official `posthog-rs` SDK.
+///
+/// The SDK client is constructed lazily on first use so that `new` can remain
+/// synchronous and work correctly inside `Default` / `LazyLock` initialisers.
 pub struct Tracker {
-    api_secret: &'static str,
-    client: Client,
+    api_secret: String,
+    client: OnceCell<Client>,
 }
 
 impl Tracker {
-    pub fn new(api_secret: &'static str) -> Self {
-        // Configure HTTP client with connection pooling similar to forge_provider
-        let client = Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .read_timeout(Duration::from_secs(30))
-            .pool_idle_timeout(Duration::from_secs(90))
-            .pool_max_idle_per_host(5)
-            .build()
-            .expect("Failed to build HTTP client for PostHog tracker");
+    /// Creates a new PostHog tracker that will use the provided API secret.
+    pub fn new(api_secret: &str) -> Self {
+        Self { api_secret: api_secret.to_string(), client: OnceCell::new() }
+    }
 
-        Self { api_secret, client }
+    async fn get_client(&self) -> &Client {
+        self.client
+            .get_or_init(|| async {
+                let options = ClientOptions::from(self.api_secret.as_str());
+                posthog_rs::client(options).await
+            })
+            .await
     }
 }
 
-#[derive(Debug, Serialize)]
-struct Payload {
-    api_key: String,
-    event: String,
-    distinct_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    properties: Option<HashMap<String, serde_json::Value>>,
-    #[serde(rename = "$set", skip_serializing_if = "Option::is_none")]
-    set: Option<serde_json::Value>,
-    timestamp: Option<NaiveDateTime>,
-}
+/// Converts an internal [`Event`] into a [`posthog_rs::Event`].
+fn build_ph_event(input: &Event) -> Result<PhEvent> {
+    let distinct_id = input.client_id.clone();
+    let event_name = input.event_name.to_string();
+    let mut ph_event = PhEvent::new(event_name, distinct_id);
 
-impl Payload {
-    fn new(api_key: String, mut input: Event) -> Self {
-        let mut properties = HashMap::new();
-        let distinct_id = input.client_id.to_string();
-        let event = input.event_name.to_string();
-        let mut set = None;
-        if let Some(identity) = input.identity.take()
-            && let Ok(value) = serde_json::to_value(identity)
-        {
-            set = Some(value);
-        }
+    ph_event.insert_prop("event_value", &input.event_value)?;
+    ph_event.insert_prop("cores", input.cores)?;
+    ph_event.insert_prop("os_name", &input.os_name)?;
+    ph_event.insert_prop("up_time", input.up_time)?;
+    ph_event.insert_prop("version", &input.version)?;
+    ph_event.insert_prop("user", &input.user)?;
+    ph_event.insert_prop("start_time", input.start_time.to_rfc3339())?;
+    let _ = ph_event.set_timestamp(input.start_time);
 
-        if let Ok(Value::Object(map)) = serde_json::to_value(input) {
-            for (key, value) in map {
-                properties.insert(key, value);
-            }
-        }
+    if !input.email.is_empty() {
+        ph_event.insert_prop("email", &input.email)?;
+    }
+    if !input.args.is_empty() {
+        ph_event.insert_prop("args", &input.args)?;
+    }
+    if let Some(path) = &input.path {
+        ph_event.insert_prop("path", path)?;
+    }
+    if let Some(cwd) = &input.cwd {
+        ph_event.insert_prop("cwd", cwd)?;
+    }
+    if let Some(model) = &input.model {
+        ph_event.insert_prop("model", model)?;
+    }
+    if let Some(conversation) = &input.conversation
+        && let Ok(value) = serde_json::to_value(conversation)
+    {
+        ph_event.insert_prop("conversation", value)?;
+    }
+    // $set sends person properties to PostHog for user identification.
+    if let Some(identity) = &input.identity
+        && let Ok(value) = serde_json::to_value(identity)
+    {
+        ph_event.insert_prop("$set", value)?;
+    }
 
-        Self {
-            api_key,
-            event,
-            distinct_id,
-            properties: Some(properties),
-            set,
-            timestamp: Some(chrono::Utc::now().naive_utc()),
+    // Map AiGeneration payload to native PostHog $ai_generation schema.
+    if &*input.event_name == "ai_generation"
+        && let Ok(payload) =
+            serde_json::from_str::<crate::AiGenerationPayload>(&input.event_value)
+    {
+        ph_event.insert_prop("$ai_provider", &payload.provider)?;
+        ph_event.insert_prop("$ai_model", &payload.model)?;
+        ph_event.insert_prop("$ai_input_tokens", payload.input_tokens)?;
+        ph_event.insert_prop("$ai_output_tokens", payload.output_tokens)?;
+        ph_event.insert_prop("$ai_latency", payload.latency_ms / 1000.0)?;
+        ph_event.insert_prop("$ai_conversation_id", &payload.conversation_id)?;
+        if let Some(cost) = payload.cost {
+            ph_event.insert_prop("$ai_cost", cost)?;
         }
     }
-}
 
-impl Tracker {
-    fn create_request(&self, event: Event) -> Result<reqwest::Request> {
-        let url = reqwest::Url::parse("https://us.i.posthog.com/capture/")?;
-        let mut request = reqwest::Request::new(reqwest::Method::POST, url);
-        request.headers_mut().insert(
-            HeaderName::from_static("content-type"),
-            HeaderValue::from_static("application/json"),
-        );
-
-        let payload = Payload::new(self.api_secret.to_string(), event);
-
-        let _ = request
-            .body_mut()
-            .insert(reqwest::Body::from(serde_json::to_string(&payload)?));
-
-        Ok(request)
-    }
+    Ok(ph_event)
 }
 
 #[async_trait::async_trait]
 impl Collect for Tracker {
-    // TODO: move http request to a dispatch
     async fn collect(&self, event: Event) -> Result<()> {
-        let request = self.create_request(event)?;
-        self.client.execute(request).await?;
-
+        let ph_event = build_ph_event(&event)?;
+        let client = self.get_client().await;
+        client.capture(ph_event).await?;
         Ok(())
     }
 }

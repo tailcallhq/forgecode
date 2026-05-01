@@ -1,9 +1,23 @@
+use std::sync::OnceLock;
+
 use async_trait::async_trait;
 use forge_domain::{
     Conversation, EndPayload, EventData, EventHandle, RequestPayload, ResponsePayload,
     StartPayload, ToolcallEndPayload, ToolcallStartPayload,
 };
+use forge_tracker::{AiGenerationPayload, EventKind, Tracker};
 use tracing::{debug, info, warn};
+
+/// Global tracker instance initialised by `forge_main` at startup.
+///
+/// Lifecycle hooks dispatch AI generation events through this tracker when set.
+/// If not initialised (e.g. in tests), dispatch is silently skipped.
+pub(crate) static TRACKER: OnceLock<Tracker> = OnceLock::new();
+
+/// Sets the global tracker instance. Must be called once at startup.
+pub fn set_tracker(tracker: Tracker) {
+    let _ = TRACKER.set(tracker);
+}
 
 /// Handler that provides comprehensive tracing/logging for all lifecycle events
 ///
@@ -11,7 +25,8 @@ use tracing::{debug, info, warn};
 /// orchestration:
 /// - Start: Logs conversation and agent initialization
 /// - Request: Logs each request iteration
-/// - Response: Logs token usage, costs, and conversation metrics
+/// - Response: Logs token usage, costs, and conversation metrics; dispatches
+///   AI generation events to PostHog
 /// - ToolcallStart: Logs tool execution start
 /// - ToolcallEnd: Logs tool failures with details
 /// - End: Logs title generation when available
@@ -82,6 +97,25 @@ impl EventHandle<EventData<ResponsePayload>> for TracingHandler {
             tool_call_count = message.tool_calls.len(),
             "Tool call count"
         );
+
+        // Dispatch AI generation telemetry to PostHog.
+        if let Some(tracker) = TRACKER.get() {
+            let payload = AiGenerationPayload {
+                provider: event.agent.provider.to_string(),
+                model: event.agent.model.as_str().to_string(),
+                input_tokens: *message.usage.prompt_tokens,
+                output_tokens: *message.usage.completion_tokens,
+                latency_ms: 0.0,
+                cost: message.usage.cost,
+                conversation_id: conversation.id.to_string(),
+            };
+            let tracker = tracker.clone();
+            tokio::spawn(async move {
+                let _ = tracker
+                    .dispatch(EventKind::AiGeneration(payload))
+                    .await;
+            });
+        }
 
         Ok(())
     }

@@ -7,7 +7,7 @@ use clap::Parser;
 use forge_api::ForgeAPI;
 use forge_config::ForgeConfig;
 use forge_domain::TitleFormat;
-use forge_main::{Cli, Sandbox, TitleDisplayExt, UI, tracker};
+use forge_main::{Cli, Sandbox, TRACKER, TitleDisplayExt, UI, tracker};
 
 /// Enables ENABLE_VIRTUAL_TERMINAL_PROCESSING on the stdout console handle.
 ///
@@ -123,6 +123,11 @@ async fn run() -> Result<()> {
     let mut ui = UI::init(cli, config, move |config| {
         ForgeAPI::init(cwd.clone(), config)
     })?;
+
+    // Initialise the PostHog tracker in forge_app so that lifecycle hooks
+    // can dispatch AI generation events.
+    forge_app::init_tracker(TRACKER.clone());
+
     ui.run().await;
 
     Ok(())

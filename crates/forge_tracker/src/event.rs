@@ -26,6 +26,25 @@ pub struct Event {
     pub identity: Option<Identity>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiGenerationPayload {
+    /// LLM provider identifier (e.g. "anthropic", "openai")
+    pub provider: String,
+    /// Model name (e.g. "claude-sonnet-4-20250514")
+    pub model: String,
+    /// Number of input (prompt) tokens consumed
+    pub input_tokens: usize,
+    /// Number of output (completion) tokens produced
+    pub output_tokens: usize,
+    /// Call latency in milliseconds
+    pub latency_ms: f64,
+    /// Cost of the call in USD, if available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
+    /// Conversation identifier from forge_domain
+    pub conversation_id: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Identity {
     pub login: String,
@@ -78,6 +97,8 @@ pub enum EventKind {
     Error(String),
     Trace(Vec<u8>),
     Login(Identity),
+    /// AI generation event carrying LLM telemetry for native PostHog analytics.
+    AiGeneration(AiGenerationPayload),
 }
 
 impl EventKind {
@@ -89,6 +110,7 @@ impl EventKind {
             Self::ToolCall(_) => Name::from("tool_call".to_string()),
             Self::Trace(_) => Name::from("trace".to_string()),
             Self::Login(_) => Name::from("login".to_string()),
+            Self::AiGeneration(_) => Name::from("ai_generation".to_string()),
         }
     }
     pub fn value(&self) -> String {
@@ -99,6 +121,7 @@ impl EventKind {
             Self::ToolCall(payload) => serde_json::to_string(&payload).unwrap_or_default(),
             Self::Trace(trace) => trace.to_str_lossy().to_string(),
             Self::Login(id) => id.login.to_owned(),
+            Self::AiGeneration(payload) => serde_json::to_string(&payload).unwrap_or_default(),
         }
     }
 }

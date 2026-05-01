@@ -39,6 +39,12 @@ pub mod utils;
 mod walker;
 mod workspace_status;
 
+/// Initialises the global PostHog tracker so that lifecycle hooks can dispatch
+/// AI generation events. Must be called once at startup before any chat begins.
+pub fn init_tracker(tracker: forge_tracker::Tracker) {
+    crate::hooks::tracing::set_tracker(tracker);
+}
+
 pub use agent::*;
 pub use agent_provider_resolver::*;
 pub use app::*;
