@@ -32,7 +32,7 @@ impl ConversationSelector {
         // Filter to conversations with titles and context
         let valid_conversations: Vec<&Conversation> = conversations
             .iter()
-            .filter(|c| c.title.is_some() && c.context.is_some())
+            .filter(|c| c.context.is_some())
             .collect();
 
         if valid_conversations.is_empty() {
