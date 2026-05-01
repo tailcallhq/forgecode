@@ -438,9 +438,7 @@ input_modalities = ["text"]
                 forge_domain::Model {
                     id: forge_domain::ModelId::from("llama3.2-3b".to_string()),
                     name: Some("Llama 3.2 3B".to_string()),
-                    description: Some(
-                        "Meta Llama 3.2 3B lightweight local model".to_string(),
-                    ),
+                    description: Some("Meta Llama 3.2 3B lightweight local model".to_string()),
                     context_length: Some(131072),
                     tools_supported: Some(true),
                     supports_parallel_tool_calls: Some(false),
