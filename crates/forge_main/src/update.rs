@@ -7,14 +7,21 @@ use forge_select::ForgeWidget;
 use forge_tracker::VERSION;
 use update_informer::{Check, Version, registry};
 
+/// Returns the shell command used for updating Forge.
+///
+/// The hosted installer owns initial PATH setup, but update should only replace
+/// the binary. Filtering the installer PATH persistence call keeps `forge
+/// update` from rewriting shell startup files on every run.
+fn update_command() -> &'static str {
+    "curl -fsSL https://forgecode.dev/cli | sed '/^ensure_install_dir_shell_path$/d' | sh"
+}
+
 /// Runs the official installation script to update Forge, failing silently.
 /// When `auto_update` is true, exits immediately after a successful update
 /// without prompting the user.
 async fn execute_update_command(api: Arc<impl API>, auto_update: bool) {
     // Spawn a new task that won't block the main application
-    let output = api
-        .execute_shell_command_raw("curl -fsSL https://forgecode.dev/cli | sh")
-        .await;
+    let output = api.execute_shell_command_raw(update_command()).await;
 
     match output {
         Err(err) => {
@@ -109,6 +116,16 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+
+    #[test]
+    fn test_update_command_skips_installer_shell_path_mutation() {
+        let fixture = update_command();
+
+        let actual = fixture.contains("sed '/^ensure_install_dir_shell_path$/d'");
+
+        let expected = true;
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn test_should_skip_update_check_when_frequency_is_never() {
