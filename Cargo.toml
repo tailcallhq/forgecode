@@ -67,13 +67,14 @@ quote = "1.0"
 reedline = "0.47.0"
 rustyline = "18.0.0"
 regex = "1.12.3"
-reqwest = { version = "0.12.23", features = [
+reqwest = { version = "0.13.3", features = [
     "json",
-    "rustls-tls",
+    "rustls",
     "hickory-dns",
     "http2",
 ], default-features = false }
 rustls = { version = "0.23", features = ["ring"], default-features = false }
+webpki-root-certs = "1.0"
 include_dir = "0.7.4"
 schemars = "1.2"
 serde = { version = "1.0.217", features = ["derive"] }
@@ -122,9 +123,8 @@ whoami = "2.1.0"
 fnv_rs = "0.4.3"
 merge = { version = "0.2", features = ["derive"] }
 hex = "0.4.3"
-rmcp = { version = "0.10.0", features = [
+rmcp = { version = "1.5", features = [
     "client",
-    "transport-sse-client-reqwest",
     "transport-child-process",
     "transport-streamable-http-client-reqwest",
     "auth",
@@ -166,3 +166,4 @@ forge_markdown_stream = { path = "crates/forge_markdown_stream" }
 forge_config = { path = "crates/forge_config" }
 forge_eventsource = { path = "crates/forge_eventsource" }
 forge_eventsource_stream = { path = "crates/forge_eventsource_stream" }
+forge_reqwest = { path = "crates/forge_reqwest" }

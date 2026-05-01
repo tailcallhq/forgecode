@@ -23,7 +23,7 @@ impl Default for ForgeFetch {
 
 impl ForgeFetch {
     pub fn new() -> Self {
-        Self { client: Client::new() }
+        Self { client: forge_reqwest::builder().build().unwrap_or_default() }
     }
 }
 

@@ -6,7 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 forge_eventsource_stream.workspace = true
-reqwest = { version = "0.12.0", default-features = false, features = ["stream"] }
+reqwest = { workspace = true, features = ["stream"] }
 futures-core = "0.3.5"
 pin-project-lite = "0.2.8"
 nom = "8.0.0"

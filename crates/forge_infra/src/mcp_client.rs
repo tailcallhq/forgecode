@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::str::FromStr;
@@ -12,11 +11,12 @@ use forge_domain::{
 };
 use reqwest::Client;
 use reqwest::header::{HeaderName, HeaderValue};
-use rmcp::model::{CallToolRequestParam, ClientInfo, Implementation, InitializeRequestParam};
+use rmcp::model::{CallToolRequestParams, ClientInfo, Implementation, InitializeRequestParams};
 use rmcp::service::RunningService;
-use rmcp::transport::sse_client::SseClientConfig;
-use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
-use rmcp::transport::{SseClientTransport, StreamableHttpClientTransport, TokioChildProcess};
+use rmcp::transport::TokioChildProcess;
+use rmcp::transport::streamable_http_client::{
+    StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
+};
 use rmcp::{RoleClient, ServiceExt};
 use schemars::Schema;
 use serde_json::Value;
@@ -30,12 +30,12 @@ const VERSION: &str = match option_env!("APP_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
 };
 
-type RmcpClient = RunningService<RoleClient, InitializeRequestParam>;
+type RmcpClient = RunningService<RoleClient, InitializeRequestParams>;
 
 #[derive(Clone)]
 pub struct ForgeMcpClient {
     client: Arc<RwLock<Option<Arc<RmcpClient>>>>,
-    http_client: Arc<Client>,
+    http_client: Arc<OnceLock<Arc<Client>>>,
     config: McpServerConfig,
     env_vars: BTreeMap<String, String>,
     environment: Environment,
@@ -62,30 +62,9 @@ impl ForgeMcpClient {
         env_vars: &BTreeMap<String, String>,
         environment: Environment,
     ) -> Self {
-        // Try to resolve config early so we can extract headers for the HTTP client.
-        // If resolution fails, fall back to a plain client (headers will be missing
-        // but the error will surface when create_connection is called).
-        let resolved = resolve_http_templates(
-            match &config {
-                McpServerConfig::Http(http) => http.clone(),
-                McpServerConfig::Stdio(_) => McpHttpServer {
-                    url: String::new(),
-                    headers: BTreeMap::new(),
-                    timeout: None,
-                    disable: false,
-                    oauth: forge_domain::McpOAuthSetting::default(),
-                },
-            },
-            env_vars,
-        );
-
-        let http_client = resolved
-            .and_then(|http| Self::build_http_client(&http))
-            .unwrap_or_default();
-
         Self {
             client: Default::default(),
-            http_client: Arc::new(http_client),
+            http_client: Arc::new(OnceLock::new()),
             config,
             env_vars: env_vars.clone(),
             environment,
@@ -107,17 +86,7 @@ impl ForgeMcpClient {
     }
 
     fn client_info(&self) -> ClientInfo {
-        ClientInfo {
-            protocol_version: Default::default(),
-            capabilities: Default::default(),
-            client_info: Implementation {
-                name: "Forge".to_string(),
-                version: VERSION.to_string(),
-                icons: None,
-                title: None,
-                website_url: None,
-            },
-        }
+        ClientInfo::new(Default::default(), Implementation::new("Forge", VERSION))
     }
 
     /// Connects to the MCP server. If `force` is true, it will reconnect even
@@ -219,23 +188,12 @@ impl ForgeMcpClient {
         &self,
         http: &McpHttpServer,
     ) -> anyhow::Result<RmcpClient> {
-        // Try HTTP first, fall back to SSE if it fails
         let client = self.reqwest_client();
         let transport = StreamableHttpClientTransport::with_client(
             client.as_ref().clone(),
             StreamableHttpClientTransportConfig::with_uri(http.url.clone()),
         );
-        match self.client_info().serve(transport).await {
-            Ok(client) => Ok(client),
-            Err(_e) => {
-                let transport = SseClientTransport::start_with_client(
-                    client.as_ref().clone(),
-                    SseClientConfig { sse_endpoint: http.url.clone().into(), ..Default::default() },
-                )
-                .await?;
-                Ok(self.client_info().serve(transport).await?)
-            }
-        }
+        Ok(self.client_info().serve(transport).await?)
     }
 
     /// Create an OAuth-enabled connection using rmcp's OAuth support.
@@ -366,12 +324,23 @@ impl ForgeMcpClient {
             .map_err(|e| anyhow::anyhow!("Failed to get credentials: {}", e))?;
 
         {
+            use oauth2::TokenResponse;
             use rmcp::transport::auth::CredentialStore;
             let save_store = McpTokenStorage::new(http.url.clone(), self.environment.clone());
-            let stored = rmcp::transport::auth::StoredCredentials {
-                client_id: credentials.0,
-                token_response: credentials.1,
-            };
+            // Prefer scopes granted by the server (from the token response); fall
+            // back to the scopes we requested if the server didn't echo them back.
+            let granted_scopes = credentials
+                .1
+                .as_ref()
+                .and_then(|t| t.scopes())
+                .map(|s| s.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+                .unwrap_or_else(|| oauth_config.scopes.clone());
+            let stored = rmcp::transport::auth::StoredCredentials::new(
+                credentials.0,
+                credentials.1,
+                granted_scopes,
+                None,
+            );
             save_store
                 .save(stored)
                 .await
@@ -500,7 +469,28 @@ impl ForgeMcpClient {
         // to prevent file descriptor leaks. Each reqwest::Client manages its
         // own connection pool, so creating new clients for each connection
         // leads to "Too many open files" errors.
-        self.http_client.clone()
+        self.http_client
+            .get_or_init(|| {
+                let resolved = resolve_http_templates(
+                    match &self.config {
+                        McpServerConfig::Http(http) => http.clone(),
+                        McpServerConfig::Stdio(_) => McpHttpServer {
+                            url: String::new(),
+                            headers: BTreeMap::new(),
+                            timeout: None,
+                            disable: false,
+                            oauth: forge_domain::McpOAuthSetting::default(),
+                        },
+                    },
+                    &self.env_vars,
+                );
+                Arc::new(
+                    resolved
+                        .and_then(|http| Self::build_http_client(&http))
+                        .unwrap_or_default(),
+                )
+            })
+            .clone()
     }
 
     async fn list(&self) -> anyhow::Result<Vec<ToolDefinition>> {
@@ -526,16 +516,11 @@ impl ForgeMcpClient {
 
     async fn call(&self, tool_name: &ToolName, input: &Value) -> anyhow::Result<ToolOutput> {
         let client = self.connect().await?;
-        let result = client
-            .call_tool(CallToolRequestParam {
-                name: Cow::Owned(tool_name.to_string()),
-                arguments: if let Value::Object(args) = input {
-                    Some(args.clone())
-                } else {
-                    None
-                },
-            })
-            .await?;
+        let mut params = CallToolRequestParams::new(tool_name.to_string());
+        if let Value::Object(args) = input {
+            params = params.with_arguments(args.clone());
+        }
+        let result = client.call_tool(params).await?;
 
         let tool_contents: Vec<ToolOutput> = result
             .content
@@ -734,10 +719,21 @@ pub async fn mcp_auth(server_url: &str, env: &Environment) -> anyhow::Result<()>
         .map_err(|e| anyhow::anyhow!("Failed to get credentials: {}", e))?;
 
     let save_store = McpTokenStorage::new(server_url.to_string(), env.clone());
-    let stored = rmcp::transport::auth::StoredCredentials {
-        client_id: credentials.0,
-        token_response: credentials.1,
+    let granted_scopes = {
+        use oauth2::TokenResponse;
+        credentials
+            .1
+            .as_ref()
+            .and_then(|t| t.scopes())
+            .map(|s| s.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+            .unwrap_or_default()
     };
+    let stored = rmcp::transport::auth::StoredCredentials::new(
+        credentials.0,
+        credentials.1,
+        granted_scopes,
+        None,
+    );
     save_store
         .save(stored)
         .await
