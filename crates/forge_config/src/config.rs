@@ -300,6 +300,11 @@ pub struct ForgeConfig {
     /// When false the `task` tool is disabled and `sage` is available instead.
     #[serde(default)]
     pub subagents: bool,
+
+    // --- Display/Output fields ---
+    /// Output formatting settings (verbosity, compact mode, etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<crate::output::OutputSettings>,
 }
 
 impl ForgeConfig {

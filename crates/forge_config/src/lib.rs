@@ -6,6 +6,8 @@ mod error;
 mod http;
 mod legacy;
 mod model;
+mod output; // NEW: Output formatting settings
+mod formatter; // NEW: Tool output formatter
 mod percentage;
 mod reader;
 mod reasoning;
@@ -19,6 +21,8 @@ pub use decimal::*;
 pub use error::Error;
 pub use http::*;
 pub use model::*;
+pub use output::*; // NEW: Export OutputSettings, Verbosity
+pub use formatter::*; // NEW: Export ToolOutputFormatter
 pub use percentage::*;
 pub use reader::*;
 pub use reasoning::*;
