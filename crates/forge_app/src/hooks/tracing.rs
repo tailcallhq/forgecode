@@ -25,8 +25,8 @@ pub fn set_tracker(tracker: Tracker) {
 /// orchestration:
 /// - Start: Logs conversation and agent initialization
 /// - Request: Logs each request iteration
-/// - Response: Logs token usage, costs, and conversation metrics; dispatches
-///   AI generation events to PostHog
+/// - Response: Logs token usage, costs, and conversation metrics; dispatches AI
+///   generation events to PostHog
 /// - ToolcallStart: Logs tool execution start
 /// - ToolcallEnd: Logs tool failures with details
 /// - End: Logs title generation when available
@@ -111,9 +111,7 @@ impl EventHandle<EventData<ResponsePayload>> for TracingHandler {
             };
             let tracker = tracker.clone();
             tokio::spawn(async move {
-                let _ = tracker
-                    .dispatch(EventKind::AiGeneration(payload))
-                    .await;
+                let _ = tracker.dispatch(EventKind::AiGeneration(payload)).await;
             });
         }
 

@@ -74,8 +74,7 @@ fn build_ph_event(input: &Event) -> Result<PhEvent> {
 
     // Map AiGeneration payload to native PostHog $ai_generation schema.
     if &*input.event_name == "ai_generation"
-        && let Ok(payload) =
-            serde_json::from_str::<crate::AiGenerationPayload>(&input.event_value)
+        && let Ok(payload) = serde_json::from_str::<crate::AiGenerationPayload>(&input.event_value)
     {
         ph_event.insert_prop("$ai_provider", &payload.provider)?;
         ph_event.insert_prop("$ai_model", &payload.model)?;
