@@ -444,7 +444,9 @@ models = "http://example.com/v1/models"
         let expected = vec![ProviderEntry {
             id: "my_provider".to_string(),
             url: "http://example.com/v1/chat/completions".to_string(),
-            models: Some(ModelsConfig::Url("http://example.com/v1/models".to_string())),
+            models: Some(ModelsConfig::Url(
+                "http://example.com/v1/models".to_string(),
+            )),
             ..Default::default()
         }];
 
