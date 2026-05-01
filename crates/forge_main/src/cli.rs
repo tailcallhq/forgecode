@@ -87,15 +87,15 @@ impl Cli {
     }
 
     /// Returns the effective verbosity level considering both --verbosity and --compact.
-    pub fn effective_verbosity(&self) -> forge_config::output::Verbosity {
+    pub fn effective_verbosity(&self) -> forge_config::Verbosity {
         if self.compact {
-            forge_config::output::Verbosity::Compact
+            forge_config::Verbosity::Compact
         } else {
             match self.verbosity {
-                VerbosityLevel::Compact => forge_config::output::Verbosity::Compact,
-                VerbosityLevel::Concise => forge_config::output::Verbosity::Concise,
-                VerbosityLevel::Normal => forge_config::output::Verbosity::Normal,
-                VerbosityLevel::Verbose => forge_config::output::Verbosity::Verbose,
+                VerbosityLevel::Compact => forge_config::Verbosity::Compact,
+                VerbosityLevel::Concise => forge_config::Verbosity::Concise,
+                VerbosityLevel::Normal => forge_config::Verbosity::Normal,
+                VerbosityLevel::Verbose => forge_config::Verbosity::Verbose,
             }
         }
     }
