@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Mark Stale Issues
-      uses: actions/stale@v10
+      uses: actions/stale@1184f27a62c3f3e0902a5f6e6e1c9c6f4f0e6e8a7
       with:
         stale-issue-label: 'state: inactive'
         stale-pr-label: 'state: inactive'
