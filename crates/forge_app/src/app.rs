@@ -72,10 +72,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
 
         // Discover files using the discovery service
         let forge_config = self.services.get_config()?;
-        let cwd_override = chat
-            .cwd_override
-            .clone()
-            .or_else(|| conversation.cwd.clone());
+        let cwd_override = conversation.cwd.clone();
         conversation.cwd = cwd_override.clone();
         let mut environment = services.get_environment();
 
