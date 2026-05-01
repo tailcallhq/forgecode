@@ -35,7 +35,7 @@ type RmcpClient = RunningService<RoleClient, InitializeRequestParams>;
 #[derive(Clone)]
 pub struct ForgeMcpClient {
     client: Arc<RwLock<Option<Arc<RmcpClient>>>>,
-    http_client: Arc<Client>,
+    http_client: Arc<OnceLock<Arc<Client>>>,
     config: McpServerConfig,
     env_vars: BTreeMap<String, String>,
     environment: Environment,
@@ -62,30 +62,9 @@ impl ForgeMcpClient {
         env_vars: &BTreeMap<String, String>,
         environment: Environment,
     ) -> Self {
-        // Try to resolve config early so we can extract headers for the HTTP client.
-        // If resolution fails, fall back to a plain client (headers will be missing
-        // but the error will surface when create_connection is called).
-        let resolved = resolve_http_templates(
-            match &config {
-                McpServerConfig::Http(http) => http.clone(),
-                McpServerConfig::Stdio(_) => McpHttpServer {
-                    url: String::new(),
-                    headers: BTreeMap::new(),
-                    timeout: None,
-                    disable: false,
-                    oauth: forge_domain::McpOAuthSetting::default(),
-                },
-            },
-            env_vars,
-        );
-
-        let http_client = resolved
-            .and_then(|http| Self::build_http_client(&http))
-            .unwrap_or_default();
-
         Self {
             client: Default::default(),
-            http_client: Arc::new(http_client),
+            http_client: Arc::new(OnceLock::new()),
             config,
             env_vars: env_vars.clone(),
             environment,
@@ -490,7 +469,28 @@ impl ForgeMcpClient {
         // to prevent file descriptor leaks. Each reqwest::Client manages its
         // own connection pool, so creating new clients for each connection
         // leads to "Too many open files" errors.
-        self.http_client.clone()
+        self.http_client
+            .get_or_init(|| {
+                let resolved = resolve_http_templates(
+                    match &self.config {
+                        McpServerConfig::Http(http) => http.clone(),
+                        McpServerConfig::Stdio(_) => McpHttpServer {
+                            url: String::new(),
+                            headers: BTreeMap::new(),
+                            timeout: None,
+                            disable: false,
+                            oauth: forge_domain::McpOAuthSetting::default(),
+                        },
+                    },
+                    &self.env_vars,
+                );
+                Arc::new(
+                    resolved
+                        .and_then(|http| Self::build_http_client(&http))
+                        .unwrap_or_default(),
+                )
+            })
+            .clone()
     }
 
     async fn list(&self) -> anyhow::Result<Vec<ToolDefinition>> {
