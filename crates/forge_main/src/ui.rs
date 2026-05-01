@@ -2284,7 +2284,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     }
 
     async fn handle_delete_conversation(&mut self) -> anyhow::Result<()> {
-        let conversation_id = self.init_conversation().await?;
+        let conversation_id = self
+            .state
+            .conversation_id
+            .ok_or_else(|| anyhow::anyhow!("No active conversation to delete. Start a conversation first."))?;
+
+        self.validate_conversation_exists(&conversation_id).await?;
         self.on_conversation_delete(conversation_id).await?;
         Ok(())
     }
