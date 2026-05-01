@@ -170,6 +170,12 @@ pub trait UserInfra: Send + Sync {
     /// Returns None if the user interrupts the prompt
     async fn prompt_question(&self, question: &str) -> anyhow::Result<Option<String>>;
 
+    /// Prompts the user with a yes/no confirmation.
+    ///
+    /// Returns `Some(true)` if confirmed, `Some(false)` if denied, or `None`
+    /// if the user cancels.
+    async fn confirm(&self, message: &str) -> anyhow::Result<Option<bool>>;
+
     /// Prompts the user to select a single option from a list
     /// Returns None if the user interrupts the selection
     async fn select_one<T: Clone + std::fmt::Display + Send + 'static>(

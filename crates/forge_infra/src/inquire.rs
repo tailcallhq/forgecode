@@ -32,6 +32,12 @@ impl UserInfra for ForgeInquire {
             .await
     }
 
+    async fn confirm(&self, message: &str) -> Result<Option<bool>> {
+        let message = message.to_string();
+        self.prompt(move || ForgeWidget::confirm(&message).with_default(true).prompt())
+            .await
+    }
+
     async fn select_one<T: Clone + std::fmt::Display + Send + 'static>(
         &self,
         message: &str,

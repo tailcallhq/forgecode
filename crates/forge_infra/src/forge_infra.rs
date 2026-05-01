@@ -258,6 +258,10 @@ impl UserInfra for ForgeInfra {
         self.inquire_service.prompt_question(question).await
     }
 
+    async fn confirm(&self, message: &str) -> anyhow::Result<Option<bool>> {
+        self.inquire_service.confirm(message).await
+    }
+
     async fn select_one<T: Clone + std::fmt::Display + Send + 'static>(
         &self,
         message: &str,
