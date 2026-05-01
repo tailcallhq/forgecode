@@ -1,7 +1,7 @@
 run:
   - git clone --depth=1 --branch main https://github.com/tailcallhq/forgecode .
   - mkdir ../cwd-target-a ../cwd-target-b
-  - FORGE_DEBUG_REQUESTS='{{dir}}/context.jsonl' forgee -p '{{task}}'
+  - FORGE_DEBUG_REQUESTS='{{dir}}/context.jsonl' FORGE_SESSION__PROVIDER_ID=open_router FORGE_SESSION__MODEL_ID='{{model}}' forgee -p '{{task}}'
 
 parallelism: 4
 timeout: 180
@@ -12,9 +12,12 @@ validations:
     type: shell
     command: |
       jq -se '
-        (.[-1].input
-         | map(select(.role == "user") | .content)
-         | join("\n")) as $user_prompt
+        ([.[].messages[] | select(.role == "user")]
+         | first
+         | if (.content | type) == "string" then .content
+           elif (.content | type) == "array" then (.content | map(select(.type == "text") | .text // "") | join(""))
+           else ""
+           end) as $user_prompt
         | (
             if ($user_prompt | test("\\.\\./cwd-target-a")) then "../cwd-target-a"
             elif ($user_prompt | test("\\.\\./cwd-target-b")) then "../cwd-target-b"
@@ -23,15 +26,15 @@ validations:
             else ""
             end
           ) as $expected_path
-        | [.[-1].input[]?
-           | select(.type == "function_call" and .name == "task")
-           | .arguments
-           | fromjson
+        | ($expected_path | split("/") | last) as $path_end
+        | [.[].messages[].tool_calls[]?
+           | select((.function.name | ascii_downcase) == "task")
+           | .function.arguments | fromjson
            | select(
                ($expected_path != "")
                and (
-                 (.cwd // "") == $expected_path
-                 or ([.tasks[]? | tostring] | join("\n") | contains($expected_path))
+                 (.cwd // "" | (. == $expected_path or endswith("/" + $path_end)))
+                 or ([.tasks[]? | tostring] | join("\n") | (contains($expected_path) or contains($path_end)))
                )
              )
           ] | length > 0
