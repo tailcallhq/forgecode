@@ -52,81 +52,85 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
     /// call.
     fn client(&self) -> &Client {
         self.client.get_or_init(|| {
-            let http = self.config.http.clone().unwrap_or(forge_config::HttpConfig {
-            connect_timeout_secs: 30,
-            read_timeout_secs: 900,
-            pool_idle_timeout_secs: 90,
-            pool_max_idle_per_host: 5,
-            max_redirects: 10,
-            hickory: false,
-            tls_backend: TlsBackend::Default,
-            min_tls_version: None,
-            max_tls_version: None,
-            adaptive_window: true,
-            keep_alive_interval_secs: Some(60),
-            keep_alive_timeout_secs: 10,
-            keep_alive_while_idle: true,
-            accept_invalid_certs: false,
-            root_cert_paths: None,
-        });
+            let http = self
+                .config
+                .http
+                .clone()
+                .unwrap_or(forge_config::HttpConfig {
+                    connect_timeout_secs: 30,
+                    read_timeout_secs: 900,
+                    pool_idle_timeout_secs: 90,
+                    pool_max_idle_per_host: 5,
+                    max_redirects: 10,
+                    hickory: false,
+                    tls_backend: TlsBackend::Default,
+                    min_tls_version: None,
+                    max_tls_version: None,
+                    adaptive_window: true,
+                    keep_alive_interval_secs: Some(60),
+                    keep_alive_timeout_secs: 10,
+                    keep_alive_while_idle: true,
+                    accept_invalid_certs: false,
+                    root_cert_paths: None,
+                });
 
-        let mut client = forge_reqwest::builder()
-            .connect_timeout(Duration::from_secs(http.connect_timeout_secs))
-            .read_timeout(Duration::from_secs(http.read_timeout_secs))
-            .pool_idle_timeout(Duration::from_secs(http.pool_idle_timeout_secs))
-            .pool_max_idle_per_host(http.pool_max_idle_per_host)
-            .redirect(Policy::limited(http.max_redirects))
-            .hickory_dns(http.hickory)
-            // HTTP/2 configuration from config
-            .http2_adaptive_window(http.adaptive_window)
-            .http2_keep_alive_interval(http.keep_alive_interval_secs.map(Duration::from_secs))
-            .http2_keep_alive_timeout(Duration::from_secs(http.keep_alive_timeout_secs))
-            .http2_keep_alive_while_idle(http.keep_alive_while_idle);
+            let mut client = forge_reqwest::builder()
+                .connect_timeout(Duration::from_secs(http.connect_timeout_secs))
+                .read_timeout(Duration::from_secs(http.read_timeout_secs))
+                .pool_idle_timeout(Duration::from_secs(http.pool_idle_timeout_secs))
+                .pool_max_idle_per_host(http.pool_max_idle_per_host)
+                .redirect(Policy::limited(http.max_redirects))
+                .hickory_dns(http.hickory)
+                // HTTP/2 configuration from config
+                .http2_adaptive_window(http.adaptive_window)
+                .http2_keep_alive_interval(http.keep_alive_interval_secs.map(Duration::from_secs))
+                .http2_keep_alive_timeout(Duration::from_secs(http.keep_alive_timeout_secs))
+                .http2_keep_alive_while_idle(http.keep_alive_while_idle);
 
-        // Add root certificates from config
-        if let Some(ref cert_paths) = http.root_cert_paths {
-            for cert_path in cert_paths {
-                match fs::read(cert_path) {
-                    Ok(buf) => {
-                        if let Ok(cert) = Certificate::from_pem(&buf) {
-                            client = client.add_root_certificate(cert);
-                        } else if let Ok(cert) = Certificate::from_der(&buf) {
-                            client = client.add_root_certificate(cert);
-                        } else {
+            // Add root certificates from config
+            if let Some(ref cert_paths) = http.root_cert_paths {
+                for cert_path in cert_paths {
+                    match fs::read(cert_path) {
+                        Ok(buf) => {
+                            if let Ok(cert) = Certificate::from_pem(&buf) {
+                                client = client.add_root_certificate(cert);
+                            } else if let Ok(cert) = Certificate::from_der(&buf) {
+                                client = client.add_root_certificate(cert);
+                            } else {
+                                warn!(
+                                    "Failed to parse certificate as PEM or DER format, cert = {}",
+                                    cert_path
+                                );
+                            }
+                        }
+                        Err(error) => {
                             warn!(
-                                "Failed to parse certificate as PEM or DER format, cert = {}",
-                                cert_path
+                                "Failed to read certificate file, path = {}, error = {}",
+                                cert_path, error
                             );
                         }
                     }
-                    Err(error) => {
-                        warn!(
-                            "Failed to read certificate file, path = {}, error = {}",
-                            cert_path, error
-                        );
-                    }
                 }
             }
-        }
 
-        if http.accept_invalid_certs {
-            client = client.danger_accept_invalid_certs(true);
-        }
-
-        if let Some(version) = http.min_tls_version {
-            client = client.min_tls_version(to_reqwest_tls(version));
-        }
-
-        if let Some(version) = http.max_tls_version {
-            client = client.max_tls_version(to_reqwest_tls(version));
-        }
-
-        match http.tls_backend {
-            TlsBackend::Rustls => {
-                client = client.use_rustls_tls();
+            if http.accept_invalid_certs {
+                client = client.danger_accept_invalid_certs(true);
             }
-            TlsBackend::Default => {}
-        }
+
+            if let Some(version) = http.min_tls_version {
+                client = client.min_tls_version(to_reqwest_tls(version));
+            }
+
+            if let Some(version) = http.max_tls_version {
+                client = client.max_tls_version(to_reqwest_tls(version));
+            }
+
+            match http.tls_backend {
+                TlsBackend::Rustls => {
+                    client = client.use_rustls_tls();
+                }
+                TlsBackend::Default => {}
+            }
 
             client.build().unwrap()
         })
