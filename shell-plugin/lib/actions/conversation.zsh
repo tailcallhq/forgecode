@@ -337,7 +337,7 @@ function _forge_clone_and_switch() {
     
     if [[ $clone_exit_code -eq 0 ]]; then
         # Extract new conversation ID from output
-        local new_id=$(echo "$clone_output" | grep -oE '[a-f0-9-]{36}' | tail -1)
+        local new_id=$(echo "$clone_output" | grep -oE "$FORGE_UUID_PATTERN" | tail -1)
         
         if [[ -n "$new_id" ]]; then
             # Switch to cloned conversation and track previous

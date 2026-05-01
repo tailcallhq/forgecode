@@ -2,6 +2,18 @@
 
 # Core utility functions for forge plugin
 
+# ============================================================================
+# Constants
+# ============================================================================
+
+# UUID v4 pattern for matching conversation IDs
+# Matches standard UUID format: 8-4-4-4-12 hex digits (lowercase)
+FORGE_UUID_PATTERN='[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'
+
+# ============================================================================
+# Private Functions
+# ============================================================================
+
 # Lazy loader for commands cache
 # Loads the commands list only when first needed, avoiding startup cost
 function _forge_get_commands() {
@@ -18,7 +30,12 @@ function _forge_fzf() {
 
 # Helper function to execute forge commands consistently
 # This ensures proper handling of special characters and consistent output
-function _forge_exec() {
+#
+# Sets up:
+# - Agent ID from _FORGE_ACTIVE_AGENT
+# - Terminal context arrays as US-separated env vars for TerminalContextService
+# - Session environment variables (model, provider, reasoning effort)
+function _forge_exec_setup() {
     local agent_id="${_FORGE_ACTIVE_AGENT:-forge}"
     local -a cmd
     cmd=($_FORGE_BIN --agent "$agent_id")
@@ -45,7 +62,14 @@ function _forge_exec() {
     [[ -n "$_FORGE_SESSION_MODEL" ]] && local -x FORGE_SESSION__MODEL_ID="$_FORGE_SESSION_MODEL"
     [[ -n "$_FORGE_SESSION_PROVIDER" ]] && local -x FORGE_SESSION__PROVIDER_ID="$_FORGE_SESSION_PROVIDER"
     [[ -n "$_FORGE_SESSION_REASONING_EFFORT" ]] && local -x FORGE_REASONING__EFFORT="$_FORGE_SESSION_REASONING_EFFORT"
-    "${cmd[@]}"
+    echo "${cmd[@]}"
+}
+
+# Execute a forge command with standard input/output
+function _forge_exec() {
+    local cmd_array
+    cmd_array=($(_forge_exec_setup "$@"))
+    eval "${cmd_array[@]}"
 }
 
 # Like _forge_exec but connects stdin/stdout to /dev/tty so that interactive
@@ -55,31 +79,9 @@ function _forge_exec() {
 # library would see a non-tty stdin and return EOF immediately.
 # Do NOT use inside $(...) command substitutions - use _forge_exec instead.
 function _forge_exec_interactive() {
-    local agent_id="${_FORGE_ACTIVE_AGENT:-forge}"
-    local -a cmd
-    cmd=($_FORGE_BIN --agent "$agent_id")
-
-    # Expose terminal context arrays as US-separated (\x1F) env vars so that
-    # the Rust TerminalContextService can read them via get_env_var.
-    # ASCII Unit Separator (\x1F) is used instead of `:` because commands
-    # can legitimately contain colons (URLs, port mappings, paths, etc.).
-    # Use `local -x` so the variables are exported only for the duration of
-    # this function call (i.e. inherited by the child forge process) and do
-    # not leak into the caller's shell environment.
-    if [[ "$_FORGE_TERM" == "true" && ${#_FORGE_TERM_COMMANDS} -gt 0 ]]; then
-        local _old_ifs="$IFS" _sep=$'\x1f'
-        IFS="$_sep"
-        local -x _FORGE_TERM_COMMANDS="${_FORGE_TERM_COMMANDS[*]}"
-        local -x _FORGE_TERM_EXIT_CODES="${_FORGE_TERM_EXIT_CODES[*]}"
-        local -x _FORGE_TERM_TIMESTAMPS="${_FORGE_TERM_TIMESTAMPS[*]}"
-        IFS="$_old_ifs"
-    fi
-
-    cmd+=("$@")
-    [[ -n "$_FORGE_SESSION_MODEL" ]] && local -x FORGE_SESSION__MODEL_ID="$_FORGE_SESSION_MODEL"
-    [[ -n "$_FORGE_SESSION_PROVIDER" ]] && local -x FORGE_SESSION__PROVIDER_ID="$_FORGE_SESSION_PROVIDER"
-    [[ -n "$_FORGE_SESSION_REASONING_EFFORT" ]] && local -x FORGE_REASONING__EFFORT="$_FORGE_SESSION_REASONING_EFFORT"
-    "${cmd[@]}" </dev/tty >/dev/tty
+    local cmd_array
+    cmd_array=($(_forge_exec_setup "$@"))
+    eval "${cmd_array[@]}" </dev/tty >/dev/tty
 }
 
 function _forge_reset() {

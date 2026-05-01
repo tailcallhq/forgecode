@@ -41,7 +41,7 @@ jobs:
       contents: read
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
     - name: Setup Protobuf Compiler
       uses: arduino/setup-protoc@v3
       with:
@@ -61,7 +61,7 @@ jobs:
       contents: read
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
     - name: Setup Protobuf Compiler
       uses: arduino/setup-protoc@v3
       with:
@@ -86,7 +86,7 @@ jobs:
       crate_release_id: ${{ steps.set_output.outputs.crate_release_id }}
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
     - id: create_release
       name: Draft Release
       uses: release-drafter/release-drafter@v7
@@ -106,7 +106,7 @@ jobs:
       crate_release_id: ${{ steps.set_output.outputs.crate_release_id }}
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
     - id: set_output
       name: Set Release Version
       run: echo "crate_release_name=pr-build-${{ github.event.number }}" >> $GITHUB_OUTPUT && echo "crate_release_id=pr-build-${{ github.event.number }}" >> $GITHUB_OUTPUT
@@ -169,7 +169,7 @@ jobs:
           target: aarch64-linux-android
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
     - name: Setup Protobuf Compiler
       if: ${{ matrix.cross == 'false' }}
       uses: arduino/setup-protoc@v3
@@ -264,7 +264,7 @@ jobs:
           target: aarch64-linux-android
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
     - name: Setup Protobuf Compiler
       if: ${{ matrix.cross == 'false' }}
       uses: arduino/setup-protoc@v3

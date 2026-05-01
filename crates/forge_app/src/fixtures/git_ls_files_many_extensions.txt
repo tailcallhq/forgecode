@@ -795,7 +795,7 @@ shell-plugin/forge.setup.zsh
 shell-plugin/forge.theme.zsh
 shell-plugin/keyboard.zsh
 shell-plugin/lib/actions/auth.zsh
-shell-plugin/lib/actions/config.zsh
+shell-plugin/lib/actions/config_actions.zsh
 shell-plugin/lib/actions/conversation.zsh
 shell-plugin/lib/actions/core.zsh
 shell-plugin/lib/actions/doctor.zsh

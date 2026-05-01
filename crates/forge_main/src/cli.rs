@@ -54,6 +54,16 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub verbose: bool,
 
+    /// Output verbosity level: compact, concise, normal, or verbose.
+    /// Controls how much detail is shown for tool outputs.
+    #[arg(long, value_enum, default_value_t = VerbosityLevel::Normal)]
+    pub verbosity: VerbosityLevel,
+
+    /// Enable compact output mode (1 line per tool result).
+    /// Shorthand for --verbosity compact.
+    #[arg(long, short = 'q')]
+    pub compact: bool,
+
     /// Agent ID to use for this session.
     #[arg(long, alias = "aid")]
     pub agent: Option<AgentId>,
@@ -75,6 +85,34 @@ impl Cli {
     pub fn is_interactive(&self) -> bool {
         self.prompt.is_none() && self.piped_input.is_none() && self.subcommands.is_none()
     }
+
+    /// Returns the effective verbosity level considering both --verbosity and --compact.
+    pub fn effective_verbosity(&self) -> forge_config::output::Verbosity {
+        if self.compact {
+            forge_config::output::Verbosity::Compact
+        } else {
+            match self.verbosity {
+                VerbosityLevel::Compact => forge_config::output::Verbosity::Compact,
+                VerbosityLevel::Concise => forge_config::output::Verbosity::Concise,
+                VerbosityLevel::Normal => forge_config::output::Verbosity::Normal,
+                VerbosityLevel::Verbose => forge_config::output::Verbosity::Verbose,
+            }
+        }
+    }
+}
+
+/// Output verbosity levels for CLI.
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum VerbosityLevel {
+    /// Ultra compact: 1 line per tool result
+    #[default]
+    Compact,
+    /// Brief summaries
+    Concise,
+    /// Standard output (default)
+    Normal,
+    /// Full details
+    Verbose,
 }
 
 #[derive(Subcommand, Debug, Clone)]

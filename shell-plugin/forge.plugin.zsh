@@ -21,7 +21,7 @@ source "${0:A:h}/lib/completion.zsh"
 
 # Action handlers
 source "${0:A:h}/lib/actions/core.zsh"
-source "${0:A:h}/lib/actions/config.zsh"
+source "${0:A:h}/lib/actions/config_actions.zsh"
 source "${0:A:h}/lib/actions/conversation.zsh"
 source "${0:A:h}/lib/actions/git.zsh"
 source "${0:A:h}/lib/actions/auth.zsh"

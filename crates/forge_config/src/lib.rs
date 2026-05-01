@@ -3,11 +3,11 @@ mod compact;
 mod config;
 mod decimal;
 mod error;
+mod formatter; // NEW: Tool output formatter
 mod http;
 mod legacy;
 mod model;
 mod output; // NEW: Output formatting settings
-mod formatter; // NEW: Tool output formatter
 mod percentage;
 mod reader;
 mod reasoning;
@@ -19,10 +19,11 @@ pub use compact::*;
 pub use config::*;
 pub use decimal::*;
 pub use error::Error;
-pub use http::*;
-pub use model::*;
-pub use output::*; // NEW: Export OutputSettings, Verbosity
 pub use formatter::*; // NEW: Export ToolOutputFormatter
+pub use http::*;
+pub use legacy::*;
+pub use model::*;
+pub use output::{OutputSettings, Verbosity}; // NEW: Export OutputSettings, Verbosity
 pub use percentage::*;
 pub use reader::*;
 pub use reasoning::*;
