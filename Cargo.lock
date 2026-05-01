@@ -2309,6 +2309,7 @@ dependencies = [
  "dirs",
  "dotenvy",
  "fake",
+ "forge_domain",
  "is_ci",
  "pretty_assertions",
  "schemars 1.2.1",
