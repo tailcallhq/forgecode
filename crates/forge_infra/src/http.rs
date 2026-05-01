@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context;
@@ -19,7 +19,8 @@ const VERSION: &str = match option_env!("APP_VERSION") {
 };
 
 pub struct ForgeHttpInfra<F> {
-    client: Client,
+    client: OnceLock<Client>,
+    config: ForgeConfig,
     debug_requests: Option<PathBuf>,
     file: Arc<F>,
 }
@@ -36,8 +37,22 @@ fn to_reqwest_tls(tls: TlsVersion) -> reqwest::tls::Version {
 
 impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
     /// Creates a new [`ForgeHttpInfra`] from a resolved [`ForgeConfig`].
+    ///
+    /// The underlying HTTP client is built lazily on first use.
     pub fn new(config: ForgeConfig, file_writer: Arc<F>) -> Self {
-        let http = config.http.unwrap_or(forge_config::HttpConfig {
+        Self {
+            debug_requests: config.debug_requests.clone(),
+            client: OnceLock::new(),
+            config,
+            file: file_writer,
+        }
+    }
+
+    /// Returns a reference to the underlying [`Client`], building it on first
+    /// call.
+    fn client(&self) -> &Client {
+        self.client.get_or_init(|| {
+            let http = self.config.http.clone().unwrap_or(forge_config::HttpConfig {
             connect_timeout_secs: 30,
             read_timeout_secs: 900,
             pool_idle_timeout_secs: 90,
@@ -113,11 +128,8 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
             TlsBackend::Default => {}
         }
 
-        Self {
-            debug_requests: config.debug_requests,
-            client: client.build().unwrap(),
-            file: file_writer,
-        }
+            client.build().unwrap()
+        })
     }
 
     async fn get(&self, url: &Url, headers: Option<HeaderMap>) -> anyhow::Result<Response> {
@@ -162,7 +174,7 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
     where
         B: FnOnce(&Client) -> reqwest::RequestBuilder,
     {
-        let response = request_builder(&self.client)
+        let response = request_builder(self.client())
             .send()
             .await
             .with_context(|| format_http_context(None, method, url))?;
@@ -256,7 +268,7 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
 
         self.write_debug_request(&body);
 
-        self.client
+        self.client()
             .post(url.clone())
             .headers(request_headers)
             .body(body)
