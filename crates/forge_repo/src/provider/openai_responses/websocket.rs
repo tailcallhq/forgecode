@@ -80,8 +80,13 @@ impl Session {
 
         request.previous_response_id = Some(prev_id);
         request.input = oai::InputParam::Items(delta);
-        request.instructions = None;
-        request.prompt_cache_key = None;
+        // Keep `instructions` and `prompt_cache_key` from the original request.
+        // The OpenAI docs say `instructions` doesn't *need* to be re-sent
+        // when chained via `previous_response_id`, but the openai/codex
+        // reference client (codex-rs/core/src/client.rs:1240) preserves
+        // them on every turn via `..payload` spread, and the chatgpt.com
+        // Codex backend appears to require it (stripping caused
+        // EmptyCompletion errors on continuation).
         Ok(())
     }
 
@@ -701,8 +706,11 @@ mod tests {
         ]);
         assert_eq!(actual_input, expected_input);
         assert_eq!(request.previous_response_id.as_deref(), Some("resp_prev"));
-        assert_eq!(request.instructions, None);
-        assert_eq!(request.prompt_cache_key, None);
+        // `instructions` and `prompt_cache_key` MUST be preserved from the
+        // original request — the chatgpt.com Codex backend rejects continuations
+        // that strip these fields with empty completions.
+        assert_eq!(request.instructions.as_deref(), Some("you are helpful"));
+        assert_eq!(request.prompt_cache_key.as_deref(), Some("conv"));
         assert_eq!(request.store, Some(false));
     }
 

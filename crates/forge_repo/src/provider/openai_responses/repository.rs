@@ -185,14 +185,7 @@ impl<T: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig>>
             request = super::codex_transformer::CodexTransformer.transform(request);
         }
         let use_websocket = self.should_use_websocket()?;
-        // Codex's WebSocket endpoint at chatgpt.com/backend-api/codex/responses
-        // doesn't support sending a second `response.create` on the same
-        // connection — the server closes early on reuse, producing
-        // EmptyCompletion errors. The public OpenAI Responses API at
-        // api.openai.com/v1/responses *does* support reuse per the docs, so
-        // gate the optimization to that endpoint.
-        let allow_socket_reuse = self.provider.id != forge_domain::ProviderId::CODEX;
-        let websocket_request = if use_websocket && allow_socket_reuse {
+        let websocket_request = if use_websocket {
             // Stash the full input length and signature *before* any delta
             // trimming so the session can record what the server has now
             // seen if the turn succeeds.
@@ -212,21 +205,6 @@ impl<T: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig>>
                 session.prepare_request(&mut delta_request).await?;
                 Some((session, delta_request, total_items, signature))
             }
-        } else if use_websocket {
-            // WebSocket transport without warm-socket reuse / continuation
-            // (Codex). Send the full request on a fresh socket each turn —
-            // we still skip the HTTP code path but don't try to chain
-            // previous_response_id.
-            let session = super::websocket::Session::default();
-            // Set store=false to match Codex's required transport semantics.
-            // (Continuation lookup is skipped because the session is fresh.)
-            let mut fresh_request = request.clone();
-            session.prepare_request(&mut fresh_request).await?;
-            // total_items / signature only matter when the session caches a
-            // response_id for next-turn continuation. With a fresh session
-            // each turn that path is never exercised, so the values are
-            // effectively dead — pass 0/0 to keep the call signature stable.
-            Some((session, fresh_request, 0, 0))
         } else {
             None
         };
