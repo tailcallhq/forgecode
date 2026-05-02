@@ -3,6 +3,7 @@ mod drop_tool_call;
 mod ensure_system_first;
 mod github_copilot_reasoning;
 mod make_cerebras_compat;
+mod make_fireworks_compat;
 mod make_openai_compat;
 mod make_xai_compat;
 mod minimax;
