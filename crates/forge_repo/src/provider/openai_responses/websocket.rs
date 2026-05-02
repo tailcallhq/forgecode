@@ -797,4 +797,24 @@ mod tests {
         // Prefix and instructions are untouched on a fresh turn.
         assert_eq!(request.instructions.as_deref(), Some("you are helpful"));
     }
+
+    /// Verifies the error produced by the WS receive path stays downcastable
+    /// to `forge_domain::Error::Retryable` after the `.into()` conversion to
+    /// `anyhow::Error` — that's what `forge_app::retry::should_retry` checks.
+    /// If this test ever fails, the orchestrator silently stops retrying WS
+    /// failures.
+    #[test]
+    fn test_ws_receive_error_is_retryable_after_into() {
+        let ws_error = WsError::ConnectionClosed;
+        let err: anyhow::Error = forge_domain::Error::Retryable(
+            anyhow::Error::from(ws_error).context("OpenAI Responses WebSocket receive failed"),
+        )
+        .into();
+
+        let downcast = err.downcast_ref::<forge_domain::Error>();
+        assert!(
+            matches!(downcast, Some(forge_domain::Error::Retryable(_))),
+            "expected Error::Retryable after .into(), got {downcast:?}",
+        );
+    }
 }
