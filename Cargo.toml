@@ -103,6 +103,7 @@ tokio = { version = "1.51.0", features = [
     "io-util",
 ] }
 tokio-stream = "0.1.18"
+tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-webpki-roots"] }
 tokio-util = "0.7"
 tonic = { version = "0.14.5", features = ["tls-webpki-roots"] }
 tracing = "0.1.44"

@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Context as _;
 use async_openai::types::responses as oai;
@@ -12,12 +13,15 @@ use forge_infra::sanitize_headers;
 use futures::StreamExt;
 use reqwest::StatusCode;
 use reqwest::header::AUTHORIZATION;
-use tracing::info;
+use tracing::{info, warn};
 use url::Url;
 
 use crate::provider::FromDomain;
 use crate::provider::retry::into_retry;
 use crate::provider::utils::{create_headers, format_http_context, read_http_error_reason};
+/// Type alias for the per-conversation WebSocket session cache shared by the
+/// repository and its short-lived provider clients.
+type WebSocketSessions = Arc<Mutex<HashMap<String, super::websocket::Session>>>;
 
 #[derive(Clone)]
 pub(super) struct OpenAIResponsesProvider<H> {
@@ -25,6 +29,7 @@ pub(super) struct OpenAIResponsesProvider<H> {
     http: Arc<H>,
     api_base: Url,
     responses_url: Url,
+    websocket_sessions: WebSocketSessions,
 }
 
 impl<H: HttpInfra> OpenAIResponsesProvider<H> {
@@ -39,6 +44,18 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
     ///
     /// Panics if the provider URL cannot be converted to an API base URL
     pub fn new(provider: Provider<Url>, http: Arc<H>) -> Self {
+        Self::with_websocket_sessions(provider, http, WebSocketSessions::default())
+    }
+
+    /// Like [`OpenAIResponsesProvider::new`] but reuses an existing
+    /// per-conversation WebSocket session cache. Used by the repository so
+    /// successive `chat()` calls within the same process can share a warm
+    /// socket and continuation state.
+    pub fn with_websocket_sessions(
+        provider: Provider<Url>,
+        http: Arc<H>,
+        websocket_sessions: WebSocketSessions,
+    ) -> Self {
         use forge_domain::ProviderId;
 
         if provider.id == ProviderId::CODEX
@@ -57,13 +74,13 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
                 base.set_fragment(None);
                 base
             };
-            Self { provider, http, api_base, responses_url }
+            Self { provider, http, api_base, responses_url, websocket_sessions }
         } else {
             // Standard OpenAI pattern: rewrite to /v1/responses
             let api_base = api_base_from_endpoint_url(&provider.url)
                 .expect("Failed to derive API base URL from provider endpoint");
             let responses_url = responses_endpoint_from_api_base(&api_base);
-            Self { provider, http, api_base, responses_url }
+            Self { provider, http, api_base, responses_url, websocket_sessions }
         }
     }
 
@@ -149,7 +166,9 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
     }
 }
 
-impl<T: HttpInfra> OpenAIResponsesProvider<T> {
+impl<T: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig>>
+    OpenAIResponsesProvider<T>
+{
     pub async fn chat(
         &self,
         model: &ModelId,
@@ -165,6 +184,52 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
             use forge_domain::Transformer;
             request = super::codex_transformer::CodexTransformer.transform(request);
         }
+        let use_websocket = self.should_use_websocket()?;
+        // Codex's WebSocket endpoint at chatgpt.com/backend-api/codex/responses
+        // doesn't support sending a second `response.create` on the same
+        // connection — the server closes early on reuse, producing
+        // EmptyCompletion errors. The public OpenAI Responses API at
+        // api.openai.com/v1/responses *does* support reuse per the docs, so
+        // gate the optimization to that endpoint.
+        let allow_socket_reuse = self.provider.id != forge_domain::ProviderId::CODEX;
+        let websocket_request = if use_websocket && allow_socket_reuse {
+            // Stash the full input length and signature *before* any delta
+            // trimming so the session can record what the server has now
+            // seen if the turn succeeds.
+            let total_items = match &request.input {
+                oai::InputParam::Items(items) => items.len(),
+                oai::InputParam::Text(_) => 0,
+            };
+            if total_items == 0 {
+                None
+            } else {
+                let signature = super::websocket::input_signature(&request, total_items)?;
+                let session = conversation_id
+                    .as_deref()
+                    .map(|id| self.websocket_session(id))
+                    .unwrap_or_default();
+                let mut delta_request = request.clone();
+                session.prepare_request(&mut delta_request).await?;
+                Some((session, delta_request, total_items, signature))
+            }
+        } else if use_websocket {
+            // WebSocket transport without warm-socket reuse / continuation
+            // (Codex). Send the full request on a fresh socket each turn —
+            // we still skip the HTTP code path but don't try to chain
+            // previous_response_id.
+            let session = super::websocket::Session::default();
+            // Set store=false to match Codex's required transport semantics.
+            // (Continuation lookup is skipped because the session is fresh.)
+            let mut fresh_request = request.clone();
+            session.prepare_request(&mut fresh_request).await?;
+            // total_items / signature only matter when the session caches a
+            // response_id for next-turn continuation. With a fresh session
+            // each turn that path is never exercised, so the values are
+            // effectively dead — pass 0/0 to keep the call signature stable.
+            Some((session, fresh_request, 0, 0))
+        } else {
+            None
+        };
 
         info!(
             url = %self.responses_url,
@@ -172,11 +237,36 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
             model = %model,
             headers = ?sanitize_headers(&headers),
             message_count = %request_message_count(&request),
+            websocket = %use_websocket,
             "Connecting Upstream (Responses API)"
         );
 
         let json_bytes = serde_json::to_vec(&request)
             .with_context(|| "Failed to serialize OpenAI Responses request")?;
+
+        if let Some((session, ws_request, total_items, signature)) = websocket_request {
+            match super::websocket::chat(
+                self.responses_url.clone(),
+                headers.clone(),
+                ws_request,
+                session.clone(),
+                total_items,
+                signature,
+            )
+            .await
+            {
+                Ok(stream) => return Ok(stream),
+                Err(error) if should_fallback_to_http(&error) => {
+                    session.clear().await;
+                    warn!(
+                        error = %error,
+                        "OpenAI Responses WebSocket unavailable; falling back to HTTP /responses"
+                    );
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
 
         // The Codex backend at chatgpt.com does not return
         // `Content-Type: text/event-stream`, which causes the
@@ -325,6 +415,56 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
         let stream: BoxStream<super::response::StreamItem, anyhow::Error> = Box::pin(event_stream);
         stream.into_domain()
     }
+
+    /// Returns the cached WebSocket session for `conversation_id`, creating a
+    /// fresh one on first access. The map is held under a `std::sync::Mutex`
+    /// because lookups are short and synchronous; per-session state lives
+    /// behind a `tokio::Mutex` because it's held across `.await` points.
+    fn websocket_session(&self, conversation_id: &str) -> super::websocket::Session {
+        let mut sessions = self
+            .websocket_sessions
+            .lock()
+            .expect("OpenAI Responses WebSocket session cache lock poisoned");
+        sessions.entry(conversation_id.to_string()).or_default().clone()
+    }
+
+    /// Decides whether the WebSocket transport should be used for this turn.
+    ///
+    /// Resolution order:
+    /// 1. The `GRAFF_OPENAI_RESPONSES_WEBSOCKET` env var (or the legacy
+    ///    `FORGE_OPENAI_RESPONSES_WEBSOCKET`), if truthy, opts in.
+    /// 2. Otherwise the persisted `openai_responses_websocket` config flag
+    ///    decides.
+    /// 3. Either way, the provider must speak the Responses-API protocol —
+    ///    `OPENAI`, `OPENAI_RESPONSES_COMPATIBLE`, or `CODEX`. Codex hits
+    ///    `chatgpt.com/backend-api/codex/responses`, which may or may not
+    ///    accept the WebSocket upgrade; if it doesn't, the connect-time
+    ///    error is mapped to `ConnectError` and `chat()` falls back to HTTP.
+    fn should_use_websocket(&self) -> anyhow::Result<bool> {
+        let env_enabled = self
+            .http
+            .get_env_var("GRAFF_OPENAI_RESPONSES_WEBSOCKET")
+            .or_else(|| self.http.get_env_var("FORGE_OPENAI_RESPONSES_WEBSOCKET"))
+            .is_some_and(|value| is_truthy(&value));
+        let config_enabled = self.http.get_config()?.openai_responses_websocket;
+        let provider_supported = self.provider.id == forge_domain::ProviderId::OPENAI
+            || self.provider.id == forge_domain::ProviderId::OPENAI_RESPONSES_COMPATIBLE
+            || self.provider.id == forge_domain::ProviderId::CODEX;
+        Ok(provider_supported && (env_enabled || config_enabled))
+    }
+}
+
+fn is_truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+fn should_fallback_to_http(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|err| err.downcast_ref::<super::websocket::ConnectError>().is_some())
 }
 
 fn status_code_error(status: StatusCode, body: String) -> anyhow::Error {
@@ -390,11 +530,12 @@ fn request_message_count(request: &oai::CreateResponse) -> usize {
 /// which use the Responses API instead of the standard Chat Completions API.
 pub struct OpenAIResponsesResponseRepository<F> {
     infra: Arc<F>,
+    websocket_sessions: WebSocketSessions,
 }
 
 impl<F> OpenAIResponsesResponseRepository<F> {
     pub fn new(infra: Arc<F>) -> Self {
-        Self { infra }
+        Self { infra, websocket_sessions: WebSocketSessions::default() }
     }
 }
 
@@ -410,7 +551,11 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + 'stat
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
         let retry_config = self.infra.get_config()?.retry.unwrap_or_default();
         let provider_client: OpenAIResponsesProvider<F> =
-            OpenAIResponsesProvider::new(provider, self.infra.clone());
+            OpenAIResponsesProvider::with_websocket_sessions(
+                provider,
+                self.infra.clone(),
+                self.websocket_sessions.clone(),
+            );
         let stream = provider_client
             .chat(model_id, context)
             .await
