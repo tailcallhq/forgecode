@@ -1,7 +1,7 @@
 use std::sync::{Arc, LazyLock};
 
 use bytes::Bytes;
-use forge_app::domain::{ProviderId, ProviderResponse};
+use forge_app::domain::{AnthropicModelFamily, ProviderId, ProviderResponse};
 use forge_app::{EnvironmentInfra, FileReaderInfra, FileWriterInfra, HttpInfra};
 use forge_domain::{
     AnyProvider, ApiKey, AuthCredential, AuthDetails, Error, MigrationResult, Provider,
@@ -9,6 +9,7 @@ use forge_domain::{
 };
 use merge::Merge;
 use serde::Deserialize;
+use tracing::warn;
 
 /// Represents the source of models for a provider
 #[derive(Debug, Clone, Deserialize)]
@@ -220,13 +221,34 @@ impl From<&ProviderConfig> for forge_domain::ProviderTemplate {
 
 static PROVIDER_CONFIGS: LazyLock<Vec<ProviderConfig>> = LazyLock::new(|| {
     let json_str = include_str!("provider.json");
-    serde_json::from_str(json_str)
+    let configs: Vec<ProviderConfig> = serde_json::from_str(json_str)
         .map_err(|e| anyhow::anyhow!("Failed to parse embedded provider configs: {e}"))
-        .unwrap()
+        .unwrap();
+    warn_unknown_model_families(&configs);
+    configs
 });
 
 fn get_provider_configs() -> &'static Vec<ProviderConfig> {
     &PROVIDER_CONFIGS
+}
+
+fn warn_unknown_model_families(configs: &[ProviderConfig]) {
+    for config in configs {
+        let Some(Models::Hardcoded(models)) = &config.models else {
+            continue;
+        };
+
+        for model in models
+            .iter()
+            .filter(|model| model.family == Some(AnthropicModelFamily::Unknown))
+        {
+            warn!(
+                provider = %config.id,
+                model = model.id.as_str(),
+                "Ignoring unrecognized Anthropic model family metadata; falling back to model-id inference"
+            );
+        }
+    }
 }
 
 pub struct ForgeProviderRepository<F> {
@@ -253,7 +275,8 @@ impl<
         let provider_json_path = environment.provider_config_path();
 
         let json_str = self.infra.read_utf8(&provider_json_path).await?;
-        let configs = serde_json::from_str(&json_str)?;
+        let configs: Vec<ProviderConfig> = serde_json::from_str(&json_str)?;
+        warn_unknown_model_families(&configs);
         Ok(configs)
     }
 
@@ -617,7 +640,7 @@ impl<
 
 #[cfg(test)]
 mod tests {
-    use forge_app::domain::{AuthMethod, ProviderResponse};
+    use forge_app::domain::{AnthropicModelFamily, AuthMethod, ProviderResponse};
     use pretty_assertions::assert_eq;
 
     use super::*;
@@ -798,6 +821,33 @@ mod tests {
         );
         assert_eq!(config.response_type, Some(ProviderResponse::Anthropic));
         assert!(config.url.contains("{{ANTHROPIC_URL}}"));
+    }
+
+    #[test]
+    fn test_asksage_config_catalogs_reskinned_opus_4_7() {
+        let configs = get_provider_configs();
+        let config = configs
+            .iter()
+            .find(|c| c.id == ProviderId::ASKSAGE)
+            .unwrap();
+        assert_eq!(config.id, ProviderId::ASKSAGE);
+        assert_eq!(config.api_key_vars, Some("ASKSAGE_API_KEY".to_string()));
+        assert!(config.url_param_vars.is_empty());
+        assert_eq!(config.response_type, Some(ProviderResponse::Anthropic));
+        assert_eq!(
+            config.url.as_str(),
+            "https://api.asksage.ai/server/anthropic/v1/messages"
+        );
+
+        let actual = match config.models.as_ref().unwrap() {
+            Models::Hardcoded(models) => models
+                .iter()
+                .find(|model| model.id.as_str() == "google-claude-47-opus")
+                .and_then(|model| model.family),
+            Models::Url(_) => None,
+        };
+        let expected = Some(AnthropicModelFamily::Opus47);
+        assert_eq!(actual, expected);
     }
 
     #[test]

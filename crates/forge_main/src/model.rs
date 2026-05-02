@@ -1213,6 +1213,7 @@ mod tests {
             supports_parallel_tool_calls: None,
             supports_reasoning: None,
             input_modalities: vec![InputModality::Text],
+            family: None,
         }
     }
 

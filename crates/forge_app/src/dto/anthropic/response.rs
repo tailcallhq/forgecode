@@ -1,6 +1,6 @@
 use forge_domain::{
-    ChatCompletionMessage, Content, ModelId, Reasoning, ReasoningPart, TokenCount, ToolCallId,
-    ToolCallPart, ToolName,
+    AnthropicModelFamily, ChatCompletionMessage, Content, ModelId, Reasoning, ReasoningPart,
+    TokenCount, ToolCallId, ToolCallPart, ToolName,
 };
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +43,8 @@ impl From<Model> for forge_domain::Model {
             vec![forge_domain::InputModality::Text]
         };
 
+        let family = AnthropicModelFamily::infer_from_model_id(&value.id);
+
         Self {
             id: ModelId::new(value.id),
             name: value.display_name,
@@ -52,6 +54,7 @@ impl From<Model> for forge_domain::Model {
             supports_parallel_tool_calls: None,
             supports_reasoning: None,
             input_modalities,
+            family,
         }
     }
 }
@@ -775,6 +778,19 @@ mod tests {
         assert_eq!(actual.context_length, Some(200_000));
         assert_eq!(actual.id.as_str(), "claude-sonnet-4-5-20250929");
         assert_eq!(actual.name, Some("Claude 3.5 Sonnet (New)".to_string()));
+    }
+
+    #[test]
+    fn test_model_conversion_infers_family_from_47_opus_fragment() {
+        let fixture = Model {
+            id: "google-claude-47-opus".to_string(),
+            display_name: Some("Claude Opus 4.7".to_string()),
+        };
+
+        let actual: forge_domain::Model = fixture.into();
+
+        let expected = Some(forge_domain::AnthropicModelFamily::Opus47);
+        assert_eq!(actual.family, expected);
     }
 
     #[test]
