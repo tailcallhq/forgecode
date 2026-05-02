@@ -4634,7 +4634,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -6182,9 +6182,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.5.3"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ce6773ffde08aa9c51cc8741a073aeb89c83a0aab9219211ee0d9815117986f"
+checksum = "502b134f921ef9e879f59ac88ebd34fa37ba95483438e0f53e1008560eeeb3c8"
 dependencies = [
  "chrono",
  "derive_builder 0.20.2",
