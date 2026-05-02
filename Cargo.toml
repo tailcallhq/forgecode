@@ -4,6 +4,7 @@ resolver = "2"
 
 
 [workspace.package]
+license = "MIT"
 version = "0.1.0"
 rust-version = "1.94"
 edition = "2024"
