@@ -43,3 +43,25 @@ bindkey '^M' forge-accept-line
 bindkey '^J' forge-accept-line
 # Update the Tab binding to use the new completion widget
 bindkey '^I' forge-completion  # Tab for both @ and :command completion
+
+# Integrate with zsh-autosuggestions.
+#
+# zsh-autosuggestions wraps widgets listed in ZSH_AUTOSUGGEST_CLEAR_WIDGETS,
+# ZSH_AUTOSUGGEST_ACCEPT_WIDGETS, etc. so it can clear POSTDISPLAY (the gray
+# inline suggestion) before the widget runs. The wrapping happens once, when
+# autosuggestions loads. If Forge's plugin is sourced *after* autosuggestions
+# (the Oh-My-Zsh default when users follow `forge zsh setup`), our
+# forge-accept-line widget is defined too late to be wrapped, and the inline
+# suggestion lingers on the screen after the user presses Enter.
+#
+# Fix: append forge-accept-line to ZSH_AUTOSUGGEST_CLEAR_WIDGETS and re-run
+# the bind pass so the wrapper is installed. Safe no-op when autosuggestions
+# is not loaded or when the widget is already registered.
+if typeset -p ZSH_AUTOSUGGEST_CLEAR_WIDGETS >/dev/null 2>&1; then
+    if [[ ${ZSH_AUTOSUGGEST_CLEAR_WIDGETS[(Ie)forge-accept-line]} -eq 0 ]]; then
+        ZSH_AUTOSUGGEST_CLEAR_WIDGETS+=(forge-accept-line)
+        if typeset -f _zsh_autosuggest_bind_widgets >/dev/null 2>&1; then
+            _zsh_autosuggest_bind_widgets
+        fi
+    fi
+fi
