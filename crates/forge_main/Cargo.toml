@@ -21,6 +21,7 @@ forge_config.workspace = true
 forge_walker.workspace = true
 forge_display.workspace = true
 forge_tracker.workspace = true
+bstr.workspace = true
 
 forge_spinner.workspace = true
 forge_select.workspace = true
@@ -36,25 +37,27 @@ anyhow.workspace = true
 derive_setters.workspace = true
 lazy_static.workspace = true
 reedline.workspace = true
+crossterm = "0.29.0"
 nu-ansi-term.workspace = true
-nucleo.workspace = true
 tracing.workspace = true
 chrono.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+toml_edit.workspace = true
 strum.workspace = true
 strum_macros.workspace = true
 
 convert_case.workspace = true
+gix.workspace = true
 update-informer = { version = "1.2.0", default-features = false, features = [
     "github",
     "ureq",
     "rustls-tls",
 ] }
+dirs.workspace = true
 open.workspace = true
 humantime.workspace = true
 num-format.workspace = true
-atty = "0.2"
 url.workspace = true
 forge_embed.workspace = true
 include_dir.workspace = true

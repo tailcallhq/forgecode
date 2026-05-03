@@ -3,19 +3,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use agent_client_protocol as acp;
 use agent_client_protocol::Client;
+use forge_config::ForgeConfig;
 use forge_domain::{
     ChatRequest, ChatResponse, ChatResponseContent, Event, EventValue, InterruptionReason,
 };
 use futures::StreamExt;
 use tokio::sync::Notify;
 
-use crate::{ForgeApp, Services};
+use crate::{EnvironmentInfra, ForgeApp, Services};
 
 use super::adapter::AcpAdapter;
 use super::conversion;
 use super::error::{self, Error, Result};
 
-impl<S: Services> AcpAdapter<S> {
+impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
     pub(super) async fn handle_prompt(
         &self,
         arguments: acp::PromptRequest,

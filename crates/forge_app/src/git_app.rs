@@ -6,10 +6,11 @@ use forge_domain::*;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::{
-    AgentProviderResolver, AgentRegistry, AppConfigService, EnvironmentInfra, ProviderAuthService,
-    ProviderService, ShellService, TemplateService,
+use crate::services::{
+    AgentRegistry, AppConfigService, ProviderAuthService, ProviderService, ShellService,
+    TemplateService,
 };
+use crate::{AgentProviderResolver, EnvironmentInfra, Services};
 
 /// Errors specific to GitApp operations
 #[derive(thiserror::Error, Debug)]
@@ -92,16 +93,7 @@ impl<S> GitApp<S> {
     }
 }
 
-impl<S> GitApp<S>
-where
-    S: EnvironmentInfra
-        + ShellService
-        + AgentRegistry
-        + TemplateService
-        + ProviderService
-        + AppConfigService
-        + ProviderAuthService,
-{
+impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> GitApp<S> {
     /// Generates a commit message without committing
     ///
     /// # Arguments
@@ -134,31 +126,31 @@ where
         })
     }
 
-    /// Commits changes with the provided commit message
+    /// Commits changes with the provided commit message.
     ///
-    /// Sets the user as the author (from git config) and ForgeCode as the
-    /// committer. This properly attributes the commit to both the user and
-    /// ForgeCode using Git's author/committer distinction.
+    /// When `use_forge_committer` is true, sets ForgeCode as the Git committer
+    /// via `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` environment
+    /// variables while preserving the user as the author.
     ///
     /// # Arguments
     ///
     /// * `message` - The commit message to use
     /// * `has_staged_files` - Whether there are staged files
+    /// * `use_forge_committer` - Whether to override the Git committer with
+    ///   ForgeCode identity
     ///
     /// # Errors
     ///
     /// Returns an error if git commit fails
-    pub async fn commit(&self, message: String, has_staged_files: bool) -> Result<CommitResult> {
+    pub async fn commit(
+        &self,
+        message: String,
+        has_staged_files: bool,
+        use_forge_committer: bool,
+    ) -> Result<CommitResult> {
         let cwd = self.services.get_environment().cwd;
         let flags = if has_staged_files { "" } else { " -a" };
-
-        // Set ForgeCode as the committer while keeping the user as the author
-        // by prefixing the command with environment variables
-        // Escape single quotes in the message by replacing ' with '\''
-        let escaped_message = message.replace('\'', r"'\''");
-        let commit_command = format!(
-            "GIT_COMMITTER_NAME='ForgeCode' GIT_COMMITTER_EMAIL='noreply@forgecode.dev' git commit {flags} -m '{escaped_message}'"
-        );
+        let commit_command = build_commit_command(&message, flags, use_forge_committer);
 
         let commit_result = self
             .services
@@ -220,7 +212,7 @@ where
             additional_context,
         };
 
-        let retry_config = self.services.get_config().retry.unwrap_or_default();
+        let retry_config = self.services.get_config()?.retry.unwrap_or_default();
         crate::retry::retry_with_config(
             &retry_config,
             || self.generate_message_from_diff(ctx.clone()),
@@ -231,7 +223,7 @@ where
 
     /// Fetches git context (branch name and recent commits)
     async fn fetch_git_context(&self, cwd: &Path) -> Result<(String, String)> {
-        let max_commit_count = self.services.get_config().max_commit_count;
+        let max_commit_count = self.services.get_config()?.max_commit_count;
         let git_log_cmd =
             format!("git log --pretty=format:%s --abbrev-commit --max-count={max_commit_count}");
         let (recent_commits, branch_name) = tokio::join!(
@@ -319,35 +311,28 @@ where
         // Resolve provider and model: commit config takes priority over agent defaults.
         // If the configured provider is unavailable (e.g. logged out), fall back to the
         // agent's provider/model with a warning.
-        let (provider, model) = match commit_config.and_then(|c| c.provider.zip(c.model)) {
-            Some((provider_id, commit_model)) => {
-                match self.services.get_provider(provider_id).await {
-                    Ok(provider) => {
-                        match self.services.refresh_provider_credential(provider).await {
-                            Ok(provider) => (provider, commit_model),
-                            Err(err) => {
-                                tracing::warn!(
-                                    error = %err,
-                                    "Failed to refresh credentials for configured commit provider. Falling back to the active provider."
-                                );
-                                self.resolve_agent_provider_and_model(
-                                    &agent_provider_resolver,
-                                    agent_id,
-                                )
-                                .await?
-                            }
-                        }
-                    }
+        let (provider, model) = match commit_config {
+            Some(mc) => match self.services.get_provider(mc.provider).await {
+                Ok(provider) => match self.services.refresh_provider_credential(provider).await {
+                    Ok(provider) => (provider, mc.model),
                     Err(err) => {
                         tracing::warn!(
                             error = %err,
-                            "Configured commit provider unavailable. Falling back to the active provider."
+                            "Failed to refresh credentials for configured commit provider. Falling back to the active provider."
                         );
                         self.resolve_agent_provider_and_model(&agent_provider_resolver, agent_id)
                             .await?
                     }
+                },
+                Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        "Configured commit provider unavailable. Falling back to the active provider."
+                    );
+                    self.resolve_agent_provider_and_model(&agent_provider_resolver, agent_id)
+                        .await?
                 }
-            }
+            },
             None => {
                 self.resolve_agent_provider_and_model(&agent_provider_resolver, agent_id)
                     .await?
@@ -400,5 +385,64 @@ where
             message: commit_message,
             has_staged_files: ctx.has_staged_files,
         })
+    }
+}
+
+/// Builds the `git commit` shell command string.
+///
+/// When `use_forge_committer` is true, prefixes the command with
+/// `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` environment variables
+/// to set ForgeCode as the committer.
+fn build_commit_command(message: &str, flags: &str, use_forge_committer: bool) -> String {
+    // Escape single quotes in the message by replacing ' with '\''
+    let escaped_message = message.replace('\'', r"'\''");
+    if use_forge_committer {
+        format!(
+            "GIT_COMMITTER_NAME='ForgeCode' GIT_COMMITTER_EMAIL='noreply@forgecode.dev' git commit {flags} -m '{escaped_message}'"
+        )
+    } else {
+        format!("git commit {flags} -m '{escaped_message}'")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn test_build_commit_command_with_forge_committer_staged() {
+        let actual = build_commit_command("feat: add feature", "", true);
+        let expected = "GIT_COMMITTER_NAME='ForgeCode' GIT_COMMITTER_EMAIL='noreply@forgecode.dev' git commit  -m 'feat: add feature'";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_build_commit_command_with_forge_committer_unstaged() {
+        let actual = build_commit_command("fix: bug", " -a", true);
+        let expected = "GIT_COMMITTER_NAME='ForgeCode' GIT_COMMITTER_EMAIL='noreply@forgecode.dev' git commit  -a -m 'fix: bug'";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_build_commit_command_without_forge_committer_staged() {
+        let actual = build_commit_command("chore: update", "", false);
+        let expected = "git commit  -m 'chore: update'";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_build_commit_command_without_forge_committer_unstaged() {
+        let actual = build_commit_command("docs: readme", " -a", false);
+        let expected = "git commit  -a -m 'docs: readme'";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_build_commit_command_escapes_single_quotes() {
+        let actual = build_commit_command("feat: it's done", "", true);
+        let expected = "GIT_COMMITTER_NAME='ForgeCode' GIT_COMMITTER_EMAIL='noreply@forgecode.dev' git commit  -m 'feat: it'\\''s done'";
+        assert_eq!(actual, expected);
     }
 }

@@ -106,9 +106,6 @@ pub enum TopLevelCommand {
         porcelain: bool,
     },
 
-    /// Display environment information.
-    Env,
-
     /// Get, set, or list configuration values.
     Config(ConfigCommandGroup),
 
@@ -125,6 +122,7 @@ pub enum TopLevelCommand {
     /// Suggest shell commands from natural language.
     Suggest {
         /// Natural language description of the desired command.
+        #[arg(allow_hyphen_values = true)]
         prompt: String,
     },
 
@@ -154,6 +152,9 @@ pub enum TopLevelCommand {
 
     /// Run diagnostics on shell environment (alias for `zsh doctor`).
     Doctor,
+
+    /// Stream forge log output (defaults to the most recent log file).
+    Logs(LogsArgs),
 }
 
 /// Command group for custom command management.
@@ -307,6 +308,10 @@ pub enum WorkspaceCommand {
         /// Path to the directory to initialize as a workspace
         #[arg(default_value = ".")]
         path: PathBuf,
+
+        /// Automatically confirm initialization without prompting
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 }
 
@@ -382,6 +387,13 @@ pub enum ListCommand {
         #[arg(long)]
         custom: bool,
     },
+
+    /// List files and directories in the current workspace.
+    ///
+    /// Includes hidden files and directories (dotfiles), respects .gitignore,
+    /// and outputs one path per line. Directories are suffixed with `/`.
+    #[command(alias = "files")]
+    File,
 }
 
 /// Shell extension commands.
@@ -403,6 +415,16 @@ pub enum ZshCommandGroup {
 
     /// Show keyboard shortcuts for ZSH line editor
     Keyboard,
+
+    /// Format buffer text by wrapping file paths in @[...] syntax.
+    ///
+    /// Used by the zsh plugin to delegate path detection and wrapping to
+    /// Rust where the logic is well-tested across all terminal environments.
+    Format {
+        /// The text buffer to format.
+        #[arg(long)]
+        buffer: String,
+    },
 }
 
 /// Command group for MCP server management.
@@ -432,6 +454,12 @@ pub enum McpCommand {
 
     /// Reload servers and rebuild caches.
     Reload,
+
+    /// Authenticate with an OAuth-enabled MCP server.
+    Login(McpAuthArgs),
+
+    /// Remove stored OAuth credentials for an MCP server.
+    Logout(McpLogoutArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -458,6 +486,19 @@ pub struct McpRemoveArgs {
 #[derive(Parser, Debug, Clone)]
 pub struct McpShowArgs {
     /// Name of the server to show details for.
+    pub name: String,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct McpAuthArgs {
+    /// Name of the MCP server to authenticate with.
+    pub name: String,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct McpLogoutArgs {
+    /// Name of the MCP server to remove credentials for, or "all" to
+    /// remove all MCP OAuth credentials.
     pub name: String,
 }
 
@@ -511,6 +552,12 @@ pub enum ConfigCommand {
 
     /// List configuration values.
     List,
+
+    /// Print the path to the global config file.
+    Path,
+
+    /// Migrate the legacy ~/forge directory to ~/.forge.
+    Migrate,
 }
 
 /// Arguments for `forge config set`.
@@ -530,20 +577,12 @@ pub struct ConfigGetArgs {
 /// Type-safe subcommands for `forge config set`.
 #[derive(Subcommand, Debug, Clone)]
 pub enum ConfigSetField {
-    /// Set the active model.
+    /// Set the active model and provider atomically.
     Model {
-        /// Model ID to set as default.
-        model: ModelId,
-    },
-    /// Set the active provider.
-    Provider {
         /// Provider ID to set as default.
         provider: ProviderId,
-
-        /// Optional model ID to set simultaneously, skipping interactive model
-        /// selection.
-        #[arg(long)]
-        model: Option<ModelId>,
+        /// Model ID to set as default.
+        model: ModelId,
     },
     /// Set the provider and model for commit message generation.
     Commit {
@@ -800,6 +839,27 @@ pub struct UpdateArgs {
     pub no_confirm: bool,
 }
 
+/// Arguments for the `forge logs` command.
+#[derive(Parser, Debug, Clone)]
+pub struct LogsArgs {
+    /// Number of lines to show from the end of the log file.
+    #[arg(long, short = 'n', default_value_t = 20)]
+    pub lines: usize,
+
+    /// Do not follow the log output; exit after printing the last lines.
+    #[arg(long)]
+    pub no_follow: bool,
+
+    /// List all available log files instead of tailing one.
+    #[arg(long, short = 'l')]
+    pub list: bool,
+
+    /// Path to a specific log file to tail. Defaults to the most recent log
+    /// file in the forge logs directory.
+    #[arg(long, short = 'f')]
+    pub file: Option<PathBuf>,
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;
@@ -852,63 +912,20 @@ mod tests {
     }
 
     #[test]
-    fn test_config_set_with_model() {
-        let fixture = Cli::parse_from([
-            "forge",
-            "config",
-            "set",
-            "model",
-            "anthropic/claude-sonnet-4",
-        ]);
-        let actual = match fixture.subcommands {
-            Some(TopLevelCommand::Config(config)) => match config.command {
-                ConfigCommand::Set(args) => match args.field {
-                    ConfigSetField::Model { model } => Some(model.as_str().to_string()),
-                    _ => None,
-                },
-                _ => None,
-            },
-            _ => None,
-        };
-        let expected = Some("anthropic/claude-sonnet-4".to_string());
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_config_set_with_provider() {
-        let fixture = Cli::parse_from(["forge", "config", "set", "provider", "OpenAI"]);
-        let actual = match fixture.subcommands {
-            Some(TopLevelCommand::Config(config)) => match config.command {
-                ConfigCommand::Set(args) => match args.field {
-                    ConfigSetField::Provider { provider, model } => {
-                        Some((provider.to_string(), model))
-                    }
-                    _ => None,
-                },
-                _ => None,
-            },
-            _ => None,
-        };
-        let expected = Some(("OpenAi".to_string(), None));
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
     fn test_config_set_with_provider_and_model() {
         let fixture = Cli::parse_from([
             "forge",
             "config",
             "set",
-            "provider",
+            "model",
             "anthropic",
-            "--model",
             "claude-sonnet-4-20250514",
         ]);
         let actual = match fixture.subcommands {
             Some(TopLevelCommand::Config(config)) => match config.command {
                 ConfigCommand::Set(args) => match args.field {
-                    ConfigSetField::Provider { provider, model } => {
-                        Some((provider.to_string(), model.map(|m| m.as_str().to_string())))
+                    ConfigSetField::Model { provider, model } => {
+                        Some((provider.to_string(), model.as_str().to_string()))
                     }
                     _ => None,
                 },
@@ -918,7 +935,7 @@ mod tests {
         };
         let expected = Some((
             "Anthropic".to_string(),
-            Some("claude-sonnet-4-20250514".to_string()),
+            "claude-sonnet-4-20250514".to_string(),
         ));
         assert_eq!(actual, expected);
     }
@@ -1723,6 +1740,39 @@ mod tests {
     }
 
     #[test]
+    fn test_suggest_with_dash_prefixed_prompt() {
+        let fixture = Cli::parse_from(["forge", "suggest", "--- date"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Suggest { prompt }) => prompt,
+            _ => panic!("Expected suggest subcommand"),
+        };
+        let expected = "--- date".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_suggest_with_double_dash_prompt() {
+        let fixture = Cli::parse_from(["forge", "suggest", "--date tomorrow"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Suggest { prompt }) => prompt,
+            _ => panic!("Expected suggest subcommand"),
+        };
+        let expected = "--date tomorrow".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_suggest_with_single_dash_prompt() {
+        let fixture = Cli::parse_from(["forge", "suggest", "-v file.txt"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Suggest { prompt }) => prompt,
+            _ => panic!("Expected suggest subcommand"),
+        };
+        let expected = "-v file.txt".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_terminal_theme_zsh() {
         let fixture = Cli::parse_from(["forge", "zsh", "theme"]);
         let actual = match fixture.subcommands {
@@ -1776,6 +1826,18 @@ mod tests {
         let actual = match fixture.subcommands {
             Some(TopLevelCommand::Zsh(terminal)) => {
                 matches!(terminal, ZshCommandGroup::Keyboard)
+            }
+            _ => false,
+        };
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_zsh_format() {
+        let fixture = Cli::parse_from(["forge", "zsh", "format", "--buffer", "hello world"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Zsh(ZshCommandGroup::Format { buffer })) => {
+                buffer == "hello world"
             }
             _ => false,
         };

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use colored::Colorize;
 use forge_api::API;
-use forge_config::Update;
+use forge_config::{Update, UpdateFrequency};
 use forge_select::ForgeWidget;
 use forge_tracker::VERSION;
 use update_informer::{Check, Version, registry};
@@ -65,10 +65,19 @@ async fn confirm_update(version: Version) -> bool {
     }
 }
 
+fn should_check_for_updates(frequency: &UpdateFrequency) -> bool {
+    !matches!(frequency, UpdateFrequency::Never)
+}
+
 /// Checks if there is an update available
 pub async fn on_update(api: Arc<impl API>, update: Option<&Update>) {
     let update = update.cloned().unwrap_or_default();
     let frequency = update.frequency.unwrap_or_default();
+
+    if !should_check_for_updates(&frequency) {
+        return;
+    }
+
     let auto_update = update.auto_update.unwrap_or_default();
 
     // Check if version is development version, in which case we skip the update
@@ -78,7 +87,7 @@ pub async fn on_update(api: Arc<impl API>, update: Option<&Update>) {
         return;
     }
 
-    let informer = update_informer::new(registry::GitHub, "antinomyhq/forge", VERSION)
+    let informer = update_informer::new(registry::GitHub, "tailcallhq/forgecode", VERSION)
         .interval(frequency.into());
 
     if let Some(version) = informer.check_version().ok().flatten()
@@ -93,4 +102,21 @@ async fn send_update_failure_event(error_msg: &str) -> anyhow::Result<()> {
     tracing::error!(error = error_msg, "Update failed");
     // Always return Ok since we want to fail silently
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn test_should_skip_update_check_when_frequency_is_never() {
+        let fixture = UpdateFrequency::Never;
+
+        let actual = should_check_for_updates(&fixture);
+
+        let expected = false;
+        assert_eq!(actual, expected);
+    }
 }

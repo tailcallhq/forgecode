@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use agent_client_protocol as acp;
-use forge_domain::{Agent, AgentId, McpHttpServer, McpServerConfig, Scope, ServerName};
+use forge_domain::{
+    Agent, AgentId, McpHttpServer, McpOAuthSetting, McpServerConfig, Scope, ServerName,
+};
 
 use crate::{
     AgentProviderResolver, AgentRegistry, McpConfigManager, McpService, ProviderAuthService,
@@ -185,6 +187,7 @@ impl StateBuilders {
                             .collect(),
                         timeout: None,
                         disable: false,
+                        oauth: McpOAuthSetting::AutoDetect,
                     }),
                 ))
             }
@@ -201,6 +204,7 @@ impl StateBuilders {
                             .collect(),
                         timeout: None,
                         disable: false,
+                        oauth: McpOAuthSetting::AutoDetect,
                     }),
                 ))
             }

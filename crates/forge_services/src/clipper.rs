@@ -25,14 +25,14 @@ impl ClipperResult<'_> {
     pub fn prefix_content(&self) -> Option<&str> {
         self.prefix
             .as_ref()
-            .map(|range| &self.actual[range.clone()])
+            .and_then(|range| self.actual.get(range.clone()))
     }
 
     /// Get the suffix content if it exists
     pub fn suffix_content(&self) -> Option<&str> {
         self.suffix
             .as_ref()
-            .map(|range| &self.actual[range.clone()])
+            .and_then(|range| self.actual.get(range.clone()))
     }
 }
 

@@ -4,7 +4,10 @@ use std::sync::Arc;
 use bytes::Bytes;
 use forge_app::domain::PatchOperation;
 use forge_app::{FileWriterInfra, FsPatchService, PatchOutput, compute_hash};
-use forge_domain::{FuzzySearchRepository, SearchMatch, SnapshotRepository, ValidationRepository};
+use forge_domain::{
+    FuzzySearchRepository, SearchMatch, SnapshotRepository, TextPatchBlock, TextPatchRepository,
+    ValidationRepository,
+};
 use thiserror::Error;
 use tokio::fs;
 
@@ -59,6 +62,7 @@ impl Range {
     }
 
     /// Create a range from a fuzzy search match
+    #[allow(dead_code)]
     fn from_search_match(source: &str, search_match: &SearchMatch) -> Self {
         let lines: Vec<&str> = source.lines().collect();
 
@@ -90,7 +94,7 @@ impl Range {
             if start_idx >= lines.len() {
                 0 // Out of bounds match
             } else {
-                lines[start_idx].len()
+                lines.get(start_idx).map_or(0, |l| l.len())
             }
         } else {
             // Multi-line match: include newlines between lines but NOT after the last line
@@ -98,7 +102,9 @@ impl Range {
             let content_len: usize = if start_idx >= lines.len() || end_idx > lines.len() {
                 0 // Out of bounds match
             } else {
-                lines[start_idx..end_idx].iter().map(|l| l.len()).sum()
+                lines
+                    .get(start_idx..end_idx)
+                    .map_or(0, |slice| slice.iter().map(|l| l.len()).sum())
             };
             let newlines_between = end_idx - start_idx - 1;
             // Count actual newline bytes (\r\n = 2, \n = 1) to handle mixed endings
@@ -143,6 +149,8 @@ enum Error {
         "Match range [{0}..{1}) is out of bounds for content of length {2}. File may have changed externally, consider reading the file again."
     )]
     RangeOutOfBounds(usize, usize, usize),
+    #[error("Failed to build fuzzy patch: {message}")]
+    PatchBuild { message: String },
 }
 
 /// Compute a range from search text, with operation-aware error handling
@@ -207,36 +215,48 @@ fn apply_replacement(
         }
 
         // Extract the matched text from haystack
-        let needle = &haystack[patch.start..patch.end()];
+        let needle = haystack
+            .get(patch.start..patch.end())
+            .ok_or_else(|| Error::RangeOutOfBounds(patch.start, patch.end(), haystack.len()))?;
 
         // Apply the operation based on its type
         match operation {
             // Prepend content before the matched text
-            PatchOperation::Prepend => Ok(format!(
-                "{}{}{}",
-                &haystack[..patch.start],
-                normalized_content,
-                &haystack[patch.start..]
-            )),
+            PatchOperation::Prepend => {
+                let before = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
+                    0,
+                    patch.start,
+                    haystack.len(),
+                ))?;
+                let after = haystack.get(patch.start..).ok_or({
+                    Error::RangeOutOfBounds(patch.start, haystack.len(), haystack.len())
+                })?;
+                Ok(format!("{}{}{}", before, normalized_content, after))
+            }
 
             // Replace all occurrences of the matched text with new content
             PatchOperation::ReplaceAll => Ok(haystack.replace(needle, &normalized_content)),
 
             // Append content after the matched text
-            PatchOperation::Append => Ok(format!(
-                "{}{}{}{}",
-                &haystack[..patch.end()],
-                line_ending,
-                normalized_content,
-                &haystack[patch.end()..]
-            )),
+            PatchOperation::Append => {
+                let before = haystack
+                    .get(..patch.end())
+                    .ok_or_else(|| Error::RangeOutOfBounds(0, patch.end(), haystack.len()))?;
+                let after = haystack.get(patch.end()..).ok_or_else(|| {
+                    Error::RangeOutOfBounds(patch.end(), haystack.len(), haystack.len())
+                })?;
+                Ok(format!(
+                    "{}{}{}{}",
+                    before, line_ending, normalized_content, after
+                ))
+            }
 
             // Replace matched text with new content
             PatchOperation::Replace => {
                 // Check if there are multiple matches
                 let mut match_count = 0;
                 let mut search_start = 0;
-                while let Some(pos) = haystack[search_start..].find(needle) {
+                while let Some(pos) = haystack.get(search_start..).and_then(|s| s.find(needle)) {
                     match_count += 1;
                     if match_count > 1 {
                         return Err(Error::MultipleMatches(needle.to_string()));
@@ -244,12 +264,15 @@ fn apply_replacement(
                     search_start += pos + needle.len();
                 }
 
-                Ok(format!(
-                    "{}{}{}",
-                    &haystack[..patch.start],
-                    normalized_content,
-                    &haystack[patch.end()..]
-                ))
+                let before = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
+                    0,
+                    patch.start,
+                    haystack.len(),
+                ))?;
+                let after = haystack.get(patch.end()..).ok_or_else(|| {
+                    Error::RangeOutOfBounds(patch.end(), haystack.len(), haystack.len())
+                })?;
+                Ok(format!("{}{}{}", before, normalized_content, after))
             }
 
             // Swap with another text in the source
@@ -263,34 +286,59 @@ fn apply_replacement(
                     || (target_patch.start <= patch.start && target_patch.end() > patch.start)
                 {
                     // For overlapping ranges, we just do an ordinary replacement
-                    return Ok(format!(
-                        "{}{}{}",
-                        &haystack[..patch.start],
-                        normalized_content,
-                        &haystack[patch.end()..]
-                    ));
+                    let before = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
+                        0,
+                        patch.start,
+                        haystack.len(),
+                    ))?;
+                    let after = haystack.get(patch.end()..).ok_or_else(|| {
+                        Error::RangeOutOfBounds(patch.end(), haystack.len(), haystack.len())
+                    })?;
+                    return Ok(format!("{}{}{}", before, normalized_content, after));
                 }
 
                 // We need to handle different ordering of patches
                 if patch.start < target_patch.start {
                     // Original text comes first
+                    let part1 = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
+                        0,
+                        patch.start,
+                        haystack.len(),
+                    ))?;
+                    let part2 = haystack
+                        .get(patch.end()..target_patch.start)
+                        .ok_or_else(|| {
+                            Error::RangeOutOfBounds(patch.end(), target_patch.start, haystack.len())
+                        })?;
+                    let part3 = haystack.get(patch.start..patch.end()).ok_or_else(|| {
+                        Error::RangeOutOfBounds(patch.start, patch.end(), haystack.len())
+                    })?;
+                    let part4 = haystack.get(target_patch.end()..).ok_or_else(|| {
+                        Error::RangeOutOfBounds(target_patch.end(), haystack.len(), haystack.len())
+                    })?;
                     Ok(format!(
                         "{}{}{}{}{}",
-                        &haystack[..patch.start],
-                        normalized_content,
-                        &haystack[patch.end()..target_patch.start],
-                        &haystack[patch.start..patch.end()],
-                        &haystack[target_patch.end()..]
+                        part1, normalized_content, part2, part3, part4
                     ))
                 } else {
                     // Target text comes first
+                    let part1 = haystack.get(..target_patch.start).ok_or({
+                        Error::RangeOutOfBounds(0, target_patch.start, haystack.len())
+                    })?;
+                    let part2 = haystack.get(patch.start..patch.end()).ok_or_else(|| {
+                        Error::RangeOutOfBounds(patch.start, patch.end(), haystack.len())
+                    })?;
+                    let part3 = haystack
+                        .get(target_patch.end()..patch.start)
+                        .ok_or_else(|| {
+                            Error::RangeOutOfBounds(target_patch.end(), patch.start, haystack.len())
+                        })?;
+                    let part4 = haystack.get(patch.end()..).ok_or_else(|| {
+                        Error::RangeOutOfBounds(patch.end(), haystack.len(), haystack.len())
+                    })?;
                     Ok(format!(
                         "{}{}{}{}{}",
-                        &haystack[..target_patch.start],
-                        &haystack[patch.start..patch.end()],
-                        &haystack[target_patch.end()..patch.start],
-                        normalized_content,
-                        &haystack[patch.end()..]
+                        part1, part2, part3, normalized_content, part4
                     ))
                 }
             }
@@ -314,6 +362,54 @@ fn apply_replacement(
 
 // Using FSPatchInput from forge_domain
 
+fn build_fuzzy_patch(
+    current_content: &str,
+    search_text: &str,
+    content: &str,
+    patch: TextPatchBlock,
+) -> String {
+    let _ = (
+        Range::normalize_search_line_endings(current_content, search_text),
+        Range::normalize_search_line_endings(current_content, content),
+        patch.patch,
+    );
+    patch.patched_text
+}
+
+async fn apply_replace_operation<F: TextPatchRepository>(
+    infra: &F,
+    current_content: String,
+    search: &str,
+    content: &str,
+    operation: &PatchOperation,
+) -> Result<String, Error> {
+    match compute_range(&current_content, Some(search), operation) {
+        Ok(range) => apply_replacement(current_content, range, operation, content),
+        Err(Error::NoMatch(search_text))
+            if matches!(
+                operation,
+                PatchOperation::Replace | PatchOperation::ReplaceAll | PatchOperation::Swap
+            ) =>
+        {
+            let normalized_search =
+                Range::normalize_search_line_endings(&current_content, &search_text);
+            let normalized_content =
+                Range::normalize_search_line_endings(&current_content, content);
+            let patch = infra
+                .build_text_patch(&current_content, &normalized_search, &normalized_content)
+                .await
+                .map_err(|error| Error::PatchBuild { message: error.to_string() })?;
+            Ok(build_fuzzy_patch(
+                &current_content,
+                &search_text,
+                content,
+                patch,
+            ))
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Service for patching files with snapshot coordination
 ///
 /// This service coordinates between infrastructure (file I/O) and repository
@@ -329,8 +425,13 @@ impl<F> ForgeFsPatch<F> {
 }
 
 #[async_trait::async_trait]
-impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearchRepository>
-    FsPatchService for ForgeFsPatch<F>
+impl<
+    F: FileWriterInfra
+        + SnapshotRepository
+        + ValidationRepository
+        + FuzzySearchRepository
+        + TextPatchRepository,
+> FsPatchService for ForgeFsPatch<F>
 {
     async fn patch(
         &self,
@@ -358,33 +459,69 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
         // Save the old content before modification for diff generation
         let old_content = current_content.clone();
 
-        // Compute range from search if provided
-        let range = match compute_range(&current_content, Some(&search), &operation) {
-            Ok(r) => r,
-            Err(Error::NoMatch(search_text))
-                if matches!(
-                    operation,
-                    PatchOperation::Replace | PatchOperation::ReplaceAll | PatchOperation::Swap
-                ) =>
-            {
-                // Try fuzzy search as fallback
-                match self
-                    .infra
-                    .fuzzy_search(&search_text, &current_content, false)
-                    .await
-                {
-                    Ok(matches) if !matches.is_empty() => {
-                        // Use the first fuzzy match
-                        Some(Range::from_search_match(&current_content, &matches[0]))
-                    }
-                    _ => return Err(Error::NoMatch(search_text).into()),
-                }
-            }
-            Err(e) => return Err(e.into()),
-        };
+        current_content =
+            apply_replace_operation(&*self.infra, current_content, &search, &content, &operation)
+                .await?;
 
-        // Apply the replacement
-        current_content = apply_replacement(current_content, range, &operation, &content)?;
+        // SNAPSHOT COORDINATION: Always capture snapshot before modifying
+        self.infra.insert_snapshot(path).await?;
+
+        // Write final content to file after all patches are applied
+        self.infra
+            .write(path, Bytes::from(current_content.clone()))
+            .await?;
+
+        // Compute hash of the final file content
+        let content_hash = compute_hash(&current_content);
+
+        // Validate file syntax using remote validation API (graceful failure)
+        let errors = self
+            .infra
+            .validate_file(path, &current_content)
+            .await
+            .unwrap_or_default();
+
+        Ok(PatchOutput {
+            errors,
+            before: old_content,
+            after: current_content,
+            content_hash,
+        })
+    }
+
+    async fn multi_patch(
+        &self,
+        input_path: String,
+        edits: Vec<forge_domain::PatchEdit>,
+    ) -> anyhow::Result<PatchOutput> {
+        let path = Path::new(&input_path);
+        assert_absolute_path(path)?;
+
+        // Read the original content once
+        let mut current_content = fs::read_to_string(path)
+            .await
+            .map_err(Error::FileOperation)?;
+        // Save the old content before modification for diff generation
+        let old_content = current_content.clone();
+
+        // Apply each edit sequentially
+        for edit in &edits {
+            // Convert replace_all boolean to PatchOperation
+            let operation = if edit.replace_all {
+                PatchOperation::ReplaceAll
+            } else {
+                PatchOperation::Replace
+            };
+
+            current_content = apply_replace_operation(
+                &*self.infra,
+                current_content,
+                &edit.old_string,
+                &edit.new_string,
+                &operation,
+            )
+            .await?;
+        }
 
         // SNAPSHOT COORDINATION: Always capture snapshot before modifying
         self.infra.insert_snapshot(path).await?;

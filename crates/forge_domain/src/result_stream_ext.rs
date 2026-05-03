@@ -69,15 +69,17 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
                 anyhow::Ok(message?).with_context(|| "Failed to process message stream")?;
             // Process usage information
             // - For Anthropic-style streaming: input tokens in MessageStart, output tokens
-            //   in MessageDelta
+            //   in MessageDelta (values are CUMULATIVE, not incremental)
+            //   ref: https://platform.claude.com/docs/en/build-with-claude/streaming#event-types
             // - For OpenAI-style streaming: all tokens in the final chunk
             // - For GLM-style: may send complete usage in every chunk (need to replace, not
             //   accumulate)
+            // - For Google-style: cumulative usage in every chunk
             // - Cost-only events: have 0 tokens but a cost value
             if let Some(current_usage) = message.usage.as_ref() {
                 // If current usage has both prompt and completion tokens, it's a "complete"
-                // usage In this case, replace instead of accumulate (handles
-                // GLM-style streaming)
+                // usage. In this case, replace instead of merge (handles GLM-style streaming
+                // where every chunk has full usage).
                 let is_complete_usage =
                     *current_usage.prompt_tokens > 0 && *current_usage.completion_tokens > 0;
 
@@ -95,10 +97,19 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
                     }
                 } else if is_cost_only {
                     // Accumulate only the cost to the existing usage
-                    usage.cost = current_usage.cost;
+                    usage.cost = match (usage.cost, current_usage.cost) {
+                        (Some(a), Some(b)) => Some(a + b),
+                        (Some(a), None) => Some(a),
+                        (None, Some(b)) => Some(b),
+                        (None, None) => None,
+                    };
                 } else {
-                    // Accumulate partial usage (for Anthropic-style streaming)
-                    usage = usage.accumulate(current_usage);
+                    // Merge partial usage using "max" strategy. This correctly handles
+                    // providers like Anthropic where usage values are CUMULATIVE across
+                    // events (message_start has input tokens, message_delta has the
+                    // total output tokens). Using max instead of sum prevents
+                    // double-counting when message_start includes output_tokens=1.
+                    usage = usage.merge(current_usage);
                 }
             }
 
@@ -485,8 +496,73 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_into_full_anthropic_streaming_usage_accumulation() {
+    async fn test_into_full_anthropic_streaming_usage_merge() {
+        // Fixture: Simulate Anthropic streaming pattern where message_start has
+        // output_tokens=1 (the common case) and message_delta has the cumulative total.
+        // This tests that merge (max) is used instead of accumulate (sum) to prevent
+        // double-counting.
+        let messages = vec![
+            // MessageStart with input token usage AND output_tokens=1
+            Ok(ChatCompletionMessage::default().usage(Usage {
+                prompt_tokens: TokenCount::Actual(1000),
+                completion_tokens: TokenCount::Actual(1),
+                total_tokens: TokenCount::Actual(1001),
+                cached_tokens: TokenCount::Actual(300),
+                cost: None,
+            })),
+            // Content deltas
+            Ok(ChatCompletionMessage::default().content(Content::part("Hello "))),
+            Ok(ChatCompletionMessage::default().content(Content::part("world!"))),
+            // MessageDelta with cumulative output token usage
+            Ok(ChatCompletionMessage::default()
+                .usage(Usage {
+                    prompt_tokens: TokenCount::Actual(0),
+                    completion_tokens: TokenCount::Actual(50),
+                    total_tokens: TokenCount::Actual(50),
+                    cached_tokens: TokenCount::Actual(0),
+                    cost: None,
+                })
+                .finish_reason(FinishReason::Stop)),
+        ];
+
+        let result_stream: BoxStream<ChatCompletionMessage, anyhow::Error> =
+            Box::pin(tokio_stream::iter(messages));
+
+        // Actual: Convert stream to full message
+        let actual = result_stream.into_full(false).await.unwrap();
+
+        // Expected: Usage should use max (merge) not sum (accumulate).
+        // message_start has completion_tokens=1 and prompt_tokens=1000, so
+        // is_complete_usage=true -> replace: usage = {1000, 1, 1001, 300}
+        // message_delta has prompt=0, completion=50 -> is_complete_usage=false ->
+        // merge:   prompt = max(1000, 0) = 1000
+        //   completion = max(1, 50) = 50 (NOT 1+50=51)
+        //   total = max(1001, 50) = 1001
+        //   cached = max(300, 0) = 300
+        let expected = ChatCompletionMessageFull {
+            content: "Hello world!".to_string(),
+            tool_calls: vec![],
+            thought_signature: None,
+            usage: Usage {
+                prompt_tokens: TokenCount::Actual(1000),
+                completion_tokens: TokenCount::Actual(50), // max(1, 50) = 50, NOT 1+50=51
+                total_tokens: TokenCount::Actual(1001),
+                cached_tokens: TokenCount::Actual(300),
+                cost: None,
+            },
+            reasoning: None,
+            reasoning_details: None,
+            finish_reason: Some(FinishReason::Stop),
+            phase: None,
+        };
+
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn test_into_full_anthropic_streaming_usage_merge_zero_output() {
         // Fixture: Simulate Anthropic/Vertex AI Anthropic streaming pattern
+        // where message_start has output_tokens=0 (Vertex AI pattern).
         // MessageStart event has input tokens, MessageDelta has output tokens
         let messages = vec![
             // MessageStart with input token usage
@@ -518,7 +594,7 @@ mod tests {
         // Actual: Convert stream to full message
         let actual = result_stream.into_full(false).await.unwrap();
 
-        // Expected: Usage should be accumulated from both MessageStart and MessageDelta
+        // Expected: Usage should be merged from both MessageStart and MessageDelta
         let expected = ChatCompletionMessageFull {
             content: "Hello world!".to_string(),
             tool_calls: vec![],
@@ -526,7 +602,7 @@ mod tests {
             usage: Usage {
                 prompt_tokens: TokenCount::Actual(1000), // From MessageStart
                 completion_tokens: TokenCount::Actual(50), // From MessageDelta
-                total_tokens: TokenCount::Actual(1050),  // Sum of both
+                total_tokens: TokenCount::Actual(1000),  // max(1000, 50) = 1000
                 cached_tokens: TokenCount::Actual(300),  // From MessageStart
                 cost: None,
             },

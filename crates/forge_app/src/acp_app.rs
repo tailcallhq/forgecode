@@ -2,8 +2,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use forge_config::ForgeConfig;
 
-use crate::Services;
+use crate::{EnvironmentInfra, Services};
 
 /// ACP (Agent Communication Protocol) application orchestrator.
 pub struct AcpApp<S> {
@@ -16,7 +17,7 @@ const IO_TIMEOUT: Duration = Duration::from_secs(300);
 /// Maximum time to wait for pending notifications to drain on shutdown.
 const SHUTDOWN_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
-impl<S: Services> AcpApp<S> {
+impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpApp<S> {
     /// Creates a new ACP application orchestrator.
     pub fn new(services: Arc<S>) -> Self {
         Self { services }

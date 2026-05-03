@@ -2,10 +2,10 @@
 
 use streamdown_ansi::utils::visible_length;
 use streamdown_parser::ListBullet;
-use streamdown_render::text::text_wrap;
 
 use crate::inline::render_inline_content;
 use crate::style::{InlineStyler, ListStyler};
+use crate::utils::wrap_text_preserving_spaces;
 
 /// Bullet characters for dash lists at different nesting levels.
 const BULLETS_DASH: [&str; 4] = ["•", "◦", "▪", "‣"];
@@ -149,9 +149,18 @@ pub fn render_list_item<S: InlineStyler + ListStyler>(
             format!("{}.", num)
         }
         ListBullet::PlusExpand => "⊞".to_string(),
-        ListBullet::Dash => BULLETS_DASH[level % BULLETS_DASH.len()].to_string(),
-        ListBullet::Asterisk => BULLETS_ASTERISK[level % BULLETS_ASTERISK.len()].to_string(),
-        ListBullet::Plus => BULLETS_PLUS[level % BULLETS_PLUS.len()].to_string(),
+        ListBullet::Dash => BULLETS_DASH
+            .get(level % BULLETS_DASH.len())
+            .unwrap_or(&"•")
+            .to_string(),
+        ListBullet::Asterisk => BULLETS_ASTERISK
+            .get(level % BULLETS_ASTERISK.len())
+            .unwrap_or(&"∗")
+            .to_string(),
+        ListBullet::Plus => BULLETS_PLUS
+            .get(level % BULLETS_PLUS.len())
+            .unwrap_or(&"⊕")
+            .to_string(),
     };
 
     // Calculate indentation
@@ -182,28 +191,38 @@ pub fn render_list_item<S: InlineStyler + ListStyler>(
     );
     let next_prefix = format!("{}{}", margin, " ".repeat(content_indent));
 
+    // The wrapper takes separate first/next content budgets. In list items the
+    // visible widths of the first and continuation prefixes match by
+    // construction, but keep the calculation explicit so merge logic stays
+    // obvious.
+    const MIN_CONTENT_WIDTH: usize = 5;
+    let first_content_width = width
+        .saturating_sub(visible_length(&first_prefix))
+        .max(MIN_CONTENT_WIDTH);
+    let next_content_width = width
+        .saturating_sub(visible_length(&next_prefix))
+        .max(MIN_CONTENT_WIDTH);
+
     // Wrap the content
-    let wrapped = text_wrap(
+    let wrapped = wrap_text_preserving_spaces(
         &rendered_content,
-        width,
-        0,
+        first_content_width,
+        next_content_width,
         &first_prefix,
         &next_prefix,
-        false,
-        true,
     );
 
     if wrapped.is_empty() {
         vec![first_prefix]
     } else {
-        wrapped.lines
+        wrapped
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::theme::TagStyler;
+    use crate::theme::{TagStyler, Theme};
 
     fn render(indent: usize, bullet: ListBullet, content: &str) -> String {
         let mut state = ListState::default();
@@ -225,6 +244,28 @@ mod tests {
             indent, &bullet, content, width, "  ", &TagStyler, &mut state,
         )
         .join("\n")
+    }
+
+    fn render_visible_with_width(
+        indent: usize,
+        bullet: ListBullet,
+        content: &str,
+        width: usize,
+    ) -> String {
+        let mut state = ListState::default();
+        let actual = render_list_item(
+            indent,
+            &bullet,
+            content,
+            width,
+            "  ",
+            &Theme::default(),
+            &mut state,
+        )
+        .join("\n");
+        let stripped = strip_ansi_escapes::strip(actual.as_bytes());
+
+        String::from_utf8(stripped).unwrap()
     }
 
     #[test]
@@ -321,7 +362,7 @@ mod tests {
 
     #[test]
     fn test_empty_content() {
-        insta::assert_snapshot!(render(0, ListBullet::Dash, ""), @"  <dash>•</dash> ");
+        insta::assert_snapshot!(render(0, ListBullet::Dash, ""), @"  <dash>•</dash>");
     }
 
     #[test]
@@ -333,9 +374,133 @@ mod tests {
             40,
         );
         insta::assert_snapshot!(result, @r"
-        <dash>•</dash> This is a very long list item that
-          should wrap to multiple lines
+        <dash>•</dash> This is a very long
+          list item that should wrap to
+          multiple lines
         ");
+    }
+
+    // Use Theme rather than TagStyler: visible_length skips ANSI codes but
+    // counts TagStyler's literal <dash> markers, which would inflate widths.
+
+    #[test]
+    fn test_wrapping_respects_width() {
+        let theme = crate::theme::Theme::dark();
+        let mut state = ListState::default();
+        let lines = render_list_item(
+            0,
+            &ListBullet::Dash,
+            "word1 word2 word3 word4 word5 word6 word7 word8",
+            20,
+            "  ",
+            &theme,
+            &mut state,
+        );
+        for line in &lines {
+            let vis = visible_length(line);
+            assert!(vis <= 20, "line {line:?} has visible width {vis} > 20");
+        }
+    }
+
+    #[test]
+    fn test_wrapping_respects_width_nested() {
+        let theme = crate::theme::Theme::dark();
+        let mut state = ListState::default();
+        let _ = render_list_item(0, &ListBullet::Dash, "parent", 30, "  ", &theme, &mut state);
+        let lines = render_list_item(
+            1,
+            &ListBullet::Dash,
+            "alpha beta gamma delta epsilon zeta eta theta",
+            30,
+            "  ",
+            &theme,
+            &mut state,
+        );
+        for line in &lines {
+            let vis = visible_length(line);
+            assert!(vis <= 30, "line {line:?} has visible width {vis} > 30");
+        }
+    }
+
+    #[test]
+    fn test_wrapping_preserves_korean_word_spaces() {
+        let actual = render_with_width(0, ListBullet::Dash, "한글 공백 보존 확인", 8);
+        let expected = "  <dash>•</dash> 한글\n    공백\n    보존\n    확인";
+
+        pretty_assertions::assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_wrapping_respects_bullet_prefix_width() {
+        let actual = render_with_width(0, ListBullet::Dash, "한글 공백", 6);
+        let expected = "  <dash>•</dash> 한글\n    공백";
+
+        pretty_assertions::assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_wrapping_respects_checkbox_prefix_width() {
+        let actual = render_with_width(0, ListBullet::Dash, "[ ] 한글 공백", 8);
+        let expected = "  <dash>•</dash> <unchecked></unchecked> 한글\n      공백";
+
+        pretty_assertions::assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_wrapping_respects_multidigit_ordered_prefix_width() {
+        let mut fixture = ListState::default();
+        for index in 1..10 {
+            let _ = render_list_item(
+                0,
+                &ListBullet::Ordered(1),
+                &format!("예시 {index}"),
+                8,
+                "  ",
+                &TagStyler,
+                &mut fixture,
+            );
+        }
+        let actual = render_list_item(
+            0,
+            &ListBullet::Ordered(1),
+            "한글 공백",
+            8,
+            "  ",
+            &TagStyler,
+            &mut fixture,
+        )
+        .join("\n");
+        let expected = "  <num>10.</num> 한글\n      공백";
+
+        pretty_assertions::assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_wrapping_splits_long_tokens() {
+        let actual = render_with_width(0, ListBullet::Dash, "supercalifragilistic", 10);
+        let expected = "  <dash>•</dash> super\n    califr\n    agilis\n    tic";
+
+        pretty_assertions::assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_wrapping_preserves_link_breaks() {
+        let actual = render_visible_with_width(
+            0,
+            ListBullet::Dash,
+            "[링크](https://example.com/very/long/path) 설명",
+            14,
+        );
+        let expected = concat!(
+            "  • 링크\n",
+            "    (https://e\n",
+            "    xample.com\n",
+            "    /very/long\n",
+            "    /path)\n",
+            "    설명"
+        );
+
+        pretty_assertions::assert_eq!(actual, expected);
     }
 
     #[test]

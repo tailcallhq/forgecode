@@ -1,5 +1,5 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
 expression: "render(vec![vec![\"Feature\", \"Status\", \"Description\", \"Link\"],\nvec![\"**Authentication**\", \"✅ `completed`\",\n\"Implements *JWT-based* authentication with ~~basic~~ **OAuth2** support\",\n\"[Docs](https://example.com)\",],\nvec![\"**Database Layer**\", \"🚧 `in-progress`\",\n\"Uses `PostgreSQL` with **Diesel ORM** for *type-safe* queries\",\n\"[GitHub](https://github.com)\",],\nvec![\"**API Gateway**\", \"⏳ `planned`\",\n\"RESTful API with `async/await` and ~~synchronous~~ **asynchronous** handlers\",\n\"[Spec](https://api.example.com)\",],\nvec![\"**Testing**\", \"✅ `completed`\",\n\"Includes *unit tests*, **integration tests**, and `snapshot testing`\",\n\"[Coverage](https://coverage.io)\",],\nvec![\"**Deployment**\", \"🚧 `in-progress`\",\n\"Docker containerization with `K8s` orchestration and **CI/CD** pipeline\",\n\"[Deploy](https://deploy.com)\",],])"
 ---
   ┌─────────┬───────────┬───────────────────────────────────┬────────────────┐

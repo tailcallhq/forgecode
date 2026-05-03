@@ -1,0 +1,5 @@
+---
+source: crates/forge_repo/src/agent.rs
+expression: actual.system_prompt.unwrap().template
+---
+Body keeps {{tool_names.read}} untouched.

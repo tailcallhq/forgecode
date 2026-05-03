@@ -1,7 +1,8 @@
 use agent_client_protocol as acp;
-use forge_domain::{AgentId, Conversation, ConversationId, ModelId};
+use forge_config::ForgeConfig;
+use forge_domain::{AgentId, ConfigOperation, Conversation, ConversationId, ModelConfig, ModelId};
 
-use crate::{AgentRegistry, AppConfigService, ConversationService, Services};
+use crate::{AgentRegistry, AppConfigService, ConversationService, EnvironmentInfra, Services};
 
 use super::adapter::{AcpAdapter, SessionState};
 use super::error;
@@ -9,7 +10,7 @@ use super::state_builders::StateBuilders;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-impl<S: Services> AcpAdapter<S> {
+impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
     pub(super) async fn handle_initialize(
         &self,
         arguments: acp::InitializeRequest,
@@ -224,8 +225,27 @@ impl<S: Services> AcpAdapter<S> {
             .map_err(error::into_acp_error)?;
 
         // Also update the global default for backward compatibility.
+        let provider_id = match self.services.get_session_config().await {
+            Some(config) => config.provider,
+            None => {
+                let state = self
+                    .session_state(&session_key)
+                    .await
+                    .map_err(error::into_acp_error)?;
+                self.services
+                    .agent_registry()
+                    .get_agent(&state.agent_id)
+                    .await
+                    .map_err(|error| acp::Error::into_internal_error(&*error))?
+                    .map(|agent| agent.provider)
+                    .ok_or_else(acp::Error::invalid_params)?
+            }
+        };
         self.services
-            .set_default_model(model_id.clone())
+            .update_config(vec![ConfigOperation::SetSessionConfig(ModelConfig::new(
+                provider_id,
+                model_id.clone(),
+            ))])
             .await
             .map_err(|error| acp::Error::into_internal_error(&*error))?;
         if let Err(error) = self.services.reload_agents().await {

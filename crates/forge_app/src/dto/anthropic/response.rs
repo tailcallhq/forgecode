@@ -657,12 +657,14 @@ mod tests {
         assert_eq!(delta_domain.completion_tokens, TokenCount::Actual(75));
         assert_eq!(delta_domain.cached_tokens, TokenCount::Actual(0));
 
-        // Accumulate usage (simulating how we'd combine them in practice)
-        let accumulated = initial_domain.accumulate(&delta_domain);
-        assert_eq!(accumulated.prompt_tokens, TokenCount::Actual(150));
-        assert_eq!(accumulated.completion_tokens, TokenCount::Actual(75));
-        assert_eq!(accumulated.cached_tokens, TokenCount::Actual(50));
-        assert_eq!(accumulated.total_tokens, TokenCount::Actual(225));
+        // Merge usage (simulating how we'd combine them in practice)
+        // Using merge (max) instead of accumulate (sum) since Anthropic
+        // usage values are cumulative, not incremental deltas.
+        let merged = initial_domain.merge(&delta_domain);
+        assert_eq!(merged.prompt_tokens, TokenCount::Actual(150));
+        assert_eq!(merged.completion_tokens, TokenCount::Actual(75));
+        assert_eq!(merged.cached_tokens, TokenCount::Actual(50));
+        assert_eq!(merged.total_tokens, TokenCount::Actual(150)); // max(150, 75)
     }
 
     #[test]

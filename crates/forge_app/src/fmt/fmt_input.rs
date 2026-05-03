@@ -12,10 +12,10 @@ impl FormatContent for ToolCatalog {
         match self {
             ToolCatalog::Read(input) => {
                 let display_path = display_path_for(&input.file_path);
-                let is_explicit_range = input.start_line.is_some() || input.end_line.is_some();
+                let is_explicit_range = input.range.is_some();
                 let mut subtitle = display_path;
-                if is_explicit_range {
-                    match (&input.start_line, &input.end_line) {
+                if is_explicit_range && let Some(range) = &input.range {
+                    match (range.start_line, range.end_line) {
                         (Some(start), Some(end)) => {
                             subtitle.push_str(&format!(":{start}-{end}"));
                         }
@@ -96,6 +96,14 @@ impl FormatContent for ToolCatalog {
                         .into(),
                 )
             }
+            ToolCatalog::MultiPatch(input) => {
+                let display_path = display_path_for(&input.file_path);
+                Some(
+                    TitleFormat::debug("Replace")
+                        .sub_title(format!("{} ({} edits)", display_path, input.edits.len()))
+                        .into(),
+                )
+            }
             ToolCatalog::Undo(input) => {
                 let display_path = display_path_for(&input.path);
                 Some(TitleFormat::debug("Undo").sub_title(display_path).into())
@@ -125,6 +133,9 @@ impl FormatContent for ToolCatalog {
                     .into(),
             ),
             ToolCatalog::TodoRead(_) => Some(TitleFormat::debug("Read Todos").into()),
+            ToolCatalog::Task(input) => {
+                Some(TitleFormat::debug("Task").sub_title(&input.agent_id).into())
+            }
         }
     }
 }

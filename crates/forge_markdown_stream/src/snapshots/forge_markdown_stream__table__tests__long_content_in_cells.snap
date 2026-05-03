@@ -1,11 +1,12 @@
 ---
-source: src/table.rs
+source: crates/forge_markdown_stream/src/table.rs
+assertion_line: 564
 expression: "render(vec![vec![\"Header\", \"Description\"],\nvec![\"Short\",\n\"This is a much longer piece of content that should demonstrate how the table handles varying content lengths\"],])"
 ---
-  ┌───────┬─────────────────────────────────────────────────────────────────────┐
-  │ Heade │ Description                                                         │
-  │ r     │                                                                     │
-  ├───────┼─────────────────────────────────────────────────────────────────────┤
-  │ Short │ This is a much longer piece of content that should demonstrate how  │
-  │       │ the table handles varying content lengths                           │
-  └───────┴─────────────────────────────────────────────────────────────────────┘
+  ┌───────┬────────────────────────────────────────────────────────────────────┐
+  │ Heade │ Description                                                        │
+  │ r     │                                                                    │
+  ├───────┼────────────────────────────────────────────────────────────────────┤
+  │ Short │ This is a much longer piece of content that should demonstrate     │
+  │       │ how the table handles varying content lengths                      │
+  └───────┴────────────────────────────────────────────────────────────────────┘

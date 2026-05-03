@@ -47,6 +47,7 @@ pub enum ToolCatalog {
     SemSearch(SemanticSearch),
     Remove(FSRemove),
     Patch(FSPatch),
+    MultiPatch(FSMultiPatch),
     Undo(FSUndo),
     Shell(Shell),
     Fetch(NetFetch),
@@ -55,6 +56,8 @@ pub enum ToolCatalog {
     Skill(SkillFetch),
     TodoWrite(TodoWrite),
     TodoRead(TodoRead),
+    #[serde(alias = "Task")]
+    Task(TaskInput),
 }
 
 /// Input structure for agent tool calls. This serves as the generic schema
@@ -67,6 +70,28 @@ pub struct AgentInput {
     /// requirements to enable the agent to understand and execute the work
     /// accurately.
     pub tasks: Vec<String>,
+}
+
+/// Input structure for the Task tool - delegates work to specialized agents
+#[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
+#[tool_description_file = "crates/forge_domain/src/tools/descriptions/task.md"]
+pub struct TaskInput {
+    /// A list of clear and detailed descriptions of the tasks to be performed
+    /// by the agent in parallel. Provide sufficient context and specific
+    /// requirements to enable the agent to understand and execute the work
+    /// accurately.
+    pub tasks: Vec<String>,
+
+    /// The ID of the specialized agent to delegate to (e.g., "forge", "muse",
+    /// "sage")
+    pub agent_id: String,
+
+    /// Optional session ID to continue an existing agent session. If not
+    /// provided, a new stateless session will be created. Use this to
+    /// maintain context across multiple task invocations with the same
+    /// agent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -163,27 +188,35 @@ impl Todo {
     }
 }
 
+/// Optional line range for partial file reads.
+#[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[schemars(deny_unknown_fields)]
+pub struct FSReadRange {
+    /// 1-based first line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_line: Option<i32>,
+
+    /// Inclusive 1-based last line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_line: Option<i32>,
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
 #[tool_description_file = "crates/forge_domain/src/tools/descriptions/fs_read.md"]
+#[schemars(deny_unknown_fields)]
 pub struct FSRead {
-    /// The absolute path to the file to read
+    /// Absolute path to the file to read.
     #[serde(alias = "path")]
     pub file_path: String,
 
-    /// The line number to start reading from starting from 1 not 0. Only
-    /// provide if the file is too large to read at once
+    /// Optional line range for partial reads.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_line: Option<i32>,
+    pub range: Option<FSReadRange>,
 
     /// If true, prefixes each line with its line index (starting at 1).
     /// Defaults to true.
     #[serde(default = "default_true")]
     pub show_line_numbers: bool,
-
-    /// The line number to stop reading at (inclusive). Only provide if the file
-    /// is too large to read at once
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_line: Option<i32>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
@@ -522,6 +555,31 @@ pub struct FSPatch {
     pub replace_all: bool,
 }
 
+/// A single edit operation in a multi-patch
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct PatchEdit {
+    /// The text to replace
+    pub old_string: String,
+
+    /// The text to replace it with (must be different from old_string)
+    pub new_string: String,
+
+    /// Replace all occurrences of old_string (default false)
+    #[serde(default)]
+    #[schemars(default)]
+    pub replace_all: bool,
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
+#[tool_description_file = "crates/forge_domain/src/tools/descriptions/fs_multi_patch.md"]
+pub struct FSMultiPatch {
+    /// The absolute path to the file to modify
+    pub file_path: String,
+
+    /// Array of edit operations to perform sequentially on the file
+    pub edits: Vec<PatchEdit>,
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
 #[tool_description_file = "crates/forge_domain/src/tools/descriptions/fs_undo.md"]
 pub struct FSUndo {
@@ -754,6 +812,7 @@ impl ToolDescription for ToolCatalog {
     fn description(&self) -> String {
         match self {
             ToolCatalog::Patch(v) => v.description(),
+            ToolCatalog::MultiPatch(v) => v.description(),
             ToolCatalog::Shell(v) => v.description(),
             ToolCatalog::Followup(v) => v.description(),
             ToolCatalog::Fetch(v) => v.description(),
@@ -767,6 +826,7 @@ impl ToolDescription for ToolCatalog {
             ToolCatalog::Skill(v) => v.description(),
             ToolCatalog::TodoWrite(v) => v.description(),
             ToolCatalog::TodoRead(v) => v.description(),
+            ToolCatalog::Task(v) => v.description(),
         }
     }
 }
@@ -811,6 +871,7 @@ impl ToolCatalog {
 
         let mut schema = match self {
             ToolCatalog::Patch(_) => r#gen.into_root_schema_for::<FSPatch>(),
+            ToolCatalog::MultiPatch(_) => r#gen.into_root_schema_for::<FSMultiPatch>(),
             ToolCatalog::Shell(_) => r#gen.into_root_schema_for::<Shell>(),
             ToolCatalog::Followup(_) => r#gen.into_root_schema_for::<Followup>(),
             ToolCatalog::Fetch(_) => r#gen.into_root_schema_for::<NetFetch>(),
@@ -822,6 +883,7 @@ impl ToolCatalog {
             ToolCatalog::Write(_) => r#gen.into_root_schema_for::<FSWrite>(),
             ToolCatalog::Plan(_) => r#gen.into_root_schema_for::<PlanCreate>(),
             ToolCatalog::Skill(_) => r#gen.into_root_schema_for::<SkillFetch>(),
+            ToolCatalog::Task(_) => r#gen.into_root_schema_for::<TaskInput>(),
             ToolCatalog::TodoWrite(_) => r#gen.into_root_schema_for::<TodoWrite>(),
             ToolCatalog::TodoRead(_) => r#gen.into_root_schema_for::<TodoRead>(),
         };
@@ -923,6 +985,15 @@ impl ToolCatalog {
                 cwd,
                 message: format!("Modify file: {}", display_path_for(&input.file_path)),
             }),
+            ToolCatalog::MultiPatch(input) => Some(crate::policies::PermissionOperation::Write {
+                path: std::path::PathBuf::from(&input.file_path),
+                cwd,
+                message: format!(
+                    "Modify file with {} edits: {}",
+                    input.edits.len(),
+                    display_path_for(&input.file_path)
+                ),
+            }),
             ToolCatalog::Shell(input) => Some(crate::policies::PermissionOperation::Execute {
                 command: input.command.clone(),
                 cwd,
@@ -939,7 +1010,8 @@ impl ToolCatalog {
             | ToolCatalog::Plan(_)
             | ToolCatalog::Skill(_)
             | ToolCatalog::TodoWrite(_)
-            | ToolCatalog::TodoRead(_) => None,
+            | ToolCatalog::TodoRead(_)
+            | ToolCatalog::Task(_) => None,
         }
     }
 
@@ -1197,7 +1269,7 @@ mod tests {
             name: ToolName::new("read"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"path": "/test/path.rs", "start_line": "10", "end_line": "20"}"#,
+                r#"{"path": "/test/path.rs", "range": {"start_line": 10, "end_line": 20}}"#,
             ),
             thought_signature: None,
         };
@@ -1212,8 +1284,8 @@ mod tests {
 
         if let Ok(ToolCatalog::Read(fs_read)) = actual {
             assert_eq!(fs_read.file_path, "/test/path.rs");
-            assert_eq!(fs_read.start_line, Some(10));
-            assert_eq!(fs_read.end_line, Some(20));
+            assert_eq!(fs_read.range.as_ref().and_then(|r| r.start_line), Some(10));
+            assert_eq!(fs_read.range.as_ref().and_then(|r| r.end_line), Some(20));
         } else {
             panic!("Expected FSRead variant");
         }
@@ -1228,7 +1300,7 @@ mod tests {
             name: ToolName::new("read"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"path": "/test/path.rs", "start_line": 10, "end_line": 20}"#,
+                r#"{"path": "/test/path.rs", "range": {"start_line": 10, "end_line": 20}}"#,
             ),
             thought_signature: None,
         };
@@ -1242,8 +1314,8 @@ mod tests {
 
         if let Ok(ToolCatalog::Read(fs_read)) = actual {
             assert_eq!(fs_read.file_path, "/test/path.rs");
-            assert_eq!(fs_read.start_line, Some(10));
-            assert_eq!(fs_read.end_line, Some(20));
+            assert_eq!(fs_read.range.as_ref().and_then(|r| r.start_line), Some(10));
+            assert_eq!(fs_read.range.as_ref().and_then(|r| r.end_line), Some(20));
         } else {
             panic!("Expected FSRead variant");
         }
@@ -1258,7 +1330,7 @@ mod tests {
             name: ToolName::new("Read"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"path": "/test/path.rs", "start_line": 10, "end_line": 20}"#,
+                r#"{"path": "/test/path.rs", "range": {"start_line": 10, "end_line": 20}}"#,
             ),
             thought_signature: None,
         };
@@ -1272,8 +1344,8 @@ mod tests {
 
         if let Ok(ToolCatalog::Read(fs_read)) = actual {
             assert_eq!(fs_read.file_path, "/test/path.rs");
-            assert_eq!(fs_read.start_line, Some(10));
-            assert_eq!(fs_read.end_line, Some(20));
+            assert_eq!(fs_read.range.as_ref().and_then(|r| r.start_line), Some(10));
+            assert_eq!(fs_read.range.as_ref().and_then(|r| r.end_line), Some(20));
         } else {
             panic!("Expected FSRead variant");
         }

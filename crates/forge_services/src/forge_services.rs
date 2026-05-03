@@ -7,7 +7,8 @@ use forge_app::{
 };
 use forge_domain::{
     ChatRepository, ConversationRepository, FuzzySearchRepository, ProviderRepository,
-    SkillRepository, SnapshotRepository, ValidationRepository, WorkspaceIndexRepository,
+    SkillRepository, SnapshotRepository, TextPatchRepository, ValidationRepository,
+    WorkspaceIndexRepository,
 };
 
 use crate::ForgeProviderAuthService;
@@ -47,7 +48,6 @@ pub struct ForgeServices<
         + WalkerInfra
         + SnapshotRepository
         + ConversationRepository
-        + EnvironmentInfra
         + KVStore
         + ChatRepository
         + ProviderRepository
@@ -88,7 +88,7 @@ pub struct ForgeServices<
 
 impl<
     F: McpServerInfra
-        + EnvironmentInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + FileWriterInfra
         + FileInfoInfra
         + FileReaderInfra
@@ -99,7 +99,6 @@ impl<
         + UserInfra
         + SnapshotRepository
         + ConversationRepository
-        + EnvironmentInfra
         + ChatRepository
         + ProviderRepository
         + KVStore
@@ -185,14 +184,13 @@ impl<
         + FileRemoverInfra
         + FileInfoInfra
         + FileDirectoryInfra
-        + EnvironmentInfra
+        + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + DirectoryReaderInfra
         + HttpInfra
         + WalkerInfra
         + Clone
         + SnapshotRepository
         + ConversationRepository
-        + EnvironmentInfra
         + KVStore
         + ChatRepository
         + ProviderRepository
@@ -202,6 +200,7 @@ impl<
         + WorkspaceIndexRepository
         + ValidationRepository
         + FuzzySearchRepository
+        + TextPatchRepository
         + Clone
         + 'static,
 > Services for ForgeServices<F>
@@ -343,7 +342,7 @@ impl<
 }
 
 impl<
-    F: EnvironmentInfra
+    F: EnvironmentInfra<Config = forge_config::ForgeConfig>
         + HttpInfra
         + McpServerInfra
         + WalkerInfra
@@ -366,7 +365,7 @@ impl<
         self.infra.get_environment()
     }
 
-    fn get_config(&self) -> forge_config::ForgeConfig {
+    fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
         self.infra.get_config()
     }
 

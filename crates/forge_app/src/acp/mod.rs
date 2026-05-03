@@ -8,7 +8,9 @@ mod state_builders;
 pub(crate) use adapter::AcpAdapter;
 
 #[async_trait::async_trait(?Send)]
-impl<S: crate::Services> agent_client_protocol::Agent for AcpAdapter<S> {
+impl<S: crate::Services + crate::EnvironmentInfra<Config = forge_config::ForgeConfig>>
+    agent_client_protocol::Agent for AcpAdapter<S>
+{
     async fn initialize(
         &self,
         arguments: agent_client_protocol::InitializeRequest,

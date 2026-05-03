@@ -6,28 +6,37 @@ expression: tools
   "title": "FSRead",
   "type": "object",
   "properties": {
-    "end_line": {
-      "description": "The line number to stop reading at (inclusive). Only provide if the file\nis too large to read at once",
-      "type": "integer",
-      "format": "int32",
-      "nullable": true
-    },
     "file_path": {
-      "description": "The absolute path to the file to read",
+      "description": "Absolute path to the file to read.",
       "type": "string"
+    },
+    "range": {
+      "description": "Optional line range for partial reads.",
+      "type": "object",
+      "properties": {
+        "end_line": {
+          "description": "Inclusive 1-based last line.",
+          "type": "integer",
+          "format": "int32",
+          "nullable": true
+        },
+        "start_line": {
+          "description": "1-based first line.",
+          "type": "integer",
+          "format": "int32",
+          "nullable": true
+        }
+      },
+      "additionalProperties": false,
+      "nullable": true
     },
     "show_line_numbers": {
       "description": "If true, prefixes each line with its line index (starting at 1).\nDefaults to true.",
       "type": "boolean",
       "default": true
-    },
-    "start_line": {
-      "description": "The line number to start reading from starting from 1 not 0. Only\nprovide if the file is too large to read at once",
-      "type": "integer",
-      "format": "int32",
-      "nullable": true
     }
   },
+  "additionalProperties": false,
   "required": [
     "file_path"
   ]
@@ -216,6 +225,47 @@ expression: tools
   ]
 }
 {
+  "title": "FSMultiPatch",
+  "type": "object",
+  "properties": {
+    "edits": {
+      "description": "Array of edit operations to perform sequentially on the file",
+      "type": "array",
+      "items": {
+        "description": "A single edit operation in a multi-patch",
+        "type": "object",
+        "properties": {
+          "new_string": {
+            "description": "The text to replace it with (must be different from old_string)",
+            "type": "string"
+          },
+          "old_string": {
+            "description": "The text to replace",
+            "type": "string"
+          },
+          "replace_all": {
+            "description": "Replace all occurrences of old_string (default false)",
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "old_string",
+          "new_string"
+        ]
+      }
+    },
+    "file_path": {
+      "description": "The absolute path to the file to modify",
+      "type": "string"
+    }
+  },
+  "required": [
+    "file_path",
+    "edits"
+  ]
+}
+{
   "title": "FSUndo",
   "type": "object",
   "properties": {
@@ -401,4 +451,31 @@ expression: tools
 {
   "title": "TodoRead",
   "type": "object"
+}
+{
+  "title": "TaskInput",
+  "description": "Input structure for the Task tool - delegates work to specialized agents",
+  "type": "object",
+  "properties": {
+    "agent_id": {
+      "description": "The ID of the specialized agent to delegate to (e.g., \"forge\", \"muse\",\n\"sage\")",
+      "type": "string"
+    },
+    "session_id": {
+      "description": "Optional session ID to continue an existing agent session. If not\nprovided, a new stateless session will be created. Use this to\nmaintain context across multiple task invocations with the same\nagent.",
+      "type": "string",
+      "nullable": true
+    },
+    "tasks": {
+      "description": "A list of clear and detailed descriptions of the tasks to be performed\nby the agent in parallel. Provide sufficient context and specific\nrequirements to enable the agent to understand and execute the work\naccurately.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "tasks",
+    "agent_id"
+  ]
 }
