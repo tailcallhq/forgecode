@@ -461,6 +461,11 @@ expression: tools
       "description": "The ID of the specialized agent to delegate to (e.g., \"forge\", \"muse\",\n\"sage\")",
       "type": "string"
     },
+    "cwd": {
+      "description": "Optional working directory override for the agent. When provided, the\nagent will treat this path as its current working directory instead of\nthe parent process's CWD. This affects the system information shown to\nthe agent (file listing, extensions, env.cwd).",
+      "type": "string",
+      "nullable": true
+    },
     "session_id": {
       "description": "Optional session ID to continue an existing agent session. If not\nprovided, a new stateless session will be created. Use this to\nmaintain context across multiple task invocations with the same\nagent.",
       "type": "string",
@@ -470,7 +475,31 @@ expression: tools
       "description": "A list of clear and detailed descriptions of the tasks to be performed\nby the agent in parallel. Provide sufficient context and specific\nrequirements to enable the agent to understand and execute the work\naccurately.",
       "type": "array",
       "items": {
-        "type": "string"
+        "description": "Represents a single task for agent execution.\n\nSupports both legacy string-only tasks and structured tasks with an\noptional per-task working directory override.",
+        "anyOf": [
+          {
+            "description": "Legacy task format: just the task description.",
+            "type": "string"
+          },
+          {
+            "description": "Structured task format with optional per-task cwd.",
+            "type": "object",
+            "properties": {
+              "cwd": {
+                "description": "Optional working directory override for this specific task.",
+                "type": "string",
+                "nullable": true
+              },
+              "task": {
+                "description": "Task description to execute.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "task"
+            ]
+          }
+        ]
       }
     }
   },

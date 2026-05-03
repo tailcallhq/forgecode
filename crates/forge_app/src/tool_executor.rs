@@ -49,7 +49,7 @@ impl<
         raw_path: &str,
         action: &str,
     ) -> anyhow::Result<()> {
-        let target_path = self.normalize_path(raw_path.to_string());
+        let target_path = self.normalize_path(raw_path.to_string(), context);
         let has_read = context.with_metrics(|metrics| {
             metrics.files_accessed.contains(&target_path)
                 || metrics.files_accessed.contains(raw_path)
@@ -112,16 +112,23 @@ impl<
         }
     }
 
+    fn effective_cwd(&self, context: &ToolCallContext) -> PathBuf {
+        context
+            .cwd_override_path()
+            .cloned()
+            .unwrap_or_else(|| self.services.get_environment().cwd)
+    }
+
     /// Converts a path to absolute by joining it with the current working
     /// directory if it's relative
-    fn normalize_path(&self, path: String) -> String {
-        let env = self.services.get_environment();
+    fn normalize_path(&self, path: String, context: &ToolCallContext) -> String {
+        let cwd = self.effective_cwd(context);
         let path_buf = PathBuf::from(&path);
 
         if path_buf.is_absolute() {
             path
         } else {
-            PathBuf::from(&env.cwd).join(path_buf).display().to_string()
+            cwd.join(path_buf).display().to_string()
         }
     }
 
@@ -155,7 +162,7 @@ impl<
     ) -> anyhow::Result<ToolOperation> {
         Ok(match input {
             ToolCatalog::Read(input) => {
-                let normalized_path = self.normalize_path(input.file_path.clone());
+                let normalized_path = self.normalize_path(input.file_path.clone(), context);
                 let output = self
                     .services
                     .read(
@@ -176,7 +183,7 @@ impl<
                 (input, output).into()
             }
             ToolCatalog::Write(input) => {
-                let normalized_path = self.normalize_path(input.file_path.clone());
+                let normalized_path = self.normalize_path(input.file_path.clone(), context);
                 let output = self
                     .services
                     .write(normalized_path, input.content.clone(), input.overwrite)
@@ -187,16 +194,15 @@ impl<
                 let mut params = input.clone();
                 // Normalize path if provided
                 if let Some(ref path) = params.path {
-                    params.path = Some(self.normalize_path(path.clone()));
+                    params.path = Some(self.normalize_path(path.clone(), context));
                 }
                 let output = self.services.search(params).await?;
                 (input, output).into()
             }
             ToolCatalog::SemSearch(input) => {
                 let config = self.services.get_config()?;
-                let env = self.services.get_environment();
+                let cwd = self.effective_cwd(context);
                 let services = self.services.clone();
-                let cwd = env.cwd.clone();
                 let limit = config.max_sem_search_results;
                 let top_k = config.sem_search_top_k as u32;
                 let params: Vec<_> = input
@@ -235,12 +241,12 @@ impl<
                 ToolOperation::CodebaseSearch { output }
             }
             ToolCatalog::Remove(input) => {
-                let normalized_path = self.normalize_path(input.path.clone());
+                let normalized_path = self.normalize_path(input.path.clone(), context);
                 let output = self.services.remove(normalized_path).await?;
                 (input, output).into()
             }
             ToolCatalog::Patch(input) => {
-                let normalized_path = self.normalize_path(input.file_path.clone());
+                let normalized_path = self.normalize_path(input.file_path.clone(), context);
                 let output = self
                     .services
                     .patch(
@@ -253,7 +259,7 @@ impl<
                 (input, output).into()
             }
             ToolCatalog::MultiPatch(input) => {
-                let normalized_path = self.normalize_path(input.file_path.clone());
+                let normalized_path = self.normalize_path(input.file_path.clone(), context);
                 let output = self
                     .services
                     .multi_patch(normalized_path, input.edits.clone())
@@ -261,7 +267,7 @@ impl<
                 (input, output).into()
             }
             ToolCatalog::Undo(input) => {
-                let normalized_path = self.normalize_path(input.path.clone());
+                let normalized_path = self.normalize_path(input.path.clone(), context);
                 let output = self.services.undo(normalized_path).await?;
                 (input, output).into()
             }
@@ -269,8 +275,8 @@ impl<
                 let cwd = input
                     .cwd
                     .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| self.services.get_environment().cwd.display().to_string());
-                let normalized_cwd = self.normalize_path(cwd);
+                    .unwrap_or_else(|| self.effective_cwd(context).display().to_string());
+                let normalized_cwd = self.normalize_path(cwd, context);
                 let output = self
                     .services
                     .execute(

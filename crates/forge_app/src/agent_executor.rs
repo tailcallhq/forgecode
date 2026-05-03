@@ -35,7 +35,6 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentEx
     }
 
     /// Executes an agent tool call by creating a new chat request for the
-    /// Executes an agent tool call by creating a new chat request for the
     /// specified agent. If conversation_id is provided, the agent will reuse
     /// that conversation, maintaining context across invocations. Otherwise,
     /// a new conversation is created.
@@ -43,6 +42,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentEx
         &self,
         agent_id: AgentId,
         task: String,
+        cwd_override: Option<std::path::PathBuf>,
         ctx: &ToolCallContext,
         conversation_id: Option<ConversationId>,
     ) -> anyhow::Result<ToolOutput> {
@@ -56,7 +56,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentEx
         .await?;
 
         // Reuse existing conversation if provided, otherwise create a new one
-        let conversation = if let Some(conversation_id) = conversation_id {
+        let mut conversation = if let Some(conversation_id) = conversation_id {
             self.services
                 .conversation_service()
                 .find_conversation(&conversation_id)
@@ -69,20 +69,24 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentEx
             let conversation = Conversation::generate()
                 .title(task.clone())
                 .context(context.clone());
+
             self.services
                 .conversation_service()
                 .upsert_conversation(conversation.clone())
                 .await?;
             conversation
         };
+
+        // Set CWD override on the conversation so ForgeApp::chat uses it
+        // for environment, file listing, and extensions
+        if let Some(cwd) = cwd_override {
+            conversation = conversation.cwd(cwd);
+        }
+
         // Execute the request through the ForgeApp
         let app = crate::ForgeApp::new(self.services.clone());
-        let mut response_stream = app
-            .chat(
-                agent_id.clone(),
-                ChatRequest::new(Event::new(task.clone()), conversation.id),
-            )
-            .await?;
+        let chat_request = ChatRequest::new(Event::new(task.clone()), conversation.id);
+        let mut response_stream = app.chat(agent_id.clone(), chat_request).await?;
 
         // Collect responses from the agent
         let mut output = String::new();

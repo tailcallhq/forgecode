@@ -1,0 +1,50 @@
+run:
+  - git clone --depth=1 --branch main https://github.com/tailcallhq/forgecode .
+  - mkdir ../cwd-target-a ../cwd-target-b
+  - FORGE_DEBUG_REQUESTS='{{dir}}/context.jsonl' FORGE_SESSION__PROVIDER_ID=open_router FORGE_SESSION__MODEL_ID='{{model}}' forgee -p '{{task}}'
+
+parallelism: 4
+timeout: 180
+early_exit: true
+
+validations:
+  - name: "Last JSONL line task call args preserve inferred target path"
+    type: shell
+    command: |
+      jq -se '
+        ([.[].messages[] | select(.role == "user")]
+         | first
+         | if (.content | type) == "string" then .content
+           elif (.content | type) == "array" then (.content | map(select(.type == "text") | .text // "") | join(""))
+           else ""
+           end) as $user_prompt
+        | (
+            if ($user_prompt | test("\\.\\./cwd-target-a")) then "../cwd-target-a"
+            elif ($user_prompt | test("\\.\\./cwd-target-b")) then "../cwd-target-b"
+            elif ($user_prompt | test("/tmp")) then "/tmp"
+            elif ($user_prompt | test("/Users")) then "/Users"
+            else ""
+            end
+          ) as $expected_path
+        | ($expected_path | split("/") | last) as $path_end
+        | [.[].messages[].tool_calls[]?
+           | select((.function.name | ascii_downcase) == "task")
+           | .function.arguments | fromjson
+           | select(
+               ($expected_path != "")
+               and (
+                 (.cwd // "" | (. == $expected_path or endswith("/" + $path_end)))
+                 or ([.tasks[]? | tostring] | join("\n") | (contains($expected_path) or contains($path_end)))
+               )
+             )
+          ] | length > 0
+      ' {{dir}}/context.jsonl
+sources:
+  - value:
+      - model: "anthropic/claude-sonnet-4.6"
+      - model: "z-ai/glm-4.6:exacto"
+  - value:
+      - task: "Use the task tool to launch a forge sub-agent that inspects files under /Users and reports what it found."
+      - task: "Use the task tool to delegate work in ../cwd-target-a and report directory contents."
+      - task: "Use the task tool to run a forge sub-agent that checks ../cwd-target-b and summarizes what is there."
+      - task: "Use the task tool to have a forge sub-agent inspect /tmp and report back."
