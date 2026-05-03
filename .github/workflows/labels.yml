@@ -30,7 +30,7 @@ jobs:
       issues: write
     steps:
     - name: Checkout
-      uses: actions/checkout@v6@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      uses: actions/checkout@v6
     - name: Sync labels
       run: |-
         npx github-label-sync \
