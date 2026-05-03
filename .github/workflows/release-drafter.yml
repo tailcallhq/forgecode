@@ -40,13 +40,13 @@ jobs:
     steps:
     - name: Auto Labeler
       if: github.event_name == 'pull_request_target'
-      uses: release-drafter/release-drafter/autolabeler@v7
+      uses: release-drafter/release-drafter/autolabeler@563bf132657a13ded0b01fcb723c5a58cdd824e2
       with:
         config-name: release-drafter.yml
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Release Drafter
-      uses: release-drafter/release-drafter@v7
+      uses: release-drafter/release-drafter@563bf132657a13ded0b01fcb723c5a58cdd824e2
       with:
         config-name: release-drafter.yml
       env:

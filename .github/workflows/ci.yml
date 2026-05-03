@@ -41,13 +41,13 @@ jobs:
       contents: read
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
     - name: Setup Protobuf Compiler
-      uses: arduino/setup-protoc@v3
+      uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Setup Rust Toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@v1
+      uses: actions-rust-lang/setup-rust-toolchain@2b1f5e9b395427c92ee4e3331786ca3c37afe2d7
       with:
         toolchain: stable
     - name: Install cargo-llvm-cov
@@ -61,13 +61,13 @@ jobs:
       contents: read
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
     - name: Setup Protobuf Compiler
-      uses: arduino/setup-protoc@v3
+      uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Setup Rust Toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@v1
+      uses: actions-rust-lang/setup-rust-toolchain@2b1f5e9b395427c92ee4e3331786ca3c37afe2d7
       with:
         toolchain: stable
     - name: Run performance benchmark
@@ -86,10 +86,10 @@ jobs:
       crate_release_id: ${{ steps.set_output.outputs.crate_release_id }}
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
     - id: create_release
       name: Draft Release
-      uses: release-drafter/release-drafter@v7
+      uses: release-drafter/release-drafter@563bf132657a13ded0b01fcb723c5a58cdd824e2
       with:
         config-name: release-drafter.yml
       env:
@@ -106,7 +106,7 @@ jobs:
       crate_release_id: ${{ steps.set_output.outputs.crate_release_id }}
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
     - id: set_output
       name: Set Release Version
       run: echo "crate_release_name=pr-build-${{ github.event.number }}" >> $GITHUB_OUTPUT && echo "crate_release_id=pr-build-${{ github.event.number }}" >> $GITHUB_OUTPUT
@@ -169,15 +169,15 @@ jobs:
           target: aarch64-linux-android
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
     - name: Setup Protobuf Compiler
       if: ${{ matrix.cross == 'false' }}
-      uses: arduino/setup-protoc@v3
+      uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Setup Cross Toolchain
       if: ${{ matrix.cross == 'false' }}
-      uses: taiki-e/setup-cross-toolchain-action@v1
+      uses: taiki-e/setup-cross-toolchain-action@74847e552ab5bf79fa4393ed975e297ea57d53fa
       with:
         target: ${{ matrix.target }}
     - name: Add Rust target
@@ -187,7 +187,7 @@ jobs:
       if: '!(contains(matrix.target, ''-unknown-linux-'') || contains(matrix.target, ''-android''))'
       run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $GITHUB_ENV
     - name: Build Binary
-      uses: ClementTsang/cargo-action@v0.0.7
+      uses: ClementTsang/cargo-action@2438cc5f3ba4e971289fffca2a00dedea6911f14
       with:
         command: build --release
         args: '--target ${{ matrix.target }}'
@@ -200,7 +200,7 @@ jobs:
     - name: Copy Binary
       run: cp ${{ matrix.binary_path }} ${{ matrix.binary_name }}
     - name: Upload to Release
-      uses: xresloader/upload-to-github-release@v1
+      uses: xresloader/upload-to-github-release@7497a58a53ca2f4450d41ca19fabb22de5c0ed0b
       with:
         release_id: ${{ needs.draft_release.outputs.crate_release_id }}
         file: ${{ matrix.binary_name }}
@@ -264,15 +264,15 @@ jobs:
           target: aarch64-linux-android
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
     - name: Setup Protobuf Compiler
       if: ${{ matrix.cross == 'false' }}
-      uses: arduino/setup-protoc@v3
+      uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Setup Cross Toolchain
       if: ${{ matrix.cross == 'false' }}
-      uses: taiki-e/setup-cross-toolchain-action@v1
+      uses: taiki-e/setup-cross-toolchain-action@74847e552ab5bf79fa4393ed975e297ea57d53fa
       with:
         target: ${{ matrix.target }}
     - name: Add Rust target
@@ -282,7 +282,7 @@ jobs:
       if: '!(contains(matrix.target, ''-unknown-linux-'') || contains(matrix.target, ''-android''))'
       run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $GITHUB_ENV
     - name: Build Binary
-      uses: ClementTsang/cargo-action@v0.0.7
+      uses: ClementTsang/cargo-action@2438cc5f3ba4e971289fffca2a00dedea6911f14
       with:
         command: build --release
         args: '--target ${{ matrix.target }}'
