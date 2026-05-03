@@ -125,31 +125,28 @@ mod tests {
     fn test_message_pattern_single_user() {
         let fixture = MessagePattern::new("u");
         let actual = fixture.build();
-        let expected = Context::default().messages(vec![
-            ContextMessage::Text(
-                TextMessage::new(Role::User, "Message 1").model(ModelId::new("gpt-4")),
-            )
-            .into(),
-        ]);
-        assert_eq!(actual, expected);
+        let expected_messages = vec![ContextMessage::Text(
+            TextMessage::new(Role::User, "Message 1").model(ModelId::new("gpt-4")),
+        )];
+        let actual_messages: Vec<_> = actual.messages.iter().map(|m| m.message.clone()).collect();
+        assert_eq!(actual_messages, expected_messages);
     }
 
     #[test]
     fn test_message_pattern_user_assistant_user() {
         let fixture = MessagePattern::new("uau");
         let actual = fixture.build();
-        let expected = Context::default().messages(vec![
+        let expected_messages = vec![
             ContextMessage::Text(
                 TextMessage::new(Role::User, "Message 1").model(ModelId::new("gpt-4")),
-            )
-            .into(),
-            ContextMessage::Text(TextMessage::new(Role::Assistant, "Message 2")).into(),
+            ),
+            ContextMessage::Text(TextMessage::new(Role::Assistant, "Message 2")),
             ContextMessage::Text(
                 TextMessage::new(Role::User, "Message 3").model(ModelId::new("gpt-4")),
-            )
-            .into(),
-        ]);
-        assert_eq!(actual, expected);
+            ),
+        ];
+        let actual_messages: Vec<_> = actual.messages.iter().map(|m| m.message.clone()).collect();
+        assert_eq!(actual_messages, expected_messages);
     }
 
     #[test]

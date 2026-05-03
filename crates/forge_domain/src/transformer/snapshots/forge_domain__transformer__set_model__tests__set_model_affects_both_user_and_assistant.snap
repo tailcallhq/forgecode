@@ -5,33 +5,41 @@ expression: snapshot
 transformation: SetModel(gpt-4)_user_and_assistant
 before:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: Assistant message
-    - text:
+    - id: "[id]"
+      text:
         role: System
         content: System message
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: Another user message
 after:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message
         model: gpt-4
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: Assistant message
         model: gpt-4
-    - text:
+    - id: "[id]"
+      text:
         role: System
         content: System message
         model: gpt-4
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: Another user message
         model: gpt-4

@@ -54,7 +54,7 @@ ignore = "0.4.23"
 is_ci = "1.2.0"
 indexmap = "2.13.0"
 infer = "0.19.0"
-insta = { version = "1.47.2", features = ["json", "yaml"] }
+insta = { version = "1.47.2", features = ["json", "yaml", "redactions"] }
 lazy_static = "1.4.0"
 machineid-rs = "1.2.4"
 mockito = "1.7.2"
@@ -166,3 +166,4 @@ forge_markdown_stream = { path = "crates/forge_markdown_stream" }
 forge_config = { path = "crates/forge_config" }
 forge_eventsource = { path = "crates/forge_eventsource" }
 forge_eventsource_stream = { path = "crates/forge_eventsource_stream" }
+forge_compact = { path = "crates/forge_compact" }

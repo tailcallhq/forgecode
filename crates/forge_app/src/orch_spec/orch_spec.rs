@@ -714,3 +714,75 @@ async fn test_complete_when_empty_todos() {
         "Should have TaskComplete when no todos exist"
     );
 }
+
+/// With no token threshold configured the projector has nothing to
+/// dispatch on and must emit no summary frames. Guards against accidental
+/// always-fire behaviour when a knob is unset.
+#[tokio::test]
+async fn test_projection_no_op_when_threshold_unset() {
+    let mut ctx = TestContext::default().mock_assistant_responses(vec![
+        ChatCompletionMessage::assistant(Content::full("Hi back"))
+            .finish_reason(FinishReason::Stop),
+    ]);
+    ctx.run("Hi").await.unwrap();
+
+    let has_summary = ctx
+        .output
+        .outbound_contexts
+        .iter()
+        .flat_map(|c| c.messages.iter())
+        .filter_map(|m| m.content())
+        .any(|content| content.contains("<summary"));
+    assert!(
+        !has_summary,
+        "no summary frame should appear when no threshold is configured"
+    );
+}
+
+/// Guards the immutable-history invariant at the orch level: a
+/// summarizer projection that produces summary frames for the dispatch
+/// must not leak those frames into the persisted canonical.
+#[tokio::test]
+async fn test_summarizer_projection_does_not_mutate_canonical() {
+    use forge_domain::{Agent, AgentId, Compact, ProviderId, Template};
+    let mut compact = Compact::new();
+    // Any positive token count trips the token threshold so the
+    // summarizer definitely fires on this tiny fixture.
+    compact.token_threshold = Some(1);
+    compact.message_threshold = Some(2);
+    // Large cap keeps the slide step dormant — canonical leakage is
+    // what's under test, not the cap behaviour.
+    compact.max_prepended_summaries = Some(10);
+
+    let agent = Agent::new(
+        AgentId::new("forge"),
+        ProviderId::ANTHROPIC,
+        forge_domain::ModelId::new("claude-3-5-sonnet-20241022"),
+    )
+    .system_prompt(Template::new("You are Forge"))
+    .user_prompt(Template::new(
+        "\n  <{{event.name}}>{{event.value}}</{{event.name}}>\n  <system_date>{{current_date}}</system_date>\n",
+    ))
+    .compact(compact)
+    .tools(vec![]);
+
+    let mut ctx = TestContext::default()
+        .agent(agent)
+        .mock_assistant_responses(vec![
+            ChatCompletionMessage::assistant(Content::full("Hello!"))
+                .finish_reason(FinishReason::Stop),
+        ]);
+
+    ctx.run("Hi").await.unwrap();
+
+    let canonical_has_summary = ctx
+        .output
+        .context_messages()
+        .iter()
+        .filter_map(|m| m.content())
+        .any(|content| content.contains("<summary"));
+    assert!(
+        !canonical_has_summary,
+        "canonical must not be mutated by summarizer projection"
+    );
+}

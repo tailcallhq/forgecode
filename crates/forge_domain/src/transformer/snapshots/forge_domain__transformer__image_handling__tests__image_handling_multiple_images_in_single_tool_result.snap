@@ -5,7 +5,8 @@ expression: snapshot
 transformation: ImageHandling
 before:
   messages:
-    - tool:
+    - id: "[id]"
+      tool:
         name: multi_image_tool
         call_id: call_multi
         output:
@@ -22,7 +23,8 @@ before:
             - text: After images
 after:
   messages:
-    - tool:
+    - id: "[id]"
+      tool:
         name: multi_image_tool
         call_id: call_multi
         output:
@@ -33,15 +35,19 @@ after:
             - text: Between images
             - text: "[The image with ID 1 will be sent as an attachment in the next message]"
             - text: After images
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: "[Here is the image attachment for ID 0]"
-    - image:
+    - id: "[id]"
+      image:
         url: "data:image/png;base64,image1_data"
         mime_type: image/png
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: "[Here is the image attachment for ID 1]"
-    - image:
+    - id: "[id]"
+      image:
         url: "data:image/jpeg;base64,image2_data"
         mime_type: image/jpeg

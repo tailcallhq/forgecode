@@ -100,6 +100,9 @@ impl TestContext {
 pub struct TestOutput {
     pub conversation_history: Vec<Conversation>,
     pub chat_responses: Vec<anyhow::Result<ChatResponse>>,
+    /// Projected context the model saw per dispatch. Canonical-only
+    /// inspection can't distinguish pass-through from a summarizer splice.
+    pub outbound_contexts: Vec<forge_domain::Context>,
 }
 
 impl TestOutput {

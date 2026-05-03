@@ -57,8 +57,6 @@ read_timeout_secs = 900
 tls_backend = "default"
 
 [compact]
-eviction_window = 0.2
-max_tokens = 2000
 message_threshold = 200
 on_turn_end = false
 retention_window = 6

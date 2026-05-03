@@ -5,27 +5,32 @@ expression: snapshot
 transformation: DropReasoningDetails_mixed_messages
 before:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: System
         content: System message
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message with reasoning
         reasoning_details:
           - text: Complex reasoning process
             signature: ~
             data: ~
-            id: ~
+            id: "[id]"
             format: ~
             index: ~
             type_of: ~
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message without reasoning
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: Assistant response
-    - tool:
+    - id: "[id]"
+      tool:
         name: test_tool
         call_id: call_123
         output:
@@ -34,19 +39,24 @@ before:
             - text: Tool result
 after:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: System
         content: System message
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message with reasoning
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message without reasoning
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: Assistant response
-    - tool:
+    - id: "[id]"
+      tool:
         name: test_tool
         call_id: call_123
         output:

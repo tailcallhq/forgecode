@@ -95,7 +95,7 @@ mod tests {
         let actual = transformer.transform(fixture.clone());
 
         let snapshot = TransformationSnapshot::new("DropReasoningDetails", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -117,7 +117,7 @@ mod tests {
 
         let snapshot =
             TransformationSnapshot::new("DropReasoningDetails_preserve_fields", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -128,7 +128,7 @@ mod tests {
 
         let snapshot =
             TransformationSnapshot::new("DropReasoningDetails_mixed_messages", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -179,6 +179,6 @@ mod tests {
 
         let snapshot =
             TransformationSnapshot::new("DropReasoningDetails_preserve_non_text", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 }

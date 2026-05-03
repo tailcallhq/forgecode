@@ -383,16 +383,11 @@
       ]
     },
     "Compact": {
-      "description": "Configuration for automatic context compaction for all agents",
+      "description": "Workflow-level summarizer defaults. Merged into each agent's\n`forge_domain::Compact` at run time so unset agent fields inherit\nthese values.",
       "type": "object",
       "properties": {
-        "eviction_window": {
-          "description": "Maximum percentage of the context that can be summarized during\ncompaction. Valid values are between 0.0 and 1.0, where 0.0 means no\ncompaction and 1.0 allows summarizing all messages. Works alongside\nretention_window - the more conservative limit (fewer messages to\ncompact) takes precedence.",
-          "$ref": "#/$defs/double",
-          "default": 0.0
-        },
-        "max_tokens": {
-          "description": "Maximum number of tokens to keep after compaction",
+        "max_prepended_summaries": {
+          "description": "Cap on summary frames the summarizer prepends; older frames\nslide off when exceeded. `None` uses the runtime default.",
           "type": [
             "integer",
             "null"
@@ -401,7 +396,7 @@
           "minimum": 0
         },
         "message_threshold": {
-          "description": "Maximum number of messages before triggering compaction",
+          "description": "Fires the summarizer once the total message count in the\nassembled request reaches this threshold.",
           "type": [
             "integer",
             "null"
@@ -410,28 +405,30 @@
           "minimum": 0
         },
         "model": {
-          "description": "Model ID to use for compaction, useful when compacting with a\ncheaper/faster model. If not specified, the root level model will be\nused.",
+          "description": "Overrides the agent's primary model for summary rendering so\na cheaper or faster model can handle summarization.",
           "type": [
             "string",
             "null"
           ]
         },
         "on_turn_end": {
-          "description": "Whether to trigger compaction when the last message is from a user",
+          "description": "Fires one summary per projection when the assembled request's\ntail is a user message. Independent of budget thresholds.",
           "type": [
             "boolean",
             "null"
           ]
         },
         "retention_window": {
-          "description": "Number of most recent messages to preserve during compaction.\nThese messages won't be considered for summarization. Works alongside\neviction_window - the more conservative limit (fewer messages to\ncompact) takes precedence.",
-          "type": "integer",
+          "description": "Forbids a flush when fewer than this many canonical messages\nwould remain after it, preserving the recent tail verbatim.\n`None` means no retention.",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint",
-          "default": 0,
           "minimum": 0
         },
         "token_threshold": {
-          "description": "Maximum number of tokens before triggering compaction. This acts as an\nabsolute cap and is combined with\n`token_threshold_percentage` by taking the lower value.",
+          "description": "Absolute token cap above which the summarizer fires. Combined\nwith `token_threshold_percentage` by taking the lower value.",
           "type": [
             "integer",
             "null"
@@ -440,7 +437,7 @@
           "minimum": 0
         },
         "token_threshold_percentage": {
-          "description": "Maximum percentage of the model context window used to derive the token\nthreshold before triggering compaction. This is combined with\n`token_threshold` by taking the lower value.",
+          "description": "Fraction of the model's context window above which the\nsummarizer fires. Combined with `token_threshold` by taking\nthe lower value.",
           "anyOf": [
             {
               "$ref": "#/$defs/double"
@@ -451,7 +448,7 @@
           ]
         },
         "turn_threshold": {
-          "description": "Maximum number of conversation turns before triggering compaction",
+          "description": "Fires the summarizer once the user-role message count in the\nassembled request reaches this threshold.",
           "type": [
             "integer",
             "null"

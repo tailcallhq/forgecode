@@ -157,7 +157,7 @@ mod tests {
         let actual = transformer.transform(fixture.clone());
 
         let snapshot = TransformationSnapshot::new("ImageHandling", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -184,7 +184,7 @@ mod tests {
         let actual = transformer.transform(fixture.clone());
 
         let snapshot = TransformationSnapshot::new("ImageHandling", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -207,7 +207,7 @@ mod tests {
         let actual = transformer.transform(fixture.clone());
 
         let snapshot = TransformationSnapshot::new("ImageHandling", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -217,7 +217,7 @@ mod tests {
         let actual = transformer.transform(fixture.clone());
 
         let snapshot = TransformationSnapshot::new("ImageHandling", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -243,6 +243,6 @@ mod tests {
         let actual = transformer.transform(fixture.clone());
 
         let snapshot = TransformationSnapshot::new("ImageHandling", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 }

@@ -129,14 +129,20 @@ pub struct SyncPaths {
     pub upload: Vec<PathBuf>,
 }
 
-/// Joins `base_dir` with `path` if `path` is relative, returning an absolute
-/// path string. If `path` is already absolute it is returned unchanged.
+/// Returns an absolute path string, joining `base_dir` if `path` is relative.
+/// Always emits forward slashes so local- and remote-origin paths compare
+/// equal on Windows, where `Path::join` would otherwise produce `\`.
 fn absolutize(base_dir: &Path, path: &str) -> String {
     let p = Path::new(path);
-    if p.is_absolute() {
+    let joined = if p.is_absolute() {
         path.to_owned()
     } else {
         base_dir.join(p).to_string_lossy().into_owned()
+    };
+    if cfg!(windows) {
+        joined.replace('\\', "/")
+    } else {
+        joined
     }
 }
 

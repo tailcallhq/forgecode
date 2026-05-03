@@ -527,6 +527,7 @@ impl TryFrom<ContextMessageValueRecord> for forge_domain::ContextMessage {
 /// Repository-specific representation of ContextMessage
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct ContextMessageRecord {
+    id: forge_domain::MessageId,
     message: ContextMessageValueRecord,
     #[serde(skip_serializing_if = "Option::is_none")]
     usage: Option<UsageRecord>,
@@ -543,6 +544,8 @@ impl<'de> Deserialize<'de> for ContextMessageRecord {
         enum ContextMessageParser {
             // Try new format first (with message field)
             Wrapper {
+                #[serde(default)]
+                id: forge_domain::MessageId,
                 message: ContextMessageValueRecord,
                 usage: Option<UsageRecord>,
             },
@@ -551,12 +554,14 @@ impl<'de> Deserialize<'de> for ContextMessageRecord {
         }
 
         match ContextMessageParser::deserialize(deserializer)? {
-            ContextMessageParser::Wrapper { message, usage } => {
-                Ok(ContextMessageRecord { message, usage })
+            ContextMessageParser::Wrapper { id, message, usage } => {
+                Ok(ContextMessageRecord { id, message, usage })
             }
-            ContextMessageParser::Direct(message) => {
-                Ok(ContextMessageRecord { message, usage: None })
-            }
+            ContextMessageParser::Direct(message) => Ok(ContextMessageRecord {
+                id: forge_domain::MessageId::new(),
+                message,
+                usage: None,
+            }),
         }
     }
 }
@@ -564,6 +569,7 @@ impl<'de> Deserialize<'de> for ContextMessageRecord {
 impl From<&forge_domain::MessageEntry> for ContextMessageRecord {
     fn from(msg: &forge_domain::MessageEntry) -> Self {
         Self {
+            id: msg.id,
             message: ContextMessageValueRecord::from(&msg.message),
             usage: msg.usage.as_ref().map(UsageRecord::from),
         }
@@ -575,6 +581,7 @@ impl TryFrom<ContextMessageRecord> for forge_domain::MessageEntry {
 
     fn try_from(record: ContextMessageRecord) -> anyhow::Result<Self> {
         Ok(forge_domain::MessageEntry {
+            id: record.id,
             message: record.message.try_into()?,
             usage: record.usage.map(Into::into),
         })
@@ -1025,5 +1032,57 @@ impl TryFrom<ConversationRecord> for forge_domain::Conversation {
                 forge_domain::MetaData::new(record.created_at.and_utc())
                     .updated_at(record.updated_at.map(|updated_at| updated_at.and_utc())),
             ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_record(id: forge_domain::MessageId) -> ContextMessageRecord {
+        ContextMessageRecord::from(&forge_domain::MessageEntry {
+            id,
+            message: forge_domain::ContextMessage::user("Hello", None),
+            usage: None,
+        })
+    }
+
+    /// Wrapper blob without the `id` field deserialises with a fresh UUID.
+    #[test]
+    fn test_wrapper_format_without_id_backfills_message_id() {
+        let original = sample_record(forge_domain::MessageId::new());
+        let serialized = serde_json::to_value(&original).unwrap();
+        let mut as_object = serialized.as_object().unwrap().clone();
+        as_object.remove("id");
+        let legacy_json = serde_json::to_string(&as_object).unwrap();
+
+        let record: ContextMessageRecord = serde_json::from_str(&legacy_json).unwrap();
+        assert_ne!(record.id, original.id);
+    }
+
+    /// Bare `ContextMessageValueRecord` blob (untagged `Direct` branch)
+    /// deserialises with a fresh UUID.
+    #[test]
+    fn test_legacy_direct_format_backfills_message_id() {
+        let value_record: ContextMessageValueRecord =
+            (&forge_domain::ContextMessage::user("Hello", None)).into();
+        let legacy_json = serde_json::to_string(&value_record).unwrap();
+
+        let record: ContextMessageRecord = serde_json::from_str(&legacy_json).unwrap();
+        let nil_id: forge_domain::MessageId =
+            serde_json::from_str("\"00000000-0000-0000-0000-000000000000\"").unwrap();
+        assert_ne!(record.id, nil_id);
+    }
+
+    /// An explicit `id` round-trips byte-for-byte through serialize /
+    /// deserialize.
+    #[test]
+    fn test_wrapper_format_with_id_roundtrips() {
+        let fresh_id = forge_domain::MessageId::new();
+        let record = sample_record(fresh_id);
+
+        let serialized = serde_json::to_string(&record).unwrap();
+        let deserialized: ContextMessageRecord = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.id, fresh_id);
     }
 }

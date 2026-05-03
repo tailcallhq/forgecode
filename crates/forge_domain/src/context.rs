@@ -1,11 +1,13 @@
 use std::fmt::Display;
 use std::ops::Deref;
+use std::str::FromStr;
 
 use derive_more::derive::{Display, From};
 use derive_setters::Setters;
 use forge_template::Element;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
+use uuid::Uuid;
 
 use super::{ToolCallFull, ToolResult};
 
@@ -365,9 +367,52 @@ pub enum Role {
     User,
     Assistant,
 }
+
+/// Stable, globally-unique id for a `MessageEntry`. Random UUID v4 — no
+/// coordination, no ordering guarantees. Projection-side types reference
+/// canonical entries by `MessageId` instead of embedding copies.
+#[derive(Debug, Display, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[serde(transparent)]
+pub struct MessageId(Uuid);
+
+impl Copy for MessageId {}
+
+impl Default for MessageId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MessageId {
+    /// Generates a fresh random `MessageId`.
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    /// Parses a `MessageId` from its string representation.
+    pub fn parse(value: impl ToString) -> crate::Result<Self> {
+        Ok(Self(
+            Uuid::parse_str(&value.to_string()).map_err(crate::Error::MessageId)?,
+        ))
+    }
+}
+
+impl FromStr for MessageId {
+    type Err = crate::Error;
+
+    fn from_str(s: &str) -> crate::Result<Self> {
+        Self::parse(s)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Setters, PartialEq)]
 #[setters(into, strip_option)]
 pub struct MessageEntry {
+    /// Stable identity for this entry. Serialised and deserialised so
+    /// dump/import round-trips preserve canonical ids; defaults to a fresh
+    /// UUID when missing on-read for pre-migration blobs.
+    #[serde(default)]
+    pub id: MessageId,
     #[serde(flatten)]
     pub message: ContextMessage,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -376,7 +421,11 @@ pub struct MessageEntry {
 
 impl From<ContextMessage> for MessageEntry {
     fn from(value: ContextMessage) -> Self {
-        MessageEntry { message: value, usage: Default::default() }
+        MessageEntry {
+            id: MessageId::new(),
+            message: value,
+            usage: Default::default(),
+        }
     }
 }
 
@@ -821,8 +870,8 @@ mod tests {
             .set_system_messages(vec!["Updated system message"]);
 
         assert_eq!(
-            request.messages[0],
-            ContextMessage::system("Updated system message").into(),
+            request.messages[0].message,
+            ContextMessage::system("Updated system message"),
         );
     }
 
@@ -831,8 +880,8 @@ mod tests {
         let request = Context::default().set_system_messages(vec!["A system message"]);
 
         assert_eq!(
-            request.messages[0],
-            ContextMessage::system("A system message").into(),
+            request.messages[0].message,
+            ContextMessage::system("A system message"),
         );
     }
 
@@ -844,8 +893,8 @@ mod tests {
             .set_system_messages(vec!["A system message"]);
 
         assert_eq!(
-            request.messages[0],
-            ContextMessage::system("A system message").into(),
+            request.messages[0].message,
+            ContextMessage::system("A system message"),
         );
     }
 
@@ -877,7 +926,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -894,7 +943,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -920,7 +969,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -937,7 +986,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -961,7 +1010,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -991,7 +1040,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -1023,7 +1072,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -1041,7 +1090,7 @@ mod tests {
         let mut transformer = crate::transformer::ImageHandling::new();
         let actual = transformer.transform(fixture);
 
-        assert_yaml_snapshot!(actual);
+        assert_yaml_snapshot!(actual, { ".**.id" => "[id]" });
     }
 
     #[test]
@@ -1748,5 +1797,77 @@ mod tests {
         // No duplicate null-signature entry should have been appended.
         let expected = fixture_details;
         assert_eq!(stored, &expected);
+    }
+
+    #[test]
+    fn test_message_id_new_generates_unique_ids() {
+        let a = MessageId::new();
+        let b = MessageId::new();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_message_id_serde_roundtrip_is_transparent() {
+        let id = MessageId::new();
+        let json = serde_json::to_string(&id).unwrap();
+        // Transparent repr: the JSON is a bare quoted UUID string, not an object.
+        assert!(json.starts_with('"') && json.ends_with('"'));
+        let parsed: MessageId = serde_json::from_str(&json).unwrap();
+        assert_eq!(id, parsed);
+    }
+
+    #[test]
+    fn test_message_id_parse_rejects_garbage() {
+        let result = MessageId::parse("not-a-uuid");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_message_id_parse_accepts_valid_uuid() {
+        let id = MessageId::new();
+        let round_tripped = MessageId::parse(id.to_string()).unwrap();
+        assert_eq!(id, round_tripped);
+    }
+
+    /// JSON round-trip preserves `MessageEntry.id` rather than minting fresh
+    /// UUIDs on deserialize.
+    #[test]
+    fn test_context_json_roundtrip_preserves_message_ids() {
+        let mut entry_a = MessageEntry::from(ContextMessage::user("hello", None));
+        let mut entry_b = MessageEntry::from(ContextMessage::assistant("world", None, None, None));
+        let known_a = MessageId::new();
+        let known_b = MessageId::new();
+        entry_a.id = known_a;
+        entry_b.id = known_b;
+
+        let fixture = Context::default().messages(vec![entry_a, entry_b]);
+        let json = serde_json::to_string(&fixture).unwrap();
+        let restored: Context = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.messages[0].id, known_a);
+        assert_eq!(restored.messages[1].id, known_b);
+    }
+
+    /// A blob missing the `id` field deserialises with a fresh UUID rather
+    /// than failing or defaulting to nil.
+    #[test]
+    fn test_context_json_backfills_missing_message_ids() {
+        let entry = MessageEntry::from(ContextMessage::user("hello", None));
+        let fixture = Context::default().messages(vec![entry]);
+
+        let mut value: serde_json::Value = serde_json::to_value(&fixture).unwrap();
+        value["messages"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .for_each(|m| {
+                m.as_object_mut().unwrap().remove("id");
+            });
+        let legacy_json = serde_json::to_string(&value).unwrap();
+        let restored: Context = serde_json::from_str(&legacy_json).unwrap();
+
+        let nil_id: MessageId =
+            serde_json::from_str("\"00000000-0000-0000-0000-000000000000\"").unwrap();
+        assert_ne!(restored.messages[0].id, nil_id);
     }
 }

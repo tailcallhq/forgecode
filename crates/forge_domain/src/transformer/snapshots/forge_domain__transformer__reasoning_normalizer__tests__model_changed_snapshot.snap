@@ -5,10 +5,12 @@ expression: snapshot
 transformation: ReasoningNormalizer_model_changed
 before:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: First question
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: First assistant response
         model: model-a
@@ -16,14 +18,16 @@ before:
           - text: I need to think about this carefully
             signature: sig_model_a
             data: ~
-            id: ~
+            id: "[id]"
             format: ~
             index: ~
             type_of: ~
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: Follow-up question
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: Second assistant response
         model: model-a
@@ -31,7 +35,7 @@ before:
           - text: I need to think about this carefully
             signature: sig_model_a
             data: ~
-            id: ~
+            id: "[id]"
             format: ~
             index: ~
             type_of: ~
@@ -39,17 +43,21 @@ before:
     enabled: true
 after:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: First question
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: First assistant response
         model: model-a
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: Follow-up question
-    - text:
+    - id: "[id]"
+      text:
         role: Assistant
         content: Second assistant response
         model: model-a

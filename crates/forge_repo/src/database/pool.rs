@@ -65,6 +65,8 @@ impl DatabasePool {
             .run_pending_migrations(MIGRATIONS)
             .map_err(|e| anyhow::anyhow!("Failed to run database migrations: {e}"))?;
 
+        super::backfill_message_ids::run(&mut connection, None)?;
+
         Ok(Self { pool, max_retries: 5 })
     }
 
@@ -182,6 +184,8 @@ impl DatabasePool {
             warn!(error = %e, "Failed to run database migrations");
             anyhow::anyhow!("Failed to run database migrations: {e}")
         })?;
+
+        super::backfill_message_ids::run(&mut connection, Some(&config.database_path))?;
 
         debug!(database_path = %config.database_path.display(), "created connection pool");
         Ok(Self { pool, max_retries: config.max_retries })

@@ -11,6 +11,7 @@ use tokio::sync::Notify;
 use tracing::warn;
 
 use crate::agent::AgentService;
+use crate::projection::{ProjectedEntry, ProjectionConfig, Projector, ProjectorInput};
 use crate::transformers::{DropReasoningOnlyMessages, ModelSpecificReasoning};
 use crate::{EnvironmentInfra, TemplateEngine};
 
@@ -20,6 +21,11 @@ pub struct Orchestrator<S> {
     services: Arc<S>,
     sender: Option<ArcSender>,
     conversation: Conversation,
+    /// In-flight turn content accumulated from user_prompt and the
+    /// tool-call loop. Kept separate from `conversation.context` so
+    /// halts leave canonical byte-identical and the projector can run
+    /// on canonical-only.
+    pending: PendingTurn,
     tool_definitions: Vec<ToolDefinition>,
     models: Vec<Model>,
     agent: Agent,
@@ -32,11 +38,13 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
     pub fn new(
         services: Arc<S>,
         conversation: Conversation,
+        pending: PendingTurn,
         agent: Agent,
         config: forge_config::ForgeConfig,
     ) -> Self {
         Self {
             conversation,
+            pending,
             services,
             agent,
             config,
@@ -193,6 +201,62 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         Ok(tool_supported)
     }
 
+    /// Runs the tiered projector on canonical-only and re-appends
+    /// pending, producing the final request shape
+    /// `[summaries][leftover
+    /// buffer][pending.user_input][pending.continuation]`. Pass-through
+    /// when no token threshold is configured — there's nothing for tier
+    /// selection to dispatch against.
+    async fn project_context(&self, context: Context) -> anyhow::Result<Context> {
+        let Ok(cfg) = ProjectionConfig::try_from(&self.agent.compact) else {
+            return Ok(context);
+        };
+        let max_summaries = self.agent.compact.effective_max_prepended_summaries();
+        let cwd = self.services.get_environment().cwd.clone();
+
+        let request_tokens = *context.token_count();
+        let tier = cfg.select_tier(request_tokens);
+
+        // Pending's `MessageId`s stay stable across squash/unsquash, so
+        // id membership is authoritative for pulling pending back out
+        // of the combined working context.
+        let pending_ids: HashSet<MessageId> = self.pending.iter_messages().map(|m| m.id).collect();
+        let mut canonical_only = context.clone();
+        let mut pending_entries: Vec<MessageEntry> = Vec::new();
+        canonical_only.messages.retain(|m| {
+            if pending_ids.contains(&m.id) {
+                pending_entries.push(m.clone());
+                false
+            } else {
+                true
+            }
+        });
+
+        let input = ProjectorInput {
+            canonical: &canonical_only,
+            pending: &self.pending,
+            compact: &self.agent.compact,
+            config: &cfg,
+            cwd: &cwd,
+            max_prepended_summaries: max_summaries,
+        };
+        let projection = Projector::project(tier, &input).await?;
+
+        let mut projected = canonical_only;
+        projected.messages = projection
+            .entries
+            .into_iter()
+            .map(|entry| match entry {
+                ProjectedEntry::Original(boxed) => *boxed,
+                ProjectedEntry::Summary(payload) => {
+                    MessageEntry::from(ContextMessage::user(payload.text, None))
+                }
+            })
+            .collect();
+        projected.messages.extend(pending_entries);
+        Ok(projected)
+    }
+
     async fn execute_chat_turn(
         &self,
         model_id: &ModelId,
@@ -236,13 +300,32 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             .await
     }
 
-    // Create a helper method with the core functionality
+    /// Wraps `run_inner` with append-on-completion: canonical is
+    /// snapshotted at entry and restored on halt so halted turns leave
+    /// `conversation.context` byte-identical. Metrics are *not* rolled
+    /// back — tool-call side effects already happened and session
+    /// metrics must reflect them.
     pub async fn run(&mut self) -> anyhow::Result<()> {
+        let canonical_snapshot = self.conversation.context.clone();
+        let result = self.run_inner().await;
+        if result.is_err() {
+            self.conversation.context = canonical_snapshot;
+        }
+        result
+    }
+
+    async fn run_inner(&mut self) -> anyhow::Result<()> {
         let model_id = self.get_model();
 
+        // Combine committed canonical with in-flight pending so the
+        // loop's working context mirrors the full request shape.
+        // `self.conversation.context` itself is never mutated here —
+        // append-on-completion keeps canonical untouched until success.
         let mut context = self.conversation.context.clone().unwrap_or_default();
+        for entry in self.pending.iter_messages() {
+            context.messages.push(entry.clone());
+        }
 
-        // Fire the Start lifecycle event
         let start_event = LifecycleEvent::Start(EventData::new(
             self.agent.clone(),
             model_id.clone(),
@@ -252,23 +335,19 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             .handle(&start_event, &mut self.conversation)
             .await?;
 
-        // Signals that the loop should suspend (task may or may not be completed)
         let mut should_yield = false;
-
-        // Signals that the task is completed
         let mut is_complete = false;
-
         let mut request_count = 0;
 
-        // Retrieve the number of requests allowed per tick.
         let max_requests_per_turn = self.agent.max_requests_per_turn;
         let tool_context =
             ToolCallContext::new(self.conversation.metrics.clone()).sender(self.sender.clone());
 
         while !should_yield {
-            // Set context for the current loop iteration
+            // Mirror the loop's in-flight context into the conversation
+            // so hooks can read and augment it. No disk save mid-turn;
+            // the single write at turn completion is the only persist.
             self.conversation.context = Some(context.clone());
-            self.services.update(self.conversation.clone()).await?;
 
             let request_event = LifecycleEvent::Request(EventData::new(
                 self.agent.clone(),
@@ -279,15 +358,22 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .handle(&request_event, &mut self.conversation)
                 .await?;
 
+            // Without pulling the conversation's context back in here,
+            // Request-hook mutations (e.g. `DoomLoopDetector`'s
+            // system_reminder) would land in the NEXT dispatch, not this.
+            if let Some(updated) = &self.conversation.context {
+                context = updated.clone();
+            }
+
+            // Project once before the retry loop so every attempt sees
+            // the same request shape. Projections are recomputed each
+            // dispatch — no sidecar memoisation in this branch.
+            let projected = self.project_context(context.clone()).await?;
+            let reasoning_supported = projected.is_reasoning_supported();
+
             let message = crate::retry::retry_with_config(
                 &self.config.clone().retry.unwrap_or_default(),
-                || {
-                    self.execute_chat_turn(
-                        &model_id,
-                        context.clone(),
-                        context.is_reasoning_supported(),
-                    )
-                },
+                || self.execute_chat_turn(&model_id, projected.clone(), reasoning_supported),
                 self.sender.as_ref().map(|sender| {
                     let sender = sender.clone();
                     let agent_id = self.agent.id.clone();
@@ -359,6 +445,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 }
             }
 
+            let pre_append_len = context.messages.len();
             context = context.append_message(
                 message.content.clone(),
                 message.thought_signature.clone(),
@@ -368,6 +455,13 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 tool_call_records,
                 message.phase,
             );
+            // Newly-appended assistant + tool_result entries are still
+            // in-flight: track them as continuation so the next
+            // iteration's projection strips them out of canonical and
+            // counts their tokens against the pending budget.
+            for entry in context.messages.iter().skip(pre_append_len) {
+                self.pending.continuation.push(entry.clone());
+            }
 
             if self.error_tracker.limit_reached() {
                 self.send(ChatResponse::Interrupt {
@@ -381,10 +475,11 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 should_yield = true;
             }
 
-            // Update context in the conversation
+            // Mirror iteration-end context back into the conversation
+            // for subsequent hooks. Still memory-only; final commit is
+            // the only persist.
             context = SetModel::new(model_id.clone()).transform(context);
             self.conversation.context = Some(context.clone());
-            self.services.update(self.conversation.clone()).await?;
             request_count += 1;
 
             if !should_yield && let Some(max_request_allowed) = max_requests_per_turn {
@@ -415,8 +510,9 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 self.conversation.metrics = metrics.clone();
             })?;
 
-            // If completing (should_yield is due), fire End hook and check if
-            // it adds messages
+            // On the tentative final iteration the End hook may append
+            // follow-up messages (e.g. a pending-todos reminder); when
+            // it does, the loop continues. No disk save here either.
             if should_yield {
                 let end_count_before = self.conversation.len();
                 self.hook
@@ -429,11 +525,14 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                         &mut self.conversation,
                     )
                     .await?;
-                self.services.update(self.conversation.clone()).await?;
-                // Check if End hook added messages - if so, continue the loop
                 if self.conversation.len() > end_count_before {
-                    // End hook added messages, sync context and continue
                     if let Some(updated_context) = &self.conversation.context {
+                        // End-hook tail messages are still in-flight —
+                        // continuation too, so the next iteration's
+                        // projection strips them out of canonical.
+                        for entry in updated_context.messages.iter().skip(end_count_before) {
+                            self.pending.continuation.push(entry.clone());
+                        }
                         context = updated_context.clone();
                     }
                     should_yield = false;
@@ -443,7 +542,6 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
 
         self.services.update(self.conversation.clone()).await?;
 
-        // Signal Task Completion
         if is_complete {
             self.send(ChatResponse::TaskComplete).await?;
         }

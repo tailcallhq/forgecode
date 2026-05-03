@@ -719,6 +719,7 @@ mod tests {
             })
             .into(),
             forge_domain::MessageEntry {
+                id: forge_domain::MessageId::new(),
                 message: ContextMessage::Text(forge_domain::TextMessage {
                     role: Role::Assistant,
                     content: "Assistant response".to_string(),
@@ -759,6 +760,8 @@ mod tests {
             .reasoning(reasoning.clone())
             .stream(true);
 
+        let expected_message_ids: Vec<_> = fixture.messages.iter().map(|m| m.id).collect();
+
         // Convert to record and back
         let record = ContextRecord::from(&fixture);
         let actual = Context::try_from(record).unwrap();
@@ -766,6 +769,10 @@ mod tests {
         // Verify all fields are preserved
         assert_eq!(actual.conversation_id, fixture.conversation_id);
         assert_eq!(actual.messages.len(), 4);
+
+        // MessageIds are canonical identity — silent regeneration is a bug.
+        let actual_message_ids: Vec<_> = actual.messages.iter().map(|m| m.id).collect();
+        assert_eq!(actual_message_ids, expected_message_ids);
         assert_eq!(actual.tools.len(), 1);
         assert_eq!(actual.tools[0].name.to_string(), "test_tool");
         assert_eq!(
@@ -1075,12 +1082,12 @@ mod tests {
         // Stop heartbeat.
         heartbeat_handle.abort();
 
-        // Verify runtime wasn't blocked: heartbeat should have fired at least
-        // 80% of the theoretical max for the elapsed window. The threshold is
-        // clamped to at least 1 to keep the assertion well-defined.
+        // Heartbeat should reach at least half the theoretical rate; a blocked
+        // runtime delivers 0. Half accommodates Windows's ~15.6 ms timer
+        // granularity, which caps `sleep(TICK)` at ~65 % even when idle.
         let heartbeat_count = heartbeat.load(Ordering::Relaxed);
         let expected_heartbeats = (elapsed.as_millis() as usize) / (TICK.as_millis() as usize);
-        let threshold = (expected_heartbeats * 8 / 10).max(1);
+        let threshold = (expected_heartbeats / 2).max(1);
 
         assert!(
             heartbeat_count >= threshold,

@@ -5,7 +5,6 @@ mod app;
 mod apply_tunable_parameters;
 mod changed_files;
 mod command_generator;
-mod compact;
 mod data_gen;
 pub mod dto;
 mod error;
@@ -20,6 +19,7 @@ mod operation;
 mod orch;
 #[cfg(test)]
 mod orch_spec;
+pub mod projection;
 mod retry;
 mod search_dedup;
 mod services;

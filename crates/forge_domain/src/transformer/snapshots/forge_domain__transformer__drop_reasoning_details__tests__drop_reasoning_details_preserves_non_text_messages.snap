@@ -5,21 +5,24 @@ expression: snapshot
 transformation: DropReasoningDetails_preserve_non_text
 before:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User with reasoning
         reasoning_details:
           - text: User reasoning
             signature: ~
             data: ~
-            id: ~
+            id: "[id]"
             format: ~
             index: ~
             type_of: ~
-    - image:
+    - id: "[id]"
+      image:
         url: "data:image/png;base64,image_data"
         mime_type: image/png
-    - tool:
+    - id: "[id]"
+      tool:
         name: preserve_tool
         call_id: call_preserve
         output:
@@ -30,13 +33,16 @@ before:
     enabled: true
 after:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User with reasoning
-    - image:
+    - id: "[id]"
+      image:
         url: "data:image/png;base64,image_data"
         mime_type: image/png
-    - tool:
+    - id: "[id]"
+      tool:
         name: preserve_tool
         call_id: call_preserve
         output:

@@ -768,17 +768,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 self.state.conversation_id = original_id;
             }
-            ConversationCommand::Compact { id } => {
-                self.validate_conversation_exists(&id).await?;
-
-                let original_id = self.state.conversation_id;
-                self.state.conversation_id = Some(id);
-
-                self.spinner.start(Some("Compacting"))?;
-                self.on_compaction().await?;
-
-                self.state.conversation_id = original_id;
-            }
             ConversationCommand::Delete { id } => {
                 let conversation_id =
                     ConversationId::parse(&id).context(format!("Invalid conversation ID: {id}"))?;
@@ -2000,10 +1989,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     self.list_conversations().await?;
                 }
             }
-            AppCommand::Compact => {
-                self.spinner.start(Some("Compacting"))?;
-                self.on_compaction().await?;
-            }
             AppCommand::Delete => {
                 self.handle_delete_conversation().await?;
             }
@@ -2271,18 +2256,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         Ok(false)
     }
-    async fn on_compaction(&mut self) -> Result<(), anyhow::Error> {
-        let conversation_id = self.init_conversation().await?;
-        let compaction_result = self.api.compact_conversation(&conversation_id).await?;
-        let token_reduction = compaction_result.token_reduction_percentage();
-        let message_reduction = compaction_result.message_reduction_percentage();
-        let content = TitleFormat::action(format!(
-            "Context size reduced by {token_reduction:.1}% (tokens), {message_reduction:.1}% (messages)"
-        ));
-        self.writeln_title(content)?;
-        Ok(())
-    }
-
     async fn handle_delete_conversation(&mut self) -> anyhow::Result<()> {
         let conversation_id = self.init_conversation().await?;
         self.on_conversation_delete(conversation_id).await?;

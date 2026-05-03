@@ -2252,6 +2252,7 @@ dependencies = [
  "derive_more",
  "derive_setters",
  "fake",
+ "forge_compact",
  "forge_config",
  "forge_display",
  "forge_domain",
@@ -2297,6 +2298,14 @@ dependencies = [
  "indexmap 2.14.0",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "forge_compact"
+version = "0.1.0"
+dependencies = [
+ "derive_builder 0.20.2",
+ "pretty_assertions",
 ]
 
 [[package]]
@@ -4869,6 +4878,8 @@ checksum = "7b4a6248eb93a4401ed2f37dfe8ea592d3cf05b7cf4f8efa867b6895af7e094e"
 dependencies = [
  "console",
  "once_cell",
+ "pest",
+ "pest_derive",
  "serde",
  "similar 2.7.0",
  "tempfile",

@@ -5,10 +5,12 @@ expression: snapshot
 transformation: ImageHandling
 before:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message
-    - tool:
+    - id: "[id]"
+      tool:
         name: image_tool_1
         call_id: call_1
         output:
@@ -17,7 +19,8 @@ before:
             - image:
                 url: "data:image/png;base64,image1_data"
                 mime_type: image/png
-    - tool:
+    - id: "[id]"
+      tool:
         name: image_tool_2
         call_id: call_2
         output:
@@ -28,32 +31,39 @@ before:
                 mime_type: image/jpeg
 after:
   messages:
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: User message
-    - tool:
+    - id: "[id]"
+      tool:
         name: image_tool_1
         call_id: call_1
         output:
           is_error: false
           values:
             - text: "[The image with ID 0 will be sent as an attachment in the next message]"
-    - tool:
+    - id: "[id]"
+      tool:
         name: image_tool_2
         call_id: call_2
         output:
           is_error: false
           values:
             - text: "[The image with ID 1 will be sent as an attachment in the next message]"
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: "[Here is the image attachment for ID 0]"
-    - image:
+    - id: "[id]"
+      image:
         url: "data:image/png;base64,image1_data"
         mime_type: image/png
-    - text:
+    - id: "[id]"
+      text:
         role: User
         content: "[Here is the image attachment for ID 1]"
-    - image:
+    - id: "[id]"
+      image:
         url: "data:image/jpeg;base64,image2_data"
         mime_type: image/jpeg

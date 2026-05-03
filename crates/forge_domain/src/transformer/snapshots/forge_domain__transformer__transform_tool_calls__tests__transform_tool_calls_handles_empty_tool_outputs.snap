@@ -5,7 +5,8 @@ expression: snapshot
 transformation: TransformToolCalls
 before:
   messages:
-    - tool:
+    - id: "[id]"
+      tool:
         name: empty_tool
         call_id: call_empty
         output:

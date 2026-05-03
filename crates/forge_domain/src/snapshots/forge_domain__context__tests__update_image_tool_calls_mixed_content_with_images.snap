@@ -3,16 +3,20 @@ source: crates/forge_domain/src/context.rs
 expression: actual
 ---
 messages:
-  - text:
+  - id: "[id]"
+    text:
       role: System
       content: System message
-  - text:
+  - id: "[id]"
+    text:
       role: User
       content: User question
-  - text:
+  - id: "[id]"
+    text:
       role: Assistant
       content: Assistant response
-  - tool:
+  - id: "[id]"
+    tool:
       name: mixed_tool
       call_id: call1
       output:
@@ -22,9 +26,11 @@ messages:
           - text: "[The image with ID 0 will be sent as an attachment in the next message]"
           - text: After image
           - empty
-  - text:
+  - id: "[id]"
+    text:
       role: User
       content: "[Here is the image attachment for ID 0]"
-  - image:
+  - id: "[id]"
+    image:
       url: "data:image/png;base64,test123"
       mime_type: image/png

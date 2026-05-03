@@ -100,6 +100,7 @@ impl ForgeCommandManager {
                 | "muse"
                 | "sage"
                 | "help"
+                // Reserved for a future projector-aware compact command.
                 | "compact"
                 | "new"
                 | "info"
@@ -534,11 +535,6 @@ pub enum AppCommand {
     #[command(name = "workspace-init", alias = "sync-init")]
     WorkspaceInit,
 
-    /// Compact the conversation context. This can be triggered with the
-    /// '/compact' command.
-    #[strum(props(usage = "Compact the conversation context"))]
-    Compact,
-
     /// Start a new conversation while preserving history.
     /// This can be triggered with the '/new' command.
     #[strum(props(usage = "Start a new conversation"))]
@@ -694,7 +690,6 @@ pub enum AppCommand {
 impl AppCommand {
     pub fn name(&self) -> &str {
         match self {
-            AppCommand::Compact => "compact",
             AppCommand::New => "new",
             AppCommand::Message(_) => "message",
             AppCommand::Update => "update",

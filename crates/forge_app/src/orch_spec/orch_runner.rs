@@ -39,6 +39,11 @@ pub struct Runner {
     // Mock shell command outputs
     test_shell_outputs: Mutex<VecDeque<ShellOutput>>,
 
+    // Records the projected context handed to each chat_agent dispatch
+    // — canonical-only inspection can't distinguish pass-through from
+    // a summarizer splice, so tests need the actual outbound shape.
+    outbound_contexts: Mutex<Vec<forge_domain::Context>>,
+
     attachments: Vec<Attachment>,
     config: forge_config::ForgeConfig,
     env: Environment,
@@ -65,12 +70,17 @@ impl Runner {
             test_tool_calls: Mutex::new(VecDeque::from(setup.mock_tool_call_responses.clone())),
             test_completions: Mutex::new(VecDeque::from(setup.mock_assistant_responses.clone())),
             test_shell_outputs: Mutex::new(VecDeque::from(setup.mock_shell_outputs.clone())),
+            outbound_contexts: Mutex::new(Vec::new()),
         }
     }
 
     // Returns the conversation history
     async fn get_history(&self) -> Vec<Conversation> {
         self.conversation_history.lock().await.clone()
+    }
+
+    async fn get_outbound_contexts(&self) -> Vec<forge_domain::Context> {
+        self.outbound_contexts.lock().await.clone()
     }
 
     pub async fn run(setup: &mut TestContext, event: Event) -> anyhow::Result<()> {
@@ -108,14 +118,15 @@ impl Runner {
             .add_system_message(conversation)
             .await?;
 
-        // Render user prompt into context.
-        let conversation = UserPromptGenerator::new(
+        // Render user prompt into a PendingTurn. Canonical stays untouched;
+        // orch combines canonical + pending at its own entry.
+        let (conversation, pending) = UserPromptGenerator::new(
             services.clone(),
             agent.clone(),
             event.clone(),
             setup.current_time,
         )
-        .add_user_prompt(conversation)
+        .generate(conversation)
         .await?;
 
         let conversation = InitConversationMetrics::new(setup.current_time).apply(conversation);
@@ -129,19 +140,31 @@ impl Runner {
             ApplyTunableParameters::new(agent.clone(), system_tools.clone()).apply(conversation);
         let conversation = SetConversationId.apply(conversation);
 
-        let orch = Orchestrator::new(services.clone(), conversation, agent, setup.config.clone())
-            .error_tracker(ToolErrorTracker::new(3))
-            .tool_definitions(system_tools)
-            .hook(Arc::new(
-                Hook::default()
-                    .on_request(DoomLoopDetector::default())
-                    .on_end(PendingTodosHandler::new()),
-            ))
-            .sender(tx);
+        let orch = Orchestrator::new(
+            services.clone(),
+            conversation,
+            pending,
+            agent,
+            setup.config.clone(),
+        )
+        .error_tracker(ToolErrorTracker::new(3))
+        .tool_definitions(system_tools)
+        .hook(Arc::new(
+            Hook::default()
+                .on_request(DoomLoopDetector::default())
+                .on_end(PendingTodosHandler::new()),
+        ))
+        .sender(tx);
 
         let (mut orch, runner) = (orch, services);
 
         let result = orch.run().await;
+        // Save on halt — mirrors `ForgeApp::chat`'s behaviour so
+        // halt-safety tests observe the restored canonical. `run_inner`
+        // deliberately only saves on success.
+        if result.is_err() {
+            let _ = runner.update(orch.get_conversation().clone()).await;
+        }
         drop(orch);
 
         let chat_responses = handle.await?;
@@ -151,6 +174,10 @@ impl Runner {
             .output
             .conversation_history
             .extend(runner.get_history().await);
+        setup
+            .output
+            .outbound_contexts
+            .extend(runner.get_outbound_contexts().await);
 
         result
     }
@@ -164,6 +191,7 @@ impl AgentService for Runner {
         context: forge_domain::Context,
         _provider_id: Option<ProviderId>,
     ) -> forge_domain::ResultStream<ChatCompletionMessage, anyhow::Error> {
+        self.outbound_contexts.lock().await.push(context.clone());
         let mut responses = self.test_completions.lock().await;
 
         if let Some(message) = responses.pop_front() {

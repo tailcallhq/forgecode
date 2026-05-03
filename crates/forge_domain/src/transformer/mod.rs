@@ -158,6 +158,6 @@ mod tests {
 
         let snapshot =
             TransformationSnapshot::new("TransformToolCalls.pipe(ImageHandling)", fixture, actual);
-        assert_yaml_snapshot!(snapshot);
+        assert_yaml_snapshot!(snapshot, { ".**.id" => "[id]" });
     }
 }

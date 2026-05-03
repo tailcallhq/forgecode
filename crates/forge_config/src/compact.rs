@@ -41,58 +41,53 @@ pub struct Update {
     pub auto_update: Option<bool>,
 }
 
-/// Configuration for automatic context compaction for all agents
+/// Workflow-level summarizer defaults. Merged into each agent's
+/// `forge_domain::Compact` at run time so unset agent fields inherit
+/// these values.
 #[derive(Debug, Clone, Serialize, Deserialize, Setters, JsonSchema, PartialEq)]
 #[setters(strip_option, into)]
 pub struct Compact {
-    /// Number of most recent messages to preserve during compaction.
-    /// These messages won't be considered for summarization. Works alongside
-    /// eviction_window - the more conservative limit (fewer messages to
-    /// compact) takes precedence.
-    #[serde(default)]
-    pub retention_window: usize,
+    /// Forbids a flush when fewer than this many canonical messages
+    /// would remain after it, preserving the recent tail verbatim.
+    /// `None` means no retention.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention_window: Option<usize>,
 
-    /// Maximum percentage of the context that can be summarized during
-    /// compaction. Valid values are between 0.0 and 1.0, where 0.0 means no
-    /// compaction and 1.0 allows summarizing all messages. Works alongside
-    /// retention_window - the more conservative limit (fewer messages to
-    /// compact) takes precedence.
-    #[serde(default)]
-    pub eviction_window: Percentage,
-
-    /// Maximum number of tokens to keep after compaction
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<usize>,
-
-    /// Maximum number of tokens before triggering compaction. This acts as an
-    /// absolute cap and is combined with
-    /// `token_threshold_percentage` by taking the lower value.
+    /// Absolute token cap above which the summarizer fires. Combined
+    /// with `token_threshold_percentage` by taking the lower value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_threshold: Option<usize>,
 
-    /// Maximum percentage of the model context window used to derive the token
-    /// threshold before triggering compaction. This is combined with
-    /// `token_threshold` by taking the lower value.
+    /// Fraction of the model's context window above which the
+    /// summarizer fires. Combined with `token_threshold` by taking
+    /// the lower value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_threshold_percentage: Option<Percentage>,
 
-    /// Maximum number of conversation turns before triggering compaction
+    /// Fires the summarizer once the user-role message count in the
+    /// assembled request reaches this threshold.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_threshold: Option<usize>,
 
-    /// Maximum number of messages before triggering compaction
+    /// Fires the summarizer once the total message count in the
+    /// assembled request reaches this threshold.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message_threshold: Option<usize>,
 
-    /// Model ID to use for compaction, useful when compacting with a
-    /// cheaper/faster model. If not specified, the root level model will be
-    /// used.
+    /// Overrides the agent's primary model for summary rendering so
+    /// a cheaper or faster model can handle summarization.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 
-    /// Whether to trigger compaction when the last message is from a user
+    /// Fires one summary per projection when the assembled request's
+    /// tail is a user message. Independent of budget thresholds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_turn_end: Option<bool>,
+
+    /// Cap on summary frames the summarizer prepends; older frames
+    /// slide off when exceeded. `None` uses the runtime default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_prepended_summaries: Option<usize>,
 }
 
 impl Default for Compact {
@@ -102,18 +97,18 @@ impl Default for Compact {
 }
 
 impl Compact {
-    /// Creates a new compaction configuration with all optional fields unset
+    /// All fields unset so the domain `Compact` merge keeps the
+    /// agent's own values wherever the agent configured them.
     pub fn new() -> Self {
         Self {
-            max_tokens: None,
             token_threshold: None,
             token_threshold_percentage: None,
             turn_threshold: None,
             message_threshold: None,
             model: None,
-            eviction_window: Percentage::new(0.2).unwrap(),
-            retention_window: 0,
+            retention_window: None,
             on_turn_end: None,
+            max_prepended_summaries: None,
         }
     }
 }
@@ -123,14 +118,13 @@ impl Dummy<fake::Faker> for Compact {
         use fake::Fake;
         Self {
             retention_window: fake::Faker.fake_with_rng(rng),
-            eviction_window: Percentage::from((0.0f64..=1.0f64).fake_with_rng::<f64, R>(rng)),
-            max_tokens: fake::Faker.fake_with_rng(rng),
             token_threshold: fake::Faker.fake_with_rng(rng),
             token_threshold_percentage: fake::Faker.fake_with_rng(rng),
             turn_threshold: fake::Faker.fake_with_rng(rng),
             message_threshold: fake::Faker.fake_with_rng(rng),
             model: fake::Faker.fake_with_rng(rng),
             on_turn_end: fake::Faker.fake_with_rng(rng),
+            max_prepended_summaries: fake::Faker.fake_with_rng(rng),
         }
     }
 }
@@ -142,41 +136,6 @@ mod tests {
     use super::*;
     use crate::ForgeConfig;
     use crate::reader::ConfigReader;
-
-    #[test]
-    fn test_f64_eviction_window_round_trip() {
-        let fixture = Compact {
-            eviction_window: Percentage::new(0.2).unwrap(),
-            ..Compact::new()
-        };
-
-        let toml = toml_edit::ser::to_string_pretty(&fixture).unwrap();
-
-        assert!(
-            toml.contains("eviction_window = 0.2\n"),
-            "expected `eviction_window = 0.2` in TOML output, got:\n{toml}"
-        );
-    }
-
-    #[test]
-    fn test_f64_eviction_window_deserialize_round_trip() {
-        let fixture = Compact {
-            eviction_window: Percentage::new(0.2).unwrap(),
-            ..Compact::new()
-        };
-        let config_fixture = ForgeConfig::default().compact(fixture.clone());
-
-        let toml = toml_edit::ser::to_string_pretty(&config_fixture).unwrap();
-
-        let actual = ConfigReader::default()
-            .read_defaults()
-            .read_toml(&toml)
-            .build()
-            .unwrap();
-        let actual = actual.compact.expect("compact config should deserialize");
-
-        assert_eq!(actual.eviction_window, fixture.eviction_window);
-    }
 
     #[test]
     fn test_token_threshold_percentage_round_trip() {
@@ -218,22 +177,6 @@ mod tests {
         assert!(
             result.is_err(),
             "expected error for token_threshold_percentage = 1.5, got: {:?}",
-            result.ok()
-        );
-    }
-
-    #[test]
-    fn test_eviction_window_rejects_out_of_range() {
-        let toml = "[compact]\neviction_window = 1.5\n";
-
-        let result = ConfigReader::default()
-            .read_defaults()
-            .read_toml(toml)
-            .build();
-
-        assert!(
-            result.is_err(),
-            "expected error for eviction_window = 1.5, got: {:?}",
             result.ok()
         );
     }

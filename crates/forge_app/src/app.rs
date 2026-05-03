@@ -9,10 +9,7 @@ use forge_stream::MpscStream;
 use crate::apply_tunable_parameters::ApplyTunableParameters;
 use crate::changed_files::ChangedFiles;
 use crate::dto::ToolsOverview;
-use crate::hooks::{
-    CompactionHandler, DoomLoopDetector, PendingTodosHandler, TitleGenerationHandler,
-    TracingHandler,
-};
+use crate::hooks::{DoomLoopDetector, PendingTodosHandler, TitleGenerationHandler, TracingHandler};
 use crate::init_conversation_metrics::InitConversationMetrics;
 use crate::orch::Orchestrator;
 use crate::services::{AgentRegistry, CustomInstructionsService, ProviderAuthService};
@@ -124,14 +121,14 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
                 .add_system_message(conversation)
                 .await?;
 
-        // Insert user prompt
-        let conversation = UserPromptGenerator::new(
+        // Build pending-turn messages; canonical stays untouched.
+        let (conversation, pending) = UserPromptGenerator::new(
             self.services.clone(),
             agent.clone(),
             chat.event.clone(),
             current_time,
         )
-        .add_user_prompt(conversation)
+        .generate(conversation)
         .await?;
 
         // Detect and render externally changed files notification
@@ -162,11 +159,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
         let hook = Hook::default()
             .on_start(tracing_handler.clone().and(title_handler))
             .on_request(tracing_handler.clone().and(DoomLoopDetector::default()))
-            .on_response(
-                tracing_handler
-                    .clone()
-                    .and(CompactionHandler::new(agent.clone(), environment.clone())),
-            )
+            .on_response(tracing_handler.clone())
             .on_toolcall_start(tracing_handler.clone())
             .on_toolcall_end(tracing_handler)
             .on_end(on_end_hook);
@@ -174,6 +167,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
         let orch = Orchestrator::new(
             services.clone(),
             conversation,
+            pending,
             agent,
             self.services.get_config()?,
         )
@@ -206,77 +200,6 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
         );
 
         Ok(stream)
-    }
-
-    /// Compacts the context of the main agent for the given conversation and
-    /// persists it. Returns metrics about the compaction (original vs.
-    /// compacted tokens and messages).
-    pub async fn compact_conversation(
-        &self,
-        active_agent_id: AgentId,
-        conversation_id: &ConversationId,
-    ) -> Result<CompactionResult> {
-        use crate::compact::Compactor;
-
-        // Get the conversation
-        let mut conversation = self
-            .services
-            .find_conversation(conversation_id)
-            .await?
-            .ok_or_else(|| forge_domain::Error::ConversationNotFound(*conversation_id))?;
-
-        // Get the context from the conversation
-        let context = match conversation.context.as_ref() {
-            Some(context) => context.clone(),
-            None => {
-                // No context to compact, return zero metrics
-                return Ok(CompactionResult::new(0, 0, 0, 0));
-            }
-        };
-
-        // Calculate original metrics
-        let original_messages = context.messages.len();
-        let original_token_count = *context.token_count();
-
-        let forge_config = self.services.get_config()?;
-
-        // Get agent and apply workflow config
-        let agent = self.services.get_agent(&active_agent_id).await?;
-
-        let Some(agent) = agent else {
-            return Ok(CompactionResult::new(
-                original_token_count,
-                0,
-                original_messages,
-                0,
-            ));
-        };
-
-        // Get compact config from the agent
-        let compact = agent
-            .apply_config(&forge_config)
-            .set_compact_model_if_none()
-            .compact;
-
-        // Apply compaction using the Compactor
-        let environment = self.services.get_environment();
-        let compacted_context = Compactor::new(compact, environment).compact(context, true)?;
-
-        let compacted_messages = compacted_context.messages.len();
-        let compacted_tokens = *compacted_context.token_count();
-
-        // Update the conversation with the compacted context
-        conversation.context = Some(compacted_context);
-
-        // Save the updated conversation
-        self.services.upsert_conversation(conversation).await?;
-
-        Ok(CompactionResult::new(
-            original_token_count,
-            compacted_tokens,
-            original_messages,
-            compacted_messages,
-        ))
     }
 
     pub async fn list_tools(&self) -> Result<ToolsOverview> {
