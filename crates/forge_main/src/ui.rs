@@ -1719,7 +1719,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // Show failed MCP servers
         if !porcelain && !all_tools.mcp.get_failures().is_empty() {
             self.writeln("MCP FAILURES\n".dimmed().bold())?;
-            for (_, error) in all_tools.mcp.get_failures().iter() {
+            for error in all_tools.mcp.get_failures().values() {
                 let error = style(error).red();
                 self.writeln(error)?;
             }
