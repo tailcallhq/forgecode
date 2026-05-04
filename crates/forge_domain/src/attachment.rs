@@ -696,4 +696,21 @@ mod tests {
         let actual = paths.first().unwrap();
         assert_eq!(actual, &expected);
     }
+
+    #[test]
+    fn test_attachment_parse_many_square_brackets() {
+        // Real-world example: deeply nested or heavily-bracketed Next.js routes
+        let text =
+            String::from("Open @[/src/app/[locale]/[version]/[...path]/[[...rest]]/page.tsx:1:10]");
+        let paths = Attachment::parse_all(text);
+        assert_eq!(paths.len(), 1);
+
+        let expected = FileTag {
+            path: "/src/app/[locale]/[version]/[...path]/[[...rest]]/page.tsx".to_string(),
+            loc: Some(Location { start: Some(1), end: Some(10) }),
+            symbol: None,
+        };
+        let actual = paths.first().unwrap();
+        assert_eq!(actual, &expected);
+    }
 }
