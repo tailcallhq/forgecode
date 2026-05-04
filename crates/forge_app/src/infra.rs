@@ -8,9 +8,9 @@ use forge_domain::{
     AuthCodeParams, CommandOutput, ConfigOperation, Environment, FileInfo, McpServerConfig,
     OAuthConfig, OAuthTokenResponse, ToolDefinition, ToolName, ToolOutput,
 };
+use forge_eventsource::EventSource;
 use reqwest::Response;
 use reqwest::header::HeaderMap;
-use reqwest_eventsource::EventSource;
 use serde::de::DeserializeOwned;
 use url::Url;
 

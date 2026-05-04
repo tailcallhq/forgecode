@@ -233,8 +233,8 @@ mod tests {
         Context, ContextMessage, ToolCallFull, ToolCallId, ToolChoice, ToolName, ToolOutput,
         ToolResult,
     };
+    use forge_eventsource::EventSource;
     use reqwest::header::HeaderMap;
-    use reqwest_eventsource::EventSource;
 
     use super::*;
     use crate::provider::mock_server::{MockServer, normalize_ports};

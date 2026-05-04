@@ -7,9 +7,12 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 colored.workspace = true
+console.workspace = true
 tokio.workspace = true
 forge_domain.workspace = true
 indicatif = "0.18.4"
+terminal_size.workspace = true
+unicode-width.workspace = true
 rand = "0.10.0"
 
 [dev-dependencies]

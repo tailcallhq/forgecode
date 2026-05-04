@@ -1,10 +1,11 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use colored::Colorize;
 use forge_domain::ConsoleWriter;
-use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use rand::RngExt;
 
 mod progress_bar;
@@ -13,6 +14,165 @@ pub use progress_bar::*;
 
 const TICK_DURATION_MS: u64 = 60;
 const TICKS: &[&str; 10] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const MIN_TERMINAL_WIDTH: usize = 12;
+const WRAP_GUARD_COLUMNS: usize = 8;
+
+fn terminal_width() -> usize {
+    terminal_size::terminal_size()
+        .map(|(width, _)| width.0 as usize)
+        .unwrap_or(80)
+}
+
+fn visible_width(value: &str) -> usize {
+    console::measure_text_width(value)
+}
+
+fn truncate_to_visible_width(value: &str, max_width: usize) -> String {
+    let mut output = value.to_string();
+
+    while visible_width(&output) > max_width {
+        if output.pop().is_none() {
+            break;
+        }
+    }
+
+    output
+}
+
+fn styled_loader_line(
+    tick: &str,
+    message: &str,
+    elapsed: Duration,
+    terminal_width: usize,
+) -> String {
+    let elapsed = format_elapsed_time(elapsed);
+    let suffix = "· Ctrl+C to interrupt";
+    let max_width = terminal_width
+        .saturating_sub(WRAP_GUARD_COLUMNS)
+        .max(MIN_TERMINAL_WIDTH);
+
+    let tick = tick.green().to_string();
+    let elapsed = elapsed.white().to_string();
+    let suffix = suffix.white().dimmed().to_string();
+    let fixed = format!("{tick}  {elapsed} {suffix}");
+    let message_width = max_width.saturating_sub(visible_width(&fixed)).max(1);
+    let message = truncate_to_visible_width(message, message_width)
+        .green()
+        .bold()
+        .to_string();
+    let styled = format!("{tick} {message} {elapsed} {suffix}");
+
+    truncate_to_visible_width(&styled, max_width)
+}
+
+struct ActiveSpinner<P: ConsoleWriter> {
+    stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+    started_at: Instant,
+    accumulated_elapsed: Duration,
+    printer: Arc<P>,
+}
+
+impl<P: ConsoleWriter + 'static> ActiveSpinner<P> {
+    fn start(printer: Arc<P>, accumulated_elapsed: Duration, message: String) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let paused = Arc::new(AtomicBool::new(false));
+        let stop_signal = Arc::clone(&stop);
+        let paused_signal = Arc::clone(&paused);
+        let thread_printer = Arc::clone(&printer);
+        let started_at = Instant::now();
+
+        let handle = thread::spawn(move || {
+            loop {
+                if stop_signal.load(Ordering::Acquire) {
+                    break;
+                }
+
+                if paused_signal.load(Ordering::Acquire) {
+                    thread::park_timeout(Duration::from_millis(TICK_DURATION_MS));
+                    continue;
+                }
+
+                let elapsed = accumulated_elapsed + started_at.elapsed();
+                let tick_index = ((elapsed.as_millis() / TICK_DURATION_MS as u128)
+                    % TICKS.len() as u128) as usize;
+                let tick = TICKS.get(tick_index).unwrap_or(&"⠋");
+                let line = styled_loader_line(tick, &message, elapsed, terminal_width());
+
+                if !stop_signal.load(Ordering::Acquire) && !paused_signal.load(Ordering::Acquire) {
+                    let _ = thread_printer.write_err(format!("\r\x1b[2K{line}").as_bytes());
+                    let _ = thread_printer.flush_err();
+                }
+
+                thread::park_timeout(Duration::from_millis(TICK_DURATION_MS));
+            }
+        });
+
+        Self {
+            stop,
+            paused,
+            handle: Some(handle),
+            started_at,
+            accumulated_elapsed,
+            printer,
+        }
+    }
+}
+
+impl<P: ConsoleWriter> ActiveSpinner<P> {
+    fn elapsed(&self) -> Duration {
+        self.accumulated_elapsed + self.started_at.elapsed()
+    }
+
+    fn pause(&self) {
+        let was_paused = self.paused.swap(true, Ordering::AcqRel);
+        if !was_paused {
+            self.clear_line();
+        }
+        if let Some(handle) = &self.handle {
+            handle.thread().unpark();
+        }
+    }
+
+    fn resume(&self) {
+        self.paused.store(false, Ordering::Release);
+        if let Some(handle) = &self.handle {
+            handle.thread().unpark();
+        }
+    }
+
+    fn clear_line(&self) {
+        let _ = self.printer.write_err(b"\r\x1b[2K");
+        let _ = self.printer.flush_err();
+    }
+
+    fn finish(&mut self) -> Duration {
+        self.stop.store(true, Ordering::Release);
+        if let Some(handle) = &self.handle {
+            handle.thread().unpark();
+        }
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+        let elapsed = self.elapsed();
+        self.clear_line();
+        elapsed
+    }
+}
+
+impl<P: ConsoleWriter> Drop for ActiveSpinner<P> {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(handle) = &self.handle {
+            handle.thread().unpark();
+        }
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+        self.clear_line();
+    }
+}
 
 /// Formats elapsed time into a compact string representation.
 ///
@@ -43,20 +203,19 @@ fn format_elapsed_time(duration: Duration) -> String {
 
 /// Manages spinner functionality for the UI.
 ///
-/// Uses indicatif's built-in `{elapsed}` template for time display,
-/// eliminating the need for a background task to update the message.
-/// Accumulated time is preserved across start/stop cycles using
-/// `with_elapsed()`. Spinner tick position is also preserved to maintain
-/// smooth animation continuity.
+/// Renders the loader through a resize-safe manual terminal writer that clears
+/// and redraws a single truncated line on each tick. Accumulated time is
+/// preserved across start/stop cycles so paused output can resume without
+/// resetting the elapsed timer.
 pub struct SpinnerManager<P: ConsoleWriter> {
-    spinner: Option<ProgressBar>,
+    spinner: Option<ActiveSpinner<P>>,
     accumulated_elapsed: Duration,
     word_index: Option<usize>,
     message: Option<String>,
     printer: Arc<P>,
 }
 
-impl<P: ConsoleWriter> SpinnerManager<P> {
+impl<P: ConsoleWriter + 'static> SpinnerManager<P> {
     /// Creates a new SpinnerManager with the given output printer.
     pub fn new(printer: Arc<P>) -> Self {
         Self {
@@ -96,48 +255,31 @@ impl<P: ConsoleWriter> SpinnerManager<P> {
 
         self.message = Some(word.clone());
 
-        // Create the spinner with accumulated elapsed time
-        // Use custom elapsed formatter for "01s", "1:01m", "1:01h" format
-        let pb = ProgressBar::new_spinner()
-            .with_elapsed(self.accumulated_elapsed)
-            .with_style(
-                ProgressStyle::default_spinner()
-                    .tick_strings(TICKS)
-                    .template("{spinner:.green} {msg} {elapsed_custom:.white} {prefix:.white.dim}")
-                    .unwrap()
-                    .with_key(
-                        "elapsed_custom",
-                        |state: &ProgressState, w: &mut dyn std::fmt::Write| {
-                            let _ = write!(w, "{}", format_elapsed_time(state.elapsed()));
-                        },
-                    ),
-            )
-            .with_message(word.green().bold().to_string())
-            .with_prefix("· Ctrl+C to interrupt");
-
-        // Preserve spinner tick position for visual continuity
-        // The spinner has 10 tick positions cycling every 600ms (60ms per tick)
-        let tick_count: usize = TICKS.len();
-        let elapsed_ms = self.accumulated_elapsed.as_millis() as u64;
-        let cycle_ms = TICK_DURATION_MS * tick_count as u64;
-        let ticks_to_advance = (elapsed_ms % cycle_ms) / TICK_DURATION_MS;
-
-        // Advance to the correct tick position
-        (0..ticks_to_advance).for_each(|_| pb.tick());
-
-        pb.enable_steady_tick(Duration::from_millis(TICK_DURATION_MS));
-
-        self.spinner = Some(pb);
+        let spinner = ActiveSpinner::start(self.printer.clone(), self.accumulated_elapsed, word);
+        self.spinner = Some(spinner);
 
         Ok(())
     }
 
+    /// Pauses the active spinner without stopping its render thread.
+    pub fn pause(&mut self) {
+        if let Some(spinner) = &self.spinner {
+            spinner.pause();
+        }
+    }
+
+    /// Resumes a previously paused spinner.
+    pub fn resume(&mut self) {
+        if let Some(spinner) = &self.spinner {
+            spinner.resume();
+        }
+    }
+
     /// Stop the active spinner if any
     pub fn stop(&mut self, message: Option<String>) -> Result<()> {
-        if let Some(spinner) = self.spinner.take() {
+        if let Some(mut spinner) = self.spinner.take() {
             // Capture elapsed time before finishing
-            self.accumulated_elapsed = spinner.elapsed();
-            spinner.finish_and_clear();
+            self.accumulated_elapsed = spinner.finish();
             if let Some(msg) = message {
                 self.println(&msg);
             }
@@ -153,8 +295,9 @@ impl<P: ConsoleWriter> SpinnerManager<P> {
     /// Updates the spinner's displayed message.
     pub fn set_message(&mut self, message: &str) -> Result<()> {
         self.message = Some(message.to_owned());
-        if let Some(spinner) = &self.spinner {
-            spinner.set_message(message.green().bold().to_string());
+        if self.spinner.is_some() {
+            self.stop(None)?;
+            self.start(Some(message))?;
         }
         Ok(())
     }
@@ -170,10 +313,13 @@ impl<P: ConsoleWriter> SpinnerManager<P> {
     /// Writes a line to stdout, suspending the spinner if active.
     pub fn write_ln(&mut self, message: impl ToString) -> Result<()> {
         let msg = message.to_string();
-        if let Some(spinner) = &self.spinner {
-            spinner.suspend(|| self.println(&msg));
-        } else {
-            self.println(&msg);
+        let was_active = self.spinner.is_some();
+        if was_active {
+            self.pause();
+        }
+        self.println(&msg);
+        if was_active {
+            self.resume();
         }
         Ok(())
     }
@@ -181,10 +327,13 @@ impl<P: ConsoleWriter> SpinnerManager<P> {
     /// Writes a line to stderr, suspending the spinner if active.
     pub fn ewrite_ln(&mut self, message: impl ToString) -> Result<()> {
         let msg = message.to_string();
-        if let Some(spinner) = &self.spinner {
-            spinner.suspend(|| self.eprintln(&msg));
-        } else {
-            self.eprintln(&msg);
+        let was_active = self.spinner.is_some();
+        if was_active {
+            self.pause();
+        }
+        self.eprintln(&msg);
+        if was_active {
+            self.resume();
         }
         Ok(())
     }
@@ -206,10 +355,10 @@ impl<P: ConsoleWriter> SpinnerManager<P> {
 
 impl<P: ConsoleWriter> Drop for SpinnerManager<P> {
     fn drop(&mut self) {
-        // Stop spinner before flushing to ensure finish_and_clear() is called
-        // This prevents the spinner from leaving the cursor at column 0 without a
-        // newline
-        let _ = self.stop(None);
+        // Stop spinner before flushing to ensure finish_and_clear() is called.
+        if let Some(mut spinner) = self.spinner.take() {
+            self.accumulated_elapsed = spinner.finish();
+        }
         // Flush both stdout and stderr to ensure all output is visible
         // This prevents race conditions with shell prompt resets
         let _ = self.printer.flush();
@@ -221,6 +370,7 @@ impl<P: ConsoleWriter> Drop for SpinnerManager<P> {
 mod tests {
     use std::io::Write;
     use std::sync::Arc;
+    use std::sync::atomic::Ordering;
     use std::time::Duration;
 
     use forge_domain::ConsoleWriter;
@@ -315,6 +465,28 @@ mod tests {
 
         // Word index should be identical because it's cached
         assert_eq!(first_index, second_index);
+    }
+
+    #[test]
+    fn test_spinner_pause_resume_keeps_same_active_spinner() {
+        let mut fixture_spinner = fixture_spinner();
+        fixture_spinner.start(Some("Thinking")).unwrap();
+
+        fixture_spinner.pause();
+        let was_paused = fixture_spinner
+            .spinner
+            .as_ref()
+            .map(|spinner| spinner.paused.load(Ordering::Acquire));
+        fixture_spinner.resume();
+        let was_resumed = fixture_spinner
+            .spinner
+            .as_ref()
+            .map(|spinner| !spinner.paused.load(Ordering::Acquire));
+        let actual = (was_paused, was_resumed);
+        fixture_spinner.stop(None).unwrap();
+
+        let expected = (Some(true), Some(true));
+        assert_eq!(actual, expected);
     }
 
     #[test]

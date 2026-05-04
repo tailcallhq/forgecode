@@ -241,21 +241,9 @@ function version_gte() {
 # 5. Check dependencies
 print_section "Dependencies"
 
-# Check for fzf - required for interactive selection
-if command -v fzf &> /dev/null; then
-    local fzf_version=$(fzf --version 2>&1 | head -n1 | awk '{print $1}')
-    if [[ -n "$fzf_version" ]]; then
-        if version_gte "$fzf_version" "0.36.0"; then
-            print_result pass "fzf: ${fzf_version}"
-        else
-            print_result fail "fzf: ${fzf_version}" "Version 0.36.0 or higher required. Update: https://github.com/junegunn/fzf#installation"
-        fi
-    else
-        print_result pass "fzf: installed"
-    fi
-else
-    print_result fail "fzf not found" "Required for interactive features. See installation: https://github.com/junegunn/fzf#installation"
-fi
+# Forge uses its built-in nucleo-picker for interactive selection
+# No external fuzzy finder (like fzf) is required
+print_result pass "Interactive picker: built-in (nucleo-picker)"
 
 # Check for fd/fdfind - used for file discovery
 if command -v fd &> /dev/null; then
