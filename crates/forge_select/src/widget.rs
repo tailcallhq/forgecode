@@ -1,12 +1,13 @@
 use crate::confirm::ConfirmBuilder;
 use crate::input::InputBuilder;
 use crate::multi::MultiSelectBuilder;
+use crate::preview::{SelectRow, SelectUiOptions};
 use crate::select::SelectBuilder;
 
-/// Centralized fzf-based select functionality with consistent error handling.
+/// Centralized fuzzy select functionality with consistent error handling.
 ///
-/// All interactive selection is delegated to the external `fzf` binary.
-/// Requires `fzf` to be installed on the system.
+/// All interactive selection is handled by the shared nucleo-backed selector
+/// UI.
 pub struct ForgeWidget;
 
 impl ForgeWidget {
@@ -43,5 +44,10 @@ impl ForgeWidget {
     /// Multi-select prompt.
     pub fn multi_select<T>(message: impl Into<String>, options: Vec<T>) -> MultiSelectBuilder<T> {
         MultiSelectBuilder { message: message.into(), options }
+    }
+
+    /// Entry point for row-based select operations.
+    pub fn select_rows(message: impl Into<String>, rows: Vec<SelectRow>) -> SelectUiOptions {
+        SelectUiOptions::new(message, rows)
     }
 }

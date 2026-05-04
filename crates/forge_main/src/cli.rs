@@ -152,6 +152,103 @@ pub enum TopLevelCommand {
 
     /// Stream forge log output (defaults to the most recent log file).
     Logs(LogsArgs),
+
+    /// Interactive fuzzy item picker.
+    Select(SelectCommandGroup),
+}
+
+/// Command group for the `forge select` interactive picker.
+///
+/// Subcommands provide purpose-built pickers for specific domain types (models,
+/// agents, providers, etc.) that fetch data internally and output the selected
+/// value.
+#[derive(Parser, Debug, Clone)]
+pub struct SelectCommandGroup {
+    #[command(subcommand)]
+    pub command: SelectCommand,
+}
+
+/// Purpose-built interactive pickers for specific domain types.
+///
+/// Each variant fetches data internally through the Forge API, presents an
+/// interactive fuzzy picker, and prints the selected value to stdout for the
+/// shell plugin to consume.
+#[derive(Subcommand, Debug, Clone)]
+pub enum SelectCommand {
+    /// Select a model interactively from all configured providers.
+    ///
+    /// Prints the selected model_id on the first line and provider_id on the
+    /// second line. Prints nothing if the user cancels.
+    Model {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+    },
+
+    /// Select an agent interactively.
+    ///
+    /// Prints the selected agent_id on stdout. Prints nothing if the user
+    /// cancels.
+    Agent {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+    },
+
+    /// Select a provider interactively.
+    ///
+    /// Prints the selected provider_id on stdout. Prints nothing if the user
+    /// cancels.
+    Provider {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+
+        /// Only show providers that are configured (logged in).
+        #[arg(long)]
+        configured: bool,
+    },
+
+    /// Select a reasoning effort level interactively.
+    ///
+    /// Prints the selected effort level (none, minimal, low, medium, high,
+    /// xhigh, max) on stdout. Prints nothing if the user cancels.
+    ReasoningEffort {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+    },
+
+    /// Select a command interactively.
+    ///
+    /// Prints the selected command name on stdout. Prints nothing if the user
+    /// cancels.
+    Command {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+    },
+
+    /// Select a conversation interactively with a preview pane.
+    ///
+    /// Prints the selected conversation_id on stdout. Prints nothing if the
+    /// user cancels.
+    Conversation {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+    },
+
+    /// Select a file interactively with a preview pane.
+    ///
+    /// Walks the workspace and presents a fuzzy picker with syntax-highlighted
+    /// file previews. Prints the selected file path on stdout. Prints nothing
+    /// if the user cancels.
+    File {
+        /// Initial query text pre-filled in the search box.
+        #[arg(long, short = 'q')]
+        query: Option<String>,
+    },
 }
 
 /// Command group for custom command management.
