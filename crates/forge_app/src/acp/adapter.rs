@@ -5,8 +5,6 @@ use agent_client_protocol as acp;
 use forge_domain::{AgentId, ConversationId, ModelId};
 use tokio::sync::{Mutex, Notify, mpsc};
 
-use crate::Services;
-
 use super::error::{Error, Result};
 
 /// Maximum number of buffered session notifications before backpressure.
@@ -29,11 +27,8 @@ pub(crate) struct AcpAdapter<S> {
     sessions: Arc<Mutex<HashMap<String, SessionState>>>,
 }
 
-impl<S: Services> AcpAdapter<S> {
-    /// Creates a new ACP adapter and returns the notification receiver.
-    pub(crate) fn new(
-        services: Arc<S>,
-    ) -> (Self, mpsc::Receiver<acp::SessionNotification>) {
+impl<S> AcpAdapter<S> {
+    fn with_services(services: Arc<S>) -> (Self, mpsc::Receiver<acp::SessionNotification>) {
         let (tx, rx) = mpsc::channel(NOTIFICATION_CHANNEL_CAPACITY);
         let adapter = Self {
             services,
@@ -44,6 +39,20 @@ impl<S: Services> AcpAdapter<S> {
         (adapter, rx)
     }
 
+    #[cfg(test)]
+    pub(super) fn new_for_test(services: S) -> Self {
+        Self::with_services(Arc::new(services)).0
+    }
+
+    #[cfg(test)]
+    pub(super) fn new_for_test_with_receiver(
+        services: S,
+    ) -> (Self, mpsc::Receiver<acp::SessionNotification>) {
+        Self::with_services(Arc::new(services))
+    }
+}
+
+impl<S> AcpAdapter<S> {
     pub(crate) async fn set_client_connection(&self, conn: Arc<acp::AgentSideConnection>) {
         *self.client_conn.lock().await = Some(conn);
     }
@@ -145,5 +154,148 @@ impl<S: Services> AcpAdapter<S> {
         self.session_update_tx
             .try_send(notification)
             .map_err(|_| Error::Application(anyhow::anyhow!("Failed to send notification")))
+    }
+}
+
+impl<S: crate::Services> AcpAdapter<S> {
+    /// Creates a new ACP adapter and returns the notification receiver.
+    pub(crate) fn new(
+        services: Arc<S>,
+    ) -> (Self, mpsc::Receiver<acp::SessionNotification>) {
+        Self::with_services(services)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use forge_domain::{AgentId, ConversationId, ModelId};
+    use tokio::sync::Notify;
+
+    use super::{AcpAdapter, SessionState};
+
+    #[tokio::test]
+    async fn ensure_session_keeps_existing_state() {
+        let adapter = AcpAdapter::new_for_test(());
+        let conversation_id = ConversationId::generate();
+        let notify = Arc::new(Notify::new());
+
+        adapter
+            .store_session(
+                "session-1".to_string(),
+                SessionState {
+                    conversation_id: conversation_id.clone(),
+                    agent_id: AgentId::new("original-agent"),
+                    model_id: Some(ModelId::new("model-a")),
+                    cancel_notify: Some(notify.clone()),
+                },
+            )
+            .await;
+
+        let actual = adapter
+            .ensure_session(
+                "session-1",
+                ConversationId::generate(),
+                AgentId::new("replacement-agent"),
+            )
+            .await;
+
+        assert_eq!(actual.conversation_id, conversation_id);
+        assert_eq!(actual.agent_id, AgentId::new("original-agent"));
+        assert_eq!(actual.model_id, Some(ModelId::new("model-a")));
+        assert!(actual.cancel_notify.is_some());
+    }
+
+    #[tokio::test]
+    async fn ensure_session_creates_new_state_when_missing() {
+        let adapter = AcpAdapter::new_for_test(());
+        let conversation_id = ConversationId::generate();
+
+        let actual = adapter
+            .ensure_session(
+                "new-session",
+                conversation_id.clone(),
+                AgentId::new("fresh-agent"),
+            )
+            .await;
+
+        assert_eq!(actual.conversation_id, conversation_id);
+        assert_eq!(actual.agent_id, AgentId::new("fresh-agent"));
+        assert_eq!(actual.model_id, None);
+        assert!(actual.cancel_notify.is_none());
+    }
+
+    #[tokio::test]
+    async fn cancel_session_notifies_waiters() {
+        let adapter = AcpAdapter::new_for_test(());
+        let notify = Arc::new(Notify::new());
+        let wait_for_cancel_handle = notify.clone();
+        let wait_for_cancel = wait_for_cancel_handle.notified();
+
+        adapter
+            .store_session(
+                "session-2".to_string(),
+                SessionState {
+                    conversation_id: ConversationId::generate(),
+                    agent_id: AgentId::new("agent"),
+                    model_id: None,
+                    cancel_notify: Some(notify),
+                },
+            )
+            .await;
+
+        let cancelled = adapter.cancel_session("session-2").await;
+
+        assert!(cancelled);
+        let result = tokio::time::timeout(Duration::from_millis(100), wait_for_cancel).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn cancel_session_returns_false_when_session_has_no_waiter() {
+        let adapter = AcpAdapter::new_for_test(());
+
+        let cancelled = adapter.cancel_session("missing-session").await;
+
+        assert!(!cancelled);
+    }
+
+    #[tokio::test]
+    async fn update_methods_change_existing_session() {
+        let adapter = AcpAdapter::new_for_test(());
+        let notify = Arc::new(Notify::new());
+
+        adapter
+            .store_session(
+                "session-3".to_string(),
+                SessionState {
+                    conversation_id: ConversationId::generate(),
+                    agent_id: AgentId::new("old-agent"),
+                    model_id: None,
+                    cancel_notify: None,
+                },
+            )
+            .await;
+
+        adapter
+            .update_session_agent("session-3", AgentId::new("new-agent"))
+            .await
+            .unwrap();
+        adapter
+            .update_session_model("session-3", ModelId::new("new-model"))
+            .await
+            .unwrap();
+        adapter
+            .set_cancel_notify("session-3", Some(notify.clone()))
+            .await
+            .unwrap();
+
+        let actual = adapter.session_state("session-3").await.unwrap();
+
+        assert_eq!(actual.agent_id, AgentId::new("new-agent"));
+        assert_eq!(actual.model_id, Some(ModelId::new("new-model")));
+        assert!(actual.cancel_notify.is_some());
     }
 }

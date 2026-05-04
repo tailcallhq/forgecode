@@ -237,3 +237,70 @@ impl StateBuilders {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use agent_client_protocol as acp;
+    use agent_client_protocol::{EnvVariable, HttpHeader};
+    use forge_domain::{McpOAuthSetting, McpServerConfig};
+
+    use super::StateBuilders;
+
+    #[test]
+    fn maps_stdio_servers_with_env() {
+        let server = acp::McpServer::Stdio(
+            acp::McpServerStdio::new("local-server", "/bin/echo")
+                .args(vec!["hello".to_string()])
+                .env(vec![EnvVariable::new("TOKEN", "secret")]),
+        );
+
+        let (name, config) = StateBuilders::acp_to_mcp_server_config(&server).unwrap();
+
+        assert_eq!(name.to_string(), "local-server");
+        match config {
+            McpServerConfig::Stdio(stdio) => {
+                assert_eq!(stdio.command, "/bin/echo");
+                assert_eq!(stdio.args, vec!["hello".to_string()]);
+                assert_eq!(stdio.env.get("TOKEN"), Some(&"secret".to_string()));
+            }
+            McpServerConfig::Http(_) => panic!("expected stdio config"),
+        }
+    }
+
+    #[test]
+    fn maps_http_servers_with_auto_detect_oauth() {
+        let server = acp::McpServer::Http(
+            acp::McpServerHttp::new("remote.server", "https://example.com/mcp").headers(vec![
+                HttpHeader::new("Authorization", "Bearer token"),
+            ]),
+        );
+
+        let (name, config) = StateBuilders::acp_to_mcp_server_config(&server).unwrap();
+
+        assert_eq!(name.to_string(), "remote.server");
+        match config {
+            McpServerConfig::Http(http) => {
+                assert_eq!(http.url, "https://example.com/mcp");
+                assert_eq!(
+                    http.headers.get("Authorization"),
+                    Some(&"Bearer token".to_string())
+                );
+                assert_eq!(http.oauth, McpOAuthSetting::AutoDetect);
+            }
+            McpServerConfig::Stdio(_) => panic!("expected http config"),
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_server_names() {
+        let server = acp::McpServer::Sse(acp::McpServerSse::new(
+            "bad server name!",
+            "https://example.com/sse",
+        ));
+
+        let error = StateBuilders::acp_to_mcp_server_config(&server).unwrap_err();
+        let actual = error.to_string();
+
+        assert!(actual.contains("invalid characters"));
+    }
+}

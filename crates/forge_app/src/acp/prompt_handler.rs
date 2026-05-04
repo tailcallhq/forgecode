@@ -137,6 +137,9 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
         }
     }
 
+}
+
+impl<S> AcpAdapter<S> {
     async fn handle_chat_response(
         &self,
         session_id: &acp::SessionId,
@@ -300,5 +303,129 @@ fn format_interruption(reason: &InterruptionReason) -> (String, String) {
             format!("Request limit reached ({})", limit),
             "Forge reached the maximum number of requests for this turn.".to_string(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use agent_client_protocol as acp;
+    use forge_domain::{ChatResponse, ChatResponseContent, InterruptionReason, ToolName};
+    use tokio::sync::mpsc::error::TryRecvError;
+
+    use super::{AcpAdapter, format_interruption};
+
+    #[test]
+    fn formats_tool_failure_interruptions() {
+        let mut errors = HashMap::new();
+        errors.insert(ToolName::new("read"), 2);
+        errors.insert(ToolName::new("write"), 1);
+
+        let actual = format_interruption(
+            &InterruptionReason::MaxToolFailurePerTurnLimitReached { limit: 3, errors },
+        );
+
+        assert_eq!(actual.0, "Tool failure limit reached (3)");
+        assert!(actual.1.contains("read (2)"));
+        assert!(actual.1.contains("write (1)"));
+    }
+
+    #[test]
+    fn formats_request_limit_interruptions() {
+        let actual = format_interruption(
+            &InterruptionReason::MaxRequestPerTurnLimitReached { limit: 5 },
+        );
+
+        assert_eq!(actual.0, "Request limit reached (5)");
+        assert_eq!(
+            actual.1,
+            "Forge reached the maximum number of requests for this turn."
+        );
+    }
+
+    #[tokio::test]
+    async fn task_message_sends_agent_message_notification() {
+        let (adapter, mut rx) = AcpAdapter::new_for_test_with_receiver(());
+        let session_id = acp::SessionId::new("session-1");
+
+        adapter
+            .handle_task_message(
+                &session_id,
+                ChatResponseContent::Markdown {
+                    text: "Hello from Forge".to_string(),
+                    partial: false,
+                },
+            )
+            .await
+            .unwrap();
+
+        let actual = rx.try_recv().unwrap();
+        assert_eq!(actual.session_id, session_id);
+        assert!(matches!(
+            actual.update,
+            acp::SessionUpdate::AgentMessageChunk(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn empty_task_message_is_ignored() {
+        let (adapter, mut rx) = AcpAdapter::new_for_test_with_receiver(());
+
+        adapter
+            .handle_task_message(
+                &acp::SessionId::new("session-2"),
+                ChatResponseContent::Markdown {
+                    text: String::new(),
+                    partial: false,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
+    }
+
+    #[tokio::test]
+    async fn task_reasoning_sends_thought_notification() {
+        let (adapter, mut rx) = AcpAdapter::new_for_test_with_receiver(());
+        let session_id = acp::SessionId::new("session-3");
+
+        adapter
+            .handle_chat_response(
+                &session_id,
+                ChatResponse::TaskReasoning {
+                    content: "Thinking".to_string(),
+                },
+                &mut false,
+            )
+            .await
+            .unwrap();
+
+        let actual = rx.try_recv().unwrap();
+        assert_eq!(actual.session_id, session_id);
+        assert!(matches!(
+            actual.update,
+            acp::SessionUpdate::AgentThoughtChunk(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn interrupt_without_client_does_not_enable_continue() {
+        let adapter = AcpAdapter::new_for_test(());
+        let mut continue_after_interrupt = false;
+
+        adapter
+            .handle_chat_response(
+                &acp::SessionId::new("session-4"),
+                ChatResponse::Interrupt {
+                    reason: InterruptionReason::MaxRequestPerTurnLimitReached { limit: 2 },
+                },
+                &mut continue_after_interrupt,
+            )
+            .await
+            .unwrap();
+
+        assert!(!continue_after_interrupt);
     }
 }
