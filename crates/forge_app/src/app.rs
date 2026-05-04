@@ -146,7 +146,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
 
         // Create the orchestrator with all necessary dependencies
         let tracing_handler = TracingHandler::new();
-        let title_handler = TitleGenerationHandler::new(services.clone());
+        let title_handler =
+            TitleGenerationHandler::with_enabled(services.clone(), forge_config.generate_titles);
 
         // Build the on_end hook, conditionally adding PendingTodosHandler based on
         // config
