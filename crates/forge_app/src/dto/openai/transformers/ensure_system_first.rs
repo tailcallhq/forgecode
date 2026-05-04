@@ -5,7 +5,7 @@ use crate::dto::openai::{Message, MessageContent, Request, Role};
 /// Merges all system messages into a single system message at the beginning of
 /// the messages array.
 ///
-/// Some providers (e.g. NVIDIA) reject requests with multiple system messages
+/// Some providers (e.g. NVIDIA, vLLM) reject requests with multiple system messages
 /// or system messages that are not positioned at the start of the conversation.
 pub struct MergeSystemMessages;
 

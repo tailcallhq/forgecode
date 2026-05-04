@@ -82,8 +82,8 @@ impl Transformer for ProviderPipeline<'_> {
 
         let xai_compat = MakeXaiCompat.when(move |_| provider.id == ProviderId::XAI);
 
-        let ensure_system_first =
-            MergeSystemMessages.when(move |_| provider.id == ProviderId::NVIDIA);
+        let ensure_system_first = MergeSystemMessages
+            .when(move |_| provider.id == ProviderId::NVIDIA || provider.id == ProviderId::from_str("vllm").unwrap());
 
         let trim_tool_call_ids = TrimToolCallIds.when(move |_| provider.id == ProviderId::OPENAI);
 
@@ -247,6 +247,21 @@ mod tests {
         }
     }
 
+    fn vllm(key: &str) -> Provider<Url> {
+        let id = ProviderId::from_str("vllm").unwrap();
+        Provider {
+            id: id.clone(),
+            provider_type: Default::default(),
+            response: Some(ProviderResponse::OpenAI),
+            url: Url::parse("http://localhost:8000/v1/chat/completions").unwrap(),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            credential: make_credential(id, key),
+            custom_headers: None,
+            models: Some(ModelSource::Hardcoded(vec![])),
+        }
+    }
+
     fn xai(key: &str) -> Provider<Url> {
         Provider {
             id: ProviderId::XAI,
@@ -378,6 +393,49 @@ mod tests {
         assert!(!supports_open_router_params(&openai("openai")));
         assert!(!supports_open_router_params(&xai("xai")));
         assert!(!supports_open_router_params(&anthropic("claude")));
+    }
+
+    #[test]
+    fn test_vllm_provider_merges_system_messages() {
+        use crate::dto::openai::{Message, MessageContent, Role};
+
+        let provider = vllm("vllm-key");
+        let fixture = Request::default().messages(vec![
+            Message {
+                role: Role::User,
+                content: Some(MessageContent::Text("hello".to_string())),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning_details: None,
+                reasoning_text: None,
+                reasoning_opaque: None,
+                reasoning_content: None,
+                extra_content: None,
+            },
+            Message {
+                role: Role::System,
+                content: Some(MessageContent::Text("be concise".to_string())),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning_details: None,
+                reasoning_text: None,
+                reasoning_opaque: None,
+                reasoning_content: None,
+                extra_content: None,
+            },
+        ]);
+
+        let mut pipeline = ProviderPipeline::new(&provider);
+        let actual = pipeline.transform(fixture);
+
+        let messages = actual.messages.unwrap();
+        let expected_first_role = Role::System;
+        assert_eq!(messages[0].role, expected_first_role);
+
+        let system_messages = messages.iter().find(|m| m.role == Role::System).iter().count();
+        assert_eq!(system_messages, 1);
     }
 
     #[test]
