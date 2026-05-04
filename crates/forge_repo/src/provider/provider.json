@@ -1228,11 +1228,11 @@
     "url_param_vars": [
       {"name": "VLLM_SSL_SCHEME", "options": ["http", "https"]},
       "VLLM_HOST",
-      "VLLM_PORT"
+      {"name": "VLLM_PORT", "optional": true}
     ],
     "response_type": "OpenAI",
-    "url": "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}:{{VLLM_PORT}}/v1/chat/completions",
-    "models": "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}:{{VLLM_PORT}}/v1/models",
+    "url": "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}{{#if VLLM_PORT}}:{{VLLM_PORT}}{{/if}}/v1/chat/completions",
+    "models": "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}{{#if VLLM_PORT}}:{{VLLM_PORT}}{{/if}}/v1/models",
     "auth_methods": ["api_key"]
   },
   {
