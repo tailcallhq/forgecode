@@ -46,3 +46,4 @@ jobs/**
 node_modules/
 bench/__pycache__
 .ai/
+.worktrees/
