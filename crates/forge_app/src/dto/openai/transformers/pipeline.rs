@@ -34,7 +34,8 @@ impl<'a> ProviderPipeline<'a> {
     /// Creates a new provider pipeline for the given provider.
     ///
     /// Set `merge_system_messages` to `true` to force all system messages into
-    /// a single leading message (controlled by `ForgeConfig::merge_system_messages`).
+    /// a single leading message (controlled by
+    /// `ForgeConfig::merge_system_messages`).
     pub fn new(provider: &'a Provider<Url>, merge_system_messages: bool) -> Self {
         Self { provider, merge_system_messages }
     }
@@ -89,12 +90,11 @@ impl Transformer for ProviderPipeline<'_> {
 
         let xai_compat = MakeXaiCompat.when(move |_| provider.id == ProviderId::XAI);
 
-        let ensure_system_first = MergeSystemMessages
-            .when(move |_| {
-                provider.id == ProviderId::NVIDIA
-                    || provider.id.as_ref() == "vllm"
-                    || merge_system_messages
-            });
+        let ensure_system_first = MergeSystemMessages.when(move |_| {
+            provider.id == ProviderId::NVIDIA
+                || provider.id.as_ref() == "vllm"
+                || merge_system_messages
+        });
 
         let trim_tool_call_ids = TrimToolCallIds.when(move |_| provider.id == ProviderId::OPENAI);
 
@@ -446,7 +446,11 @@ mod tests {
         let expected_first_role = Role::System;
         assert_eq!(messages[0].role, expected_first_role);
 
-        let system_messages = messages.iter().find(|m| m.role == Role::System).iter().count();
+        let system_messages = messages
+            .iter()
+            .find(|m| m.role == Role::System)
+            .iter()
+            .count();
         assert_eq!(system_messages, 1);
     }
 
@@ -489,7 +493,10 @@ mod tests {
 
         let messages = actual.messages.unwrap();
         assert_eq!(messages[0].role, Role::System);
-        assert_eq!(messages.iter().filter(|m| m.role == Role::System).count(), 1);
+        assert_eq!(
+            messages.iter().filter(|m| m.role == Role::System).count(),
+            1
+        );
     }
 
     #[test]
