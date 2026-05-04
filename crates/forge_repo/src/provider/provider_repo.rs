@@ -555,14 +555,66 @@ impl<
         }
     }
 
-    /// Writes credentials to the JSON file
+    /// Writes credentials to the JSON file.
+    ///
+    /// On Unix systems, the credentials file is forced to mode `0o600`
+    /// (owner read/write only) and its parent directory to mode `0o700`
+    /// (owner-only access) so that provider API keys and tokens cannot be
+    /// read by group or other users on the system.
     async fn write_credentials(&self, credentials: &Vec<AuthCredential>) -> anyhow::Result<()> {
         let path = self.infra.get_environment().credentials_path();
 
         let content = serde_json::to_string_pretty(credentials)?;
         self.infra.write(&path, Bytes::from(content)).await?;
+
+        // Restrict permissions on Unix systems so credentials cannot be read
+        // by group or other users. The check is best-effort: when the
+        // underlying writer is a mock that does not actually persist to disk
+        // (in tests) the file/directory will not exist and we silently skip
+        // tightening permissions.
+        #[cfg(unix)]
+        restrict_credentials_permissions(&path).await?;
+
         Ok(())
     }
+}
+
+/// Restricts permissions on the credentials file and its containing
+/// directory to be readable/writable only by the owning user on Unix
+/// systems.
+///
+/// Sets the credentials file to mode `0o600` and best-effort tightens the
+/// parent directory to mode `0o700`. If the credentials file does not
+/// exist on disk (for example when the writer is a mock during tests) the
+/// file step is skipped. Parent-directory permission errors are
+/// intentionally swallowed because the directory may pre-exist with
+/// permissions we cannot modify; the file-level `0o600` already secures
+/// the secrets.
+#[cfg(unix)]
+async fn restrict_credentials_permissions(path: &std::path::Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    use tokio::fs;
+
+    if let Ok(metadata) = fs::metadata(path).await {
+        let mut perms = metadata.permissions();
+        perms.set_mode(0o600);
+        fs::set_permissions(path, perms).await?;
+    }
+
+    if let Some(parent) = path.parent()
+        && let Ok(metadata) = fs::metadata(parent).await
+    {
+        let mut perms = metadata.permissions();
+        perms.set_mode(0o700);
+        // Best-effort: ignore errors (e.g. when the directory is owned by
+        // another user or located on a filesystem that does not support
+        // POSIX permissions). The credentials file itself is already
+        // protected by `0o600` above.
+        let _ = fs::set_permissions(parent, perms).await;
+    }
+
+    Ok(())
 }
 
 #[async_trait::async_trait]
@@ -1745,5 +1797,75 @@ mod env_tests {
             .iter()
             .find(|c| c.id == ProviderId::OPEN_ROUTER);
         assert!(openrouter_config.is_some());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_restrict_credentials_permissions_sets_owner_only_modes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Fixture: a real temp directory with a credentials file written
+        // using world-readable permissions (mimicking the historical
+        // behaviour we are fixing).
+        let temp_dir = tempfile::tempdir().unwrap();
+        let credentials_path = temp_dir.path().join(".credentials.json");
+        tokio::fs::write(&credentials_path, b"{}").await.unwrap();
+        tokio::fs::set_permissions(
+            &credentials_path,
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .await
+        .unwrap();
+        tokio::fs::set_permissions(temp_dir.path(), std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+
+        // Act: tighten the credentials and parent directory permissions.
+        restrict_credentials_permissions(&credentials_path)
+            .await
+            .unwrap();
+
+        // Assert: file is `0o600` and parent directory is `0o700`.
+        let actual_file_mode = tokio::fs::metadata(&credentials_path)
+            .await
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        let actual_dir_mode = tokio::fs::metadata(temp_dir.path())
+            .await
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        let expected_file_mode = 0o600;
+        let expected_dir_mode = 0o700;
+
+        assert_eq!(actual_file_mode, expected_file_mode);
+        assert_eq!(actual_dir_mode, expected_dir_mode);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_restrict_credentials_permissions_is_noop_when_file_missing() {
+        // Fixture: a path inside an existing directory that does not exist.
+        let temp_dir = tempfile::tempdir().unwrap();
+        let missing_path = temp_dir.path().join(".credentials.json");
+
+        // Act: restricting permissions on a missing file should not error;
+        // the parent directory permissions should still be tightened.
+        let actual = restrict_credentials_permissions(&missing_path).await;
+
+        // Assert: function returns Ok and the parent dir is still tightened.
+        assert!(actual.is_ok());
+        use std::os::unix::fs::PermissionsExt;
+        let parent_mode = tokio::fs::metadata(temp_dir.path())
+            .await
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        let expected_parent_mode = 0o700;
+        assert_eq!(parent_mode, expected_parent_mode);
     }
 }
