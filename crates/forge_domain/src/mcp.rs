@@ -56,6 +56,14 @@ impl McpServerConfig {
         }
     }
 
+    /// Set the disabled state of this server.
+    pub fn set_disable(&mut self, disabled: bool) {
+        match self {
+            McpServerConfig::Stdio(v) => v.disable = disabled,
+            McpServerConfig::Http(v) => v.disable = disabled,
+        }
+    }
+
     /// Returns the type of MCP server as a string ("STDIO" or "HTTP")
     pub fn server_type(&self) -> &'static str {
         match self {
