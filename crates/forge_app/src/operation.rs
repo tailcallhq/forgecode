@@ -2335,7 +2335,7 @@ mod tests {
         let long_content = format!(
             "{}{}",
             "A".repeat(config.max_fetch_chars),
-            &truncated_content
+            truncated_content
         );
         let fixture = ToolOperation::NetFetch {
             input: forge_domain::NetFetch {
