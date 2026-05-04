@@ -219,7 +219,7 @@ Install the ZSH plugin once with `forge setup`, then use `:` commands directly a
 : refactor the auth module      # Send a prompt to the active agent
 :commit                         # AI-powered git commit
 :suggest "find large log files" # Translate description → shell command in your buffer
-:conversation                   # Browse saved conversations with fzf preview
+:conversation                   # Browse saved conversations with interactive picker
 ```
 
 See the full [ZSH Plugin reference below](#zsh-plugin-the--prefix-system) for all commands and aliases.
@@ -235,7 +235,7 @@ When you install the ZSH plugin (`forge setup`), you get a `:` prefix command sy
 ```zsh
 : <prompt>         # Send a prompt to the active agent
 :sage <prompt>     # Send a prompt to a specific agent by name (sage, muse, forge, or any custom agent)
-:agent <name>      # Switch the active agent; opens fzf picker if no name given
+:agent <name>      # Switch the active agent; opens interactive picker if no name given
 ```
 
 ### Agents
@@ -275,13 +275,13 @@ Forge saves every conversation. You can switch between them like switching direc
 ```zsh
 :new                      # Start a fresh conversation (saves current for :conversation -)
 :new <initial prompt>     # Start a new conversation and immediately send a prompt
-:conversation             # Open fzf picker: browse and switch conversations with preview
+:conversation             # Open interactive picker: browse and switch conversations with preview
 :conversation <id>        # Switch directly to a conversation by ID
 :conversation -           # Toggle between current and previous conversation (like cd -)
 :clone                    # Branch the current conversation (try a different direction)
 :clone <id>               # Clone a specific conversation by ID
 :rename <name>            # Rename the current conversation
-:conversation-rename      # Rename a conversation via fzf picker
+:conversation-rename      # Rename a conversation via interactive picker
 :retry                    # Retry the last prompt (useful if the AI misunderstood)
 :copy                     # Copy the last AI response to clipboard as markdown
 :dump                     # Export conversation as JSON
@@ -377,11 +377,11 @@ After running `:sync`, the AI can search your codebase by meaning rather than ex
 |---|---|---|
 | `: <prompt>` | | Send prompt to active agent |
 | `:new` | `:n` | Start new conversation |
-| `:conversation` | `:c` | Browse/switch conversations (fzf) |
+| `:conversation` | `:c` | Browse/switch conversations (interactive picker) |
 | `:conversation -` | | Toggle to previous conversation |
 | `:clone` | | Branch current conversation |
 | `:rename <name>` | `:rn` | Rename current conversation |
-| `:conversation-rename` | | Rename conversation (fzf picker) |
+| `:conversation-rename` | | Rename conversation (interactive picker) |
 | `:retry` | `:r` | Retry last prompt |
 | `:copy` | | Copy last response to clipboard |
 | `:dump` | `:d` | Export conversation as JSON |
@@ -392,7 +392,7 @@ After running `:sync`, the AI can search your codebase by meaning rather than ex
 | `:edit` | `:ed` | Compose prompt in $EDITOR |
 | `:sage <prompt>` | `:ask` | Q&A / code understanding agent |
 | `:muse <prompt>` | `:plan` | Planning agent |
-| `:agent <name>` | `:a` | Switch active agent (fzf picker if no name given) |
+| `:agent <name>` | `:a` | Switch active agent (interactive picker if no name given) |
 | `:model <id>` | `:m` | Set model for this session only |
 | `:config-model <id>` | `:cm` | Set default model (persistent) |
 | `:reasoning-effort <lvl>` | `:re` | Set reasoning effort for session |

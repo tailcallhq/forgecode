@@ -6,9 +6,13 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+bstr.workspace = true
 colored.workspace = true
 console.workspace = true
-fzf-wrapped.workspace = true
+crossterm = "0.29.0"
+derive_setters.workspace = true
+nucleo.workspace = true
+nucleo-picker.workspace = true
 rustyline.workspace = true
 tracing.workspace = true
 

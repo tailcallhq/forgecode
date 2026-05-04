@@ -7,7 +7,7 @@ use clap::Parser;
 use forge_api::ForgeAPI;
 use forge_config::ForgeConfig;
 use forge_domain::TitleFormat;
-use forge_main::{Cli, Sandbox, TitleDisplayExt, UI, tracker};
+use forge_main::{Cli, Sandbox, TitleDisplayExt, TopLevelCommand, UI, tracker};
 
 /// Enables ENABLE_VIRTUAL_TERMINAL_PROCESSING on the stdout console handle.
 ///
@@ -90,8 +90,10 @@ async fn run() -> Result<()> {
     // Initialize and run the UI
     let mut cli = Cli::parse();
 
-    // Check if there's piped input
-    if !std::io::stdin().is_terminal() {
+    // Check if there's piped input, but skip for `forge select` since that
+    // command uses stdin for its item list.
+    let is_select = matches!(cli.subcommands, Some(TopLevelCommand::Select(_)));
+    if !is_select && !std::io::stdin().is_terminal() {
         let mut stdin_content = String::new();
         std::io::stdin().read_to_string(&mut stdin_content)?;
         let trimmed_content = stdin_content.trim();

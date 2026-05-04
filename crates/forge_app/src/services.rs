@@ -10,9 +10,9 @@ use forge_domain::{
     ResultStream, Scope, SearchParams, SyncProgress, SyntaxError, Template, ToolCallFull,
     ToolOutput, WorkspaceAuth, WorkspaceId, WorkspaceInfo,
 };
+use forge_eventsource::EventSource;
 use reqwest::Response;
 use reqwest::header::HeaderMap;
-use reqwest_eventsource::EventSource;
 use url::Url;
 
 use crate::user::{User, UserUsage};
