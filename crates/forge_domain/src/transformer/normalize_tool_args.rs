@@ -67,12 +67,14 @@ mod tests {
                         r#"{"file_path": "/test/path", "range": {"start_line": 1, "end_line": 10}}"#,
                     ),
                     thought_signature: None,
+                    namespace: None,
                 }]),
                 thought_signature: None,
                 model: None,
                 reasoning_details: None,
                 droppable: false,
                 phase: None,
+                response_items: None,
             }));
 
         // Apply the transformer
@@ -144,12 +146,14 @@ mod tests {
                         "range": {"start_line": 1, "end_line": 10}
                     })),
                     thought_signature: None,
+                    namespace: None,
                 }]),
                 thought_signature: None,
                 model: None,
                 reasoning_details: None,
                 droppable: false,
                 phase: None,
+                response_items: None,
             }));
 
         let mut transformer = NormalizeToolCallArguments::new();

@@ -406,6 +406,7 @@ impl TryFrom<Response> for ChatCompletionMessage {
                                             &tool_call.function.arguments,
                                         )?,
                                         thought_signature,
+                                        namespace: None,
                                     });
                                 }
                             }
@@ -467,6 +468,7 @@ impl TryFrom<Response> for ChatCompletionMessage {
                                         name: tool_call.function.name.clone(),
                                         arguments_part: tool_call.function.arguments.clone(),
                                         thought_signature,
+                                        namespace: None,
                                     });
                                 }
                             }

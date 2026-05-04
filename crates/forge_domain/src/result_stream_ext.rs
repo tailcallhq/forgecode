@@ -259,11 +259,25 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
         // Get phase from the last message that has one
         let phase = messages.iter().rev().find_map(|message| message.phase);
 
+        // Collect tool search output from all messages (take the last one if multiple)
+        let tool_search_output = messages
+            .iter()
+            .rev()
+            .find_map(|message| message.tool_search_output.clone());
+
+        // Collect response_items from all messages (take the last non-None one)
+        let response_items = messages
+            .iter()
+            .rev()
+            .find_map(|message| message.response_items.clone());
+
         // Check for empty completion - map to retryable error for retry
         if content.trim().is_empty()
             && tool_calls.is_empty()
             && finish_reason.is_none()
             && thought_signature.is_none()
+            && tool_search_output.is_none()
+            && response_items.is_none()
         {
             return Err(crate::Error::EmptyCompletion.into_retryable().into());
         }
@@ -278,6 +292,8 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
                 .then_some(total_reasoning_details),
             finish_reason,
             phase,
+            tool_search_output,
+            response_items,
         })
     }
 }
@@ -331,6 +347,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: None,
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -385,6 +403,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: None,
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -437,6 +457,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: None,
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -490,6 +512,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: None,
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -554,6 +578,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: Some(FinishReason::Stop),
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -610,6 +636,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: Some(FinishReason::Stop),
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -716,6 +744,7 @@ mod tests {
             call_id: Some(ToolCallId::new("call_123")),
             arguments: serde_json::json!("test_arg").into(),
             thought_signature: None,
+            namespace: None,
         };
 
         let messages = vec![Ok(ChatCompletionMessage::default()
@@ -738,6 +767,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: None,
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -753,6 +784,7 @@ mod tests {
             name: Some(ToolName::new("test_tool")),
             arguments_part: "invalid json {".to_string(), // Invalid JSON
             thought_signature: None,
+            namespace: None,
         };
 
         let messages = vec![Ok(ChatCompletionMessage::default()
@@ -773,6 +805,7 @@ mod tests {
             call_id: Some(ToolCallId::new("call_123")),
             arguments: ToolCallArguments::from_json("invalid json {"),
             thought_signature: None,
+            namespace: None,
         };
         assert_eq!(actual.tool_calls[0], expected);
     }
@@ -805,6 +838,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: None,
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -861,6 +896,8 @@ mod tests {
             reasoning_details: Some(expected_reasoning_details),
             finish_reason: None,
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -892,6 +929,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: None,
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -981,6 +1020,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: None,
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -1024,6 +1065,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: None,
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -1065,6 +1108,8 @@ mod tests {
             finish_reason: Some(FinishReason::Stop), /* Should be from the last message with a
                                                       * finish reason */
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -1095,6 +1140,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: Some(FinishReason::ToolCalls),
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -1124,6 +1171,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: None,
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -1216,6 +1265,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: Some(FinishReason::Stop),
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);
@@ -1229,6 +1280,7 @@ mod tests {
             call_id: Some(ToolCallId::new("call_123")),
             arguments: serde_json::json!("test_arg").into(),
             thought_signature: None,
+            namespace: None,
         };
 
         let messages = vec![Ok(ChatCompletionMessage::default()
@@ -1251,6 +1303,8 @@ mod tests {
             reasoning_details: None,
             finish_reason: None,
             phase: None,
+            tool_search_output: None,
+            response_items: None,
         };
 
         assert_eq!(actual, expected);

@@ -88,6 +88,7 @@ mod tests {
             stream: None,
             response_format: None,
             initiator: None,
+            tool_search: None,
         };
 
         let request = Request::from(context);

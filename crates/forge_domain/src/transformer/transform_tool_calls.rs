@@ -44,6 +44,7 @@ impl Transformer for TransformToolCalls {
                             model: text_msg.model.clone(),
                             droppable: text_msg.droppable,
                             phase: text_msg.phase,
+                            response_items: text_msg.response_items.clone(),
                         })
                         .into(),
                     );
@@ -105,6 +106,7 @@ mod tests {
             call_id: Some(ToolCallId::new("call_123")),
             arguments: serde_json::json!({"param": "value"}).into(),
             thought_signature: None,
+            namespace: None,
         };
 
         Context::default()

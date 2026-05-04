@@ -504,6 +504,21 @@ impl From<ContextMessage> for Message {
                     extra_content: None,
                 }
             }
+            ContextMessage::ToolSearchOutput(_) => {
+                // Tool search output is OpenAI Responses API specific - skip for OpenAI
+                Message {
+                    role: Role::User,
+                    content: None,
+                    name: None,
+                    tool_call_id: None,
+                    tool_calls: None,
+                    reasoning_details: None,
+                    reasoning_text: None,
+                    reasoning_opaque: None,
+                    reasoning_content: None,
+                    extra_content: None,
+                }
+            }
         }
     }
 }
@@ -741,6 +756,7 @@ mod tests {
             name: ToolName::new("test_tool"),
             arguments: serde_json::json!({"key": "value"}).into(),
             thought_signature: None,
+            namespace: None,
         };
 
         let assistant_message = ContextMessage::Text(
