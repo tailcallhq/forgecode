@@ -735,6 +735,189 @@ mod tests {
     }
 
     #[test]
+    fn test_codex_tool_parameters_removes_mcp_schema_draft_marker() -> anyhow::Result<()> {
+        let fixture = schemars::Schema::try_from(json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "additionalProperties": false,
+            "type": "object",
+            "properties": {
+                "output_mode": {
+                    "description": "Output mode",
+                    "nullable": true,
+                    "type": "string",
+                    "enum": ["content", "files_with_matches", "count", null]
+                }
+            },
+            "required": ["output_mode"]
+        }))
+        .unwrap();
+
+        let (actual, actual_strict) = codex_tool_parameters(&fixture)?;
+
+        let expected = json!({
+            "additionalProperties": false,
+            "type": "object",
+            "properties": {
+                "output_mode": {
+                    "description": "Output mode",
+                    "anyOf": [
+                        {"type": "string", "enum": ["content", "files_with_matches", "count"]},
+                        {"type": "null"}
+                    ]
+                }
+            },
+            "required": ["output_mode"]
+        });
+        let expected_strict = true;
+        assert_eq!(actual, expected);
+        assert_eq!(actual_strict, expected_strict);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_codex_tool_parameters_converts_datadog_metric_query_one_of() -> anyhow::Result<()> {
+        let fixture = schemars::Schema::try_from(json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "additionalProperties": false,
+            "type": "object",
+            "properties": {
+                "queries": {
+                    "description": "Array of metric queries.",
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "metric_name": {"type": "string"},
+                                    "space_aggregator": {
+                                        "type": "string",
+                                        "enum": ["avg", "sum", "min", "max"]
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "required": ["queries"]
+        }))
+        .unwrap();
+
+        let (actual, actual_strict) = codex_tool_parameters(&fixture)?;
+
+        let expected = json!({
+            "additionalProperties": false,
+            "type": "object",
+            "properties": {
+                "queries": {
+                    "description": "Array of metric queries.",
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "metric_name": {"type": "string"},
+                                    "space_aggregator": {
+                                        "type": "string",
+                                        "enum": ["avg", "sum", "min", "max"]
+                                    }
+                                },
+                                "additionalProperties": false,
+                                "required": ["metric_name", "space_aggregator"]
+                            }
+                        ]
+                    }
+                }
+            },
+            "required": ["queries"]
+        });
+        let expected_strict = true;
+        assert_eq!(actual, expected);
+        assert_eq!(actual_strict, expected_strict);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_codex_tool_parameters_sanitizes_unsupported_schema_keywords() -> anyhow::Result<()> {
+        let fixture = schemars::Schema::try_from(json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "$id": "https://example.com/schema.json",
+            "title": "Unsupported metadata",
+            "type": "object",
+            "properties": {
+                "status": {
+                    "const": "ok",
+                    "default": "ok",
+                    "description": "Status value"
+                },
+                "count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "multipleOf": 1
+                },
+                "tags": {
+                    "type": "array",
+                    "prefixItems": [{"type": "string"}],
+                    "minItems": 1,
+                    "uniqueItems": true
+                },
+                "code": {
+                    "type": "string",
+                    "pattern": "^[A-Z]+$",
+                    "minLength": 2,
+                    "maxLength": 8
+                }
+            },
+            "propertyNames": {"pattern": "^[a-z_]+$"},
+            "patternProperties": {
+                "^x-": {"type": "string"}
+            },
+            "required": ["status"],
+            "additionalProperties": false
+        }))
+        .unwrap();
+
+        let (actual, actual_strict) = codex_tool_parameters(&fixture)?;
+
+        let expected = json!({
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["ok"],
+                    "default": "ok",
+                    "description": "Status value"
+                },
+                "count": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "code": {
+                    "type": "string"
+                }
+            },
+            "required": ["code", "count", "status", "tags"],
+            "additionalProperties": false
+        });
+        let expected_strict = true;
+        assert_eq!(actual, expected);
+        assert_eq!(actual_strict, expected_strict);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_codex_request_tools_snapshot() -> anyhow::Result<()> {
         // Build a schema that exercises OpenAI strict-mode normalization:
         // - object schema receives additionalProperties=false
