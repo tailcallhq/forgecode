@@ -25,9 +25,19 @@ allow = [
 [advisories]
 db-path = "$CARGO_HOME/advisory-db"
 ignore = [
+    # Pre-existing fork-specific ignores (preserve)
     { id = "RUSTSEC-2026-0118" },
     { id = "RUSTSEC-2026-0119" },
     { id = "RUSTSEC-2026-0098" },
     { id = "RUSTSEC-2026-0099" },
     { id = "RUSTSEC-2026-0104" },
+
+    # Unmaintained-transitive advisories surfaced via upstream forgecode workspace
+    # deps (no direct use in Phenotype additions). All have "no safe upgrade"
+    # per RustSec; resolution depends on upstream tailcallhq/forgecode bumps.
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1.x unmaintained; transitive via upstream workspace deps; bincode 2.x migration is upstream-owned." },
+    { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; transitive via proc-macro deps; paste! macro not invoked directly in Phenotype additions." },
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained (folded into rustls-pki-types); transitive via upstream rustls stack; pending upstream bump." },
+    { id = "RUSTSEC-2024-0320", reason = "yaml-rust unmaintained; transitive via syntect (forge_display); upstream syntect has not migrated to yaml-rust2." },
+    # Note: RUSTSEC-2026-0049 (advisory-not-detected) entry already removed in 40114d8dc.
 ]
