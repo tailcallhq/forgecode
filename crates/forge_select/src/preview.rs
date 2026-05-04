@@ -142,7 +142,7 @@ fn desired_select_viewport_height(
     let preview_lines = preview_lines as u16;
 
     match layout.placement {
-        PreviewPlacement::Right => header_height.saturating_add(list_height.max(preview_lines)),
+        PreviewPlacement::Right => header_height.saturating_add(list_height),
         PreviewPlacement::Bottom if preview_lines > 0 => header_height
             .saturating_add(list_height)
             .saturating_add(preview_lines.saturating_add(2)),
@@ -1311,4 +1311,27 @@ fn truncate_line(value: &str, max_width: usize) -> String {
     }
 
     rendered
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn test_desired_select_viewport_height_right_ignores_preview_line_count() {
+        let fixture = PreviewLayout { placement: PreviewPlacement::Right, percent: 50 };
+        let actual = desired_select_viewport_height(1, 2, 285, fixture);
+        let expected = 5;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_desired_select_viewport_height_bottom_includes_preview_line_count() {
+        let fixture = PreviewLayout { placement: PreviewPlacement::Bottom, percent: 50 };
+        let actual = desired_select_viewport_height(1, 2, 4, fixture);
+        let expected = 11;
+        assert_eq!(actual, expected);
+    }
 }
