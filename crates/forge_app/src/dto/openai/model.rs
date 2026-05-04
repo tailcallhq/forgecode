@@ -125,6 +125,7 @@ impl From<Model> for forge_domain::Model {
             supports_parallel_tool_calls,
             supports_reasoning,
             input_modalities,
+            family: None,
         }
     }
 }

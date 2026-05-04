@@ -260,6 +260,7 @@ mod tests {
             supports_parallel_tool_calls: Some(true),
             supports_reasoning: Some(false),
             input_modalities: vec![InputModality::Text],
+            family: None,
         }
     }
 

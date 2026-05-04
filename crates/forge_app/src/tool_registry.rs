@@ -811,6 +811,7 @@ fn create_test_model(
         supports_parallel_tool_calls: Some(true),
         supports_reasoning: Some(false),
         input_modalities: modalities,
+        family: None,
     }
 }
 
