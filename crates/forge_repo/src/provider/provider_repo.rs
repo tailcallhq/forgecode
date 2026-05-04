@@ -418,9 +418,10 @@ impl<
                     URLParamValue::from(value.to_string()),
                 );
             } else if env_var.is_optional() {
-                // Optional param absent from env — omit from credential entirely.
-                // `render_url_template` injects null for absent optional params
-                // so `{{#if PARAM}}` evaluates to false.
+                // Optional param absent from env — omit from credential
+                // entirely. `render_url_template` injects null
+                // for absent optional params so `{{#if PARAM}}`
+                // evaluates to false.
             } else {
                 return Err(Error::env_var_not_found(config.id.clone(), name).into());
             }

@@ -38,7 +38,12 @@ impl<R> ForgeProviderService<R> {
         // Start with all stored params as string values.
         let mut template_data: HashMap<&str, serde_json::Value> = params
             .iter()
-            .map(|(k, v)| (k.as_str(), serde_json::Value::String(v.as_str().to_string())))
+            .map(|(k, v)| {
+                (
+                    k.as_str(),
+                    serde_json::Value::String(v.as_str().to_string()),
+                )
+            })
             .collect();
 
         // For optional specs that are entirely absent from the credential,
@@ -327,8 +332,7 @@ mod tests {
         // VLLM_PORT is absent from the credential (user left it blank).
         // render_url_template must inject null so {{#if VLLM_PORT}} is falsy.
         let service = ForgeProviderService::new(Arc::new(MockProviderRepository::new(vec![])));
-        let template =
-            "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}{{#if VLLM_PORT}}:{{VLLM_PORT}}{{/if}}/v1/chat/completions";
+        let template = "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}{{#if VLLM_PORT}}:{{VLLM_PORT}}{{/if}}/v1/chat/completions";
 
         let mut params = HashMap::new();
         params.insert(
@@ -357,8 +361,7 @@ mod tests {
     fn test_render_url_template_optional_port_with_value() {
         // When VLLM_PORT has a value, it should appear in the URL.
         let service = ForgeProviderService::new(Arc::new(MockProviderRepository::new(vec![])));
-        let template =
-            "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}{{#if VLLM_PORT}}:{{VLLM_PORT}}{{/if}}/v1/chat/completions";
+        let template = "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}{{#if VLLM_PORT}}:{{VLLM_PORT}}{{/if}}/v1/chat/completions";
 
         let mut params = HashMap::new();
         params.insert(
