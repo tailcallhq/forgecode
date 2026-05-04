@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context;
 use forge_app::{AuthStrategy, ProviderAuthService, StrategyFactory};
 use forge_domain::{
     AuthContextRequest, AuthContextResponse, AuthMethod, Provider, ProviderId, ProviderRepository,
@@ -142,7 +143,8 @@ where
     /// Checks if credential needs refresh (5 minute buffer before expiry),
     /// iterates through provider's auth methods, and attempts to refresh.
     /// Returns the provider with updated credentials, or original if refresh
-    /// fails or isn't needed.
+    /// isn't needed. Returns an error if refresh is needed but fails for all
+    /// configured auth methods.
     async fn refresh_provider_credential(
         &self,
         mut provider: Provider<url::Url>,
@@ -152,6 +154,8 @@ where
             let buffer = chrono::Duration::minutes(5);
 
             if credential.needs_refresh(buffer) {
+                let mut last_error: Option<anyhow::Error> = None;
+
                 // Iterate through auth methods and try to refresh
                 for auth_method in &provider.auth_methods {
                     match auth_method {
@@ -175,36 +179,44 @@ where
                             };
 
                             // Create strategy and refresh credential
-                            if let Ok(strategy) = self.infra.create_auth_strategy(
+                            let strategy = match self.infra.create_auth_strategy(
                                 provider.id.clone(),
                                 auth_method.clone(),
                                 required_params,
                             ) {
-                                match strategy.refresh(&existing_credential).await {
-                                    Ok(refreshed) => {
-                                        // Store refreshed credential
-                                        if self
-                                            .infra
-                                            .upsert_credential(refreshed.clone())
-                                            .await
-                                            .is_err()
-                                        {
-                                            continue;
-                                        }
+                                Ok(s) => s,
+                                Err(err) => {
+                                    last_error = Some(err);
+                                    continue;
+                                }
+                            };
 
-                                        // Update provider with refreshed credential
-                                        provider.credential = Some(refreshed);
-                                        break; // Success, stop trying other methods
-                                    }
-                                    Err(_) => {
-                                        // If refresh fails, continue with
-                                        // existing credentials
-                                    }
+                            match strategy.refresh(&existing_credential).await {
+                                Ok(refreshed) => {
+                                    // Store refreshed credential
+                                    self.infra.upsert_credential(refreshed.clone()).await?;
+
+                                    // Update provider with refreshed credential
+                                    provider.credential = Some(refreshed);
+                                    return Ok(provider);
+                                }
+                                Err(err) => {
+                                    last_error = Some(err);
                                 }
                             }
                         }
                         _ => {}
                     }
+                }
+
+                // If we got here, all auth methods failed
+                if let Some(err) = last_error {
+                    return Err(err).with_context(|| {
+                        format!(
+                            "Failed to refresh credentials for provider '{}'",
+                            provider.id
+                        )
+                    });
                 }
             }
         }
