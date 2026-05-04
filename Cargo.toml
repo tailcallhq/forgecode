@@ -52,6 +52,7 @@ html2md = "0.2.15"
 http = "1.2.0"
 ignore = "0.4.23"
 is_ci = "1.2.0"
+jsonrpsee = { version = "0.24", features = ["server", "macros"] }
 indexmap = "2.13.0"
 infer = "0.19.0"
 insta = { version = "1.47.2", features = ["json", "yaml"] }
@@ -101,6 +102,7 @@ tokio = { version = "1.51.0", features = [
     "process",
     "signal",
     "io-util",
+    "io-std",
 ] }
 tokio-stream = "0.1.18"
 tokio-util = "0.7"
@@ -159,6 +161,7 @@ forge_tool_macros = { path = "crates/forge_tool_macros" }
 forge_tracker = { path = "crates/forge_tracker" }
 forge_walker = { path = "crates/forge_walker" }
 forge_json_repair = { path = "crates/forge_json_repair" }
+forge_jsonrpc = { path = "crates/forge_jsonrpc" }
 forge_select = { path = "crates/forge_select" }
 forge_test_kit = { path = "crates/forge_test_kit" }
 

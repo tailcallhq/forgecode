@@ -28,6 +28,7 @@ forge_select.workspace = true
 
 merge.workspace = true
 forge_fs.workspace = true
+forge_jsonrpc.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 futures.workspace = true
