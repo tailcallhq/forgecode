@@ -1,0 +1,3 @@
+disallowed-methods = [
+  { path = "std::string::String::from_utf8_lossy", reason = "Prefer bstr ByteSlice decoding so lossy UTF-8 handling stays explicit and consistent across byte-oriented paths.", replacement = "bstr::ByteSlice::to_str_lossy" },
+]

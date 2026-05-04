@@ -62,6 +62,46 @@
     "auth_methods": ["api_key"]
   },
   {
+    "id": "vivgrid",
+    "api_key_vars": "VIVGRID_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAIResponses",
+    "url": "https://api.vivgrid.com/v1/responses",
+    "models": [
+      {
+        "id": "gpt-5.4",
+        "name": "GPT-5.4",
+        "description": "Vivgrid-hosted GPT-5.4 model for complex professional work",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.2-codex",
+        "name": "GPT-5.2 Codex",
+        "description": "Vivgrid-hosted GPT-5.2 Codex model optimized for coding and agent workflows",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.1-codex",
+        "name": "GPT-5.1 Codex",
+        "description": "Vivgrid-hosted GPT-5.1 Codex model for agentic coding tasks",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      }
+    ],
+    "auth_methods": ["api_key"]
+  },
+  {
     "id": "xai",
     "api_key_vars": "XAI_API_KEY",
     "url_param_vars": [],
@@ -520,6 +560,26 @@
         "name": "GPT-5.4 nano",
         "description": "cheapest GPT-5.4-class model for simple high-volume tasks",
         "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.5-2026-04-23",
+        "name": "GPT-5.5",
+        "description": "Frontier model for the most complex professional work.",
+        "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.5-pro-2026-04-23",
+        "name": "GPT-5.5 Pro",
+        "description": "GPT-5.5 pro uses more compute to think harder and provide consistently better answers.",
+        "context_length": 1050000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -1152,46 +1212,66 @@
   {
     "id": "llama_cpp",
     "api_key_vars": "LLAMA_CPP_API_KEY",
-    "url_param_vars": ["LLAMA_CPP_URL", "LLAMA_CPP_PORT"],
+    "url_param_vars": [
+      {"name": "LLAMA_CPP_SSL_SCHEME", "options": ["http", "https"]},
+      "LLAMA_CPP_HOST",
+      "LLAMA_CPP_PORT"
+    ],
     "response_type": "OpenAI",
-    "url": "{{LLAMA_CPP_URL}}:{{LLAMA_CPP_PORT}}/v1/chat/completions",
-    "models": "{{LLAMA_CPP_URL}}:{{LLAMA_CPP_PORT}}/v1/models",
+    "url": "{{LLAMA_CPP_SSL_SCHEME}}://{{LLAMA_CPP_HOST}}:{{LLAMA_CPP_PORT}}/v1/chat/completions",
+    "models": "{{LLAMA_CPP_SSL_SCHEME}}://{{LLAMA_CPP_HOST}}:{{LLAMA_CPP_PORT}}/v1/models",
     "auth_methods": ["api_key"]
   },
   {
     "id": "vllm",
     "api_key_vars": "VLLM_API_KEY",
-    "url_param_vars": ["VLLM_URL", "VLLM_PORT"],
+    "url_param_vars": [
+      {"name": "VLLM_SSL_SCHEME", "options": ["http", "https"]},
+      "VLLM_HOST",
+      "VLLM_PORT"
+    ],
     "response_type": "OpenAI",
-    "url": "{{VLLM_URL}}:{{VLLM_PORT}}/v1/chat/completions",
-    "models": "{{VLLM_URL}}:{{VLLM_PORT}}/v1/models",
+    "url": "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}:{{VLLM_PORT}}/v1/chat/completions",
+    "models": "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}:{{VLLM_PORT}}/v1/models",
     "auth_methods": ["api_key"]
   },
   {
     "id": "jan_ai",
     "api_key_vars": "JAN_AI_API_KEY",
-    "url_param_vars": ["JAN_AI_URL", "JAN_AI_PORT"],
+    "url_param_vars": [
+      {"name": "JAN_AI_SSL_SCHEME", "options": ["http", "https"]},
+      "JAN_AI_HOST",
+      "JAN_AI_PORT"
+    ],
     "response_type": "OpenAI",
-    "url": "{{JAN_AI_URL}}:{{JAN_AI_PORT}}/v1/chat/completions",
-    "models": "{{JAN_AI_URL}}:{{JAN_AI_PORT}}/v1/models",
+    "url": "{{JAN_AI_SSL_SCHEME}}://{{JAN_AI_HOST}}:{{JAN_AI_PORT}}/v1/chat/completions",
+    "models": "{{JAN_AI_SSL_SCHEME}}://{{JAN_AI_HOST}}:{{JAN_AI_PORT}}/v1/models",
     "auth_methods": ["api_key"]
   },
   {
     "id": "ollama",
     "api_key_vars": "OLLAMA_API_KEY",
-    "url_param_vars": ["OLLAMA_URL", "OLLAMA_PORT"],
+    "url_param_vars": [
+      {"name": "OLLAMA_SSL_SCHEME", "options": ["http", "https"]},
+      "OLLAMA_HOST",
+      "OLLAMA_PORT"
+    ],
     "response_type": "OpenAI",
-    "url": "{{OLLAMA_URL}}:{{OLLAMA_PORT}}/v1/chat/completions",
-    "models": "{{OLLAMA_URL}}:{{OLLAMA_PORT}}/v1/models",
+    "url": "{{OLLAMA_SSL_SCHEME}}://{{OLLAMA_HOST}}:{{OLLAMA_PORT}}/v1/chat/completions",
+    "models": "{{OLLAMA_SSL_SCHEME}}://{{OLLAMA_HOST}}:{{OLLAMA_PORT}}/v1/models",
     "auth_methods": ["api_key"]
   },
   {
     "id": "lm_studio",
     "api_key_vars": "LM_STUDIO_API_KEY",
-    "url_param_vars": ["LM_STUDIO_URL", "LM_STUDIO_PORT"],
-    "response_type": "OpenAI",
-    "url": "{{LM_STUDIO_URL}}:{{LM_STUDIO_PORT}}/v1/chat/completions",
-    "models": "{{LM_STUDIO_URL}}:{{LM_STUDIO_PORT}}/v1/models",
+    "url_param_vars": [
+      {"name": "LM_STUDIO_SSL_SCHEME", "options": ["http", "https"]},
+      "LM_STUDIO_HOST",
+      "LM_STUDIO_PORT"
+    ],
+    "response_type": "OpenAIResponses",
+    "url": "{{LM_STUDIO_SSL_SCHEME}}://{{LM_STUDIO_HOST}}:{{LM_STUDIO_PORT}}/v1/responses",
+    "models": "{{LM_STUDIO_SSL_SCHEME}}://{{LM_STUDIO_HOST}}:{{LM_STUDIO_PORT}}/v1/models",
     "auth_methods": ["api_key"]
   },
   {
@@ -2075,7 +2155,7 @@
         "input_modalities": ["text", "image"]
       }
     ],
-    "auth_methods": ["api_key"]
+    "auth_methods": ["api_key", "aws_profile"]
   },
   {
     "id": "vertex_ai_anthropic",
@@ -2406,6 +2486,16 @@
     "response_type": "OpenAI",
     "url": "https://chatgpt.com/backend-api/codex/responses",
     "models": [
+      {
+        "id": "gpt-5.5",
+        "name": "GPT-5.5",
+        "description": "Latest frontier model for complex professional work",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
       {
         "id": "gpt-5.4-mini",
         "name": "GPT-5.4 Mini",
@@ -2910,6 +3000,46 @@
     "url": "https://opencode.ai/zen/go",
     "models": [
       {
+        "id": "mimo-v2.5-pro",
+        "name": "MiMo V2.5 Pro",
+        "description": "MiMo V2.5 Pro model",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "mimo-v2.5",
+        "name": "MiMo V2.5",
+        "description": "MiMo V2.5 model",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "deepseek-v4-flash",
+        "name": "DeepSeek V4 Flash",
+        "description": "DeepSeek V4 Flash model",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "deepseek-v4-pro",
+        "name": "DeepSeek V4 Pro",
+        "description": "DeepSeek V4 Pro model",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
         "id": "glm-5",
         "name": "GLM 5",
         "description": "Zhipu AI's flagship model with 204K context, reasoning, and tool calling capabilities",
@@ -3180,10 +3310,30 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "accounts/fireworks/routers/kimi-k2p6",
+        "name": "Kimi K2.6 (Firepass)",
+        "description": "Kimi K2.6 model",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "accounts/fireworks/models/kimi-k2p5",
         "name": "Kimi K2.5",
         "description": "Kimi K2.5 model",
         "context_length": 256000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "accounts/fireworks/models/kimi-k2p6",
+        "name": "Kimi K2.6",
+        "description": "Kimi K2.6 model",
+        "context_length": 262144,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -3337,6 +3487,67 @@
     "response_type": "OpenAI",
     "url": "https://api.sylph.ai/v1/chat/completions",
     "models": "https://api.sylph.ai/v1/models",
+    "auth_methods": ["api_key"]
+  },
+  {
+    "id": "xiaomi_mimo",
+    "api_key_vars": "XIAOMI_MIMO_API_KEY",
+    "url_param_vars": [
+      { "name": "CLUSTER", "options": ["token-plan-sgp.xiaomimimo.com", "token-plan-cn.xiaomimimo.com", "token-plan-ams.xiaomimimo.com"] }
+    ],
+    "response_type": "OpenAI",
+    "url": "https://{{#if CLUSTER}}{{CLUSTER}}{{else}}token-plan-sgp.xiaomimimo.com{{/if}}/v1/chat/completions",
+    "models": [
+      {
+        "id": "mimo-v2.5-pro",
+        "name": "MiMo V2.5 Pro",
+        "description": "Xiaomi's latest flagship foundation model with enhanced reasoning and agent capabilities",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "mimo-v2.5",
+        "name": "MiMo V2.5",
+        "description": "Xiaomi's balanced V2.5 model for general-purpose tasks",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "mimo-v2-pro",
+        "name": "MiMo V2 Pro",
+        "description": "Xiaomi's flagship foundation model with 1T+ parameters and 1M context length",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "mimo-v2-omni",
+        "name": "MiMo V2 Omni",
+        "description": "Xiaomi's omni-modal model that natively processes image, video, and audio inputs",
+        "context_length": 262100,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      }
+    ],
+    "auth_methods": ["api_key"]
+  },
+  {
+    "id": "nvidia",
+    "api_key_vars": "NVIDIA_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://integrate.api.nvidia.com/v1/chat/completions",
+    "models": "https://integrate.api.nvidia.com/v1/models",
     "auth_methods": ["api_key"]
   }
 ]

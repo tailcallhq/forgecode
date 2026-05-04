@@ -13,6 +13,7 @@ use crate::Percentage;
 pub enum UpdateFrequency {
     Daily,
     Weekly,
+    Never,
     #[default]
     Always,
 }
@@ -22,6 +23,7 @@ impl From<UpdateFrequency> for Duration {
         match val {
             UpdateFrequency::Daily => Duration::from_secs(60 * 60 * 24),
             UpdateFrequency::Weekly => Duration::from_secs(60 * 60 * 24 * 7),
+            UpdateFrequency::Never => Duration::MAX,
             UpdateFrequency::Always => Duration::ZERO,
         }
     }
@@ -33,7 +35,7 @@ impl From<UpdateFrequency> for Duration {
 )]
 #[setters(strip_option, into)]
 pub struct Update {
-    /// How frequently forge checks for updates
+    /// How frequently forge checks for updates: daily, weekly, always, or never
     pub frequency: Option<UpdateFrequency>,
     /// Whether to automatically install updates without prompting
     pub auto_update: Option<bool>,
@@ -234,5 +236,31 @@ mod tests {
             "expected error for eviction_window = 1.5, got: {:?}",
             result.ok()
         );
+    }
+
+    #[test]
+    fn test_update_frequency_never_round_trip() {
+        let fixture =
+            ForgeConfig::default().updates(Update::default().frequency(UpdateFrequency::Never));
+
+        let toml = toml_edit::ser::to_string_pretty(&fixture).unwrap();
+
+        assert!(
+            toml.contains("frequency = \"never\"\n"),
+            "expected `frequency = \"never\"` in TOML output, got:\n{toml}"
+        );
+
+        let actual = ConfigReader::default()
+            .read_defaults()
+            .read_toml(&toml)
+            .build()
+            .unwrap();
+
+        let expected = Some(
+            Update::default()
+                .frequency(UpdateFrequency::Never)
+                .auto_update(true),
+        );
+        assert_eq!(actual.updates, expected);
     }
 }

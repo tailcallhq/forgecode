@@ -3,6 +3,7 @@ use std::process::Output;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 
+use bstr::ByteSlice;
 use chrono::{DateTime, Utc};
 use forge_domain::Conversation;
 use sysinfo::System;
@@ -177,7 +178,7 @@ async fn system_info() -> HashSet<String> {
 
     fn parse(output: Output) -> Option<String> {
         if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let text = output.stdout.to_str_lossy().trim().to_string();
             if !text.is_empty() {
                 return Some(text);
             }

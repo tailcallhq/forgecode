@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, anyhow};
+use bstr::ByteSlice;
 use forge_app::{
     FileInfoInfra, FileReaderInfra, FsSearchService, Match, MatchResult, SearchResult, Walker,
     WalkerInfra,
@@ -386,7 +387,7 @@ impl Sink for ContextSink {
         // Store the current match (before_context is already accumulated, after_context
         // will be added via context() calls)
         let line_num = mat.line_number().unwrap_or(0) as usize;
-        let line = String::from_utf8_lossy(mat.bytes()).trim_end().to_string();
+        let line = mat.bytes().to_str_lossy().trim_end().to_string();
         self.current_match = Some((line_num, line));
 
         Ok(true)
@@ -397,7 +398,7 @@ impl Sink for ContextSink {
         _searcher: &Searcher,
         ctx: &SinkContext<'_>,
     ) -> Result<bool, Self::Error> {
-        let line = String::from_utf8_lossy(ctx.bytes()).trim_end().to_string();
+        let line = ctx.bytes().to_str_lossy().trim_end().to_string();
 
         match ctx.kind() {
             SinkContextKind::Before => {

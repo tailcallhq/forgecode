@@ -2,13 +2,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::bail;
+use bstr::ByteSlice;
 use forge_app::domain::Environment;
 use forge_app::{CommandInfra, EnvironmentInfra, ShellOutput, ShellService};
 use strip_ansi_escapes::strip;
 
 // Strips out the ansi codes from content.
 fn strip_ansi(content: String) -> String {
-    String::from_utf8_lossy(&strip(content.as_bytes())).into_owned()
+    strip(content.as_bytes()).to_str_lossy().into_owned()
 }
 
 /// Prevents potentially harmful operations like absolute path execution and

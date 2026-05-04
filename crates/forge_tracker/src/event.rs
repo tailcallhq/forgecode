@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use bstr::ByteSlice;
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use forge_domain::Conversation;
@@ -96,7 +97,7 @@ impl EventKind {
             Self::Prompt(content) => content.to_string(),
             Self::Error(content) => content.to_string(),
             Self::ToolCall(payload) => serde_json::to_string(&payload).unwrap_or_default(),
-            Self::Trace(trace) => String::from_utf8_lossy(trace).to_string(),
+            Self::Trace(trace) => trace.to_str_lossy().to_string(),
             Self::Login(id) => id.login.to_owned(),
         }
     }

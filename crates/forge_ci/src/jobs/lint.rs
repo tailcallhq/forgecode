@@ -60,6 +60,8 @@ pub fn clippy_string_safety_cmd(fix: bool) -> String {
         "clippy::string_slice",
         "-D",
         "clippy::indexing_slicing",
+        "-D",
+        "clippy::disallowed_methods",
     ]);
 
     cargo_cmd(&parts)

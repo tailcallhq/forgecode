@@ -102,6 +102,7 @@ body:
       options:
         - npx forgecode@latest
         - npm install -g forgecode
+        - curl -fsSL https://forgecode.dev/cli | sh
         - Built from source
         - Other
     validations:

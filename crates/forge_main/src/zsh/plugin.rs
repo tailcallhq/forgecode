@@ -413,6 +413,20 @@ mod tests {
     }
 
     #[test]
+    fn test_generated_plugin_wraps_zle_commands_with_osc133_markers() {
+        use pretty_assertions::assert_eq;
+
+        let fixture = generate_zsh_plugin().unwrap();
+        let actual = fixture.contains(
+            "    _forge_osc133_emit \"B\"\n    _forge_osc133_emit \"C\"\n    case \"$user_action\" in",
+        ) && fixture.contains(
+            "    local action_status=$?\n    _forge_osc133_emit \"D;$action_status\"\n    _forge_osc133_emit \"A\"\n    _forge_reset",
+        );
+        let expected = true;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_setup_zsh_integration_without_nerd_font_config() {
         use tempfile::TempDir;
 

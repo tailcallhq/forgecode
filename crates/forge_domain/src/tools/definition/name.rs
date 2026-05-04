@@ -48,6 +48,18 @@ impl ToolName {
     pub fn into_sanitized(self) -> Self {
         ToolName::sanitized(self.0.as_str())
     }
+
+    /// Converts a Claude Code format MCP tool name (`mcp__{server}__{tool}`) to
+    /// Forge's internal legacy format (`mcp_{server}_tool_{tool}`).
+    ///
+    /// Returns `None` if the name does not match the Claude Code MCP format.
+    /// Sanitized names never contain `__`, so the first `__` is always the
+    /// server/tool separator.
+    pub fn to_legacy_mcp_name(&self) -> Option<ToolName> {
+        let rest = self.0.strip_prefix("mcp__")?;
+        let (server, tool) = rest.split_once("__")?;
+        Some(ToolName::new(format!("mcp_{server}_tool_{tool}")))
+    }
 }
 
 impl From<String> for ToolName {
