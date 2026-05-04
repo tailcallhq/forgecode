@@ -57,6 +57,10 @@ pub struct ProviderUrlParam {
     /// UI.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<String>,
+    /// Whether this parameter is optional. When `true`, the parameter may be
+    /// left blank without causing an error.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub optional: bool,
 }
 
 /// A single provider entry defined inline in `forge.toml`.
