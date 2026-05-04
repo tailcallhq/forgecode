@@ -12,6 +12,7 @@ use oauth2::{ClientId, DeviceAuthorizationUrl, Scope, TokenUrl};
 use reqwest::header::{HeaderMap, HeaderValue};
 use url::Url;
 
+use crate::auth::command_strategy::CommandAuthStrategy;
 use crate::auth::error::Error as AuthError;
 use crate::auth::http::{AnthropicHttpProvider, GithubHttpProvider, StandardHttpProvider};
 use crate::auth::util::*;
@@ -1077,6 +1078,7 @@ pub enum AnyAuthStrategy {
     GoogleAdc(GoogleAdcStrategy),
     AwsProfile(AwsProfileStrategy),
     CodexDevice(CodexDeviceStrategy),
+    Command(CommandAuthStrategy),
 }
 
 #[async_trait::async_trait]
@@ -1092,6 +1094,7 @@ impl AuthStrategy for AnyAuthStrategy {
             Self::GoogleAdc(s) => s.init().await,
             Self::AwsProfile(s) => s.init().await,
             Self::CodexDevice(s) => s.init().await,
+            Self::Command(s) => s.init().await,
         }
     }
 
@@ -1109,6 +1112,7 @@ impl AuthStrategy for AnyAuthStrategy {
             Self::GoogleAdc(s) => s.complete(context_response).await,
             Self::AwsProfile(s) => s.complete(context_response).await,
             Self::CodexDevice(s) => s.complete(context_response).await,
+            Self::Command(s) => s.complete(context_response).await,
         }
     }
 
@@ -1123,6 +1127,7 @@ impl AuthStrategy for AnyAuthStrategy {
             Self::GoogleAdc(s) => s.refresh(credential).await,
             Self::AwsProfile(s) => s.refresh(credential).await,
             Self::CodexDevice(s) => s.refresh(credential).await,
+            Self::Command(s) => s.refresh(credential).await,
         }
     }
 }
@@ -1201,6 +1206,12 @@ impl StrategyFactory for ForgeAuthStrategyFactory {
             forge_domain::AuthMethod::CodexDevice(config) => Ok(AnyAuthStrategy::CodexDevice(
                 CodexDeviceStrategy::new(provider_id, config),
             )),
+            forge_domain::AuthMethod::Command { command, .. } => {
+                Ok(AnyAuthStrategy::Command(CommandAuthStrategy::new(
+                    provider_id,
+                    command,
+                )))
+            }
         }
     }
 }

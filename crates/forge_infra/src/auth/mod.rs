@@ -1,3 +1,4 @@
+pub mod command_strategy;
 mod mcp_credentials;
 mod mcp_token_storage;
 

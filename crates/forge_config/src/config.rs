@@ -44,6 +44,8 @@ pub enum ProviderTypeEntry {
 pub enum ProviderAuthMethod {
     ApiKey,
     GoogleAdc,
+    Command,
+    CommandNoCache,
 }
 
 /// A URL parameter variable for a provider, used to substitute template
@@ -96,6 +98,10 @@ pub struct ProviderEntry {
     /// `["api_key"]` when omitted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub auth_methods: Vec<ProviderAuthMethod>,
+    /// Shell command that prints an API key / token to stdout.
+    /// Used when `auth_methods` contains `command` or `command_no_cache`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_command: Option<String>,
 }
 
 /// Top-level Forge configuration merged from all sources (defaults, file,
@@ -371,5 +377,39 @@ mod tests {
         let actual = ConfigReader::default().read_toml(&toml).build().unwrap();
 
         assert_eq!(actual.temperature, fixture.temperature);
+    }
+
+    #[test]
+    fn test_command_auth_method_deserialize() {
+        let toml = r#"
+            [[providers]]
+            id = "azure-llm"
+            url = "https://my-corp.azure.com/v1/chat/completions"
+            response_type = "OpenAI"
+            auth_methods = ["command"]
+            api_key_command = "az account get-access-token --query accessToken -o tsv"
+        "#;
+        let actual: ForgeConfig = ConfigReader::default().read_toml(toml).build().unwrap();
+        assert_eq!(actual.providers.len(), 1);
+        assert_eq!(actual.providers[0].auth_methods, vec![ProviderAuthMethod::Command]);
+        assert_eq!(
+            actual.providers[0].api_key_command.as_deref(),
+            Some("az account get-access-token --query accessToken -o tsv")
+        );
+    }
+
+    #[test]
+    fn test_command_no_cache_auth_method_deserialize() {
+        let toml = r#"
+            [[providers]]
+            id = "azure-llm"
+            url = "https://my-corp.azure.com/v1/chat/completions"
+            response_type = "OpenAI"
+            auth_methods = ["command_no_cache"]
+            api_key_command = "az account get-access-token --query accessToken -o tsv"
+        "#;
+        let actual: ForgeConfig = ConfigReader::default().read_toml(toml).build().unwrap();
+        assert_eq!(actual.providers.len(), 1);
+        assert_eq!(actual.providers[0].auth_methods, vec![ProviderAuthMethod::CommandNoCache]);
     }
 }

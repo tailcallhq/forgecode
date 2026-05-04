@@ -2601,6 +2601,7 @@ dependencies = [
  "aws-smithy-types",
  "backon",
  "base64 0.22.1",
+ "bstr",
  "bytes",
  "chrono",
  "derive_more",
