@@ -742,6 +742,34 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 crate::logs::run(args, log_dir).await?;
                 return Ok(());
             }
+            TopLevelCommand::JsonRpc { directory } => {
+                // Resolve the working directory
+                let cwd = if directory.as_os_str().is_empty() {
+                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+                } else {
+                    match directory.canonicalize() {
+                        Ok(cwd) => cwd,
+                        Err(_) => {
+                            anyhow::bail!("Invalid directory: {}", directory.display())
+                        }
+                    }
+                };
+
+                // Build a ForgeAPI for the given directory with the current
+                // config
+                use forge_api::ForgeAPI;
+                use forge_jsonrpc::JsonRpcServer;
+                use forge_jsonrpc::StdioTransport;
+                use std::sync::Arc;
+
+                let config = forge_config::ForgeConfig::read()
+                    .context("Failed to read Forge configuration")?;
+                let api = Arc::new(ForgeAPI::init(cwd, config));
+                let server = JsonRpcServer::new(api);
+                let transport = StdioTransport::new(server.into_module());
+                transport.run().await?;
+                return Ok(());
+            }
         }
         Ok(())
     }

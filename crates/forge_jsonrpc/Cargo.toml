@@ -1,0 +1,21 @@
+[package]
+name = "forge_jsonrpc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+jsonrpsee = { version = "0.24", features = ["server", "macros"] }
+futures = { workspace = true, features = ["async-await"] }
+chrono.workspace = true
+uuid = { workspace = true, features = ["serde"] }
+
+# Internal crates
+forge_api.workspace = true
+forge_domain.workspace = true
+forge_stream.workspace = true

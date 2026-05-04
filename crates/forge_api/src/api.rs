@@ -61,6 +61,9 @@ pub trait API: Sync + Send {
     /// Adds a new conversation to the conversation store
     async fn upsert_conversation(&self, conversation: Conversation) -> Result<()>;
 
+    /// Creates a new conversation with an optional title and returns it
+    async fn create_conversation(&self, title: Option<String>) -> Result<Conversation>;
+
     /// Returns the conversation with the given ID
     async fn conversation(&self, conversation_id: &ConversationId) -> Result<Option<Conversation>>;
 

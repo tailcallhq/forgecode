@@ -152,6 +152,17 @@ pub enum TopLevelCommand {
 
     /// Stream forge log output (defaults to the most recent log file).
     Logs(LogsArgs),
+
+    /// Start a JSON-RPC server over stdio.
+    ///
+    /// Reads JSON-RPC 2.0 requests from stdin and writes responses to stdout.
+    /// Use --directory to set the working directory for the server.
+    #[command(name = "json-rpc")]
+    JsonRpc {
+        /// Working directory for the JSON-RPC server.
+        #[arg(long, short = 'C', default_value = ".")]
+        directory: PathBuf,
+    },
 }
 
 /// Command group for custom command management.

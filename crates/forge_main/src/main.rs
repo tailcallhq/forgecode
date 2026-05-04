@@ -7,7 +7,7 @@ use clap::Parser;
 use forge_api::ForgeAPI;
 use forge_config::ForgeConfig;
 use forge_domain::TitleFormat;
-use forge_main::{Cli, Sandbox, TitleDisplayExt, UI, tracker};
+use forge_main::{Cli, Sandbox, TitleDisplayExt, TopLevelCommand, UI, tracker};
 
 /// Enables ENABLE_VIRTUAL_TERMINAL_PROCESSING on the stdout console handle.
 ///
@@ -90,8 +90,13 @@ async fn run() -> Result<()> {
     // Initialize and run the UI
     let mut cli = Cli::parse();
 
-    // Check if there's piped input
-    if !std::io::stdin().is_terminal() {
+    // Check if there's piped input.
+    // Skip for json-rpc which uses stdin as its transport protocol.
+    let is_json_rpc = matches!(
+        cli.subcommands,
+        Some(TopLevelCommand::JsonRpc { .. })
+    );
+    if !std::io::stdin().is_terminal() && !is_json_rpc {
         let mut stdin_content = String::new();
         std::io::stdin().read_to_string(&mut stdin_content)?;
         let trimmed_content = stdin_content.trim();

@@ -151,6 +151,13 @@ impl<
         self.services.upsert_conversation(conversation).await
     }
 
+    async fn create_conversation(&self, title: Option<String>) -> anyhow::Result<Conversation> {
+        let mut conversation = Conversation::generate();
+        conversation.title = title;
+        self.services.upsert_conversation(conversation.clone()).await?;
+        Ok(conversation)
+    }
+
     async fn compact_conversation(
         &self,
         conversation_id: &ConversationId,
