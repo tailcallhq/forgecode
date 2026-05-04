@@ -15,6 +15,7 @@ opt-level = 3
 strip = true
 
 [workspace.dependencies]
+agent-client-protocol = { version = "0.9", features = ["unstable_session_model"] }
 anyhow = "1.0.102"
 async-recursion = "1.1.1"
 async-stream = "0.3"
@@ -101,6 +102,7 @@ tokio = { version = "1.51.0", features = [
     "process",
     "signal",
     "io-util",
+    "io-std",
 ] }
 tokio-stream = "0.1.18"
 tokio-util = "0.7"

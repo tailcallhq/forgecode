@@ -48,6 +48,10 @@ lazy_static.workspace = true
 forge_json_repair.workspace = true
 
 tonic.workspace = true
+agent-client-protocol.workspace = true
+tokio-util = { workspace = true, features = ["compat"] }
+base64.workspace = true
+uuid.workspace = true
 
 
 [dev-dependencies]

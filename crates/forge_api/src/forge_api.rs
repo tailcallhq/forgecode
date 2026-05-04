@@ -404,6 +404,11 @@ impl<
         app.execute(data_parameters).await
     }
 
+    async fn acp_start_stdio(&self) -> Result<()> {
+        let acp_app = forge_app::AcpApp::new(self.services.clone());
+        acp_app.start_stdio().await
+    }
+
     async fn get_session_config(&self) -> Option<forge_domain::ModelConfig> {
         self.services.get_session_config().await
     }
