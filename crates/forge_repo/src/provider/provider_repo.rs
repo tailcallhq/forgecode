@@ -175,6 +175,11 @@ impl From<forge_config::ProviderEntry> for ProviderConfig {
             forge_config::ProviderResponseType::OpenCode => ProviderResponse::OpenCode,
         });
 
+        let models = entry.models.map(|m| match m {
+            forge_config::ModelsConfig::Url(url) => Models::Url(url),
+            forge_config::ModelsConfig::Hardcoded(model_list) => Models::Hardcoded(model_list),
+        });
+
         ProviderConfig {
             id: ProviderId::from(entry.id),
             provider_type,
@@ -182,7 +187,7 @@ impl From<forge_config::ProviderEntry> for ProviderConfig {
             url_param_vars: entry.url_param_vars.into_iter().map(Into::into).collect(),
             response_type,
             url: entry.url,
-            models: entry.models.map(Models::Url),
+            models,
             auth_methods,
             custom_headers: entry.custom_headers,
         }
@@ -832,6 +837,57 @@ mod tests {
             config.url.as_str(),
             "https://integrate.api.nvidia.com/v1/chat/completions"
         );
+    }
+
+    #[test]
+    fn test_provider_entry_with_static_models_converts_to_hardcoded() {
+        let model = forge_domain::Model {
+            id: forge_domain::ModelId::from("Qwen3.6-35B-A3b-q3-mlx".to_string()),
+            name: Some("Qwen3.5-35B".to_string()),
+            description: Some(
+                "Qwen local reasoning model with advanced problem-solving capabilities".to_string(),
+            ),
+            context_length: Some(262144),
+            tools_supported: Some(true),
+            supports_parallel_tool_calls: Some(true),
+            supports_reasoning: Some(true),
+            input_modalities: vec![forge_domain::InputModality::Text],
+        };
+
+        let entry = forge_config::ProviderEntry {
+            id: "ollama".to_string(),
+            url: "http://127.0.0.1:8000/v1/chat/completions".to_string(),
+            response_type: Some(forge_config::ProviderResponseType::OpenAI),
+            auth_methods: vec![forge_config::ProviderAuthMethod::ApiKey],
+            models: Some(forge_config::ModelsConfig::Hardcoded(vec![model.clone()])),
+            ..Default::default()
+        };
+
+        let actual = ProviderConfig::from(entry);
+
+        match actual.models {
+            Some(Models::Hardcoded(models)) => assert_eq!(models, vec![model]),
+            other => panic!("Expected Models::Hardcoded, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_provider_entry_with_url_models_converts_to_url() {
+        let entry = forge_config::ProviderEntry {
+            id: "my_provider".to_string(),
+            url: "http://example.com/v1/chat/completions".to_string(),
+            models: Some(forge_config::ModelsConfig::Url(
+                "http://example.com/v1/models".to_string(),
+            )),
+            ..Default::default()
+        };
+
+        let actual = ProviderConfig::from(entry);
+
+        match actual.models {
+            Some(Models::Url(url)) => assert_eq!(url, "http://example.com/v1/models"),
+            other => panic!("Expected Models::Url, got: {other:?}"),
+        }
     }
 }
 

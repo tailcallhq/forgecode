@@ -1,11 +1,14 @@
 use derive_more::derive::Display;
 use derive_setters::Setters;
+use fake::Dummy;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumString;
 
 /// Represents input modalities that a model can accept
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, EnumString)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, EnumString, JsonSchema, Dummy,
+)]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum InputModality {
@@ -20,7 +23,7 @@ fn default_input_modalities() -> Vec<InputModality> {
     vec![InputModality::Text]
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, Setters)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, Setters, JsonSchema, Dummy)]
 pub struct Model {
     pub id: ModelId,
     pub name: Option<String>,
@@ -48,7 +51,7 @@ impl Parameters {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Hash, Eq, Display, JsonSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Hash, Eq, Display, JsonSchema, Dummy)]
 #[serde(transparent)]
 pub struct ModelId(String);
 
