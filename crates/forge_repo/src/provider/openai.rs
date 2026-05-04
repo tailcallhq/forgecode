@@ -194,9 +194,10 @@ impl<H: HttpInfra> OpenAIProvider<H> {
         &self,
         model: &ModelId,
         context: ChatContext,
+        merge_system_messages: bool,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
         let mut request = Request::from(context).model(model.clone());
-        let mut pipeline = ProviderPipeline::new(&self.provider);
+        let mut pipeline = ProviderPipeline::new(&self.provider, merge_system_messages);
         request = pipeline.transform(request);
 
         let url = self.provider.url.clone();
@@ -306,8 +307,9 @@ impl<T: HttpInfra> OpenAIProvider<T> {
         &self,
         model: &ModelId,
         context: ChatContext,
+        merge_system_messages: bool,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
-        self.inner_chat(model, context).await
+        self.inner_chat(model, context, merge_system_messages).await
     }
 
     pub async fn models(&self) -> Result<Vec<forge_app::domain::Model>> {
@@ -344,11 +346,14 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + 'stat
         context: ChatContext,
         provider: Provider<Url>,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
-        let retry_config = self.infra.get_config()?.retry.unwrap_or_default();
+        let config = self.infra.get_config()?;
+
+        let retry_config = config.retry.unwrap_or_default();
+        let merge_system_messages = config.merge_system_messages;
         let provider_id = provider.id.clone();
         let provider_client = OpenAIProvider::new(provider, self.infra.clone());
         let stream = provider_client
-            .chat(model_id, context)
+            .chat(model_id, context, merge_system_messages)
             .await
             .map_err(|e| into_retry(e, &retry_config))?;
 

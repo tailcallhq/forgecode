@@ -300,6 +300,13 @@ pub struct ForgeConfig {
     /// When false the `task` tool is disabled and `sage` is available instead.
     #[serde(default)]
     pub subagents: bool,
+
+    /// When `true`, all system messages in the conversation are merged into a
+    /// single leading system message before the request is sent. Enable this
+    /// for providers that reject requests containing system messages after
+    /// user or assistant turns (e.g. vLLM, NVIDIA NIM).
+    #[serde(default)]
+    pub merge_system_messages: bool,
 }
 
 impl ForgeConfig {
