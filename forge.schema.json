@@ -216,6 +216,11 @@
       "format": "uint",
       "minimum": 0
     },
+    "merge_system_messages": {
+      "description": "When `true`, all system messages in the conversation are merged into a\nsingle leading system message before the request is sent. Enable this\nfor providers that reject requests containing system messages after\nuser or assistant turns (e.g. vLLM, NVIDIA NIM).",
+      "type": "boolean",
+      "default": false
+    },
     "model_cache_ttl_secs": {
       "description": "Time-to-live in seconds for the cached model API list.",
       "type": "integer",
