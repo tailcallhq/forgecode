@@ -27,7 +27,6 @@ db-path = "$CARGO_HOME/advisory-db"
 ignore = [
     { id = "RUSTSEC-2026-0118" },
     { id = "RUSTSEC-2026-0119" },
-    { id = "RUSTSEC-2026-0049" },
     { id = "RUSTSEC-2026-0098" },
     { id = "RUSTSEC-2026-0099" },
     { id = "RUSTSEC-2026-0104" },
