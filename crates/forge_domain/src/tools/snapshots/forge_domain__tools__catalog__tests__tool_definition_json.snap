@@ -402,6 +402,11 @@ expression: tools
   "title": "SkillFetch",
   "type": "object",
   "properties": {
+    "arguments": {
+      "description": "Optional arguments passed to the skill. These are available to skill\ntemplates through placeholders like `$ARGUMENTS`, `$1`, `$2`, etc.",
+      "type": "string",
+      "nullable": true
+    },
     "name": {
       "description": "The name of the skill to fetch (e.g., \"pdf\", \"code_review\")",
       "type": "string"

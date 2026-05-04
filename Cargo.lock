@@ -2317,6 +2317,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yml",
+ "shell-words",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.18",

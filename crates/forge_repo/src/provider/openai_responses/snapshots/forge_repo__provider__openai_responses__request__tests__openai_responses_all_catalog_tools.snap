@@ -664,19 +664,31 @@ expression: actual.tools
     "parameters": {
       "additionalProperties": false,
       "properties": {
+        "arguments": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional arguments passed to the skill. These are available to skill\ntemplates through placeholders like `$ARGUMENTS`, `$1`, `$2`, etc."
+        },
         "name": {
           "description": "The name of the skill to fetch (e.g., \"pdf\", \"code_review\")",
           "type": "string"
         }
       },
       "required": [
+        "arguments",
         "name"
       ],
       "title": "SkillFetch",
       "type": "object"
     },
     "strict": true,
-    "description": "Fetches detailed information about a specific skill. Use this tool to load skill content and instructions when you need to understand how to perform a specialized task. Skills provide domain-specific knowledge, workflows, and best practices. Only invoke skills that are listed in the available skills section. Do not invoke a skill that is already active."
+    "description": "Fetches detailed information about a specific skill. Use this tool to load skill content and instructions when you need to understand how to perform a specialized task. Skills provide domain-specific knowledge, workflows, and best practices. Only invoke skills that are listed in the available skills section. Do not invoke a skill that is already active. Supports optional `arguments` for skills that use placeholders like `$ARGUMENTS` or `$1`, `$2`, etc."
   },
   {
     "type": "function",
