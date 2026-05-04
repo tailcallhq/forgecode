@@ -128,6 +128,49 @@ pub struct FileTag {
     pub symbol: Option<String>,
 }
 
+/// Recognizes a balanced `[...]` group, including any nested balanced groups.
+///
+/// Used to absorb bracket pairs that appear inside file paths (such as Next.js
+/// dynamic route segments like `[locale]` or `[[...slug]]`) so the outer path
+/// parser does not terminate prematurely on the first `]`.
+fn parse_balanced_brackets(input: &str) -> nom::IResult<&str, &str> {
+    use nom::Parser;
+    use nom::branch::alt;
+    use nom::bytes::complete::take_while1;
+    use nom::character::complete::char;
+    use nom::combinator::recognize;
+    use nom::multi::many0;
+    use nom::sequence::delimited;
+
+    recognize(delimited(
+        char('['),
+        many0(alt((
+            parse_balanced_brackets,
+            take_while1(|c: char| c != '[' && c != ']'),
+        ))),
+        char(']'),
+    ))
+    .parse(input)
+}
+
+/// Recognizes a path segment that may contain balanced `[...]` groups.
+///
+/// Stops at the first `:`, `#`, or `]` that is not nested inside a balanced
+/// bracket pair. Requires at least one consumed character.
+fn parse_path_segment(input: &str) -> nom::IResult<&str, &str> {
+    use nom::Parser;
+    use nom::branch::alt;
+    use nom::bytes::complete::take_while1;
+    use nom::combinator::recognize;
+    use nom::multi::many1;
+
+    recognize(many1(alt((
+        parse_balanced_brackets,
+        take_while1(|c: char| c != '[' && c != ']' && c != ':' && c != '#'),
+    ))))
+    .parse(input)
+}
+
 impl FileTag {
     pub fn parse(input: &str) -> nom::IResult<&str, FileTag> {
         use nom::bytes::complete::take_while1;
@@ -154,10 +197,10 @@ impl FileTag {
             nom::combinator::recognize((
                 nom::character::complete::satisfy(|c| c.is_ascii_alphabetic()),
                 nom::character::complete::char(':'),
-                take_while1(|c: char| c != ':' && c != '#' && c != ']'),
+                parse_path_segment,
             )),
             // Fall back to regular path parsing
-            take_while1(|c: char| c != ':' && c != '#' && c != ']'),
+            parse_path_segment,
         ));
         let mut parser = delimited(
             tag("@["),
@@ -562,5 +605,112 @@ mod tests {
 
         assert!(paths.contains(&expected_unix));
         assert!(paths.contains(&expected_windows));
+    }
+
+    #[test]
+    fn test_attachment_parse_nextjs_dynamic_route() {
+        let text = String::from("Open @[/src/app/[locale]/layout.tsx]");
+        let paths = Attachment::parse_all(text);
+        assert_eq!(paths.len(), 1);
+
+        let expected = FileTag {
+            path: "/src/app/[locale]/layout.tsx".to_string(),
+            loc: None,
+            symbol: None,
+        };
+        let actual = paths.first().unwrap();
+        assert_eq!(actual, &expected);
+    }
+
+    #[test]
+    fn test_attachment_parse_nextjs_dynamic_route_with_location() {
+        let text = String::from("Open @[/src/app/[locale]/layout.tsx:10:20]");
+        let paths = Attachment::parse_all(text);
+        assert_eq!(paths.len(), 1);
+
+        let expected = FileTag {
+            path: "/src/app/[locale]/layout.tsx".to_string(),
+            loc: Some(Location { start: Some(10), end: Some(20) }),
+            symbol: None,
+        };
+        let actual = paths.first().unwrap();
+        assert_eq!(actual, &expected);
+    }
+
+    #[test]
+    fn test_attachment_parse_nextjs_catch_all_route() {
+        let text = String::from("Open @[/src/app/[...slug]/page.tsx]");
+        let paths = Attachment::parse_all(text);
+        assert_eq!(paths.len(), 1);
+
+        let expected = FileTag {
+            path: "/src/app/[...slug]/page.tsx".to_string(),
+            loc: None,
+            symbol: None,
+        };
+        let actual = paths.first().unwrap();
+        assert_eq!(actual, &expected);
+    }
+
+    #[test]
+    fn test_attachment_parse_nextjs_optional_catch_all_route() {
+        let text = String::from("Open @[/src/app/[[...slug]]/page.tsx#Page]");
+        let paths = Attachment::parse_all(text);
+        assert_eq!(paths.len(), 1);
+
+        let expected = FileTag {
+            path: "/src/app/[[...slug]]/page.tsx".to_string(),
+            loc: None,
+            symbol: Some("Page".to_string()),
+        };
+        let actual = paths.first().unwrap();
+        assert_eq!(actual, &expected);
+    }
+
+    #[test]
+    fn test_attachment_parse_nextjs_multiple_dynamic_segments() {
+        let text = String::from("Open @[/src/app/[locale]/blog/[slug]/page.tsx:5#Component]");
+        let paths = Attachment::parse_all(text);
+        assert_eq!(paths.len(), 1);
+
+        let expected = FileTag {
+            path: "/src/app/[locale]/blog/[slug]/page.tsx".to_string(),
+            loc: Some(Location { start: Some(5), end: None }),
+            symbol: Some("Component".to_string()),
+        };
+        let actual = paths.first().unwrap();
+        assert_eq!(actual, &expected);
+    }
+
+    #[test]
+    fn test_attachment_parse_windows_dynamic_route() {
+        let text = String::from("Open @[C:\\project\\src\\app\\[locale]\\layout.tsx]");
+        let paths = Attachment::parse_all(text);
+        assert_eq!(paths.len(), 1);
+
+        let expected = FileTag {
+            path: "C:\\project\\src\\app\\[locale]\\layout.tsx".to_string(),
+            loc: None,
+            symbol: None,
+        };
+        let actual = paths.first().unwrap();
+        assert_eq!(actual, &expected);
+    }
+
+    #[test]
+    fn test_attachment_parse_many_square_brackets() {
+        // Real-world example: deeply nested or heavily-bracketed Next.js routes
+        let text =
+            String::from("Open @[/src/app/[locale]/[version]/[...path]/[[...rest]]/page.tsx:1:10]");
+        let paths = Attachment::parse_all(text);
+        assert_eq!(paths.len(), 1);
+
+        let expected = FileTag {
+            path: "/src/app/[locale]/[version]/[...path]/[[...rest]]/page.tsx".to_string(),
+            loc: Some(Location { start: Some(1), end: Some(10) }),
+            symbol: None,
+        };
+        let actual = paths.first().unwrap();
+        assert_eq!(actual, &expected);
     }
 }
