@@ -235,45 +235,79 @@ impl<T: HttpInfra> Anthropic<T> {
     }
 
     pub async fn models(&self) -> anyhow::Result<Vec<Model>> {
-        let models = self
-            .provider
-            .models
-            .as_ref()
-            .context("Anthropic requires models configuration")?;
+        // Check if models are configured
+        let models_source = match self.provider.models.as_ref() {
+            Some(models) => models,
+            None => {
+                tracing::info!(
+                    provider_id = %self.provider.id,
+                    "No models endpoint configured, returning empty model list"
+                );
+                return Ok(vec![]);
+            }
+        };
 
-        match models {
+        match models_source {
             forge_domain::ModelSource::Url(url) => {
-                debug!(url = %url, "Fetching models");
+                debug!(url = %url, "Fetching models from endpoint");
 
-                let response = self
+                let response = match self
                     .http
                     .http_get(url, Some(create_headers(self.get_headers(None))))
                     .await
-                    .with_context(|| format_http_context(None, "GET", url))
-                    .with_context(|| "Failed to fetch models")?;
+                {
+                    Ok(response) => response,
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            url = %url,
+                            provider_id = %self.provider.id,
+                            "Failed to fetch models from endpoint, returning empty list"
+                        );
+                        return Ok(vec![]);
+                    }
+                };
 
                 let status = response.status();
                 let ctx_msg = format_http_context(Some(status), "GET", url);
-                let text = response
-                    .text()
-                    .await
-                    .with_context(|| ctx_msg.clone())
-                    .with_context(|| "Failed to decode response into text")?;
+                let text = match response.text().await {
+                    Ok(text) => text,
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            provider_id = %self.provider.id,
+                            "Failed to decode models response, returning empty list"
+                        );
+                        return Ok(vec![]);
+                    }
+                };
 
                 if status.is_success() {
                     let response: ListModelResponse = serde_json::from_str(&text)
                         .with_context(|| ctx_msg)
                         .with_context(|| "Failed to deserialize models response")?;
+                    tracing::info!(
+                        provider_id = %self.provider.id,
+                        model_count = response.data.len(),
+                        "Successfully fetched models from endpoint"
+                    );
                     Ok(response.data.into_iter().map(Into::into).collect())
                 } else {
-                    // treat non 200 response as error.
-                    Err(anyhow::anyhow!(text))
-                        .with_context(|| ctx_msg)
-                        .with_context(|| "Failed to fetch the models")
+                    // Non-200 response - log warning and return empty list
+                    tracing::warn!(
+                        status = %status,
+                        provider_id = %self.provider.id,
+                        "Models endpoint returned non-success status, returning empty list"
+                    );
+                    Ok(vec![])
                 }
             }
             forge_domain::ModelSource::Hardcoded(models) => {
-                debug!("Using hardcoded models");
+                tracing::info!(
+                    provider_id = %self.provider.id,
+                    model_count = models.len(),
+                    "Using hardcoded models from configuration"
+                );
                 Ok(models.clone())
             }
         }
@@ -385,7 +419,7 @@ mod tests {
     use reqwest_eventsource::EventSource;
 
     use super::*;
-    use crate::provider::mock_server::{MockServer, normalize_ports};
+    use crate::provider::mock_server::MockServer;
 
     // Mock implementation of HttpInfra for testing
     #[derive(Clone)]
@@ -606,9 +640,9 @@ mod tests {
 
         mock.assert_async().await;
 
-        // Verify that we got an error
-        assert!(actual.is_err());
-        insta::assert_snapshot!(normalize_ports(format!("{:#?}", actual.unwrap_err())));
+        // With the new relaxed behavior, HTTP errors should return empty list with a warning
+        assert!(actual.is_ok());
+        assert!(actual.unwrap().is_empty());
         Ok(())
     }
 
@@ -624,10 +658,9 @@ mod tests {
 
         mock.assert_async().await;
 
-        // Verify that we got an error
-        assert!(actual.is_err());
-        insta::assert_snapshot!(normalize_ports(format!("{:#?}", actual.unwrap_err())));
-
+        // With the new relaxed behavior, server errors should return empty list with a warning
+        assert!(actual.is_ok());
+        assert!(actual.unwrap().is_empty());
         Ok(())
     }
 
@@ -640,10 +673,125 @@ mod tests {
         let actual = anthropic.models().await?;
 
         mock.assert_async().await;
+        mock.assert_async().await;
         assert!(actual.is_empty());
         Ok(())
     }
 
+    // Tests for models endpoint relaxation (v2) - Custom Anthropic Provider support
+
+    /// Helper to create an Anthropic client with hardcoded models
+    fn create_anthropic_with_hardcoded_models(
+        base_url: &str,
+        models: Vec<forge_domain::Model>,
+    ) -> anyhow::Result<Anthropic<MockHttpClient>> {
+        let chat_url = Url::parse(base_url)?.join("messages")?;
+
+        let provider = Provider {
+            id: forge_app::domain::ProviderId::ANTHROPIC_COMPATIBLE,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(forge_app::domain::ProviderResponse::Anthropic),
+            url: chat_url,
+            credential: Some(forge_domain::AuthCredential {
+                id: forge_app::domain::ProviderId::ANTHROPIC_COMPATIBLE,
+                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                    "sk-custom-key".to_string(),
+                )),
+                url_params: std::collections::HashMap::new(),
+            }),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: Some(forge_domain::ModelSource::Hardcoded(models)),
+            custom_headers: None,
+        };
+
+        Ok(Anthropic::new(
+            Arc::new(MockHttpClient::new()),
+            provider,
+            "2023-06-01".to_string(),
+            false,
+        ))
+    }
+
+    /// Helper to create an Anthropic client without models configured
+    fn create_anthropic_without_models(
+        base_url: &str,
+    ) -> anyhow::Result<Anthropic<MockHttpClient>> {
+        let chat_url = Url::parse(base_url)?.join("messages")?;
+
+        let provider = Provider {
+            id: forge_app::domain::ProviderId::ANTHROPIC_COMPATIBLE,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(forge_app::domain::ProviderResponse::Anthropic),
+            url: chat_url,
+            credential: Some(forge_domain::AuthCredential {
+                id: forge_app::domain::ProviderId::ANTHROPIC_COMPATIBLE,
+                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                    "sk-custom-key".to_string(),
+                )),
+                url_params: std::collections::HashMap::new(),
+            }),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: None,
+            custom_headers: None,
+        };
+
+        Ok(Anthropic::new(
+            Arc::new(MockHttpClient::new()),
+            provider,
+            "2023-06-01".to_string(),
+            false,
+        ))
+    }
+
+    #[tokio::test]
+    async fn test_custom_anthropic_provider_with_hardcoded_models() -> anyhow::Result<()> {
+        let hardcoded_models = vec![
+            forge_domain::Model {
+                id: forge_domain::ModelId::new("custom-claude-1"),
+                name: Some("Custom Claude 1".to_string()),
+                description: None,
+                context_length: Some(180000),
+                tools_supported: Some(true),
+                supports_parallel_tool_calls: Some(true),
+                supports_reasoning: Some(false),
+                input_modalities: vec![forge_domain::InputModality::Text],
+            },
+            forge_domain::Model {
+                id: forge_domain::ModelId::new("custom-claude-2"),
+                name: Some("Custom Claude 2".to_string()),
+                description: None,
+                context_length: Some(180000),
+                tools_supported: Some(true),
+                supports_parallel_tool_calls: Some(false),
+                supports_reasoning: Some(true),
+                input_modalities: vec![forge_domain::InputModality::Text],
+            },
+        ];
+
+        let anthropic = create_anthropic_with_hardcoded_models(
+            "http://localhost:8080",
+            hardcoded_models.clone(),
+        )?;
+
+        // Should return the hardcoded models
+        let actual = anthropic.models().await?;
+        assert_eq!(actual.len(), 2);
+        assert_eq!(actual[0].id.as_str(), "custom-claude-1");
+        assert_eq!(actual[1].id.as_str(), "custom-claude-2");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_custom_anthropic_provider_no_models_configured() -> anyhow::Result<()> {
+        let anthropic = create_anthropic_without_models("http://localhost:8080")?;
+
+        // Should return empty list with no error
+        let actual = anthropic.models().await?;
+        assert!(actual.is_empty());
+        Ok(())
+    }
     #[test]
     fn test_get_headers_with_api_key_includes_beta_flags() {
         let chat_url = Url::parse("https://api.anthropic.com/v1/messages").unwrap();

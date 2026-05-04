@@ -281,8 +281,29 @@ impl BedrockProvider {
         // Bedrock doesn't have a models list API
         // Return hardcoded models from configuration
         match &self.provider.models {
-            Some(forge_domain::ModelSource::Hardcoded(models)) => Ok(models.clone()),
-            _ => Ok(vec![]),
+            Some(forge_domain::ModelSource::Hardcoded(models)) => {
+                tracing::info!(
+                    provider_id = %self.provider.id,
+                    model_count = models.len(),
+                    "Using hardcoded models from configuration"
+                );
+                Ok(models.clone())
+            }
+            Some(forge_domain::ModelSource::Url(url)) => {
+                tracing::info!(
+                    provider_id = %self.provider.id,
+                    url = %url,
+                    "Bedrock does not support URL-based model fetching, returning empty list"
+                );
+                Ok(vec![])
+            }
+            None => {
+                tracing::info!(
+                    provider_id = %self.provider.id,
+                    "No models configured for Bedrock, returning empty model list"
+                );
+                Ok(vec![])
+            }
         }
     }
 }

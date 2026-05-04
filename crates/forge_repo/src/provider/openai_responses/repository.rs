@@ -11,7 +11,7 @@ use forge_domain::{BoxStream, ChatRepository, Provider};
 use forge_infra::sanitize_headers;
 use futures::StreamExt;
 use reqwest::header::AUTHORIZATION;
-use tracing::info;
+use tracing::{debug, info};
 use url::Url;
 
 use crate::provider::FromDomain;
@@ -389,38 +389,85 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + 'stat
 
     async fn models(&self, provider: Provider<Url>) -> anyhow::Result<Vec<Model>> {
         match provider.models().cloned() {
-            Some(forge_domain::ModelSource::Hardcoded(models)) => Ok(models),
+            Some(forge_domain::ModelSource::Hardcoded(models)) => {
+                tracing::info!(
+                    provider_id = %provider.id,
+                    model_count = models.len(),
+                    "Using hardcoded models from configuration"
+                );
+                Ok(models)
+            }
             Some(forge_domain::ModelSource::Url(url)) => {
-                let provider_client = OpenAIResponsesProvider::new(provider, self.infra.clone());
+                debug!(url = %url, "Fetching models from endpoint");
+                let provider_client = OpenAIResponsesProvider::new(provider.clone(), self.infra.clone());
                 let headers = create_headers(provider_client.get_headers());
-                let response = self
+
+                let response = match self
                     .infra
                     .http_get(&url, Some(headers))
                     .await
-                    .with_context(|| format_http_context(None, "GET", &url))
-                    .with_context(|| "Failed to fetch models")?;
+                {
+                    Ok(response) => response,
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            url = %url,
+                            provider_id = %provider.id,
+                            "Failed to fetch models from endpoint, returning empty list"
+                        );
+                        return Ok(vec![]);
+                    }
+                };
 
                 let status = response.status();
-                let ctx_message = format_http_context(Some(status), "GET", &url);
-                let response_text = response
-                    .text()
-                    .await
-                    .with_context(|| ctx_message.clone())
-                    .with_context(|| "Failed to decode response into text")?;
+                let response_text = match response.text().await {
+                    Ok(text) => text,
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            provider_id = %provider.id,
+                            "Failed to decode models response, returning empty list"
+                        );
+                        return Ok(vec![]);
+                    }
+                };
 
                 if !status.is_success() {
-                    return Err(anyhow::anyhow!(response_text))
-                        .with_context(|| ctx_message)
-                        .with_context(|| "Failed to fetch models");
+                    tracing::warn!(
+                        status = %status,
+                        provider_id = %provider.id,
+                        "Models endpoint returned non-success status, returning empty list"
+                    );
+                    return Ok(vec![]);
                 }
 
-                let data: forge_app::dto::openai::ListModelResponse =
-                    serde_json::from_str(&response_text)
-                        .with_context(|| format_http_context(None, "GET", &url))
-                        .with_context(|| "Failed to deserialize models response")?;
-                Ok(data.data.into_iter().map(Into::into).collect())
+                match serde_json::from_str::<forge_app::dto::openai::ListModelResponse>(&response_text)
+                {
+                    Ok(data) => {
+                        tracing::info!(
+                            provider_id = %provider.id,
+                            model_count = data.data.len(),
+                            "Successfully fetched models from endpoint"
+                        );
+                        Ok(data.data.into_iter().map(Into::into).collect())
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            provider_id = %provider.id,
+                            "Failed to deserialize models response, returning empty list"
+                        );
+                        Ok(vec![])
+                    }
+                }
             }
-            None => Ok(vec![]),
+            None => {
+                tracing::info!(
+                    provider_id = %provider.id,
+                    "No models endpoint configured, returning empty model list"
+                );
+                Ok(vec![])
+            }
         }
     }
 }
