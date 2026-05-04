@@ -1204,7 +1204,11 @@ mod env_tests {
             .unwrap();
 
         let path = infra.get_environment().credentials_path();
-        let actual = tokio::fs::metadata(&path).await.unwrap().permissions().mode();
+        let actual = tokio::fs::metadata(&path)
+            .await
+            .unwrap()
+            .permissions()
+            .mode();
         let expected = 0o600;
         assert_eq!(
             actual & 0o777,
@@ -1231,7 +1235,10 @@ mod env_tests {
         };
 
         // First write — establishes the file
-        registry.upsert_credential(credential.clone()).await.unwrap();
+        registry
+            .upsert_credential(credential.clone())
+            .await
+            .unwrap();
 
         // Simulate a pre-existing file with world-readable permissions
         let path = infra.get_environment().credentials_path();
@@ -1242,7 +1249,11 @@ mod env_tests {
         // Second write — must correct the insecure permissions
         registry.upsert_credential(credential).await.unwrap();
 
-        let actual = tokio::fs::metadata(&path).await.unwrap().permissions().mode();
+        let actual = tokio::fs::metadata(&path)
+            .await
+            .unwrap()
+            .permissions()
+            .mode();
         let expected = 0o600;
         assert_eq!(
             actual & 0o777,
