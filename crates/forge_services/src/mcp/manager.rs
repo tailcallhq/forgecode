@@ -111,7 +111,7 @@ where
         }
 
         // Build and display the prompt.
-        let prompt = format_trust_prompt(local_path, &local);
+        let prompt = format_trust_prompt(local_path);
         match self
             .infra
             .select_one_enum::<McpTrustResponse>(&prompt)
@@ -135,20 +135,8 @@ where
 /// Builds the interactive prompt string shown to the user when an untrusted
 /// project-local `.mcp.json` is found. Lists the file path and every server
 /// name together with its command or URL.
-fn format_trust_prompt(path: &Path, config: &McpConfig) -> String {
-    let mut lines = vec![format!(
-        "A project-local MCP config was found at {}.\nThe following servers would be started:",
-        path.display()
-    )];
-    for (name, server) in &config.mcp_servers {
-        let detail = match server {
-            McpServerConfig::Stdio(s) => format!("command: {}", s.command),
-            McpServerConfig::Http(s) => format!("url: {}", s.url),
-        };
-        lines.push(format!("  • {name} ({detail})"));
-    }
-    lines.push("\nDo you trust these servers?".to_string());
-    lines.join("\n")
+fn format_trust_prompt(path: &Path) -> String {
+    format!("Untrusted MCP config was found at {}", path.display())
 }
 
 #[async_trait::async_trait]
@@ -237,7 +225,8 @@ where
         merged.merge(local_config);
 
         // Retain only servers that exist in the merged trusted set.
-        let trusted_keys: std::collections::BTreeSet<_> = merged.mcp_servers.keys().cloned().collect();
+        let trusted_keys: std::collections::BTreeSet<_> =
+            merged.mcp_servers.keys().cloned().collect();
         let mut result = raw;
         result.mcp_servers.retain(|k, _| trusted_keys.contains(k));
         Ok(result)
