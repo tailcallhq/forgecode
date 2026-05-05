@@ -857,7 +857,9 @@ mod tests {
             url: "http://127.0.0.1:8000/v1/chat/completions".to_string(),
             response_type: Some(forge_config::ProviderResponseType::OpenAI),
             auth_methods: vec![forge_config::ProviderAuthMethod::ApiKey],
-            models: Some(forge_config::ModelListConfig::Hardcoded(vec![model.clone()])),
+            models: Some(forge_config::ModelListConfig::Hardcoded(vec![
+                model.clone(),
+            ])),
             ..Default::default()
         };
 
