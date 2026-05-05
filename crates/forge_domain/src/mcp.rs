@@ -8,6 +8,7 @@ use derive_more::{Deref, Display, From};
 use derive_setters::Setters;
 use merge::Merge;
 use serde::{Deserialize, Serialize};
+use strum_macros::{Display as StrumDisplay, EnumIter, EnumString};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Scope {
@@ -288,18 +289,58 @@ impl From<BTreeMap<ServerName, McpServerConfig>> for McpConfig {
 }
 
 impl McpConfig {
-    /// Compute a deterministic u64 identifier for this config
+    /// Compute a deterministic u64 identifier for this config.
     ///
-    /// Uses Rust's built-in `Hash` trait (derived) to compute a stable hash
-    /// and converts it to a hex u64 for use as a cache key.
-    /// BTreeMap ensures consistent ordering regardless of insertion order.
+    /// Uses FNV-64 (a non-cryptographic but stable, seed-free hasher) so the
+    /// same config always produces the same key across process restarts.
+    /// This is required for persisted trust-store lookups: `DefaultHasher`
+    /// uses a random seed per-process and would produce a different value on
+    /// every restart, causing "Trust and remember" to be ignored.
+    /// `BTreeMap` ensures consistent field ordering regardless of insertion order.
     pub fn cache_key(&self) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = fnv_rs::Fnv64::default();
         Hash::hash(self, &mut hasher);
         hasher.finish()
+    }
+}
+
+/// The three choices presented to the user when an untrusted project-local
+/// `.mcp.json` is detected at startup.
+#[derive(Debug, Clone, PartialEq, Eq, StrumDisplay, EnumIter, EnumString)]
+pub enum McpTrustResponse {
+    /// Allow the servers for this session only, without persisting the decision.
+    #[strum(to_string = "Trust once")]
+    TrustOnce,
+    /// Allow the servers and remember this decision across future sessions.
+    #[strum(to_string = "Trust and remember")]
+    TrustAndRemember,
+    /// Reject all servers from this config file.
+    #[strum(to_string = "Reject")]
+    Reject,
+}
+
+/// Persists trust decisions for project-local MCP config files across
+/// restarts. Keyed by a `(canonical_path_string, content_hash_u64)` pair so
+/// that any modification to the file revokes the stored trust.
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct McpTrustStore {
+    #[serde(default)]
+    trusted: std::collections::HashSet<(String, u64)>,
+}
+
+impl McpTrustStore {
+    /// Returns true if the given path+hash pair has been permanently trusted.
+    pub fn is_trusted(&self, path: &std::path::Path, content_hash: u64) -> bool {
+        self.trusted
+            .contains(&(path.to_string_lossy().into_owned(), content_hash))
+    }
+
+    /// Records a permanent trust decision for the given path and content hash.
+    pub fn remember(&mut self, path: std::path::PathBuf, content_hash: u64) {
+        self.trusted
+            .insert((path.to_string_lossy().into_owned(), content_hash));
     }
 }
 

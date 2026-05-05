@@ -100,12 +100,12 @@ where
         Ok(())
     }
 
-    async fn init_mcp(&self) -> anyhow::Result<()> {
-        let mcp = self.manager.read_mcp_config(None).await?;
+    async fn ensure_mcp_initialized(&self) -> anyhow::Result<()> {
+        let raw_mcp = self.manager.read_mcp_config(None).await?;
 
         // Fast path: if config is unchanged, skip reinitialization without acquiring
         // the lock
-        if !self.is_config_modified(&mcp).await {
+        if !self.is_config_modified(&raw_mcp).await {
             return Ok(());
         }
 
@@ -114,18 +114,24 @@ where
         let _guard = self.init_lock.lock().await;
 
         // Double-check under the lock: a concurrent caller may have already updated
-        if !self.is_config_modified(&mcp).await {
+        if !self.is_config_modified(&raw_mcp).await {
             return Ok(());
         }
 
-        self.update_mcp(mcp).await
+        // Apply the trust gate. If init_mcp was called at startup, the manager's
+        // session trust cache already holds the decision and this returns immediately
+        // without re-prompting.
+        let raw_hash = raw_mcp.cache_key();
+        let trusted_mcp = self.manager.filter_trusted(raw_mcp).await?;
+
+        self.update_mcp(trusted_mcp, raw_hash).await
     }
 
-    async fn update_mcp(&self, mcp: McpConfig) -> Result<(), anyhow::Error> {
-        // Compute the hash early before mcp is consumed, but write it only after
-        // all connections are established so waiters on init_lock see a consistent
-        // state.
-        let new_hash = mcp.cache_key();
+    async fn update_mcp(&self, mcp: McpConfig, raw_hash: u64) -> Result<(), anyhow::Error> {
+        // Use the raw config hash (pre-trust-gate) so that is_config_modified always
+        // compares against the original file hash, preventing infinite re-prompt loops
+        // when some servers are rejected.
+        let new_hash = raw_hash;
         self.clear_tools().await;
 
         // Clear failed servers map before attempting new connections
@@ -171,7 +177,7 @@ where
     }
 
     async fn list(&self) -> anyhow::Result<McpServers> {
-        self.init_mcp().await?;
+        self.ensure_mcp_initialized().await?;
 
         let tools = self.tools.read().await;
         let mut grouped_tools = std::collections::HashMap::new();
@@ -193,7 +199,7 @@ where
 
     async fn call(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput> {
         // Ensure MCP connections are initialized before calling tools
-        self.init_mcp().await?;
+        self.ensure_mcp_initialized().await?;
 
         let tools = self.tools.read().await;
 
@@ -257,6 +263,16 @@ where
     async fn reload_mcp(&self) -> anyhow::Result<()> {
         self.refresh_cache().await
     }
+
+    async fn init_mcp(&self) -> anyhow::Result<()> {
+        // Run the trust gate to populate the manager's session trust cache.
+        // The result is intentionally discarded — servers are NOT connected here.
+        // Connections remain lazy and happen on first tool use via
+        // ensure_mcp_initialized, which fast-paths through the session cache.
+        let raw_mcp = self.manager.read_mcp_config(None).await?;
+        let _ = self.manager.filter_trusted(raw_mcp).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -319,6 +335,11 @@ mod tests {
             _scope: &Scope,
         ) -> anyhow::Result<()> {
             Ok(())
+        }
+
+        async fn filter_trusted(&self, raw: McpConfig) -> anyhow::Result<McpConfig> {
+            // In tests all configs are implicitly trusted.
+            Ok(raw)
         }
     }
 
