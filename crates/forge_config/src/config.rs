@@ -422,29 +422,25 @@ input_modalities = ["text"]
             response_type: Some(ProviderResponseType::OpenAI),
             auth_methods: vec![ProviderAuthMethod::ApiKey],
             models: Some(ModelsConfig::Hardcoded(vec![
-                forge_domain::Model {
-                    id: forge_domain::ModelId::from("Qwen3.6-35B-A3b-q3-mlx".to_string()),
-                    name: Some("Qwen3.5-35B".to_string()),
-                    description: Some(
+                forge_domain::Model::new("Qwen3.6-35B-A3b-q3-mlx")
+                    .name("Qwen3.5-35B".to_string())
+                    .description(
                         "Qwen local reasoning model with advanced problem-solving capabilities"
                             .to_string(),
-                    ),
-                    context_length: Some(262144),
-                    tools_supported: Some(true),
-                    supports_parallel_tool_calls: Some(true),
-                    supports_reasoning: Some(true),
-                    input_modalities: vec![forge_domain::InputModality::Text],
-                },
-                forge_domain::Model {
-                    id: forge_domain::ModelId::from("llama3.2-3b".to_string()),
-                    name: Some("Llama 3.2 3B".to_string()),
-                    description: Some("Meta Llama 3.2 3B lightweight local model".to_string()),
-                    context_length: Some(131072),
-                    tools_supported: Some(true),
-                    supports_parallel_tool_calls: Some(false),
-                    supports_reasoning: Some(false),
-                    input_modalities: vec![forge_domain::InputModality::Text],
-                },
+                    )
+                    .context_length(262144)
+                    .tools_supported(true)
+                    .supports_parallel_tool_calls(true)
+                    .supports_reasoning(true)
+                    .input_modalities(vec![forge_domain::InputModality::Text]),
+                forge_domain::Model::new("llama3.2-3b")
+                    .name("Llama 3.2 3B".to_string())
+                    .description("Meta Llama 3.2 3B lightweight local model".to_string())
+                    .context_length(131072)
+                    .tools_supported(true)
+                    .supports_parallel_tool_calls(false)
+                    .supports_reasoning(false)
+                    .input_modalities(vec![forge_domain::InputModality::Text]),
             ])),
             ..Default::default()
         }];

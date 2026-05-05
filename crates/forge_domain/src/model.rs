@@ -24,6 +24,7 @@ fn default_input_modalities() -> Vec<InputModality> {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, Setters, JsonSchema, Dummy)]
+#[setters(strip_option)]
 pub struct Model {
     pub id: ModelId,
     pub name: Option<String>,
@@ -58,6 +59,22 @@ pub struct ModelId(String);
 impl ModelId {
     pub fn new<T: Into<String>>(id: T) -> Self {
         Self(id.into())
+    }
+}
+
+impl Model {
+    /// Creates a new `Model` with the given id and default values for all other fields.
+    pub fn new(id: impl Into<ModelId>) -> Self {
+        Self {
+            id: id.into(),
+            name: None,
+            description: None,
+            context_length: None,
+            tools_supported: None,
+            supports_parallel_tool_calls: None,
+            supports_reasoning: None,
+            input_modalities: default_input_modalities(),
+        }
     }
 }
 

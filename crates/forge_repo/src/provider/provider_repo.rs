@@ -11,7 +11,7 @@ use merge::Merge;
 use serde::Deserialize;
 
 /// Represents the source of models for a provider
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(untagged)]
 enum Models {
     /// Models are fetched from a URL
@@ -51,7 +51,7 @@ impl UrlParamVarConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Merge)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Merge)]
 struct ProviderConfig {
     #[merge(strategy = overwrite)]
     id: ProviderId,
@@ -841,18 +841,16 @@ mod tests {
 
     #[test]
     fn test_provider_entry_with_static_models_converts_to_hardcoded() {
-        let model = forge_domain::Model {
-            id: forge_domain::ModelId::from("Qwen3.6-35B-A3b-q3-mlx".to_string()),
-            name: Some("Qwen3.5-35B".to_string()),
-            description: Some(
+        let model = forge_domain::Model::new("Qwen3.6-35B-A3b-q3-mlx")
+            .name("Qwen3.5-35B".to_string())
+            .description(
                 "Qwen local reasoning model with advanced problem-solving capabilities".to_string(),
-            ),
-            context_length: Some(262144),
-            tools_supported: Some(true),
-            supports_parallel_tool_calls: Some(true),
-            supports_reasoning: Some(true),
-            input_modalities: vec![forge_domain::InputModality::Text],
-        };
+            )
+            .context_length(262144)
+            .tools_supported(true)
+            .supports_parallel_tool_calls(true)
+            .supports_reasoning(true)
+            .input_modalities(vec![forge_domain::InputModality::Text]);
 
         let entry = forge_config::ProviderEntry {
             id: "ollama".to_string(),
@@ -865,10 +863,19 @@ mod tests {
 
         let actual = ProviderConfig::from(entry);
 
-        match actual.models {
-            Some(Models::Hardcoded(models)) => assert_eq!(models, vec![model]),
-            other => panic!("Expected Models::Hardcoded, got: {other:?}"),
-        }
+        let expected = ProviderConfig {
+            id: ProviderId::from("ollama".to_string()),
+            provider_type: forge_domain::ProviderType::Llm,
+            api_key_vars: None,
+            url_param_vars: vec![],
+            response_type: Some(forge_app::domain::ProviderResponse::OpenAI),
+            url: "http://127.0.0.1:8000/v1/chat/completions".to_string(),
+            models: Some(Models::Hardcoded(vec![model])),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            custom_headers: None,
+        };
+
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -884,10 +891,19 @@ mod tests {
 
         let actual = ProviderConfig::from(entry);
 
-        match actual.models {
-            Some(Models::Url(url)) => assert_eq!(url, "http://example.com/v1/models"),
-            other => panic!("Expected Models::Url, got: {other:?}"),
-        }
+        let expected = ProviderConfig {
+            id: ProviderId::from("my_provider".to_string()),
+            provider_type: forge_domain::ProviderType::Llm,
+            api_key_vars: None,
+            url_param_vars: vec![],
+            response_type: None,
+            url: "http://example.com/v1/chat/completions".to_string(),
+            models: Some(Models::Url("http://example.com/v1/models".to_string())),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            custom_headers: None,
+        };
+
+        assert_eq!(actual, expected);
     }
 }
 
