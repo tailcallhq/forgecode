@@ -6,6 +6,39 @@ use tracing::debug;
 
 use crate::{Context, ModelId, Role};
 
+/// Strategy for generating summaries during compaction.
+#[derive(
+    Default, Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum SummarizationStrategy {
+    /// Pure structural extraction - extracts tool calls, file paths, and commands
+    /// into a structured summary. Fast, deterministic, no API cost.
+    #[default]
+    Extract,
+
+    /// LLM-based semantic summarization - uses an LLM to generate a coherent
+    /// summary capturing decisions, rationale, and context. Higher quality
+    /// but requires API call.
+    Llm,
+
+    /// Hybrid approach - first extracts structured data, then uses LLM to
+    /// refine and enrich the summary with semantic understanding.
+    Hybrid,
+}
+
+impl SummarizationStrategy {
+    /// Returns true if this strategy requires LLM summarization
+    pub fn requires_llm(&self) -> bool {
+        matches!(self, Self::Llm | Self::Hybrid)
+    }
+}
+
+/// Default timeout for LLM summarization (3 seconds)
+fn default_summary_timeout() -> u64 {
+    3
+}
+
 /// Configuration for automatic context compaction
 #[derive(Debug, Clone, Serialize, Deserialize, Merge, Setters, JsonSchema, PartialEq)]
 #[setters(strip_option, into)]
@@ -69,8 +102,50 @@ pub struct Compact {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[merge(strategy = crate::merge::option)]
     pub on_turn_end: Option<bool>,
-}
 
+    /// Strategy for generating summaries during compaction.
+    /// - `extract`: Pure structural extraction (default, fast, no API cost)
+    /// - `llm`: Full LLM summarization (higher quality, requires API)
+    /// - `hybrid`: Extract + LLM refinement (balanced)
+    #[merge(strategy = crate::merge::std::overwrite)]
+    #[serde(default)]
+    pub summarization_strategy: SummarizationStrategy,
+
+    /// Model ID to use for LLM-based summarization. If not specified,
+    /// falls back to `model` or the root level model.
+    #[merge(strategy = crate::merge::option)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary_model: Option<ModelId>,
+
+    /// Maximum tokens in generated summary. Helps control output size.
+    #[merge(strategy = crate::merge::option)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary_max_tokens: Option<usize>,
+
+    /// Timeout for LLM summarization in seconds. If exceeded, falls back
+    /// to structural extraction.
+    #[merge(strategy = crate::merge::std::overwrite)]
+    #[serde(default = "default_summary_timeout")]
+    pub summary_timeout_secs: u64,
+
+    /// Enable pre-compaction filtering to remove noise before summarization.
+    /// Removes short tool results, debug output, and duplicate operations.
+    #[merge(strategy = crate::merge::std::overwrite)]
+    #[serde(default)]
+    pub enable_prefilter: bool,
+
+    /// Enable adaptive eviction window that adjusts based on context ratio.
+    /// More aggressive eviction when approaching token threshold.
+    #[merge(strategy = crate::merge::std::overwrite)]
+    #[serde(default)]
+    pub enable_adaptive_eviction: bool,
+
+    /// Enable importance-based message preservation during eviction.
+    /// High-importance messages (tool calls, errors, decisions) are protected.
+    #[merge(strategy = crate::merge::std::overwrite)]
+    #[serde(default)]
+    pub enable_importance_scoring: bool,
+}
 fn deserialize_percentage<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -123,6 +198,13 @@ impl Compact {
             eviction_window: 0.2, // Default to 20% compaction
             retention_window: 0,
             on_turn_end: None,
+            summarization_strategy: SummarizationStrategy::default(),
+            summary_model: None,
+            summary_max_tokens: None,
+            summary_timeout_secs: default_summary_timeout(),
+            enable_prefilter: false,
+            enable_adaptive_eviction: false,
+            enable_importance_scoring: false,
         }
     }
 

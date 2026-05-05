@@ -153,7 +153,7 @@ impl From<&ContextMessage> for MessageImportance {
 
 impl From<&SummaryTool> for MessageImportance {
     fn from(tool: &SummaryTool) -> Self {
-        let mut score;
+        let score;
         let mut factors = Vec::new();
 
         match tool {

@@ -1,5 +1,7 @@
 use crate::{Context, Role};
 
+use super::importance::{ImportanceEvictionStrategy, MessageImportance};
+
 /// Strategy for context compaction that unifies different compaction approaches
 #[derive(Debug, Clone)]
 pub enum CompactionStrategy {
@@ -72,6 +74,59 @@ impl CompactionStrategy {
     pub fn eviction_range(&self, context: &Context) -> Option<(usize, usize)> {
         let retention = self.to_fixed(context);
         find_sequence_preserving_last_n(context, retention)
+    }
+
+    /// Find the eviction range considering message importance.
+    ///
+    /// High-importance messages (errors, file changes, etc.) are protected from eviction.
+    /// This method first finds the base eviction range, then adjusts it to protect
+    /// high-importance messages.
+    ///
+    /// # Arguments
+    /// * `context` - The context to find eviction range in
+    /// * `importance_strategy` - Strategy for determining which messages are important
+    ///
+    /// # Returns
+    /// * `Some((start, end))` if there's a valid eviction range
+    /// * `None` if no eviction should happen (either no range found, or everything is protected)
+    pub fn eviction_range_with_importance(
+        &self,
+        context: &Context,
+        importance_strategy: &ImportanceEvictionStrategy,
+    ) -> Option<(usize, usize)> {
+        if !importance_strategy.enabled {
+            return self.eviction_range(context);
+        }
+
+        let base_range = self.eviction_range(context)?;
+        let messages = &context.messages;
+
+        // Find the adjusted end index that protects important messages
+        let (start, mut protected_end) = base_range;
+
+        // Scan from end to start, stopping at protected messages
+        for i in (start..=protected_end).rev() {
+            if let Some(entry) = messages.get(i) {
+                let importance = MessageImportance::from(&entry.message);
+                if importance_strategy.is_protected(&importance) {
+                    // This message is protected - can't evict it or anything after it in the range
+                    // Move the end to the message before this one
+                    if i == protected_end {
+                        // If the end is protected, there's nothing to evict
+                        return None;
+                    }
+                    protected_end = i.saturating_sub(1);
+                    break;
+                }
+            }
+        }
+
+        // Return adjusted range if valid
+        if protected_end >= start {
+            Some((start, protected_end))
+        } else {
+            None
+        }
     }
 }
 
@@ -428,5 +483,56 @@ mod tests {
 
         let actual_range = percentage_strategy.eviction_range(&single_context);
         assert_eq!(actual_range, None); // Should return None for single system message
+    }
+
+    #[test]
+    fn test_eviction_range_with_importance_disabled() {
+        // When importance strategy is disabled, should return same as regular eviction_range
+        let context = context_from_pattern("uaua");
+        let strategy = CompactionStrategy::retain(1);
+        let importance_strategy = ImportanceEvictionStrategy::default();
+
+        let with_importance = strategy.eviction_range_with_importance(&context, &importance_strategy);
+        let without_importance = strategy.eviction_range(&context);
+
+        assert_eq!(with_importance, without_importance);
+    }
+
+    #[test]
+    fn test_eviction_range_with_importance_basic_functionality() {
+        // Test that the importance-aware eviction range function works
+        let context = context_from_pattern("uaua");
+        let strategy = CompactionStrategy::retain(1);
+
+        // With a very low threshold, most messages are protected
+        let importance_strategy = ImportanceEvictionStrategy::new(5);
+
+        let base_range = strategy.eviction_range(&context);
+        assert_eq!(base_range, Some((1, 2)));
+
+        // With very low threshold, even user messages (30) are protected
+        let protected_range = strategy.eviction_range_with_importance(&context, &importance_strategy);
+        // Index 1 (assistant) has score 50 which is > 5, so protected
+        assert!(protected_range.is_none());
+    }
+
+    #[test]
+    fn test_eviction_range_with_importance_different_thresholds() {
+        // Test different protection thresholds
+        let context = context_from_pattern("uaua");
+        let strategy = CompactionStrategy::retain(1);
+
+        // With threshold of 100, only messages with score >= 100 are protected
+        // (errors would be protected, but normal messages are not)
+        let high_threshold = ImportanceEvictionStrategy::new(100);
+        let high_result = strategy.eviction_range_with_importance(&context, &high_threshold);
+        // Should behave like regular eviction since no message has score >= 100
+        let base_result = strategy.eviction_range(&context);
+        assert_eq!(high_result, base_result);
+
+        // With threshold of 0, all messages (score >= 0) are protected, so no eviction
+        let no_threshold = ImportanceEvictionStrategy::new(0);
+        let no_result = strategy.eviction_range_with_importance(&context, &no_threshold);
+        assert!(no_result.is_none());
     }
 }

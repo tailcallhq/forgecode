@@ -39,6 +39,17 @@ pub enum UpdateFrequency {
     Always,
 }
 
+impl From<UpdateFrequency> for Duration {
+    fn from(val: UpdateFrequency) -> Self {
+        match val {
+            UpdateFrequency::Daily => Duration::from_secs(60 * 60 * 24), // 1 day
+            UpdateFrequency::Weekly => Duration::from_secs(60 * 60 * 24 * 7), // 1 week
+            UpdateFrequency::Never => Duration::MAX,
+            UpdateFrequency::Always => Duration::ZERO, // one time
+        }
+    }
+}
+
 impl SummarizationStrategy {
     /// Returns true if this strategy requires LLM summarization
     pub fn requires_llm(&self) -> bool {

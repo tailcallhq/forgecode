@@ -15,6 +15,7 @@ mod git_app;
 mod hooks;
 mod infra;
 mod init_conversation_metrics;
+mod llm_summarizer;
 mod mcp_executor;
 mod operation;
 mod orch;

@@ -144,6 +144,23 @@ impl AgentExt for Agent {
                 message_threshold: workflow_compact.message_threshold,
                 model: workflow_compact.model.as_deref().map(ModelId::new),
                 on_turn_end: workflow_compact.on_turn_end,
+                summarization_strategy: match workflow_compact.summarization_strategy {
+                    forge_config::SummarizationStrategy::Extract =>
+                        forge_domain::SummarizationStrategy::Extract,
+                    forge_config::SummarizationStrategy::Llm =>
+                        forge_domain::SummarizationStrategy::Llm,
+                    forge_config::SummarizationStrategy::Hybrid =>
+                        forge_domain::SummarizationStrategy::Hybrid,
+                },
+                summary_model: workflow_compact
+                    .summary_model
+                    .as_deref()
+                    .map(ModelId::new),
+                summary_max_tokens: workflow_compact.summary_max_tokens,
+                summary_timeout_secs: workflow_compact.summary_timeout_secs,
+                enable_prefilter: workflow_compact.enable_prefilter,
+                enable_adaptive_eviction: workflow_compact.enable_adaptive_eviction,
+                enable_importance_scoring: workflow_compact.enable_importance_scoring,
             };
             merged_compact.merge(agent.compact.clone());
             agent.compact = merged_compact;

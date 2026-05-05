@@ -401,6 +401,21 @@
       "description": "Configuration for automatic context compaction for all agents",
       "type": "object",
       "properties": {
+        "enable_adaptive_eviction": {
+          "description": "Enable adaptive eviction window that adjusts based on context ratio.\nMore aggressive eviction when approaching token threshold.",
+          "type": "boolean",
+          "default": false
+        },
+        "enable_importance_scoring": {
+          "description": "Enable importance-based message preservation during eviction.\nHigh-importance messages (tool calls, errors, decisions) are protected.",
+          "type": "boolean",
+          "default": false
+        },
+        "enable_prefilter": {
+          "description": "Enable pre-compaction filtering to remove noise before summarization.\nRemoves short tool results, debug output, and duplicate operations.",
+          "type": "boolean",
+          "default": false
+        },
         "eviction_window": {
           "description": "Maximum percentage of the context that can be summarized during\ncompaction. Valid values are between 0.0 and 1.0, where 0.0 means no\ncompaction and 1.0 allows summarizing all messages. Works alongside\nretention_window - the more conservative limit (fewer messages to\ncompact) takes precedence.",
           "$ref": "#/$defs/double",
@@ -443,6 +458,34 @@
           "type": "integer",
           "format": "uint",
           "default": 0,
+          "minimum": 0
+        },
+        "summarization_strategy": {
+          "description": "Strategy for generating summaries during compaction.\n- `extract`: Pure structural extraction (default, fast, no API cost)\n- `llm`: Full LLM summarization (higher quality, requires API)\n- `hybrid`: Extract + LLM refinement (balanced)",
+          "$ref": "#/$defs/SummarizationStrategy",
+          "default": "extract"
+        },
+        "summary_max_tokens": {
+          "description": "Maximum tokens in generated summary. Helps control output size.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        },
+        "summary_model": {
+          "description": "Model ID to use for LLM-based summarization. If not specified,\nfalls back to `model` or the root level model.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "summary_timeout_secs": {
+          "description": "Timeout for LLM summarization in seconds. If exceeded, falls back\nto structural extraction.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 3,
           "minimum": 0
         },
         "token_threshold": {
@@ -975,6 +1018,26 @@
         "max_attempts",
         "status_codes",
         "suppress_errors"
+      ]
+    },
+    "SummarizationStrategy": {
+      "description": "Strategy for generating summaries during compaction.",
+      "oneOf": [
+        {
+          "description": "Pure structural extraction - extracts tool calls, file paths, and commands\ninto a structured summary. Fast, deterministic, no API cost.",
+          "type": "string",
+          "const": "extract"
+        },
+        {
+          "description": "LLM-based semantic summarization - uses an LLM to generate a coherent\nsummary capturing decisions, rationale, and context. Higher quality\nbut requires API call.",
+          "type": "string",
+          "const": "llm"
+        },
+        {
+          "description": "Hybrid approach - first extracts structured data, then uses LLM to\nrefine and enrich the summary with semantic understanding.",
+          "type": "string",
+          "const": "hybrid"
+        }
       ]
     },
     "TlsBackend": {
