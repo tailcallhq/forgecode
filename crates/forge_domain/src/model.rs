@@ -63,7 +63,8 @@ impl ModelId {
 }
 
 impl Model {
-    /// Creates a new `Model` with the given id and default values for all other fields.
+    /// Creates a new `Model` with the given id and default values for all other
+    /// fields.
     pub fn new(id: impl Into<ModelId>) -> Self {
         Self {
             id: id.into(),
