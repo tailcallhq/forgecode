@@ -264,7 +264,6 @@ mod tests {
         assert_eq!(result, Some(value));
     }
 
-
     #[tokio::test]
     async fn test_should_not_fail_when_no_cache_dir_present() {
         let cache_dir = PathBuf::from("/tmp/forge_test_nonexistent_cache_dir_that_does_not_exist");
