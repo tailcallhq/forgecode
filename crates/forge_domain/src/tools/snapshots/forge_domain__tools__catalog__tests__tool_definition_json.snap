@@ -6,28 +6,37 @@ expression: tools
   "title": "FSRead",
   "type": "object",
   "properties": {
-    "end_line": {
-      "description": "The line number to stop reading at (inclusive). Only provide if the file\nis too large to read at once",
-      "type": "integer",
-      "format": "int32",
-      "nullable": true
-    },
     "file_path": {
-      "description": "The absolute path to the file to read",
+      "description": "Absolute path to the file to read.",
       "type": "string"
+    },
+    "range": {
+      "description": "Optional line range for partial reads.",
+      "type": "object",
+      "properties": {
+        "end_line": {
+          "description": "Inclusive 1-based last line.",
+          "type": "integer",
+          "format": "int32",
+          "nullable": true
+        },
+        "start_line": {
+          "description": "1-based first line.",
+          "type": "integer",
+          "format": "int32",
+          "nullable": true
+        }
+      },
+      "additionalProperties": false,
+      "nullable": true
     },
     "show_line_numbers": {
       "description": "If true, prefixes each line with its line index (starting at 1).\nDefaults to true.",
       "type": "boolean",
       "default": true
-    },
-    "start_line": {
-      "description": "The line number to start reading from starting from 1 not 0. Only\nprovide if the file is too large to read at once",
-      "type": "integer",
-      "format": "int32",
-      "nullable": true
     }
   },
+  "additionalProperties": false,
   "required": [
     "file_path"
   ]

@@ -9,13 +9,12 @@ A powerful ZSH plugin that provides intelligent command transformation, file tag
 - **File Tagging**: Interactive file selection with `@[filename]` syntax
 - **Syntax Highlighting**: Visual feedback for commands and tagged files
 - **Conversation Continuity**: Automatic session management across commands
-- **Interactive Completion**: Fuzzy finding for files and agents
+- **Interactive Completion**: Fuzzy finding for files and agents via built-in picker
 
 ## Prerequisites
 
 Before using this plugin, ensure you have the following tools installed:
 
-- **fzf** - Command-line fuzzy finder
 - **fd** - Fast file finder (alternative to find)
 - **forge** - The Forge CLI tool
 
@@ -23,13 +22,13 @@ Before using this plugin, ensure you have the following tools installed:
 
 ```bash
 # macOS (using Homebrew)
-brew install fzf fd
+brew install fd
 
 # Ubuntu/Debian
-sudo apt install fzf fd-find
+sudo apt install fd-find
 
 # Arch Linux
-sudo pacman -S fzf fd
+sudo pacman -S fd
 ```
 
 ## Usage
@@ -250,7 +249,7 @@ This will check:
 - Forge installation and version
 - Plugin and theme loading status
 - Completions availability
-- Dependencies (fzf, fd, bat)
+- Dependencies (fd, bat)
 - ZSH plugins (autosuggestions, syntax-highlighting)
 - Editor configuration and PATH setup
 - Nerd Font support for icons
