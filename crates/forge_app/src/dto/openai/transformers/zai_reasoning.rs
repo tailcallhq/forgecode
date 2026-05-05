@@ -45,6 +45,12 @@ impl Transformer for SetZaiThinking {
             } else if reasoning.enabled.is_some() {
                 reasoning.enabled
             } else {
+                // If `reasoning.effort` is `Option::None` (no effort field
+                // set), `.map(...)` returns `None`. The outer `enabled` ends
+                // up `None`, the `if let Some(enabled)` below short-circuits,
+                // and no `thinking` field is added.
+                // `test_reasoning_enabled_none_doesnt_add_thinking` locks
+                // this case; `Some(Effort::None)` is handled by the first arm.
                 reasoning.effort.map(|_| true)
             };
 
