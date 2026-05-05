@@ -63,7 +63,7 @@ pub struct ProviderUrlParam {
 /// static list defined inline.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Dummy)]
 #[serde(untagged)]
-pub enum ModelsConfig {
+pub enum ModelListConfig {
     /// URL template used to fetch the model list dynamically.
     Url(String),
     /// A static list of models defined directly in the configuration.
@@ -89,7 +89,7 @@ pub struct ProviderEntry {
     /// Model source: either a URL template for dynamic discovery or a static
     /// list of models defined inline.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub models: Option<ModelsConfig>,
+    pub models: Option<ModelListConfig>,
     /// Wire protocol used by this provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_type: Option<ProviderResponseType>,
@@ -421,7 +421,7 @@ input_modalities = ["text"]
             url: "http://127.0.0.1:8000/v1/chat/completions".to_string(),
             response_type: Some(ProviderResponseType::OpenAI),
             auth_methods: vec![ProviderAuthMethod::ApiKey],
-            models: Some(ModelsConfig::Hardcoded(vec![
+            models: Some(ModelListConfig::Hardcoded(vec![
                 forge_domain::Model::new("Qwen3.6-35B-A3b-q3-mlx")
                     .name("Qwen3.5-35B".to_string())
                     .description(
@@ -462,7 +462,7 @@ models = "http://example.com/v1/models"
         let expected = vec![ProviderEntry {
             id: "my_provider".to_string(),
             url: "http://example.com/v1/chat/completions".to_string(),
-            models: Some(ModelsConfig::Url(
+            models: Some(ModelListConfig::Url(
                 "http://example.com/v1/models".to_string(),
             )),
             ..Default::default()

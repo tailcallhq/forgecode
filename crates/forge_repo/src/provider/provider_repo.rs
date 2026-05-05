@@ -176,8 +176,8 @@ impl From<forge_config::ProviderEntry> for ProviderConfig {
         });
 
         let models = entry.models.map(|m| match m {
-            forge_config::ModelsConfig::Url(url) => Models::Url(url),
-            forge_config::ModelsConfig::Hardcoded(model_list) => Models::Hardcoded(model_list),
+            forge_config::ModelListConfig::Url(url) => Models::Url(url),
+            forge_config::ModelListConfig::Hardcoded(model_list) => Models::Hardcoded(model_list),
         });
 
         ProviderConfig {
@@ -857,7 +857,7 @@ mod tests {
             url: "http://127.0.0.1:8000/v1/chat/completions".to_string(),
             response_type: Some(forge_config::ProviderResponseType::OpenAI),
             auth_methods: vec![forge_config::ProviderAuthMethod::ApiKey],
-            models: Some(forge_config::ModelsConfig::Hardcoded(vec![model.clone()])),
+            models: Some(forge_config::ModelListConfig::Hardcoded(vec![model.clone()])),
             ..Default::default()
         };
 
@@ -883,7 +883,7 @@ mod tests {
         let entry = forge_config::ProviderEntry {
             id: "my_provider".to_string(),
             url: "http://example.com/v1/chat/completions".to_string(),
-            models: Some(forge_config::ModelsConfig::Url(
+            models: Some(forge_config::ModelListConfig::Url(
                 "http://example.com/v1/models".to_string(),
             )),
             ..Default::default()

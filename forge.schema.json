@@ -704,7 +704,7 @@
         "model_id"
       ]
     },
-    "ModelsConfig": {
+    "ModelListConfig": {
       "description": "Source of models for a provider: either a URL to fetch them from or a\nstatic list defined inline.",
       "anyOf": [
         {
@@ -764,7 +764,7 @@
           "description": "Model source: either a URL template for dynamic discovery or a static\nlist of models defined inline.",
           "anyOf": [
             {
-              "$ref": "#/$defs/ModelsConfig"
+              "$ref": "#/$defs/ModelListConfig"
             },
             {
               "type": "null"
