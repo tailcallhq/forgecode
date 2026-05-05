@@ -41,6 +41,14 @@ impl AuthCredential {
         }
     }
 
+    pub fn new_aws_profile(id: ProviderId, profile_name: ApiKey) -> Self {
+        Self {
+            id,
+            auth_details: AuthDetails::AwsProfile(profile_name),
+            url_params: HashMap::new(),
+        }
+    }
+
     pub fn new_google_adc(id: ProviderId, access_token: ApiKey) -> Self {
         Self {
             id,
@@ -53,6 +61,8 @@ impl AuthCredential {
     pub fn needs_refresh(&self, buffer: chrono::Duration) -> bool {
         match &self.auth_details {
             AuthDetails::ApiKey(_) => false,
+            // AWS Profile credentials are managed by the AWS SDK internally
+            AuthDetails::AwsProfile(_) => false,
             // Google ADC tokens are short-lived (1 hour) and should always be checked/refreshed
             AuthDetails::GoogleAdc(_) => true,
             AuthDetails::OAuth { tokens, .. } | AuthDetails::OAuthWithApiKey { tokens, .. } => {
@@ -79,6 +89,8 @@ pub enum AuthDetails {
     ApiKey(ApiKey),
     #[serde(alias = "GoogleAdc")]
     GoogleAdc(ApiKey),
+    #[serde(alias = "AwsProfile")]
+    AwsProfile(ApiKey),
     #[serde(alias = "OAuth")]
     OAuth {
         tokens: OAuthTokens,
@@ -97,6 +109,7 @@ impl AuthDetails {
         match self {
             AuthDetails::ApiKey(api_key) => Some(api_key),
             AuthDetails::GoogleAdc(api_key) => Some(api_key),
+            AuthDetails::AwsProfile(_) => None,
             AuthDetails::OAuth { .. } => None,
             AuthDetails::OAuthWithApiKey { .. } => None,
         }

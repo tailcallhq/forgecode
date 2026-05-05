@@ -9,6 +9,12 @@ use crate::{
     SearchMatch, Skill, Snapshot, WorkspaceAuth, WorkspaceId,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextPatchBlock {
+    pub patch: String,
+    pub patched_text: String,
+}
+
 /// Repository for managing file snapshots
 ///
 /// This repository provides operations for creating and restoring file
@@ -231,4 +237,14 @@ pub trait FuzzySearchRepository: Send + Sync {
         haystack: &str,
         search_all: bool,
     ) -> Result<Vec<SearchMatch>>;
+}
+
+#[async_trait::async_trait]
+pub trait TextPatchRepository: Send + Sync {
+    async fn build_text_patch(
+        &self,
+        haystack: &str,
+        old_string: &str,
+        new_string: &str,
+    ) -> Result<TextPatchBlock>;
 }

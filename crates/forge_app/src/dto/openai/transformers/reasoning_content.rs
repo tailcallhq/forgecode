@@ -2,18 +2,19 @@ use forge_domain::Transformer;
 
 use crate::dto::openai::Request;
 
-/// Transformer that converts reasoning_details to kimi_k2's reasoning_content
-/// flat format.
+/// Transformer that converts structured reasoning details to the flat
+/// `reasoning_content` format.
 ///
-/// kimi_k2 models expect reasoning to be sent as a flat `reasoning_content`
-/// string field instead of the OpenRouter-style `reasoning_details` array.
+/// Some OpenAI-compatible providers expect replayed reasoning to be sent as a
+/// flat `reasoning_content` string field instead of the OpenRouter-style
+/// `reasoning_details` array.
 ///
 /// This transformer:
-/// 1. Extracts `reasoning.text` type entries → `reasoning_content`
-/// 2. Removes `reasoning_details` array (kimi_k2 doesn't accept it)
-pub struct KimiK2Reasoning;
+/// 1. Extracts `reasoning.text` type entries into `reasoning_content`
+/// 2. Removes `reasoning_details` because target providers do not accept it
+pub struct ReasoningContent;
 
-impl Transformer for KimiK2Reasoning {
+impl Transformer for ReasoningContent {
     type Value = Request;
 
     fn transform(&mut self, mut request: Self::Value) -> Self::Value {
@@ -29,7 +30,7 @@ impl Transformer for KimiK2Reasoning {
                     // Set flat field
                     message.reasoning_content = reasoning_content;
 
-                    // Remove reasoning_details array (kimi_k2 doesn't accept it)
+                    // Remove reasoning_details array because target providers do not accept it
                     message.reasoning_details = None;
                 }
             }
@@ -70,7 +71,7 @@ mod tests {
         }]);
 
         // Execute
-        let actual = KimiK2Reasoning.transform(fixture);
+        let actual = ReasoningContent.transform(fixture);
 
         // Verify transformation
         let messages = actual.messages.unwrap();
@@ -96,7 +97,7 @@ mod tests {
         }]);
 
         // Execute
-        let actual = KimiK2Reasoning.transform(fixture.clone());
+        let actual = ReasoningContent.transform(fixture.clone());
 
         // Verify - no change since there were no reasoning_details
         let messages = actual.messages.unwrap();

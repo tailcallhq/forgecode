@@ -1071,4 +1071,50 @@ mod tests {
         assert!(error_string.contains("Content was filtered"));
         assert!(error_string.contains("hate"));
     }
+
+    #[test]
+    fn test_nvidia_tool_call_streaming_chunk() {
+        let response_json = r#"{"id":"chatcmpl-994182aa3bf1d873","object":"chat.completion.chunk","created":1775363363,"model":"qwen/qwen3.5-397b-a17b","choices":[{"index":0,"delta":{"content":null,"reasoning":null,"reasoning_content":null,"tool_calls":[{"index":1,"function":{"arguments":"}"}}]},"logprobs":null,"finish_reason":"tool_calls","stop_reason":null,"token_ids":null}]}"#;
+
+        let actual = serde_json::from_str::<Response>(response_json);
+        assert!(
+            actual.is_ok(),
+            "Should parse NVIDIA tool call streaming chunk: {:?}",
+            actual.err()
+        );
+    }
+
+    #[test]
+    fn test_nvidia_tool_call_deserialization() {
+        // NVIDIA sends tool calls without "id" and "type" fields
+        let tool_call_json = r#"{"index":1,"function":{"arguments":"}"}}"#;
+        let actual = serde_json::from_str::<ToolCall>(tool_call_json);
+        assert!(
+            actual.is_ok(),
+            "Should parse NVIDIA tool call: {:?}",
+            actual.err()
+        );
+    }
+
+    #[test]
+    fn test_nvidia_response_message_deserialization() {
+        let msg_json = r#"{"content":null,"reasoning":null,"reasoning_content":null,"tool_calls":[{"index":1,"function":{"arguments":"}"}}]}"#;
+        let actual = serde_json::from_str::<ResponseMessage>(msg_json);
+        assert!(
+            actual.is_ok(),
+            "Should parse NVIDIA response message: {:?}",
+            actual.err()
+        );
+    }
+
+    #[test]
+    fn test_nvidia_choice_deserialization() {
+        let choice_json = r#"{"index":0,"delta":{"content":null,"reasoning":null,"reasoning_content":null,"tool_calls":[{"index":1,"function":{"arguments":"}"}}]},"logprobs":null,"finish_reason":"tool_calls","stop_reason":null,"token_ids":null}"#;
+        let actual = serde_json::from_str::<Choice>(choice_json);
+        assert!(
+            actual.is_ok(),
+            "Should parse NVIDIA choice: {:?}",
+            actual.err()
+        );
+    }
 }

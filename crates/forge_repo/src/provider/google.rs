@@ -174,6 +174,9 @@ impl<F: HttpInfra> GoogleResponseRepository<F> {
             forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => {
                 (api_key.as_str().to_string(), true)
             }
+            forge_domain::AuthDetails::AwsProfile(_) => {
+                anyhow::bail!("AWS Profile auth is not supported for Google provider")
+            }
         };
 
         Ok(Google::new(
@@ -230,8 +233,8 @@ mod tests {
         Context, ContextMessage, ToolCallFull, ToolCallId, ToolChoice, ToolName, ToolOutput,
         ToolResult,
     };
+    use forge_eventsource::EventSource;
     use reqwest::header::HeaderMap;
-    use reqwest_eventsource::EventSource;
 
     use super::*;
     use crate::provider::mock_server::{MockServer, normalize_ports};

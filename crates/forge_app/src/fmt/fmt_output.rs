@@ -88,8 +88,7 @@ mod tests {
         let fixture = ToolOperation::FsRead {
             input: forge_domain::FSRead {
                 file_path: "/home/user/test.txt".to_string(),
-                start_line: None,
-                end_line: None,
+                range: None,
                 show_line_numbers: true,
             },
             output: ReadOutput {
@@ -111,8 +110,7 @@ mod tests {
         let fixture = ToolOperation::FsRead {
             input: forge_domain::FSRead {
                 file_path: "/home/user/test.txt".to_string(),
-                start_line: Some(2),
-                end_line: Some(4),
+                range: Some(forge_domain::FSReadRange { start_line: Some(2), end_line: Some(4) }),
                 show_line_numbers: true,
             },
             output: ReadOutput {

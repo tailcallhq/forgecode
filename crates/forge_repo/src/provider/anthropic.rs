@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use eventsource_stream::Eventsource;
 use forge_app::domain::{
     ChatCompletionMessage, Context, Model, ModelId, ResultStream, Transformer,
 };
@@ -12,6 +11,7 @@ use forge_app::dto::anthropic::{
 };
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider, ProviderId};
+use forge_eventsource_stream::Eventsource;
 use futures::StreamExt;
 use reqwest::Url;
 use reqwest::header::HeaderMap;
@@ -46,11 +46,16 @@ impl<H: HttpInfra> Anthropic<H> {
             .provider
             .credential
             .as_ref()
-            .map(|c| match &c.auth_details {
-                forge_domain::AuthDetails::ApiKey(key) => key.as_str(),
-                forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => api_key.as_str(),
-                forge_domain::AuthDetails::OAuth { tokens, .. } => tokens.access_token.as_str(),
-                forge_domain::AuthDetails::GoogleAdc(api_key) => api_key.as_str(),
+            .and_then(|c| match &c.auth_details {
+                forge_domain::AuthDetails::ApiKey(key) => Some(key.as_str()),
+                forge_domain::AuthDetails::OAuthWithApiKey { api_key, .. } => {
+                    Some(api_key.as_str())
+                }
+                forge_domain::AuthDetails::OAuth { tokens, .. } => {
+                    Some(tokens.access_token.as_str())
+                }
+                forge_domain::AuthDetails::GoogleAdc(api_key) => Some(api_key.as_str()),
+                forge_domain::AuthDetails::AwsProfile(_) => None,
             });
 
         if let Some(api_key) = api_key {
@@ -289,11 +294,14 @@ impl<T: HttpInfra> Anthropic<T> {
     }
 }
 
-fn into_sse_parse_error<E>(error: eventsource_stream::EventStreamError<E>) -> anyhow::Error
+fn into_sse_parse_error<E>(error: forge_eventsource_stream::EventStreamError<E>) -> anyhow::Error
 where
     E: std::fmt::Debug + std::fmt::Display + Send + Sync + 'static,
 {
-    let is_retryable = matches!(&error, eventsource_stream::EventStreamError::Transport(_));
+    let is_retryable = matches!(
+        &error,
+        forge_eventsource_stream::EventStreamError::Transport(_)
+    );
     let error = anyhow::anyhow!("SSE parse error: {}", error);
 
     if is_retryable {
@@ -390,8 +398,8 @@ mod tests {
         Context, ContextMessage, ToolCallFull, ToolCallId, ToolChoice, ToolName, ToolOutput,
         ToolResult,
     };
+    use forge_eventsource::EventSource;
     use reqwest::header::HeaderMap;
-    use reqwest_eventsource::EventSource;
 
     use super::*;
     use crate::provider::mock_server::{MockServer, normalize_ports};
