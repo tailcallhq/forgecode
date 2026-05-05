@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use bytes::Bytes;
-use forge_app::domain::{McpConfig, McpServerConfig, McpTrustResponse, McpTrustStore, Scope};
+use forge_app::domain::{McpConfig, McpTrustResponse, McpTrustStore, Scope};
 use forge_app::{
     EnvironmentInfra, FileInfoInfra, FileReaderInfra, FileWriterInfra, KVStore, McpConfigManager,
     McpServerInfra, UserInfra,

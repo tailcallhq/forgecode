@@ -296,7 +296,8 @@ impl McpConfig {
     /// This is required for persisted trust-store lookups: `DefaultHasher`
     /// uses a random seed per-process and would produce a different value on
     /// every restart, causing "Trust and remember" to be ignored.
-    /// `BTreeMap` ensures consistent field ordering regardless of insertion order.
+    /// `BTreeMap` ensures consistent field ordering regardless of insertion
+    /// order.
     pub fn cache_key(&self) -> u64 {
         use std::hash::{Hash, Hasher};
 
@@ -310,7 +311,8 @@ impl McpConfig {
 /// `.mcp.json` is detected at startup.
 #[derive(Debug, Clone, PartialEq, Eq, StrumDisplay, EnumIter, EnumString)]
 pub enum McpTrustResponse {
-    /// Allow the servers for this session only, without persisting the decision.
+    /// Allow the servers for this session only, without persisting the
+    /// decision.
     #[strum(to_string = "Trust once")]
     TrustOnce,
     /// Allow the servers and remember this decision across future sessions.
