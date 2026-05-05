@@ -37,7 +37,7 @@ use crate::cli::{
 use crate::conversation_selector::ConversationSelector;
 use crate::display_constants::{CommandType, headers, markers, status};
 use crate::editor::ReadLineError;
-use crate::error::UIError;
+use crate::error::{is_cursor_error, UIError};
 use crate::info::Info;
 use crate::input::Console;
 use crate::model::{AppCommand, ForgeCommandManager};
@@ -339,18 +339,32 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         match self.run_inner().await {
             Ok(_) => {}
             Err(error) => {
+                // Check if this is a cursor position error (non-fatal)
+                // These errors occur during shutdown when the terminal can't respond
+                // to cursor position queries. See the investigation plan for details.
+                let main_err: &(dyn std::error::Error + 'static) = error.as_ref();
+                if is_cursor_error(main_err) {
+                    tracing::debug!(
+                        "Suppressing cursor position error during shutdown (non-fatal)"
+                    );
+                    return;
+                }
+
                 tracing::error!(error = ?error);
 
                 // Display the full error chain for better debugging
                 let mut error_message = error.to_string();
                 let mut source = error.source();
                 while let Some(err) = source {
-                    error_message.push_str(&format!("\n    Caused by: {}", err));
+                    // Skip cursor errors in the chain - they're non-fatal
+                    if !is_cursor_error(err) {
+                        error_message.push_str(&format!("\n    Caused by: {}", err));
+                    }
                     source = err.source();
                 }
 
-                let _ =
-                    self.writeln_to_stderr(TitleFormat::error(error_message).display().to_string());
+                let _ = self
+                    .writeln_to_stderr(TitleFormat::error(error_message).display().to_string());
             }
         }
     }
