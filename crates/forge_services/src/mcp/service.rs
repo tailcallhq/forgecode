@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
 use forge_app::domain::{
@@ -12,6 +13,8 @@ use forge_app::{
 use tokio::sync::{Mutex, RwLock};
 
 use crate::mcp::tool::McpExecutor;
+
+const DEFAULT_MCP_SERVER_TIMEOUT_SECS: u64 = 300;
 
 fn generate_mcp_tool_name(server_name: &ServerName, tool_name: &ToolName) -> ToolName {
     let sanitized_server_name = ToolName::sanitized(server_name.to_string().as_str());
@@ -61,10 +64,23 @@ where
         *self.previous_config_hash.lock().await != config.cache_key()
     }
 
-    async fn insert_clients(&self, server_name: &ServerName, client: Arc<C>) -> anyhow::Result<()> {
-        let tools = client.list().await?;
+    fn server_timeout(config: &McpServerConfig) -> Duration {
+        let seconds = match config {
+            McpServerConfig::Stdio(stdio) => stdio.timeout,
+            McpServerConfig::Http(http) => http.timeout,
+        }
+        .unwrap_or(DEFAULT_MCP_SERVER_TIMEOUT_SECS);
 
-        let mut tool_map = self.tools.write().await;
+        Duration::from_secs(seconds)
+    }
+
+    async fn build_tool_holders(
+        &self,
+        server_name: &ServerName,
+        client: Arc<C>,
+    ) -> anyhow::Result<Vec<(ToolName, ToolHolder<McpExecutor<C>>)>> {
+        let tools = client.list().await?;
+        let mut tool_holders = Vec::with_capacity(tools.len());
 
         for mut tool in tools.into_iter() {
             let actual_name = tool.name.clone();
@@ -73,47 +89,40 @@ where
 
             tool.name = generated_name.clone();
 
-            tool_map.insert(
+            tool_holders.push((
                 generated_name,
                 ToolHolder {
                     definition: tool,
                     executable: server,
                     server_name: server_name.to_string(),
                 },
-            );
+            ));
         }
 
-        Ok(())
+        Ok(tool_holders)
     }
 
-    async fn connect(
+    async fn load_server_tools(
         &self,
         server_name: &ServerName,
         config: McpServerConfig,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Vec<(ToolName, ToolHolder<McpExecutor<C>>)>> {
         let env_vars = self.infra.get_env_vars();
         let environment = self.infra.get_environment();
         let client = self.infra.connect(config, &env_vars, &environment).await?;
         let client = Arc::new(C::from(client));
-        self.insert_clients(server_name, client).await?;
-
-        Ok(())
+        self.build_tool_holders(server_name, client).await
     }
 
     async fn init_mcp(&self) -> anyhow::Result<()> {
         let mcp = self.manager.read_mcp_config(None).await?;
 
-        // Fast path: if config is unchanged, skip reinitialization without acquiring
-        // the lock
         if !self.is_config_modified(&mcp).await {
             return Ok(());
         }
 
-        // Serialise concurrent initialisations so only one caller runs update_mcp at a
-        // time
         let _guard = self.init_lock.lock().await;
 
-        // Double-check under the lock: a concurrent caller may have already updated
         if !self.is_config_modified(&mcp).await {
             return Ok(());
         }
@@ -121,50 +130,53 @@ where
         self.update_mcp(mcp).await
     }
 
-    async fn update_mcp(&self, mcp: McpConfig) -> Result<(), anyhow::Error> {
-        // Compute the hash early before mcp is consumed, but write it only after
-        // all connections are established so waiters on init_lock see a consistent
-        // state.
+    async fn update_mcp(&self, mcp: McpConfig) -> anyhow::Result<()> {
         let new_hash = mcp.cache_key();
-        self.clear_tools().await;
-
-        // Clear failed servers map before attempting new connections
-        self.failed_servers.write().await.clear();
 
         let connections: Vec<_> = mcp
             .mcp_servers
             .into_iter()
-            .filter(|v| !v.1.is_disabled())
-            .map(|(name, server)| async move {
-                let conn = self
-                    .connect(&name, server)
+            .filter(|(_, server)| !server.is_disabled())
+            .map(|(server_name, server)| {
+                let timeout = Self::server_timeout(&server);
+                async move {
+                    let result = match tokio::time::timeout(
+                        timeout,
+                        self.load_server_tools(&server_name, server),
+                    )
                     .await
-                    .context(format!("Failed to initiate MCP server: {name}"));
+                    {
+                        Ok(result) => result.with_context(|| {
+                            format!("Failed to initiate MCP server: {server_name}")
+                        }),
+                        Err(error) => Err(anyhow::Error::new(error).context(format!(
+                            "Timed out after {}s while loading MCP server: {server_name}",
+                            timeout.as_secs()
+                        ))),
+                    };
 
-                (name, conn)
+                    (server_name, result)
+                }
             })
             .collect();
 
         let results = futures::future::join_all(connections).await;
+        let mut tool_map = HashMap::new();
+        let mut failed_servers = HashMap::new();
 
         for (server_name, result) in results {
             match result {
-                Ok(_) => {}
+                Ok(holders) => {
+                    tool_map.extend(holders.into_iter());
+                }
                 Err(error) => {
-                    // Format error with full chain for detailed diagnostics
-                    // Using Debug formatting with alternate flag shows the full error chain
-                    let error_string = format!("{error:?}");
-                    self.failed_servers
-                        .write()
-                        .await
-                        .insert(server_name.clone(), error_string.clone());
+                    failed_servers.insert(server_name, format!("{error:?}"));
                 }
             }
         }
 
-        // Write the hash only after join_all finishes so that any waiter on
-        // init_lock re-checks is_config_modified only once self.tools is fully
-        // populated, preventing "Tool not found" races.
+        *self.tools.write().await = tool_map;
+        *self.failed_servers.write().await = failed_servers;
         *self.previous_config_hash.lock().await = new_hash;
 
         Ok(())
@@ -174,7 +186,7 @@ where
         self.init_mcp().await?;
 
         let tools = self.tools.read().await;
-        let mut grouped_tools = std::collections::HashMap::new();
+        let mut grouped_tools = HashMap::new();
 
         for tool in tools.values() {
             grouped_tools
@@ -187,39 +199,33 @@ where
 
         Ok(McpServers::new(grouped_tools, failures))
     }
-    async fn clear_tools(&self) {
-        self.tools.write().await.clear()
-    }
 
     async fn call(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput> {
-        // Ensure MCP connections are initialized before calling tools
         self.init_mcp().await?;
 
         let tools = self.tools.read().await;
-
-        // Try exact match first, then fall back to legacy-format lookup for
-        // tool calls arriving in the Claude Code `mcp__{server}__{tool}` format.
         let tool = tools
             .get(&call.name)
-            .or_else(|| call.name.to_legacy_mcp_name().and_then(|n| tools.get(&n)))
+            .or_else(|| {
+                call.name
+                    .to_legacy_mcp_name()
+                    .and_then(|name| tools.get(&name))
+            })
             .context("Tool not found")?;
 
         tool.executable.call_tool(call.arguments.parse()?).await
     }
 
-    /// Refresh the MCP cache by clearing cached data.
+    /// Refresh the MCP cache by invalidating cached data.
     /// Does NOT eagerly connect to servers - connections happen lazily
     /// when list() or call() is invoked, avoiding interactive OAuth during
-    /// reload.
+    /// reload. The last known tool map stays in memory until the next
+    /// initialization completes so callers never observe an empty registry
+    /// during a refresh.
     async fn refresh_cache(&self) -> anyhow::Result<()> {
-        // Hold init_lock so we don't race with an in-flight update_mcp: without
-        // this, clear_tools could run while connections are still being
-        // established, leaving waiters released into an empty tool map.
         let _guard = self.init_lock.lock().await;
-        // Clear the infra cache and reset config hash to force re-init on next access
         self.infra.cache_clear().await?;
         *self.previous_config_hash.lock().await = Default::default();
-        self.clear_tools().await;
         self.failed_servers.write().await.clear();
         Ok(())
     }
@@ -233,21 +239,16 @@ where
     C: From<<I as McpServerInfra>::Client>,
 {
     async fn get_mcp_servers(&self) -> anyhow::Result<McpServers> {
-        // Read current configs to compute merged hash
         let mcp_config = self.manager.read_mcp_config(None).await?;
-
-        // Compute unified hash from merged config
         let config_hash = mcp_config.cache_key();
 
-        // Check if cache is valid (exists and not expired)
-        // Cache is valid, retrieve it
         if let Some(cache) = self.infra.cache_get::<_, McpServers>(&config_hash).await? {
             return Ok(cache.clone());
         }
 
-        let servers = self.list().await?;
-        self.infra.cache_set(&config_hash, &servers).await?;
-        Ok(servers)
+        let actual = self.list().await?;
+        self.infra.cache_set(&config_hash, &actual).await?;
+        Ok(actual)
     }
 
     async fn execute_mcp(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput> {
@@ -262,7 +263,8 @@ where
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use fake::{Fake, Faker};
     use forge_app::domain::{
@@ -277,8 +279,6 @@ mod tests {
     use serde::de::DeserializeOwned;
 
     use super::{ForgeMcpService, generate_mcp_tool_name};
-
-    // ── Mock MCP client ──────────────────────────────────────────────────────
 
     #[derive(Clone)]
     struct MockMcpClient;
@@ -298,9 +298,37 @@ mod tests {
         }
     }
 
-    // ── Mock config manager ──────────────────────────────────────────────────
-
     struct MockMcpManager;
+
+    #[derive(Clone)]
+    struct StatefulMcpManager {
+        config: Arc<Mutex<McpConfig>>,
+    }
+
+    impl StatefulMcpManager {
+        fn new(config: McpConfig) -> Self {
+            Self { config: Arc::new(Mutex::new(config)) }
+        }
+
+        fn set_config(&self, config: McpConfig) {
+            *self.config.lock().expect("config mutex poisoned") = config;
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl McpConfigManager for StatefulMcpManager {
+        async fn read_mcp_config(&self, _scope: Option<&Scope>) -> anyhow::Result<McpConfig> {
+            Ok(self.config.lock().expect("config mutex poisoned").clone())
+        }
+
+        async fn write_mcp_config(
+            &self,
+            _config: &McpConfig,
+            _scope: &Scope,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
 
     #[async_trait::async_trait]
     impl McpConfigManager for MockMcpManager {
@@ -322,8 +350,6 @@ mod tests {
         }
     }
 
-    // ── Mock infrastructure ──────────────────────────────────────────────────
-
     #[derive(Clone)]
     struct MockInfra;
 
@@ -333,10 +359,20 @@ mod tests {
 
         async fn connect(
             &self,
-            _config: McpServerConfig,
+            config: McpServerConfig,
             _env_vars: &BTreeMap<String, String>,
             _environment: &Environment,
         ) -> anyhow::Result<MockMcpClient> {
+            if let McpServerConfig::Stdio(stdio) = &config {
+                if stdio.command == "slow" {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+
+                if stdio.command == "broken" {
+                    return Err(anyhow::anyhow!("broken server"));
+                }
+            }
+
             Ok(MockMcpClient)
         }
     }
@@ -388,10 +424,23 @@ mod tests {
         }
     }
 
-    // ── Fixture ──────────────────────────────────────────────────────────────
-
     fn fixture() -> ForgeMcpService<MockMcpManager, MockInfra, MockMcpClient> {
         ForgeMcpService::new(Arc::new(MockMcpManager), Arc::new(MockInfra))
+    }
+
+    fn fixture_with_manager<M>(manager: Arc<M>) -> ForgeMcpService<M, MockInfra, MockMcpClient>
+    where
+        M: McpConfigManager,
+    {
+        ForgeMcpService::new(manager, Arc::new(MockInfra))
+    }
+
+    fn stdio_server(command: &str, timeout: Option<u64>) -> McpServerConfig {
+        let mut actual = McpServerConfig::new_stdio(command, vec![], None);
+        if let McpServerConfig::Stdio(stdio) = &mut actual {
+            stdio.timeout = timeout;
+        }
+        actual
     }
 
     #[test]
@@ -427,33 +476,30 @@ mod tests {
     #[test]
     fn test_to_legacy_mcp_name_returns_none_for_non_mcp_tools() {
         let actual = ToolName::new("read").to_legacy_mcp_name();
-        assert_eq!(actual, None);
+        let expected = None;
+        assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_to_legacy_mcp_name_returns_none_for_legacy_format() {
-        // Already in legacy format — should not double-convert
         let actual = ToolName::new("mcp_github_tool_create_issue").to_legacy_mcp_name();
-        assert_eq!(actual, None);
+        let expected = None;
+        assert_eq!(actual, expected);
     }
 
-    // ── Concurrent initialisation test ──────────────────────────────────────
-
-    /// Verify that two concurrent callers of `get_mcp_servers` do not race:
-    /// after both futures settle, every registered tool must be callable
-    /// without a "Tool not found" error.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_concurrent_init_does_not_race() {
-        let service = Arc::new(fixture());
+        let setup = Arc::new(fixture());
 
-        let s1 = service.clone();
-        let s2 = service.clone();
-        let (r1, r2) = tokio::join!(s1.get_mcp_servers(), s2.get_mcp_servers());
-        r1.unwrap();
-        r2.unwrap();
+        let fixture_one = setup.clone();
+        let fixture_two = setup.clone();
+        let (actual_one, actual_two) =
+            tokio::join!(fixture_one.get_mcp_servers(), fixture_two.get_mcp_servers());
+        actual_one.unwrap();
+        actual_two.unwrap();
 
-        let servers = service.get_mcp_servers().await.unwrap();
-        let tool_name = servers
+        let actual = setup.get_mcp_servers().await.unwrap();
+        let tool_name = actual
             .get_servers()
             .values()
             .flat_map(|tools| tools.iter())
@@ -462,8 +508,96 @@ mod tests {
             .name
             .clone();
 
-        let call = ToolCallFull::new(tool_name);
-        let actual = service.execute_mcp(call).await.unwrap();
+        let actual = setup
+            .execute_mcp(ToolCallFull::new(tool_name))
+            .await
+            .unwrap();
+        let expected = ToolOutput::text("mock result");
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn test_reload_mcp_preserves_last_known_tools_until_next_init() {
+        let setup = McpConfig {
+            mcp_servers: BTreeMap::from([(
+                ServerName::from("initial-server".to_string()),
+                stdio_server("fast", Some(1)),
+            )]),
+        };
+        let fixture = Arc::new(StatefulMcpManager::new(setup));
+        let service = fixture_with_manager(fixture.clone());
+
+        let actual = service.get_mcp_servers().await.unwrap();
+        let expected = 1;
+        assert_eq!(actual.get_servers().len(), expected);
+
+        fixture.set_config(McpConfig {
+            mcp_servers: BTreeMap::from([(
+                ServerName::from("updated-server".to_string()),
+                stdio_server("fast", Some(1)),
+            )]),
+        });
+
+        service.reload_mcp().await.unwrap();
+
+        let actual = service.tools.read().await.len();
+        let expected = 1;
+        assert_eq!(actual, expected);
+
+        let actual = service.get_mcp_servers().await.unwrap();
+        let expected = true;
+        assert_eq!(
+            actual
+                .get_servers()
+                .contains_key(&ServerName::from("updated-server".to_string())),
+            expected
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_mcp_servers_keeps_successful_servers_when_one_server_times_out() {
+        let fixture = Arc::new(StatefulMcpManager::new(McpConfig {
+            mcp_servers: BTreeMap::from([
+                (
+                    ServerName::from("fast-server".to_string()),
+                    stdio_server("fast", Some(1)),
+                ),
+                (
+                    ServerName::from("slow-server".to_string()),
+                    stdio_server("slow", Some(0)),
+                ),
+            ]),
+        }));
+        let service = fixture_with_manager(fixture);
+
+        let actual = service.get_mcp_servers().await.unwrap();
+        let expected = 1;
+        assert_eq!(actual.get_servers().len(), expected);
+
+        let actual_fast = actual
+            .get_servers()
+            .contains_key(&ServerName::from("fast-server".to_string()));
+        let expected_fast = true;
+        assert_eq!(actual_fast, expected_fast);
+
+        let actual_failure = actual
+            .get_failures()
+            .contains_key(&ServerName::from("slow-server".to_string()));
+        let expected_failure = true;
+        assert_eq!(actual_failure, expected_failure);
+
+        let tool_name = actual
+            .get_servers()
+            .get(&ServerName::from("fast-server".to_string()))
+            .expect("fast server should be present")
+            .first()
+            .expect("fast server should expose a tool")
+            .name
+            .clone();
+        let actual = service
+            .execute_mcp(ToolCallFull::new(tool_name))
+            .await
+            .unwrap();
         let expected = ToolOutput::text("mock result");
         assert_eq!(actual, expected);
     }
