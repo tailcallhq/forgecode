@@ -1,15 +1,91 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use bstr::ByteSlice;
 use forge_app::CommandInfra;
 use forge_domain::{CommandOutput, ConsoleWriter as OutputPrinterTrait, Environment};
 use tokio::io::AsyncReadExt;
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
 use crate::console::StdConsoleWriter;
+
+const COMMAND_CANCELLATION_GRACE_PERIOD: Duration = Duration::from_secs(3);
+
+struct RunningCommand {
+    child: Option<Child>,
+}
+
+impl RunningCommand {
+    fn new(child: Child) -> Self {
+        Self { child: Some(child) }
+    }
+
+    fn child_mut(&mut self) -> &mut Child {
+        self.child
+            .as_mut()
+            .expect("Command child should be present")
+    }
+
+    fn disarm(&mut self) {
+        let _ = self.child.take();
+    }
+}
+
+impl Drop for RunningCommand {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else {
+            return;
+        };
+
+        #[cfg(unix)]
+        signal_command_interrupt(&child);
+
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn(async move {
+                    if let Err(error) = shutdown_command_child(&mut child).await {
+                        tracing::warn!(%error, "Failed to clean up cancelled command child");
+                    }
+                });
+            }
+            Err(_) => {
+                if let Err(error) = child.start_kill() {
+                    tracing::warn!(%error, "Failed to terminate cancelled command child");
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+fn signal_command_interrupt(child: &Child) {
+    let Some(pid) = child.id() else {
+        return;
+    };
+
+    let result = unsafe { libc::kill(pid as i32, libc::SIGINT) };
+    if result != 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::ESRCH) {
+            tracing::warn!(%error, pid, "Failed to send SIGINT to cancelled command child");
+        }
+    }
+}
+
+async fn shutdown_command_child(child: &mut Child) -> io::Result<()> {
+    match tokio::time::timeout(COMMAND_CANCELLATION_GRACE_PERIOD, child.wait()).await {
+        Ok(Ok(_status)) => Ok(()),
+        Ok(Err(error)) => Err(error),
+        Err(_) => {
+            child.kill().await?;
+            let _ = child.wait().await;
+            Ok(())
+        }
+    }
+}
 
 /// Service for executing shell commands
 #[derive(Clone, Debug)]
@@ -64,7 +140,9 @@ impl ForgeCommandExecutorService {
 
         tracing::info!(command = command_str, "Executing command");
 
-        command.kill_on_drop(true);
+        // Command lifetime is managed by RunningCommand so cancellation can
+        // attempt a graceful interrupt before escalating to kill.
+        command.kill_on_drop(false);
 
         // Set the working directory
         command.current_dir(working_dir);
@@ -103,15 +181,15 @@ impl ForgeCommandExecutorService {
         let mut prepared_command = self.prepare_command(&command, working_dir, env_vars);
 
         // Spawn the command
-        let mut child = prepared_command.spawn()?;
+        let mut child = RunningCommand::new(prepared_command.spawn()?);
 
-        let mut stdout_pipe = child.stdout.take();
-        let mut stderr_pipe = child.stderr.take();
+        let mut stdout_pipe = child.child_mut().stdout.take();
+        let mut stderr_pipe = child.child_mut().stderr.take();
 
         // Stream the output of the command to stdout and stderr concurrently
         let (status, stdout_buffer, stderr_buffer) = if silent {
             tokio::try_join!(
-                child.wait(),
+                child.child_mut().wait(),
                 stream(&mut stdout_pipe, io::sink()),
                 stream(&mut stderr_pipe, io::sink())
             )?
@@ -119,7 +197,7 @@ impl ForgeCommandExecutorService {
             let stdout_writer = OutputPrinterWriter::stdout(self.output_printer.clone());
             let stderr_writer = OutputPrinterWriter::stderr(self.output_printer.clone());
             let result = tokio::try_join!(
-                child.wait(),
+                child.child_mut().wait(),
                 stream(&mut stdout_pipe, stdout_writer),
                 stream(&mut stderr_pipe, stderr_writer)
             )?;
@@ -138,6 +216,7 @@ impl ForgeCommandExecutorService {
         // Drop happens after `try_join` due to <https://github.com/tokio-rs/tokio/issues/4309>
         drop(stdout_pipe);
         drop(stderr_pipe);
+        child.disarm();
         drop(ready);
 
         Ok(CommandOutput {
@@ -265,7 +344,10 @@ impl CommandInfra for ForgeCommandExecutorService {
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit());
 
-        Ok(prepared_command.spawn()?.wait().await?)
+        let mut child = RunningCommand::new(prepared_command.spawn()?);
+        let status = child.child_mut().wait().await?;
+        child.disarm();
+        Ok(status)
     }
 }
 

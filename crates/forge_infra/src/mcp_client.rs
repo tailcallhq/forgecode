@@ -152,7 +152,10 @@ impl ForgeMcpClient {
                     cmd.env(key, value);
                 }
 
-                cmd.args(&stdio.args).kill_on_drop(true);
+                // TokioChildProcess already owns child cleanup so we disable
+                // tokio's hard kill-on-drop behavior and allow rmcp to attempt
+                // a graceful shutdown first.
+                cmd.args(&stdio.args).kill_on_drop(false);
 
                 // Use builder pattern to capture stderr
                 let (transport, stderr) = TokioChildProcess::builder(cmd)
