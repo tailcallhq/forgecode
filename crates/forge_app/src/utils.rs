@@ -241,7 +241,15 @@ fn normalize_schema_keywords(
             normalize_named_schema_keyword(map, key, strict_mode);
         }
 
-        for key in ["oneOf", "prefixItems", "contains", "not", "if", "then", "else"] {
+        for key in [
+            "oneOf",
+            "prefixItems",
+            "contains",
+            "not",
+            "if",
+            "then",
+            "else",
+        ] {
             normalize_schema_keyword(map, key, strict_mode);
         }
     }
