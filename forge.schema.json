@@ -361,7 +361,7 @@
       "default": false
     },
     "use_text_patch_fallback": {
-      "description": "Switches patch replacement fallback from the legacy fuzzy-search range\nlookup to the newer text-patch gRPC API introduced in PR 3140.\nDefaults to `false` so patching continues to use the pre-PR fallback\nbehavior unless explicitly enabled in `forge.toml`.",
+      "description": "Switches patch replacement fallback from the legacy fuzzy-search range\nlookup to the newer text-patch gRPC API.\nDefaults to `false` so patching continues to use the legacy fallback\nbehavior unless explicitly enabled in `forge.toml`.",
       "type": "boolean",
       "default": false
     },
