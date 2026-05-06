@@ -299,14 +299,15 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
 
     /// Gets available models from all configured providers concurrently.
     ///
-    /// Returns a list of `ProviderModels` for each configured provider that
-    /// successfully returned models. If every configured provider fails (e.g.
-    /// due to an invalid API key), the first error encountered is returned so
-    /// the caller receives the real underlying cause rather than an empty list.
+    /// Returns one [`ProviderModels`] per configured provider, in attempt
+    /// order. Each entry carries either the fetched models or the
+    /// per-provider error, letting callers display partial results and
+    /// surface failures alongside successes.
     pub async fn get_all_provider_models(&self) -> Result<Vec<ProviderModels>> {
         let all_providers = self.services.get_all_providers().await?;
 
-        // Build one future per configured provider, preserving the error on failure.
+        // Build one future per configured provider, capturing the per-provider
+        // result inline so failures don't drop their provider id on the floor.
         let futures: Vec<_> = all_providers
             .into_iter()
             .filter_map(|any_provider| any_provider.into_configured())
@@ -314,24 +315,23 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
                 let provider_id = provider.id.clone();
                 let services = self.services.clone();
                 async move {
-                    let result: Result<ProviderModels> = async {
+                    let models = async {
                         let refreshed = services
                             .provider_auth_service()
                             .refresh_provider_credential(provider)
                             .await?;
-                        let models = services.models(refreshed).await?;
-                        Ok(ProviderModels { provider_id, models })
+                        services.models(refreshed).await
                     }
                     .await;
-                    result
+                    if let Err(err) = &models {
+                        tracing::warn!(provider = %provider_id, %err, "failed to fetch models");
+                    }
+                    ProviderModels { provider_id, models }
                 }
             })
             .collect();
 
         // Execute all provider fetches concurrently.
-        futures::future::join_all(futures)
-            .await
-            .into_iter()
-            .collect::<anyhow::Result<Vec<_>>>()
+        Ok(futures::future::join_all(futures).await)
     }
 }
