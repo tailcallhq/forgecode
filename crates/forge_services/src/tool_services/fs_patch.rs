@@ -384,10 +384,13 @@ async fn apply_fuzzy_search_fallback<F: FuzzySearchRepository>(
     content: &str,
     operation: &PatchOperation,
 ) -> Result<String, Error> {
-    let range = match infra.fuzzy_search(&search_text, &current_content, false).await {
-        Ok(matches) if !matches.is_empty() => {
-            matches.first().map(|m| Range::from_search_match(&current_content, m))
-        }
+    let range = match infra
+        .fuzzy_search(&search_text, &current_content, false)
+        .await
+    {
+        Ok(matches) if !matches.is_empty() => matches
+            .first()
+            .map(|m| Range::from_search_match(&current_content, m)),
         _ => return Err(Error::NoMatch(search_text)),
     };
 
@@ -602,7 +605,7 @@ mod tests {
         let fixture = tokio::runtime::Runtime::new().unwrap();
 
         let actual = fixture.block_on(super::apply_replace_operation(
-            &FallbackRepository::default(),
+            &FallbackRepository,
             "alpha\nbeta\ngamma".to_string(),
             "betaa",
             "delta",
@@ -619,7 +622,7 @@ mod tests {
         let fixture = tokio::runtime::Runtime::new().unwrap();
 
         let actual = fixture.block_on(super::apply_replace_operation(
-            &FallbackRepository::default(),
+            &FallbackRepository,
             "alpha\nbeta\ngamma".to_string(),
             "betaa",
             "delta",
