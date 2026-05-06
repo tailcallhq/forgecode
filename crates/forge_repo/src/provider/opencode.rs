@@ -130,13 +130,27 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync>
         // The models are already loaded from provider.json
         if let Some(models) = provider.models() {
             match models {
-                forge_domain::ModelSource::Hardcoded(models) => Ok(models.clone()),
+                forge_domain::ModelSource::Hardcoded(models) => {
+                    tracing::info!(
+                        provider_id = %provider.id,
+                        model_count = models.len(),
+                        "Using hardcoded models from configuration"
+                    );
+                    Ok(models.clone())
+                }
                 forge_domain::ModelSource::Url(_) => {
-                    // Should not happen for OpenCode Zen as we hardcode models
+                    tracing::info!(
+                        provider_id = %provider.id,
+                        "OpenCode Zen does not support URL-based model fetching, returning empty list"
+                    );
                     Ok(vec![])
                 }
             }
         } else {
+            tracing::info!(
+                provider_id = %provider.id,
+                "No models configured for OpenCode Zen, returning empty model list"
+            );
             Ok(vec![])
         }
     }

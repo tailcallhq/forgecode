@@ -93,22 +93,36 @@ impl<T: HttpInfra> Google<T> {
     pub async fn models(&self) -> anyhow::Result<Vec<Model>> {
         match &self.models {
             forge_domain::ModelSource::Url(url) => {
-                debug!(url = %url, "Fetching models");
+                debug!(url = %url, "Fetching models from endpoint");
 
-                let response = self
+                let response = match self
                     .http
                     .http_get(url, Some(create_headers(self.get_headers())))
                     .await
-                    .with_context(|| format_http_context(None, "GET", url))
-                    .with_context(|| "Failed to fetch models")?;
+                {
+                    Ok(response) => response,
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            url = %url,
+                            "Failed to fetch models from endpoint, returning empty list"
+                        );
+                        return Ok(vec![]);
+                    }
+                };
 
                 let status = response.status();
-                let ctx_msg = format_http_context(Some(status), "GET", url);
-                let text = response
-                    .text()
-                    .await
-                    .with_context(|| ctx_msg.clone())
-                    .with_context(|| "Failed to decode response into text")?;
+                let _ctx_msg = format_http_context(Some(status), "GET", url);
+                let text = match response.text().await {
+                    Ok(text) => text,
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            "Failed to decode models response, returning empty list"
+                        );
+                        return Ok(vec![]);
+                    }
+                };
 
                 if status.is_success() {
                     // Google's models endpoint returns { "models": [...] }
@@ -117,19 +131,36 @@ impl<T: HttpInfra> Google<T> {
                         models: Vec<forge_app::dto::google::Model>,
                     }
 
-                    let response: ModelsResponse = serde_json::from_str(&text)
-                        .with_context(|| ctx_msg)
-                        .with_context(|| "Failed to deserialize models response")?;
-                    Ok(response.models.into_iter().map(Into::into).collect())
+                    match serde_json::from_str::<ModelsResponse>(&text) {
+                        Ok(response) => {
+                            tracing::info!(
+                                model_count = response.models.len(),
+                                "Successfully fetched models from endpoint"
+                            );
+                            Ok(response.models.into_iter().map(Into::into).collect())
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                error = %error,
+                                "Failed to deserialize models response, returning empty list"
+                            );
+                            Ok(vec![])
+                        }
+                    }
                 } else {
-                    // treat non 200 response as error.
-                    Err(anyhow::anyhow!(text))
-                        .with_context(|| ctx_msg)
-                        .with_context(|| "Failed to fetch the models")
+                    // Non-200 response - log warning and return empty list
+                    tracing::warn!(
+                        status = %status,
+                        "Models endpoint returned non-success status, returning empty list"
+                    );
+                    Ok(vec![])
                 }
             }
             forge_domain::ModelSource::Hardcoded(models) => {
-                debug!("Using hardcoded models");
+                tracing::info!(
+                    model_count = models.len(),
+                    "Using hardcoded models from configuration"
+                );
                 Ok(models.clone())
             }
         }
@@ -151,10 +182,11 @@ impl<F: HttpInfra> GoogleResponseRepository<F> {
     /// Creates a Google client from a provider configuration
     fn create_client(&self, provider: &Provider<Url>) -> anyhow::Result<Google<F>> {
         let chat_url = provider.url.clone();
+        // Use hardcoded empty models if no models configured
         let models = provider
             .models
             .clone()
-            .context("Google requires models configuration")?;
+            .unwrap_or_else(|| forge_domain::ModelSource::Hardcoded(vec![]));
         let creds = provider
             .credential
             .as_ref()
@@ -237,7 +269,7 @@ mod tests {
     use reqwest::header::HeaderMap;
 
     use super::*;
-    use crate::provider::mock_server::{MockServer, normalize_ports};
+    use crate::provider::mock_server::MockServer;
 
     // Mock implementation of HttpInfra for testing
     #[derive(Clone)]
@@ -438,9 +470,9 @@ mod tests {
 
         mock.assert_async().await;
 
-        // Verify that we got an error
-        assert!(actual.is_err());
-        insta::assert_snapshot!(normalize_ports(format!("{:#?}", actual.unwrap_err())));
+        // With the new relaxed behavior, HTTP errors should return empty list with a warning
+        assert!(actual.is_ok());
+        assert!(actual.unwrap().is_empty());
         Ok(())
     }
 

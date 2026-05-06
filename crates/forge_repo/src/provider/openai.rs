@@ -232,29 +232,50 @@ impl<H: HttpInfra> OpenAIProvider<H> {
             debug!("Loading Vertex AI models from static JSON file");
             Ok(self.inner_vertex_models())
         } else {
-            let models = self
-                .provider
-                .models()
-                .ok_or_else(|| anyhow::anyhow!("Provider models configuration is required"))?;
+            // Check if models are configured
+            let models_source = match self.provider.models() {
+                Some(models) => models,
+                None => {
+                    tracing::info!(
+                        provider_id = %self.provider.id,
+                        "No models endpoint configured, returning empty model list"
+                    );
+                    return Ok(vec![]);
+                }
+            };
 
-            match models {
+            match models_source {
                 forge_domain::ModelSource::Url(url) => {
-                    debug!(url = %url, "Fetching models");
+                    debug!(url = %url, "Fetching models from endpoint");
                     match self.fetch_models(url.as_str()).await {
                         Err(error) => {
-                            tracing::error!(error = ?error, "Failed to fetch models");
-                            anyhow::bail!(error)
+                            tracing::warn!(
+                                error = %error,
+                                url = %url,
+                                provider_id = %self.provider.id,
+                                "Failed to fetch models from endpoint, returning empty list"
+                            );
+                            Ok(vec![])
                         }
                         Ok(response) => {
                             let data: ListModelResponse = serde_json::from_str(&response)
                                 .with_context(|| format_http_context(None, "GET", url))
                                 .with_context(|| "Failed to deserialize models response")?;
+                            tracing::info!(
+                                provider_id = %self.provider.id,
+                                model_count = data.data.len(),
+                                "Successfully fetched models from endpoint"
+                            );
                             Ok(data.data.into_iter().map(Into::into).collect())
                         }
                     }
                 }
                 forge_domain::ModelSource::Hardcoded(models) => {
-                    debug!("Using hardcoded models");
+                    tracing::info!(
+                        provider_id = %self.provider.id,
+                        model_count = models.len(),
+                        "Using hardcoded models from configuration"
+                    );
                     Ok(models.clone())
                 }
             }
@@ -383,7 +404,7 @@ mod tests {
     use url::Url;
 
     use super::*;
-    use crate::provider::mock_server::{MockServer, normalize_ports};
+    use crate::provider::mock_server::MockServer;
 
     // Test helper functions
     fn make_credential(provider_id: ProviderId, key: &str) -> Option<forge_domain::AuthCredential> {
@@ -590,9 +611,9 @@ mod tests {
 
         mock.assert_async().await;
 
-        // Verify that we got an error
-        assert!(actual.is_err());
-        insta::assert_snapshot!(normalize_ports(format!("{:#?}", actual.unwrap_err())));
+        // With the new relaxed behavior, HTTP errors should return empty list with a warning
+        assert!(actual.is_ok());
+        assert!(actual.unwrap().is_empty());
         Ok(())
     }
 
@@ -608,9 +629,9 @@ mod tests {
 
         mock.assert_async().await;
 
-        // Verify that we got an error
-        assert!(actual.is_err());
-        insta::assert_snapshot!(normalize_ports(format!("{:#?}", actual.unwrap_err())));
+        // With the new relaxed behavior, server errors should return empty list with a warning
+        assert!(actual.is_ok());
+        assert!(actual.unwrap().is_empty());
         Ok(())
     }
 
@@ -657,8 +678,9 @@ mod tests {
         let actual = provider.models().await;
 
         mock.assert_async().await;
-        assert!(actual.is_err());
-        insta::assert_snapshot!(normalize_ports(format!("{:#?}", actual.unwrap_err())));
+        // With the new relaxed behavior, HTTP errors should return empty list with a warning
+        assert!(actual.is_ok());
+        assert!(actual.unwrap().is_empty());
         Ok(())
     }
 
@@ -1173,6 +1195,99 @@ mod tests {
                 .iter()
                 .any(|(k, v)| k == "Openai-Intent" && v == "conversation-edits")
         );
+        Ok(())
+    }
+
+    // Tests for models endpoint relaxation (v2)
+
+    #[tokio::test]
+    async fn test_models_no_url_configured_returns_empty() -> anyhow::Result<()> {
+        // Create a provider without models URL configured
+        let provider = Provider {
+            id: ProviderId::OPENAI,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(ProviderResponse::OpenAI),
+            url: Url::parse("https://api.openai.com/v1/chat/completions").unwrap(),
+            credential: make_credential(ProviderId::OPENAI, "test-api-key"),
+            custom_headers: None,
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: None, // No models configured
+        };
+
+        let http_client = Arc::new(MockHttpClient::new());
+        let openai_provider = OpenAIProvider::new(provider, http_client);
+
+        // Should return empty list without trying to fetch
+        let actual = openai_provider.models().await?;
+        assert!(actual.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_models_hardcoded_returns_models() -> anyhow::Result<()> {
+        use forge_app::domain::InputModality;
+
+        // Create hardcoded models
+        let hardcoded_models = vec![
+            forge_app::domain::Model {
+                id: forge_app::domain::ModelId::new("custom-model-1"),
+                name: Some("Custom Model 1".to_string()),
+                description: Some("A custom model".to_string()),
+                context_length: Some(8192),
+                tools_supported: Some(true),
+                supports_parallel_tool_calls: Some(true),
+                supports_reasoning: Some(false),
+                input_modalities: vec![InputModality::Text],
+            },
+            forge_app::domain::Model {
+                id: forge_app::domain::ModelId::new("custom-model-2"),
+                name: Some("Custom Model 2".to_string()),
+                description: None,
+                context_length: Some(4096),
+                tools_supported: Some(false),
+                supports_parallel_tool_calls: Some(false),
+                supports_reasoning: Some(true),
+                input_modalities: vec![InputModality::Text, InputModality::Image],
+            },
+        ];
+
+        let provider = Provider {
+            id: ProviderId::OPENAI,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(ProviderResponse::OpenAI),
+            url: Url::parse("https://api.openai.com/v1/chat/completions").unwrap(),
+            credential: make_credential(ProviderId::OPENAI, "test-api-key"),
+            custom_headers: None,
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: Some(forge_domain::ModelSource::Hardcoded(hardcoded_models.clone())),
+        };
+
+        let http_client = Arc::new(MockHttpClient::new());
+        let openai_provider = OpenAIProvider::new(provider, http_client);
+
+        // Should return the hardcoded models
+        let actual = openai_provider.models().await?;
+        assert_eq!(actual.len(), 2);
+        assert_eq!(actual[0].id.as_str(), "custom-model-1");
+        assert_eq!(actual[1].id.as_str(), "custom-model-2");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_models_url_fetch_returns_models() -> anyhow::Result<()> {
+        let mut fixture = MockServer::new().await;
+        let mock = fixture.mock_models(create_mock_models_response(), 200).await;
+        let provider = create_provider(&fixture.url())?;
+
+        let actual = provider.models().await?;
+
+        mock.assert_async().await;
+        // Should return the models from the mock server
+        assert_eq!(actual.len(), 2);
+        assert_eq!(actual[0].id.as_str(), "model-1");
+        assert_eq!(actual[1].id.as_str(), "model-2");
         Ok(())
     }
 }

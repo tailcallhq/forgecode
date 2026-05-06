@@ -182,7 +182,35 @@ impl From<forge_config::ProviderEntry> for ProviderConfig {
             url_param_vars: entry.url_param_vars.into_iter().map(Into::into).collect(),
             response_type,
             url: entry.url,
-            models: entry.models.map(Models::Url),
+            models: entry.models.map(|m| match m {
+                forge_config::ProviderModels::Url(url) => Models::Url(url),
+                forge_config::ProviderModels::Static(entries) => Models::Hardcoded(
+                    entries
+                        .into_iter()
+                        .map(|e| forge_app::domain::Model {
+                            id: e.id.into(),
+                            name: e.name,
+                            description: e.description,
+                            context_length: e.context_length,
+                            tools_supported: e.tools_supported,
+                            supports_parallel_tool_calls: e.supports_parallel_tool_calls,
+                            supports_reasoning: e.supports_reasoning,
+                            input_modalities: e
+                                .input_modalities
+                                .into_iter()
+                                .map(|m| match m {
+                                    forge_config::InputModality::Text => {
+                                        forge_app::domain::InputModality::Text
+                                    }
+                                    forge_config::InputModality::Image => {
+                                        forge_app::domain::InputModality::Image
+                                    }
+                                })
+                                .collect(),
+                        })
+                        .collect(),
+                ),
+            }),
             auth_methods,
             custom_headers: entry.custom_headers,
         }
