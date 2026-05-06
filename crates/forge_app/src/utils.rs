@@ -232,26 +232,16 @@ fn normalize_schema_keywords(
 ) {
     normalize_named_schema_keyword(map, "properties", strict_mode);
 
+    for key in ["items", "additionalProperties", "allOf", "anyOf"] {
+        normalize_schema_keyword(map, key, strict_mode);
+    }
+
     if !strict_mode {
         for key in ["$defs", "definitions", "patternProperties"] {
             normalize_named_schema_keyword(map, key, strict_mode);
         }
-    }
 
-    for key in ["items", "additionalProperties"] {
-        normalize_schema_keyword(map, key, strict_mode);
-    }
-
-    for key in ["allOf", "anyOf"] {
-        normalize_schema_keyword(map, key, strict_mode);
-    }
-
-    if !strict_mode {
-        for key in ["oneOf", "prefixItems"] {
-            normalize_schema_keyword(map, key, strict_mode);
-        }
-
-        for key in ["contains", "not", "if", "then", "else"] {
+        for key in ["oneOf", "prefixItems", "contains", "not", "if", "then", "else"] {
             normalize_schema_keyword(map, key, strict_mode);
         }
     }
