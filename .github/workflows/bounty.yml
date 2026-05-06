@@ -32,8 +32,6 @@ concurrency:
     - opened
     - edited
     - reopened
-  pull_request_target:
-    types:
     - closed
   schedule:
   - cron: '0 2 * * *'
