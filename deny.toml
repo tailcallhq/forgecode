@@ -43,6 +43,10 @@ ignore = [
 ]
 [bans]
 multiple-versions = "warn"
-wildcards = "warn"
+wildcards = "deny"
 highlight = "all"
 workspace-default-features = "warn"
+
+[sources]
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
