@@ -78,6 +78,13 @@ function _forge_exec_interactive() {
 }
 
 function _forge_select() {
+    [[ -n "$_FORGE_SESSION_MODEL" ]] && local -x FORGE_SESSION__MODEL_ID="$_FORGE_SESSION_MODEL"
+    [[ -n "$_FORGE_SESSION_PROVIDER" ]] && local -x FORGE_SESSION__PROVIDER_ID="$_FORGE_SESSION_PROVIDER"
+    [[ -n "$_FORGE_SESSION_REASONING_EFFORT" ]] && local -x FORGE_REASONING__EFFORT="$_FORGE_SESSION_REASONING_EFFORT"
+    CLICOLOR_FORCE=0 $_FORGE_BIN select "$@" </dev/tty 2>/dev/tty
+}
+
+function _forge_select_global() {
     CLICOLOR_FORCE=0 $_FORGE_BIN select "$@" </dev/tty 2>/dev/tty
 }
 
@@ -92,9 +99,33 @@ function _forge_select_with_query() {
     fi
 }
 
+function _forge_select_with_query_global() {
+    local query="$1"
+    shift
+
+    if [[ -n "$query" ]]; then
+        _forge_select_global "$@" --query "$query"
+    else
+        _forge_select_global "$@"
+    fi
+}
+
 function _forge_select_model_pair() {
     local result
     result=$(_forge_select_with_query "$1" model)
+
+    if [[ -z "$result" ]]; then
+        reply=()
+        return 1
+    fi
+
+    reply=("${(@f)result}")
+    [[ ${#reply[@]} -ge 2 ]]
+}
+
+function _forge_select_model_pair_global() {
+    local result
+    result=$(_forge_select_with_query_global "$1" model)
 
     if [[ -z "$result" ]]; then
         reply=()
