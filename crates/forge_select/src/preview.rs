@@ -94,7 +94,7 @@ impl Default for PreviewLayout {
     }
 }
 
-const SELECT_VIEWPORT_PERCENT: u16 = 100;
+const SELECT_VIEWPORT_PERCENT: u16 = 95;
 
 fn max_select_viewport_height(full_height: u16) -> u16 {
     let full_height = full_height.max(1);
@@ -398,14 +398,9 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                 Normalization::Smart,
                 query.starts_with(&last_query),
             );
-            let previous_query = last_query.clone();
             last_query = query.clone();
             let _ = matcher.tick(50);
-            selected_index = if query.starts_with(&previous_query) {
-                selected_index
-            } else {
-                0
-            };
+            selected_index = 0;
             scroll_offset = 0;
             preview_scroll_offset = 0;
             needs_render = true;
