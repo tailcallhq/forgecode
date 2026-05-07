@@ -230,26 +230,106 @@ fn normalize_schema_keywords(
     map: &mut serde_json::Map<String, serde_json::Value>,
     strict_mode: bool,
 ) {
-    for key in ["properties", "$defs", "definitions", "patternProperties"] {
-        normalize_named_schema_keyword(map, key, strict_mode);
+    normalize_named_schema_keyword(map, "properties", strict_mode);
+
+    for key in ["items", "additionalProperties", "allOf", "anyOf"] {
+        normalize_schema_keyword(map, key, strict_mode);
     }
 
+    if !strict_mode {
+        for key in ["$defs", "definitions", "patternProperties"] {
+            normalize_named_schema_keyword(map, key, strict_mode);
+        }
+
+        for key in [
+            "oneOf",
+            "prefixItems",
+            "contains",
+            "not",
+            "if",
+            "then",
+            "else",
+        ] {
+            normalize_schema_keyword(map, key, strict_mode);
+        }
+    }
+}
+
+fn normalize_openai_schema_subset_keywords(map: &mut serde_json::Map<String, serde_json::Value>) {
     for key in [
-        "items",
-        "contains",
-        "not",
-        "if",
-        "then",
-        "else",
-        "additionalProperties",
+        "$schema",
+        "$id",
+        "$anchor",
+        "$comment",
+        "$defs",
+        "$ref",
         "additionalItems",
+        "contains",
+        "definitions",
+        "dependentRequired",
+        "dependentSchemas",
+        "deprecated",
+        "else",
+        "examples",
+        "exclusiveMaximum",
+        "exclusiveMinimum",
+        "if",
+        "maxContains",
+        "maxItems",
+        "maxLength",
+        "maxProperties",
+        "maximum",
+        "minContains",
+        "minItems",
+        "minLength",
+        "minProperties",
+        "multipleOf",
+        "not",
+        "pattern",
+        "patternProperties",
+        "prefixItems",
+        "propertyNames",
+        "readOnly",
+        "then",
+        "title",
+        "unevaluatedItems",
         "unevaluatedProperties",
+        "uniqueItems",
+        "writeOnly",
     ] {
-        normalize_schema_keyword(map, key, strict_mode);
+        map.remove(key);
     }
 
-    for key in ["allOf", "anyOf", "oneOf", "prefixItems"] {
-        normalize_schema_keyword(map, key, strict_mode);
+    if let Some(const_value) = map.remove("const")
+        && !map.contains_key("enum")
+    {
+        map.insert(
+            "enum".to_string(),
+            serde_json::Value::Array(vec![const_value]),
+        );
+    }
+}
+
+fn normalize_one_of_keyword(
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    strict_mode: bool,
+) {
+    if !strict_mode {
+        return;
+    }
+
+    let Some(one_of) = map.remove("oneOf") else {
+        return;
+    };
+
+    match map.get_mut("anyOf") {
+        Some(serde_json::Value::Array(any_of)) => match one_of {
+            serde_json::Value::Array(mut one_of) => any_of.append(&mut one_of),
+            value => any_of.push(value),
+        },
+        _ => {
+            map.insert("anyOf".to_string(), one_of);
+        }
     }
 }
 
@@ -292,6 +372,19 @@ fn is_object_schema(map: &serde_json::Map<String, serde_json::Value>) -> bool {
         || map.contains_key("properties")
         || map.contains_key("required")
         || map.contains_key("additionalProperties")
+}
+
+fn is_array_schema(map: &serde_json::Map<String, serde_json::Value>) -> bool {
+    map.get("type")
+        .and_then(|value| value.as_str())
+        .is_some_and(|ty| ty == "array")
+        || map.contains_key("items")
+}
+
+fn normalize_array_items(map: &mut serde_json::Map<String, serde_json::Value>, strict_mode: bool) {
+    if strict_mode && is_array_schema(map) && !map.contains_key("items") {
+        map.insert("items".to_string(), serde_json::json!({ "type": "string" }));
+    }
 }
 
 fn normalize_additional_properties(
@@ -343,6 +436,10 @@ fn normalize_additional_properties(
 /// - All objects have a `required` array with all property keys
 /// - `allOf` branches are merged into a single schema object when strict mode
 ///   is enabled
+/// - unsupported JSON Schema keywords are removed, matching Codex's limited
+///   Responses API schema subset, while preserving `default` and `minimum`
+///   values
+/// - `const` is converted to a single-value `enum`
 ///
 /// # Arguments
 /// * `schema` - The JSON schema to normalize (will be modified in place)
@@ -353,8 +450,15 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
         serde_json::Value::Object(map) => {
             if strict_mode {
                 flatten_all_of_schema(map);
-                // Remove unsupported keywords that OpenAI/Codex doesn't allow
-                map.remove("propertyNames");
+                // Match Codex's Responses API schema subset. Codex parses MCP
+                // schemas into a typed representation that only serializes the
+                // supported OpenAI fields; Forge keeps raw JSON schemas, so we
+                // explicitly remove unsupported validation/meta keywords here.
+                normalize_openai_schema_subset_keywords(map);
+                // Convert oneOf to anyOf because the Responses API rejects oneOf
+                // in tool parameter schemas while accepting equivalent anyOf
+                // unions.
+                normalize_one_of_keyword(map, strict_mode);
             }
 
             normalize_string_format_keyword(map, strict_mode);
@@ -404,7 +508,6 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
             } else if strict_mode
                 && !map.contains_key("type")
                 && !map.contains_key("anyOf")
-                && !map.contains_key("oneOf")
                 && !map.contains_key("allOf")
             {
                 // In strict mode, OpenAI/Codex requires all property schemas to have a
@@ -416,6 +519,8 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
                     serde_json::Value::String("string".to_string()),
                 );
             }
+
+            normalize_array_items(map, strict_mode);
 
             if strict_mode
                 && map
@@ -453,6 +558,39 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
     }
 }
 
+fn normalize_gemini_schema_subset_keywords(map: &mut serde_json::Map<String, serde_json::Value>) {
+    if let Some(exclusive_minimum) = map.remove("exclusiveMinimum") {
+        map.entry("minimum".to_string())
+            .or_insert(exclusive_minimum);
+    }
+
+    if let Some(exclusive_maximum) = map.remove("exclusiveMaximum") {
+        map.entry("maximum".to_string())
+            .or_insert(exclusive_maximum);
+    }
+
+    for key in [
+        "$schema",
+        "$id",
+        "$anchor",
+        "$comment",
+        "$defs",
+        "$ref",
+        "additionalItems",
+        "additionalProperties",
+        "definitions",
+        "deprecated",
+        "examples",
+        "title",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+        "writeOnly",
+        "readOnly",
+    ] {
+        map.remove(key);
+    }
+}
+
 /// Sanitizes a JSON schema for Google/Gemini API compatibility.
 ///
 /// The Gemini API uses OpenAPI 3.0-style function declarations rather than raw
@@ -471,9 +609,12 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
 ///   `required` entries that don't have corresponding entries in `properties`.
 ///   The `required` array is filtered to only include fields present in
 ///   `properties`.
-/// - **`$schema` is rejected**: Removed if present.
-/// - **`additionalProperties` is rejected**: OpenAPI 3.0 doesn't support this
-///   keyword. It is removed from all object schemas.
+/// - **Unsupported JSON Schema metadata and references are rejected**:
+///   `$schema`, `$defs`, `$ref`, `title`, and `additionalProperties` are
+///   removed.
+/// - **Exclusive bounds are rejected**: `exclusiveMinimum` and
+///   `exclusiveMaximum` are converted to `minimum` and `maximum` when the
+///   inclusive bound is not already present.
 /// - **`const` is rejected**: Converted to single-value `enum` (OpenAPI 3.0
 ///   style).
 /// - **Nullable types**: `{ "type": ["string", "null"] }` is converted to `{
@@ -481,11 +622,7 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
 pub fn sanitize_gemini_schema(schema: &mut serde_json::Value) {
     match schema {
         serde_json::Value::Object(map) => {
-            // Remove $schema field (Gemini API doesn't accept it)
-            map.remove("$schema");
-
-            // Remove additionalProperties (OpenAPI 3.0 doesn't support it)
-            map.remove("additionalProperties");
+            normalize_gemini_schema_subset_keywords(map);
 
             // Convert const to enum
             if let Some(const_value) = map.remove("const")
@@ -809,6 +946,49 @@ mod tests {
 
         assert_eq!(schema["additionalProperties"], json!(false));
         assert_eq!(schema["required"], json!(["age", "name"]));
+    }
+
+    #[test]
+    fn test_strict_schema_preserves_default_values() {
+        let mut fixture = json!({
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of records",
+                    "default": 10,
+                    "minimum": 0
+                },
+                "output_mode": {
+                    "type": "string",
+                    "enum": ["content", "files_with_matches"],
+                    "default": "content"
+                }
+            }
+        });
+
+        enforce_strict_schema(&mut fixture, true);
+
+        let actual = fixture;
+        let expected = json!({
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of records",
+                    "default": 10,
+                    "minimum": 0
+                },
+                "output_mode": {
+                    "type": "string",
+                    "enum": ["content", "files_with_matches"],
+                    "default": "content"
+                }
+            },
+            "additionalProperties": false,
+            "required": ["limit", "output_mode"]
+        });
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -2043,6 +2223,143 @@ mod tests {
             schema["properties"]["email"]["description"],
             "The user's email address"
         );
+    }
+
+    #[test]
+    fn test_gemini_sanitizes_fetch_schema_exclusive_bounds_from_csv_failure() {
+        let mut fixture = json!({
+            "description": "Parameters for fetching a URL.",
+            "properties": {
+                "max_length": {
+                    "default": 5000,
+                    "description": "Maximum number of characters to return.",
+                    "exclusiveMaximum": 1000000,
+                    "exclusiveMinimum": 0,
+                    "title": "Max Length",
+                    "type": "integer"
+                },
+                "start_index": {
+                    "default": 0,
+                    "description": "On return output starting at this character index.",
+                    "minimum": 0,
+                    "title": "Start Index",
+                    "type": "integer"
+                },
+                "url": {
+                    "description": "URL to fetch",
+                    "format": "uri",
+                    "minLength": 1,
+                    "title": "Url",
+                    "type": "string"
+                }
+            },
+            "required": ["url"],
+            "title": "Fetch",
+            "type": "object"
+        });
+
+        sanitize_gemini_schema(&mut fixture);
+
+        let actual = fixture;
+        let expected = json!({
+            "description": "Parameters for fetching a URL.",
+            "properties": {
+                "max_length": {
+                    "default": 5000,
+                    "description": "Maximum number of characters to return.",
+                    "maximum": 1000000,
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "start_index": {
+                    "default": 0,
+                    "description": "On return output starting at this character index.",
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "url": {
+                    "description": "URL to fetch",
+                    "format": "uri",
+                    "minLength": 1,
+                    "type": "string"
+                }
+            },
+            "required": ["url"],
+            "type": "object"
+        });
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_gemini_sanitizes_defs_refs_from_notion_schema_csv_failure() {
+        let mut fixture = json!({
+            "$defs": {
+                "richTextRequest": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "text": {"type": "string"}
+                    }
+                }
+            },
+            "type": "object",
+            "properties": {
+                "comment": {
+                    "$ref": "#/$defs/richTextRequest"
+                },
+                "children": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/richTextRequest"
+                    }
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut fixture);
+
+        let actual = fixture;
+        let expected = json!({
+            "type": "object",
+            "properties": {
+                "comment": {},
+                "children": {
+                    "type": "array",
+                    "items": {}
+                }
+            }
+        });
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_gemini_adds_array_items_for_fibery_where_csv_failure() {
+        let mut fixture = json!({
+            "type": "object",
+            "properties": {
+                "q_where": {
+                    "description": "Filter conditions",
+                    "type": "array"
+                }
+            },
+            "required": ["q_where"]
+        });
+
+        sanitize_gemini_schema(&mut fixture);
+
+        let actual = fixture;
+        let expected = json!({
+            "type": "object",
+            "properties": {
+                "q_where": {
+                    "description": "Filter conditions",
+                    "type": "array",
+                    "items": {"type": "string"}
+                }
+            },
+            "required": ["q_where"]
+        });
+        assert_eq!(actual, expected);
     }
 
     #[test]
