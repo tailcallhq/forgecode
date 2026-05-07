@@ -84,7 +84,7 @@ strip-ansi-escapes = "0.2.1"
 strum = "0.28.0"
 strum_macros = "0.28.0"
 syn = { version = "2.0.117", features = ["derive", "parsing"] }
-sysinfo = "0.38.3"
+sysinfo = "0.39.0"
 tempfile = "3.27.0"
 termimad = "0.34.1"
 tiny_http = "0.12.0"
