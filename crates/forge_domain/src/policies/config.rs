@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
 
 use schemars::JsonSchema;
@@ -10,22 +9,29 @@ use super::types::Permission;
 use crate::Rule;
 
 /// Collection of policies
+///
+/// Policies are stored as an ordered list to preserve the order in which they
+/// appear in `permissions.yaml`. The [`PolicyEngine`] evaluates them in that
+/// order using a *first-matching-policy-wins* model, so the user's declared
+/// order is the priority order.
+///
+/// [`PolicyEngine`]: crate::PolicyEngine
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PolicyConfig {
-    /// Set of policies to evaluate
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub policies: BTreeSet<Policy>,
+    /// Ordered list of policies to evaluate
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub policies: Vec<Policy>,
 }
 
 impl PolicyConfig {
     /// Create a new empty policies collection
     pub fn new() -> Self {
-        Self { policies: BTreeSet::new() }
+        Self { policies: Vec::new() }
     }
 
-    /// Add a policy to the collection
+    /// Append a policy to the collection, preserving declaration order
     pub fn add_policy(mut self, policy: Policy) -> Self {
-        self.policies.insert(policy);
+        self.policies.push(policy);
         self
     }
 

@@ -97,6 +97,36 @@ impl Rule {
             _ => false,
         }
     }
+
+    /// Returns a specificity score for this rule's glob pattern(s).
+    ///
+    /// Specificity is the count of *literal* characters in the pattern
+    /// (i.e. characters that aren't glob wildcards `*` or `?`). Higher
+    /// scores indicate a narrower, more specific match. The optional `dir`
+    /// component contributes its own literal-character count to the total.
+    ///
+    /// This is used by [`PolicyEngine`] to break ambiguity when multiple
+    /// rules match the same operation: the rule with the highest
+    /// specificity wins, regardless of declaration order.
+    ///
+    /// [`PolicyEngine`]: crate::PolicyEngine
+    pub fn specificity(&self) -> usize {
+        fn count_literals(pattern: &str) -> usize {
+            pattern
+                .chars()
+                .filter(|c| !matches!(c, '*' | '?'))
+                .count()
+        }
+
+        let (primary, dir) = match self {
+            Rule::Write(r) => (r.write.as_str(), r.dir.as_deref()),
+            Rule::Read(r) => (r.read.as_str(), r.dir.as_deref()),
+            Rule::Execute(r) => (r.command.as_str(), r.dir.as_deref()),
+            Rule::Fetch(r) => (r.url.as_str(), r.dir.as_deref()),
+        };
+
+        count_literals(primary) + dir.map_or(0, count_literals)
+    }
 }
 
 /// Helper function to match a glob pattern against a path or string

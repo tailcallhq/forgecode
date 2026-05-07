@@ -111,6 +111,21 @@ impl Policy {
             _ => None,
         }
     }
+
+    /// Returns the specificity score for this policy.
+    ///
+    /// For [`Policy::Simple`], this delegates to [`Rule::specificity`].
+    /// For composite policies (`All`/`Any`/`Not`), the maximum specificity
+    /// across all child rules is used so that nested specific rules still
+    /// outrank shallower broad ones.
+    pub fn specificity(&self) -> usize {
+        match self {
+            Policy::Simple { permission: _, rule } => rule.specificity(),
+            Policy::All { all } => all.iter().map(Policy::specificity).max().unwrap_or(0),
+            Policy::Any { any } => any.iter().map(Policy::specificity).max().unwrap_or(0),
+            Policy::Not { not } => not.specificity(),
+        }
+    }
 }
 
 impl Display for Policy {
