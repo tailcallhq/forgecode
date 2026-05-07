@@ -615,6 +615,82 @@
         "accept_invalid_certs"
       ]
     },
+    "InputModality": {
+      "description": "Represents input modalities that a model can accept",
+      "oneOf": [
+        {
+          "description": "Text input (all models support this)",
+          "type": "string",
+          "const": "text"
+        },
+        {
+          "description": "Image input (vision-capable models)",
+          "type": "string",
+          "const": "image"
+        }
+      ]
+    },
+    "Model": {
+      "type": "object",
+      "properties": {
+        "context_length": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "input_modalities": {
+          "description": "Input modalities supported by the model (defaults to text-only)",
+          "type": "array",
+          "default": [
+            "text"
+          ],
+          "items": {
+            "$ref": "#/$defs/InputModality"
+          }
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "supports_parallel_tool_calls": {
+          "description": "Whether the model supports parallel tool calls",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supports_reasoning": {
+          "description": "Whether the model supports reasoning",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "tools_supported": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
     "ModelConfig": {
       "description": "Pairs a provider and model together for a specific operation.",
       "type": "object",
@@ -631,6 +707,22 @@
       "required": [
         "provider_id",
         "model_id"
+      ]
+    },
+    "ModelListConfig": {
+      "description": "Source of models for a provider: either a URL to fetch them from or a\nstatic list defined inline.",
+      "anyOf": [
+        {
+          "description": "URL template used to fetch the model list dynamically.",
+          "type": "string"
+        },
+        {
+          "description": "A static list of models defined directly in the configuration.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Model"
+          }
+        }
       ]
     },
     "ProviderAuthMethod": {
@@ -674,10 +766,14 @@
           "type": "string"
         },
         "models": {
-          "description": "URL template for fetching the model list; may contain `{{VAR}}`\nplaceholders.",
-          "type": [
-            "string",
-            "null"
+          "description": "Model source: either a URL template for dynamic discovery or a static\nlist of models defined inline.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelListConfig"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "provider_type": {
