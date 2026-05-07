@@ -45,7 +45,7 @@ function _forge_action_model() {
     echo
 
     local model_id provider_id
-    if _forge_select_model_pair "$input_text"; then
+    if _forge_select_model_pair_global "$input_text"; then
         model_id="${reply[1]}"
         provider_id="${reply[2]}"
         _forge_exec config set model "$provider_id" "$model_id"
