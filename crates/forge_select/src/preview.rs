@@ -113,9 +113,16 @@ fn select_viewport_height(full_height: u16, desired_height: u16) -> u16 {
     }
 }
 
-fn reserve_inline_viewport_space(stderr: &mut io::Stderr, desired_height: u16) -> io::Result<u16> {
+fn reserve_inline_viewport_space(
+    stderr: &mut io::Stderr,
+    desired_height: u16,
+    max_percent: u16,
+) -> io::Result<u16> {
     let (_, full_height) = terminal::size()?;
-    let reserved_height = select_viewport_height(full_height, desired_height);
+    let max_height = ((full_height as u32 * max_percent.min(100) as u32) / 100)
+        .max(1)
+        .min(full_height as u32) as u16;
+    let reserved_height = desired_height.min(max_height);
 
     for _ in 0..reserved_height {
         queue!(stderr, Print("\r\n"))?;
@@ -362,13 +369,35 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
     let prompt = prompt.unwrap_or_else(|| "❯ ".to_string());
     let preview_command = preview.unwrap_or_default();
     let initial_matched_rows = matched_rows(&matcher);
-    let initial_desired_height = desired_select_viewport_height(
-        header_rows.len(),
-        initial_matched_rows.len(),
-        0,
-        preview_layout,
-    );
-    let reserved_height = reserve_inline_viewport_space(&mut stderr, initial_desired_height)?;
+    // When a preview command is present, reserve the maximum available viewport
+    // height upfront. Without this, the initial reservation (calculated with
+    // zero preview lines) is too small: once a preview renders it consumes the
+    // configured percentage of the reserved space and leaves only 1–2 rows for
+    // the list, even when many items match.
+    //
+    // The cap depends on the initial query: an empty query means the user is
+    // browsing the full list, so fill the entire terminal (100%). A non-empty
+    // query means active filtering, so leave some context visible (80%).
+    let (initial_desired_height, max_percent) = if !preview_command.is_empty() {
+        let pct = if query.is_empty() {
+            100u16
+        } else {
+            SELECT_VIEWPORT_PERCENT
+        };
+        (u16::MAX, pct)
+    } else {
+        (
+            desired_select_viewport_height(
+                header_rows.len(),
+                initial_matched_rows.len(),
+                0,
+                preview_layout,
+            ),
+            SELECT_VIEWPORT_PERCENT,
+        )
+    };
+    let reserved_height =
+        reserve_inline_viewport_space(&mut stderr, initial_desired_height, max_percent)?;
     let mut selected_index = 0usize;
     let mut initial_raw = initial_raw;
     let mut initial_selection_applied = false;
@@ -883,17 +912,14 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
         layout,
         reserved_height,
     } = ui;
-    let (width, height) = terminal::size()?;
+    let (width, _height) = terminal::size()?;
     let width = width.max(20);
 
     let has_preview = !preview.is_empty();
-    let desired_height = desired_select_viewport_height(
-        header_rows.len(),
-        matched_rows.len(),
-        preview.lines().count(),
-        layout,
-    );
-    let height = select_viewport_height(height, desired_height).min(reserved_height);
+    // Always render into the full reserved region. Computing a smaller
+    // desired_height from current content and capping height to it would leave
+    // the already-reserved terminal rows blank, wasting visible space.
+    let height = reserved_height;
     let top_offset = 0;
     let header_height = 3u16.saturating_add(header_rows.len() as u16);
     let body_height = height.saturating_sub(header_height).max(1);
