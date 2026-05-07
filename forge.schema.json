@@ -360,6 +360,11 @@
       "type": "boolean",
       "default": false
     },
+    "use_text_patch_fallback": {
+      "description": "Switches patch replacement fallback from the legacy fuzzy-search range\nlookup to the newer text-patch gRPC API.\nDefaults to `false` so patching continues to use the legacy fallback\nbehavior unless explicitly enabled in `forge.toml`.",
+      "type": "boolean",
+      "default": false
+    },
     "verify_todos": {
       "description": "Enables the pending todos hook that checks for incomplete todo items\nwhen a task ends and reminds the LLM about them.",
       "type": "boolean",
