@@ -227,10 +227,7 @@ impl TerminalGuard {
         enable_raw_mode()?;
         execute!(io::stderr(), EnableMouseCapture, Hide)?;
         let keyboard_enhancement_enabled = enable_keyboard_enhancement()?;
-        Ok(Self {
-            raw_mode_was_enabled,
-            keyboard_enhancement_enabled,
-        })
+        Ok(Self { raw_mode_was_enabled, keyboard_enhancement_enabled })
     }
 }
 
