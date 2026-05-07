@@ -11,7 +11,7 @@ use merge::Merge;
 use serde::Deserialize;
 
 /// Represents the source of models for a provider
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(untagged)]
 enum Models {
     /// Models are fetched from a URL
@@ -51,7 +51,7 @@ impl UrlParamVarConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Merge)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Merge)]
 struct ProviderConfig {
     #[merge(strategy = overwrite)]
     id: ProviderId,
@@ -175,6 +175,11 @@ impl From<forge_config::ProviderEntry> for ProviderConfig {
             forge_config::ProviderResponseType::OpenCode => ProviderResponse::OpenCode,
         });
 
+        let models = entry.models.map(|m| match m {
+            forge_config::ModelListConfig::Url(url) => Models::Url(url),
+            forge_config::ModelListConfig::Hardcoded(model_list) => Models::Hardcoded(model_list),
+        });
+
         ProviderConfig {
             id: ProviderId::from(entry.id),
             provider_type,
@@ -182,7 +187,7 @@ impl From<forge_config::ProviderEntry> for ProviderConfig {
             url_param_vars: entry.url_param_vars.into_iter().map(Into::into).collect(),
             response_type,
             url: entry.url,
-            models: entry.models.map(Models::Url),
+            models,
             auth_methods,
             custom_headers: entry.custom_headers,
         }
@@ -832,6 +837,75 @@ mod tests {
             config.url.as_str(),
             "https://integrate.api.nvidia.com/v1/chat/completions"
         );
+    }
+
+    #[test]
+    fn test_provider_entry_with_static_models_converts_to_hardcoded() {
+        let model = forge_domain::Model::new("Qwen3.6-35B-A3b-q3-mlx")
+            .name("Qwen3.5-35B".to_string())
+            .description(
+                "Qwen local reasoning model with advanced problem-solving capabilities".to_string(),
+            )
+            .context_length(262144)
+            .tools_supported(true)
+            .supports_parallel_tool_calls(true)
+            .supports_reasoning(true)
+            .input_modalities(vec![forge_domain::InputModality::Text]);
+
+        let entry = forge_config::ProviderEntry {
+            id: "ollama".to_string(),
+            url: "http://127.0.0.1:8000/v1/chat/completions".to_string(),
+            response_type: Some(forge_config::ProviderResponseType::OpenAI),
+            auth_methods: vec![forge_config::ProviderAuthMethod::ApiKey],
+            models: Some(forge_config::ModelListConfig::Hardcoded(vec![
+                model.clone(),
+            ])),
+            ..Default::default()
+        };
+
+        let actual = ProviderConfig::from(entry);
+
+        let expected = ProviderConfig {
+            id: ProviderId::from("ollama".to_string()),
+            provider_type: forge_domain::ProviderType::Llm,
+            api_key_vars: None,
+            url_param_vars: vec![],
+            response_type: Some(forge_app::domain::ProviderResponse::OpenAI),
+            url: "http://127.0.0.1:8000/v1/chat/completions".to_string(),
+            models: Some(Models::Hardcoded(vec![model])),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            custom_headers: None,
+        };
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_provider_entry_with_url_models_converts_to_url() {
+        let entry = forge_config::ProviderEntry {
+            id: "my_provider".to_string(),
+            url: "http://example.com/v1/chat/completions".to_string(),
+            models: Some(forge_config::ModelListConfig::Url(
+                "http://example.com/v1/models".to_string(),
+            )),
+            ..Default::default()
+        };
+
+        let actual = ProviderConfig::from(entry);
+
+        let expected = ProviderConfig {
+            id: ProviderId::from("my_provider".to_string()),
+            provider_type: forge_domain::ProviderType::Llm,
+            api_key_vars: None,
+            url_param_vars: vec![],
+            response_type: None,
+            url: "http://example.com/v1/chat/completions".to_string(),
+            models: Some(Models::Url("http://example.com/v1/models".to_string())),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            custom_headers: None,
+        };
+
+        assert_eq!(actual, expected);
     }
 }
 
