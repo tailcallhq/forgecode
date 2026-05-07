@@ -378,7 +378,8 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
             preview_layout,
         )
     };
-    let (reserved_height, viewport_top_row) = reserve_inline_viewport_space(&mut stderr, initial_desired_height)?;
+    let (reserved_height, viewport_top_row) =
+        reserve_inline_viewport_space(&mut stderr, initial_desired_height)?;
     let mut selected_index = 0usize;
     let mut initial_raw = initial_raw;
     let mut initial_selection_applied = false;
@@ -530,7 +531,11 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                         }
                         PickerAction::Accept => {
                             if mode == SelectMode::Multi && !queued_indices.is_empty() {
-                                clear_rendered_viewport(&mut stderr, reserved_height, viewport_top_row)?;
+                                clear_rendered_viewport(
+                                    &mut stderr,
+                                    reserved_height,
+                                    viewport_top_row,
+                                )?;
                                 drop(guard);
                                 let selected = queued_indices
                                     .iter()
@@ -541,13 +546,21 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                             }
 
                             if let Some(row) = selected_row {
-                                clear_rendered_viewport(&mut stderr, reserved_height, viewport_top_row)?;
+                                clear_rendered_viewport(
+                                    &mut stderr,
+                                    reserved_height,
+                                    viewport_top_row,
+                                )?;
                                 drop(guard);
                                 return Ok(Some(vec![row.raw.clone()]));
                             }
                         }
                         PickerAction::Exit => {
-                            clear_rendered_viewport(&mut stderr, reserved_height, viewport_top_row)?;
+                            clear_rendered_viewport(
+                                &mut stderr,
+                                reserved_height,
+                                viewport_top_row,
+                            )?;
                             drop(guard);
                             return Ok(None);
                         }
