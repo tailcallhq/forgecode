@@ -2920,10 +2920,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             let Some((model_id, provider_id)) = model_entries.get(i) else {
                 continue;
             };
+            let dotted_id = model_id.as_str().replace(['-', '_'], ".");
             rows.push(SelectRow {
                 raw: format!("{}\t{}", model_id.as_str(), provider_id.as_ref()),
                 display: line.to_string(),
-                search: format!("{} {}", model_id.as_str(), provider_id.as_ref()),
+                search: format!(
+                    "{} {} {} {}",
+                    model_id.as_str(),
+                    dotted_id,
+                    provider_id.as_ref(),
+                    line
+                ),
                 fields: vec![model_id.to_string(), provider_id.as_ref().to_string()],
             });
         }

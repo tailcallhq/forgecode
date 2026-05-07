@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::{cmp, fmt};
 
 use bstr::ByteSlice;
-use crossterm::cursor::{Hide, MoveToColumn, MoveUp, RestorePosition, SavePosition, Show};
+use crossterm::cursor::{Hide, MoveTo, MoveToColumn, MoveUp, Show};
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
     KeyboardEnhancementFlags, MouseEventKind, PopKeyboardEnhancementFlags,
@@ -94,7 +94,7 @@ impl Default for PreviewLayout {
     }
 }
 
-const SELECT_VIEWPORT_PERCENT: u16 = 80;
+const SELECT_VIEWPORT_PERCENT: u16 = 95;
 
 fn max_select_viewport_height(full_height: u16) -> u16 {
     let full_height = full_height.max(1);
@@ -113,22 +113,21 @@ fn select_viewport_height(full_height: u16, desired_height: u16) -> u16 {
     }
 }
 
-fn reserve_inline_viewport_space(stderr: &mut io::Stderr, desired_height: u16) -> io::Result<u16> {
+fn reserve_inline_viewport_space(
+    stderr: &mut io::Stderr,
+    desired_height: u16,
+) -> io::Result<(u16, u16)> {
     let (_, full_height) = terminal::size()?;
     let reserved_height = select_viewport_height(full_height, desired_height);
 
     for _ in 0..reserved_height {
         queue!(stderr, Print("\r\n"))?;
     }
-    queue!(
-        stderr,
-        MoveUp(reserved_height),
-        MoveToColumn(0),
-        SavePosition
-    )?;
+    queue!(stderr, MoveUp(reserved_height), MoveToColumn(0))?;
     stderr.flush()?;
 
-    Ok(reserved_height)
+    let viewport_top_row = full_height.saturating_sub(reserved_height.max(1));
+    Ok((reserved_height, viewport_top_row))
 }
 
 fn desired_select_viewport_height(
@@ -172,16 +171,12 @@ impl CrosstermCommand for DeleteLines {
 struct ViewportMoveTo {
     x: u16,
     y: u16,
+    top_row: u16,
 }
 
 impl CrosstermCommand for ViewportMoveTo {
     fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        RestorePosition.write_ansi(f)?;
-        for _ in 0..self.y {
-            write!(f, "\r\n")?;
-        }
-        MoveToColumn(self.x).write_ansi(f)?;
-        Ok(())
+        MoveTo(self.x, self.top_row.saturating_add(self.y)).write_ansi(f)
     }
 
     #[cfg(windows)]
@@ -190,22 +185,29 @@ impl CrosstermCommand for ViewportMoveTo {
     }
 }
 
-fn viewport_move_to(x: u16, y: u16, _top_offset: u16) -> ViewportMoveTo {
-    ViewportMoveTo { x, y }
+fn viewport_move_to(x: u16, y: u16, top_row: u16) -> ViewportMoveTo {
+    ViewportMoveTo { x, y, top_row }
 }
 
-fn clear_rendered_viewport(stderr: &mut io::Stderr, reserved_height: u16) -> io::Result<()> {
+fn clear_rendered_viewport(
+    stderr: &mut io::Stderr,
+    reserved_height: u16,
+    viewport_top_row: u16,
+) -> io::Result<()> {
+    let (_, full_height) = terminal::size()?;
+    let max_top_row = full_height.saturating_sub(reserved_height.max(1));
+    let viewport_top_row = viewport_top_row.min(max_top_row);
+
     for row_index in 0..reserved_height {
         queue!(
             stderr,
-            viewport_move_to(0, row_index, 0),
+            viewport_move_to(0, row_index, viewport_top_row),
             Clear(ClearType::CurrentLine)
         )?;
     }
     queue!(
         stderr,
-        RestorePosition,
-        MoveToColumn(0),
+        MoveTo(0, viewport_top_row),
         DeleteLines(reserved_height)
     )?;
     stderr.flush()
@@ -231,9 +233,8 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let mut stderr = io::stderr();
         let _ = execute!(
-            stderr,
+            io::stderr(),
             Show,
             PopKeyboardEnhancementFlags,
             DisableMouseCapture
@@ -362,13 +363,23 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
     let prompt = prompt.unwrap_or_else(|| "❯ ".to_string());
     let preview_command = preview.unwrap_or_default();
     let initial_matched_rows = matched_rows(&matcher);
-    let initial_desired_height = desired_select_viewport_height(
-        header_rows.len(),
-        initial_matched_rows.len(),
-        0,
-        preview_layout,
-    );
-    let reserved_height = reserve_inline_viewport_space(&mut stderr, initial_desired_height)?;
+    // When a preview command is present, reserve the maximum available viewport
+    // height upfront. Without this, the initial reservation (calculated with
+    // zero preview lines) is too small: once a preview renders it consumes the
+    // configured percentage of the reserved space and leaves only 1–2 rows for
+    // the list, even when many items match.
+    let initial_desired_height = if !preview_command.is_empty() {
+        u16::MAX
+    } else {
+        desired_select_viewport_height(
+            header_rows.len(),
+            initial_matched_rows.len(),
+            0,
+            preview_layout,
+        )
+    };
+    let (reserved_height, viewport_top_row) =
+        reserve_inline_viewport_space(&mut stderr, initial_desired_height)?;
     let mut selected_index = 0usize;
     let mut initial_raw = initial_raw;
     let mut initial_selection_applied = false;
@@ -389,14 +400,9 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                 Normalization::Smart,
                 query.starts_with(&last_query),
             );
-            let previous_query = last_query.clone();
             last_query = query.clone();
             let _ = matcher.tick(50);
-            selected_index = if query.starts_with(&previous_query) {
-                selected_index
-            } else {
-                0
-            };
+            selected_index = 0;
             scroll_offset = 0;
             preview_scroll_offset = 0;
             needs_render = true;
@@ -458,6 +464,7 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                     preview_scroll_offset,
                     layout: preview_layout,
                     reserved_height,
+                    viewport_top_row,
                 },
             )?;
             needs_render = false;
@@ -524,7 +531,11 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                         }
                         PickerAction::Accept => {
                             if mode == SelectMode::Multi && !queued_indices.is_empty() {
-                                clear_rendered_viewport(&mut stderr, reserved_height)?;
+                                clear_rendered_viewport(
+                                    &mut stderr,
+                                    reserved_height,
+                                    viewport_top_row,
+                                )?;
                                 drop(guard);
                                 let selected = queued_indices
                                     .iter()
@@ -535,13 +546,21 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                             }
 
                             if let Some(row) = selected_row {
-                                clear_rendered_viewport(&mut stderr, reserved_height)?;
+                                clear_rendered_viewport(
+                                    &mut stderr,
+                                    reserved_height,
+                                    viewport_top_row,
+                                )?;
                                 drop(guard);
                                 return Ok(Some(vec![row.raw.clone()]));
                             }
                         }
                         PickerAction::Exit => {
-                            clear_rendered_viewport(&mut stderr, reserved_height)?;
+                            clear_rendered_viewport(
+                                &mut stderr,
+                                reserved_height,
+                                viewport_top_row,
+                            )?;
                             drop(guard);
                             return Ok(None);
                         }
@@ -867,6 +886,7 @@ struct PreviewUi<'a> {
     preview_scroll_offset: usize,
     layout: PreviewLayout,
     reserved_height: u16,
+    viewport_top_row: u16,
 }
 
 fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result<()> {
@@ -882,19 +902,21 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
         preview_scroll_offset,
         layout,
         reserved_height,
+        viewport_top_row,
     } = ui;
-    let (width, height) = terminal::size()?;
+    let (width, full_height) = terminal::size()?;
     let width = width.max(20);
 
     let has_preview = !preview.is_empty();
-    let desired_height = desired_select_viewport_height(
-        header_rows.len(),
-        matched_rows.len(),
-        preview.lines().count(),
-        layout,
-    );
-    let height = select_viewport_height(height, desired_height).min(reserved_height);
-    let top_offset = 0;
+    // Always render into the full reserved region. Computing a smaller
+    // desired_height from current content and capping height to it would leave
+    // the already-reserved terminal rows blank, wasting visible space.
+    // Keep one safety row at the bottom of the reserved region to avoid
+    // terminal-specific implicit wrap/scroll behavior when writing at the
+    // final visible row.
+    let height = reserved_height.saturating_sub(1).max(1);
+    let max_top_row = full_height.saturating_sub(height.max(1));
+    let top_offset = viewport_top_row.min(max_top_row);
     let header_height = 3u16.saturating_add(header_rows.len() as u16);
     let body_height = height.saturating_sub(header_height).max(1);
 
@@ -956,7 +978,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
     for row_index in 0..reserved_height {
         queue!(
             stderr,
-            viewport_move_to(0, row_index, 0),
+            viewport_move_to(0, row_index, top_offset),
             Clear(ClearType::CurrentLine)
         )?;
     }

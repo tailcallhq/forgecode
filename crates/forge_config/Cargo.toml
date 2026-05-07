@@ -10,6 +10,7 @@ config = { version = "0.15", features = ["toml"] }
 derive_setters.workspace = true
 dirs.workspace = true
 dotenvy.workspace = true
+forge_domain.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml_edit = { workspace = true }
