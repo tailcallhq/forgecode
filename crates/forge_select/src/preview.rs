@@ -94,7 +94,7 @@ impl Default for PreviewLayout {
     }
 }
 
-const SELECT_VIEWPORT_PERCENT: u16 = 80;
+const SELECT_VIEWPORT_PERCENT: u16 = 100;
 
 fn max_select_viewport_height(full_height: u16) -> u16 {
     let full_height = full_height.max(1);
@@ -113,16 +113,9 @@ fn select_viewport_height(full_height: u16, desired_height: u16) -> u16 {
     }
 }
 
-fn reserve_inline_viewport_space(
-    stderr: &mut io::Stderr,
-    desired_height: u16,
-    max_percent: u16,
-) -> io::Result<u16> {
+fn reserve_inline_viewport_space(stderr: &mut io::Stderr, desired_height: u16) -> io::Result<u16> {
     let (_, full_height) = terminal::size()?;
-    let max_height = ((full_height as u32 * max_percent.min(100) as u32) / 100)
-        .max(1)
-        .min(full_height as u32) as u16;
-    let reserved_height = desired_height.min(max_height);
+    let reserved_height = select_viewport_height(full_height, desired_height);
 
     for _ in 0..reserved_height {
         queue!(stderr, Print("\r\n"))?;
@@ -374,30 +367,17 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
     // zero preview lines) is too small: once a preview renders it consumes the
     // configured percentage of the reserved space and leaves only 1–2 rows for
     // the list, even when many items match.
-    //
-    // The cap depends on the initial query: an empty query means the user is
-    // browsing the full list, so fill the entire terminal (100%). A non-empty
-    // query means active filtering, so leave some context visible (80%).
-    let (initial_desired_height, max_percent) = if !preview_command.is_empty() {
-        let pct = if query.is_empty() {
-            100u16
-        } else {
-            SELECT_VIEWPORT_PERCENT
-        };
-        (u16::MAX, pct)
+    let initial_desired_height = if !preview_command.is_empty() {
+        u16::MAX
     } else {
-        (
-            desired_select_viewport_height(
-                header_rows.len(),
-                initial_matched_rows.len(),
-                0,
-                preview_layout,
-            ),
-            SELECT_VIEWPORT_PERCENT,
+        desired_select_viewport_height(
+            header_rows.len(),
+            initial_matched_rows.len(),
+            0,
+            preview_layout,
         )
     };
-    let reserved_height =
-        reserve_inline_viewport_space(&mut stderr, initial_desired_height, max_percent)?;
+    let reserved_height = reserve_inline_viewport_space(&mut stderr, initial_desired_height)?;
     let mut selected_index = 0usize;
     let mut initial_raw = initial_raw;
     let mut initial_selection_applied = false;
