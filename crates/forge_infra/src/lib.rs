@@ -1,4 +1,4 @@
-mod auth;
+pub mod auth;
 mod console;
 mod env;
 mod error;

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 
 use bytes::Bytes;
@@ -149,6 +150,7 @@ impl From<forge_config::ProviderEntry> for ProviderConfig {
             Some(forge_config::ProviderTypeEntry::Llm) | None => forge_domain::ProviderType::Llm,
         };
 
+        let api_key_command = entry.api_key_command.clone();
         let auth_methods = if entry.auth_methods.is_empty() {
             vec![forge_domain::AuthMethod::ApiKey]
         } else {
@@ -159,6 +161,22 @@ impl From<forge_config::ProviderEntry> for ProviderConfig {
                     forge_config::ProviderAuthMethod::ApiKey => forge_domain::AuthMethod::ApiKey,
                     forge_config::ProviderAuthMethod::GoogleAdc => {
                         forge_domain::AuthMethod::GoogleAdc
+                    }
+                    forge_config::ProviderAuthMethod::Command => {
+                        forge_domain::AuthMethod::Command {
+                            command: api_key_command
+                                .clone()
+                                .unwrap_or_default(),
+                            cache: true,
+                        }
+                    }
+                    forge_config::ProviderAuthMethod::CommandNoCache => {
+                        forge_domain::AuthMethod::Command {
+                            command: api_key_command
+                                .clone()
+                                .unwrap_or_default(),
+                            cache: false,
+                        }
                     }
                 })
                 .collect()
@@ -229,15 +247,19 @@ fn get_provider_configs() -> &'static Vec<ProviderConfig> {
     &PROVIDER_CONFIGS
 }
 
+/// Repository that resolves provider configurations and credentials.
 pub struct ForgeProviderRepository<F> {
     infra: Arc<F>,
+    /// Per-provider cache for tokens obtained via `api_key_command`.
+    command_token_cache: tokio::sync::Mutex<HashMap<ProviderId, ApiKey>>,
 }
 
 impl<F: EnvironmentInfra<Config = forge_config::ForgeConfig> + HttpInfra>
     ForgeProviderRepository<F>
 {
+    /// Creates a new provider repository backed by the given infrastructure.
     pub fn new(infra: Arc<F>) -> Self {
-        Self { infra }
+        Self { infra, command_token_cache: tokio::sync::Mutex::new(HashMap::new()) }
     }
 }
 
@@ -279,8 +301,34 @@ impl<
                 continue;
             }
 
-            // Try to create configured template provider, fallback to unconfigured
-            let provider_entry = if let Ok(provider) = self.create_provider(&config).await {
+            // Check for command-based auth
+            let command_auth = config.auth_methods.iter().find_map(|m| match m {
+                forge_domain::AuthMethod::Command { command, cache } => {
+                    Some((command.clone(), *cache))
+                }
+                _ => None,
+            });
+
+            let provider_entry = if let Some((command, cache)) = command_auth {
+                match self
+                    .resolve_command_credential(&config, &command, cache)
+                    .await
+                {
+                    Ok(credential) => self
+                        .create_provider_with_credential(&config, credential)
+                        .ok()
+                        .map(AnyProvider::from),
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to resolve command auth for {}: {e}",
+                            config.id
+                        );
+                        self.create_unconfigured_provider(&config)
+                            .ok()
+                            .map(Into::into)
+                    }
+                }
+            } else if let Ok(provider) = self.create_provider(&config).await {
                 Some(provider.into())
             } else if let Ok(provider) = self.create_unconfigured_provider(&config) {
                 Some(provider.into())
@@ -470,6 +518,60 @@ impl<
         config: &ProviderConfig,
     ) -> anyhow::Result<forge_domain::ProviderTemplate> {
         Ok(config.into())
+    }
+
+    /// Creates a provider with a pre-resolved credential (e.g. from command auth).
+    fn create_provider_with_credential(
+        &self,
+        config: &ProviderConfig,
+        credential: AuthCredential,
+    ) -> anyhow::Result<forge_domain::ProviderTemplate> {
+        let models = config.models.as_ref().map(|m| match m {
+            Models::Url(model_url_template) => forge_domain::ModelSource::Url(
+                forge_domain::Template::<forge_domain::URLParameters>::new(model_url_template),
+            ),
+            Models::Hardcoded(model_list) => {
+                forge_domain::ModelSource::Hardcoded(model_list.clone())
+            }
+        });
+
+        Ok(Provider {
+            id: config.id.clone(),
+            provider_type: config.provider_type,
+            response: config.response_type.clone(),
+            url: forge_domain::Template::<forge_domain::URLParameters>::new(&config.url),
+            auth_methods: config.auth_methods.clone(),
+            url_params: config
+                .url_param_vars
+                .iter()
+                .map(|v| v.clone().into_spec())
+                .collect(),
+            credential: Some(credential),
+            custom_headers: config.custom_headers.clone(),
+            models,
+        })
+    }
+
+    /// Resolves a credential by executing a shell command.
+    async fn resolve_command_credential(
+        &self,
+        config: &ProviderConfig,
+        command: &str,
+        cache: bool,
+    ) -> anyhow::Result<AuthCredential> {
+        let api_key = if cache {
+            let mut token_cache = self.command_token_cache.lock().await;
+            if let Some(cached) = token_cache.get(&config.id) {
+                cached.clone()
+            } else {
+                let key = forge_infra::auth::command_strategy::execute_api_key_command(command).await?;
+                token_cache.insert(config.id.clone(), key.clone());
+                key
+            }
+        } else {
+            forge_infra::auth::command_strategy::execute_api_key_command(command).await?
+        };
+        Ok(AuthCredential::new_api_key(config.id.clone(), api_key))
     }
 
     /// Refreshes a Google ADC credential by fetching a fresh token

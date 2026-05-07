@@ -119,6 +119,7 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
                 }
                 forge_domain::AuthMethod::GoogleAdc => {}
                 forge_domain::AuthMethod::AwsProfile => {}
+                forge_domain::AuthMethod::Command { .. } => {}
             });
 
         // Codex provider requires the ChatGPT-Account-Id header extracted

@@ -99,6 +99,7 @@ impl<H: HttpInfra> OpenAIProvider<H> {
                 }
                 forge_domain::AuthMethod::GoogleAdc => {}
                 forge_domain::AuthMethod::AwsProfile => {}
+                forge_domain::AuthMethod::Command { .. } => {}
             });
         // Append provider-level custom headers (from provider.json config)
         if let Some(custom_headers) = &self.provider.custom_headers {

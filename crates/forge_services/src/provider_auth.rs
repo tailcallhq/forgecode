@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use bstr::ByteSlice;
 use forge_app::{AuthStrategy, ProviderAuthService, StrategyFactory};
 use forge_domain::{
     AuthContextRequest, AuthContextResponse, AuthMethod, Provider, ProviderId, ProviderRepository,
@@ -16,6 +17,39 @@ impl<I> ForgeProviderAuthService<I> {
     /// Create a new provider authentication service
     pub fn new(infra: Arc<I>) -> Self {
         Self { infra }
+    }
+
+    /// Execute an api_key_command and return the trimmed output as an ApiKey.
+    async fn execute_api_key_command(command: &str) -> anyhow::Result<forge_domain::ApiKey> {
+        let output = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to execute api_key_command `{command}`: {e}"))?;
+
+        if !output.status.success() {
+            let stderr = output.stderr.as_slice().to_str_lossy();
+            anyhow::bail!(
+                "api_key_command `{command}` exited with {}: {}",
+                output.status,
+                stderr.trim()
+            );
+        }
+
+        let token = String::from_utf8(output.stdout)
+            .map_err(|e| anyhow::anyhow!("api_key_command output is not valid UTF-8: {e}"))?
+            .trim()
+            .to_string();
+
+        if token.is_empty() {
+            anyhow::bail!("api_key_command `{command}` produced no output");
+        }
+
+        Ok(forge_domain::ApiKey::from(token))
     }
 }
 
@@ -33,7 +67,10 @@ where
         // Get required URL parameters for API key flow and Google ADC
         let required_params = if matches!(
             auth_method,
-            AuthMethod::ApiKey | AuthMethod::GoogleAdc | AuthMethod::AwsProfile
+            AuthMethod::ApiKey
+                | AuthMethod::GoogleAdc
+                | AuthMethod::AwsProfile
+                | AuthMethod::Command { .. }
         ) {
             // Get URL params from provider entry (works for both configured and
             // unconfigured)
@@ -147,6 +184,30 @@ where
         &self,
         mut provider: Provider<url::Url>,
     ) -> anyhow::Result<Provider<url::Url>> {
+        // Handle command_no_cache: always re-execute regardless of needs_refresh
+        for auth_method in &provider.auth_methods {
+            if let AuthMethod::Command { command, cache: false } = auth_method {
+                match Self::execute_api_key_command(command).await {
+                    Ok(api_key) => {
+                        provider.credential = Some(
+                            forge_domain::AuthCredential::new_api_key(
+                                provider.id.clone(),
+                                api_key,
+                            ),
+                        );
+                        return Ok(provider);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to refresh command auth for {}: {e}",
+                            provider.id
+                        );
+                        // Continue with existing credential
+                    }
+                }
+            }
+        }
+
         // Check if credential needs refresh (5 minute buffer before expiry)
         if let Some(credential) = &provider.credential {
             let buffer = chrono::Duration::minutes(5);
