@@ -33,5 +33,6 @@
     "yaml": "^2.8.3",
     "yargs": "^18.0.0",
     "zod": "^4.0.0"
-  }
+  },
+  "packageManager": "npm@10"
 }
