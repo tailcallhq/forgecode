@@ -287,6 +287,13 @@ pub struct ForgeConfig {
     #[serde(default)]
     pub verify_todos: bool,
 
+    /// Switches patch replacement fallback from the legacy fuzzy-search range
+    /// lookup to the newer text-patch gRPC API.
+    /// Defaults to `false` so patching continues to use the legacy fallback
+    /// behavior unless explicitly enabled in `forge.toml`.
+    #[serde(default)]
+    pub use_text_patch_fallback: bool,
+
     /// Whether the deep research agent is available.
     ///
     /// When set to `true`, the Sage agent is added to the agent list and

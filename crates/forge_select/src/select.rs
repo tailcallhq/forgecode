@@ -2,7 +2,8 @@ use std::io::IsTerminal;
 
 use anyhow::Result;
 use console::strip_ansi_codes;
-use fzf_wrapped::{Fzf, Layout, run_with_output};
+
+use crate::preview::{PreviewLayout, PreviewPlacement, SelectMode, SelectRow, SelectUiOptions};
 
 /// Builder for select prompts with fuzzy search.
 pub struct SelectBuilder<T> {
@@ -17,102 +18,6 @@ pub struct SelectBuilder<T> {
     pub(crate) preview_window: Option<String>,
 }
 
-/// Builds an `Fzf` instance with standard layout and an optional header.
-///
-/// `--height=80%` is always added so fzf runs inline (below the current cursor)
-/// rather than switching to the alternate screen buffer. Without this flag fzf
-/// uses full-screen mode which enters the alternate screen (`\033[?1049h`),
-/// making it appear as though the terminal is cleared. 80% matches the shell
-/// plugin's `_forge_fzf` wrapper for a consistent UI.
-///
-/// Items are always passed as `"{idx}\t{display}"` and fzf is configured with
-/// `--delimiter=\t --with-nth=2..` so only the display portion is shown. The
-/// index prefix survives in fzf's output and is parsed back to look up the
-/// original item by position — this avoids the `position()` ambiguity when
-/// multiple items have identical display strings after ANSI stripping.
-///
-/// When `starting_cursor` is provided, `--bind="load:pos(N)"` is added so fzf
-/// pre-positions the cursor on the Nth item (1-based in fzf's `pos()` action).
-/// The `load` event is used instead of `start` because items are written to
-/// fzf's stdin after the process starts.
-///
-/// The flags `--exact`, `--cycle`, `--select-1`, `--no-scrollbar`, and
-/// `--color=dark,header:bold` mirror the shell plugin's `_forge_fzf` wrapper
-/// for a consistent user experience across both entry points.
-///
-/// The `message` is used as the fzf `--prompt` so the prompt line reads
-/// `"Select a model: "` instead of the default `"> "`, placing the question
-/// inline with the search cursor (e.g. `Select a model: ❯`). If a
-/// `help_message` is provided it is shown as a `--header` above the list.
-fn build_fzf(
-    message: &str,
-    help_message: Option<&str>,
-    initial_text: Option<&str>,
-    starting_cursor: Option<usize>,
-    header_lines: usize,
-    preview: Option<&str>,
-    preview_window: Option<&str>,
-) -> Fzf {
-    let mut builder = Fzf::builder();
-    builder.layout(Layout::Reverse);
-    builder.no_scrollbar(true);
-    builder.prompt(format!("{} ❯ ", message));
-
-    if let Some(help) = help_message {
-        builder.header(help);
-    }
-
-    let mut args = vec![
-        "--height=80%".to_string(),
-        "--exact".to_string(),
-        "--cycle".to_string(),
-        "--select-1".to_string(),
-        "--color=dark,header:bold".to_string(),
-        "--pointer=▌".to_string(),
-        "--delimiter=\t".to_string(),
-        "--with-nth=2..".to_string(),
-    ];
-    if let Some(query) = initial_text {
-        args.push(format!("--query={}", query));
-    }
-    if let Some(cursor) = starting_cursor {
-        args.push(format!("--bind=load:pos({})", cursor + 1));
-    }
-    if header_lines > 0 {
-        args.push(format!("--header-lines={}", header_lines));
-    }
-    if let Some(cmd) = preview {
-        args.push(format!("--preview={}", cmd));
-    }
-    if let Some(window) = preview_window {
-        args.push(format!("--preview-window={}", window));
-    }
-    builder.custom_args(args);
-
-    builder
-        .build()
-        .expect("fzf builder should always succeed with default options")
-}
-
-/// Formats items as `"{idx}\t{display}"` for passing to fzf.
-///
-/// The index prefix lets us recover the original position from fzf's output
-/// without relying on string matching, which breaks when multiple items have
-/// the same display string.
-pub(crate) fn indexed_items(display_options: &[String]) -> Vec<String> {
-    display_options
-        .iter()
-        .enumerate()
-        .map(|(i, d)| format!("{}\t{}", i, d))
-        .collect()
-}
-
-/// Parses the index from a line returned by fzf when items were formatted with
-/// `indexed_items`. Returns `None` if the line is malformed.
-pub(crate) fn parse_fzf_index(line: &str) -> Option<usize> {
-    line.split('\t').next()?.trim().parse().ok()
-}
-
 impl<T: 'static> SelectBuilder<T> {
     /// Set starting cursor position.
     pub fn with_starting_cursor(mut self, cursor: usize) -> Self {
@@ -121,25 +26,18 @@ impl<T: 'static> SelectBuilder<T> {
     }
 
     /// Set a preview command shown in a side panel as the user navigates items.
-    ///
-    /// The command is passed directly to fzf's `--preview` flag. Use `{2}` to
-    /// reference the display field of the currently highlighted item (field 2
-    /// after the internal index tab-prefix).
     pub fn with_preview(mut self, command: impl Into<String>) -> Self {
         self.preview = Some(command.into());
         self
     }
 
     /// Set the layout of the preview panel.
-    ///
-    /// Passed directly to fzf's `--preview-window` flag (e.g.
-    /// `"bottom:75%:wrap:border-sharp"`).
     pub fn with_preview_window(mut self, layout: impl Into<String>) -> Self {
         self.preview_window = Some(layout.into());
         self
     }
 
-    /// Set default for confirm (only works with bool options).
+    /// Set default for confirm prompts using bool options.
     pub fn with_default(mut self, default: bool) -> Self {
         self.default = Some(default);
         self
@@ -157,12 +55,7 @@ impl<T: 'static> SelectBuilder<T> {
         self
     }
 
-    /// Set the number of header lines (non-selectable) at the top of the list.
-    ///
-    /// When set to `n`, the first `n` items are displayed as a fixed header
-    /// that is always visible but cannot be selected. Mirrors fzf's
-    /// `--header-lines` flag, matching the shell plugin's porcelain output
-    /// where the first line contains column headings.
+    /// Set the number of header lines treated as non-selectable options.
     pub fn with_header_lines(mut self, n: usize) -> Self {
         self.header_lines = n;
         self
@@ -172,19 +65,18 @@ impl<T: 'static> SelectBuilder<T> {
     ///
     /// # Returns
     ///
-    /// - `Ok(Some(T))` - User selected an option
-    /// - `Ok(None)` - No options available or user cancelled (ESC / Ctrl+C)
+    /// - `Ok(Some(T))` when the user selects an option.
+    /// - `Ok(None)` when no options are available or the user cancels.
     ///
     /// # Errors
     ///
-    /// Returns an error if the fzf process fails to start or interact.
+    /// Returns an error if the picker cannot set up terminal interaction,
+    /// render, process events, or run a preview command.
     pub fn prompt(self) -> Result<Option<T>>
     where
         T: std::fmt::Display + Clone,
     {
-        // Bail immediately when stdin is not a terminal to prevent the process
-        // from blocking indefinitely on a detached or non-interactive session.
-        if !std::io::stdin().is_terminal() {
+        if !std::io::stderr().is_terminal() {
             return Ok(None);
         }
 
@@ -196,64 +88,100 @@ impl<T: 'static> SelectBuilder<T> {
             return Ok(None);
         }
 
-        let display_options: Vec<String> = self
+        let rows = self
             .options
             .iter()
-            .map(|item| strip_ansi_codes(&item.to_string()).trim().to_string())
-            .collect();
+            .enumerate()
+            .map(|(index, item)| {
+                let display = strip_ansi_codes(&item.to_string()).trim().to_string();
+                if index < self.header_lines {
+                    SelectRow::header(display)
+                } else {
+                    SelectRow::new(index.to_string(), display.clone()).search(display)
+                }
+            })
+            .collect::<Vec<_>>();
 
-        let fzf = build_fzf(
-            &self.message,
-            self.help_message,
-            self.initial_text.as_deref(),
-            self.starting_cursor,
-            self.header_lines,
-            self.preview.as_deref(),
-            self.preview_window.as_deref(),
-        );
-
-        let selected = run_with_output(fzf, indexed_items(&display_options));
-
-        match selected {
-            None => Ok(None),
-            Some(selection) if selection.trim().is_empty() => Ok(None),
-            Some(selection) => {
-                Ok(parse_fzf_index(&selection).and_then(|index| self.options.get(index).cloned()))
-            }
+        let header_count = self.header_lines.min(rows.len());
+        if rows.len() == header_count {
+            return Ok(None);
         }
+
+        let mut selector = SelectUiOptions::new(format!("{} ❯ ", self.message), rows)
+            .header_lines(header_count)
+            .mode(SelectMode::Single)
+            .preview_layout(parse_preview_layout(self.preview_window.as_deref()));
+
+        if let Some(query) = self.initial_text {
+            selector = selector.query(Some(query));
+        }
+
+        if let Some(preview) = self.preview {
+            selector = selector.preview(Some(preview));
+        }
+
+        if let Some(cursor) = self.starting_cursor {
+            selector = selector.initial_raw(Some(cursor.to_string()));
+        }
+
+        if let Some(help) = self.help_message {
+            selector.rows.insert(0, SelectRow::header(help));
+            selector.header_lines = selector.header_lines.saturating_add(1);
+        }
+
+        let selected = selector.prompt()?;
+        Ok(selected.and_then(|row| {
+            row.raw
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| self.options.get(index).cloned())
+        }))
     }
 }
 
-/// Runs a yes/no confirmation prompt via fzf.
+fn parse_preview_layout(layout: Option<&str>) -> PreviewLayout {
+    let Some(layout) = layout else {
+        return PreviewLayout::default();
+    };
+
+    let placement = if layout.contains("down") || layout.contains("bottom") {
+        PreviewPlacement::Bottom
+    } else {
+        PreviewPlacement::Right
+    };
+
+    let percent = layout
+        .split(|ch: char| !ch.is_ascii_digit())
+        .find_map(|part| part.parse::<u16>().ok())
+        .unwrap_or_else(|| PreviewLayout::default().percent)
+        .clamp(1, 99);
+
+    PreviewLayout { placement, percent }
+}
+
+/// Runs a yes/no confirmation prompt.
 ///
 /// Returns `Ok(Some(true))` for Yes, `Ok(Some(false))` for No, and `Ok(None)`
 /// if cancelled.
 fn prompt_confirm(message: &str, default: Option<bool>) -> Result<Option<bool>> {
-    let items = ["Yes", "No"];
-    let starting_cursor = if default == Some(false) {
-        Some(1)
+    let rows = if default == Some(false) {
+        vec![SelectRow::new("no", "No"), SelectRow::new("yes", "Yes")]
     } else {
-        Some(0)
+        vec![SelectRow::new("yes", "Yes"), SelectRow::new("no", "No")]
     };
 
-    let fzf = build_fzf(message, None, None, starting_cursor, 0, None, None);
-    let selected = run_with_output(fzf, items.iter().copied());
-
-    let result: Option<bool> = match selected.as_deref().map(str::trim) {
-        Some("Yes") => Some(true),
-        Some("No") => Some(false),
+    let selected = SelectUiOptions::new(format!("{} ❯ ", message), rows).prompt()?;
+    Ok(selected.and_then(|row| match row.raw.as_str() {
+        "yes" => Some(true),
+        "no" => Some(false),
         _ => None,
-    };
-
-    Ok(result)
+    }))
 }
 
 /// Wrapper around [`prompt_confirm`] that safely converts the `bool` result
 /// into the generic type `T`.
 ///
-/// This must only be called when `T` is known to be `bool` (verified via
-/// `TypeId` at the call site). The conversion uses `Any` downcasting instead
-/// of `transmute_copy` to remain fully safe.
+/// This must only be called when `T` is known to be `bool`.
 fn prompt_confirm_as<T: 'static + Clone>(
     message: &str,
     default: Option<bool>,
@@ -301,34 +229,13 @@ mod tests {
 
     #[test]
     fn test_ansi_stripping() {
-        let options = ["\x1b[1mBold\x1b[0m", "\x1b[31mRed\x1b[0m"];
-        let display: Vec<String> = options
+        let fixture = ["\x1b[1mBold\x1b[0m", "\x1b[31mRed\x1b[0m"];
+        let actual: Vec<String> = fixture
             .iter()
             .map(|value| strip_ansi_codes(value).to_string())
             .collect();
-
-        assert_eq!(display, vec!["Bold", "Red"]);
-    }
-
-    #[test]
-    fn test_indexed_items() {
-        let fixture = vec![
-            "Apple".to_string(),
-            "Apple".to_string(),
-            "Banana".to_string(),
-        ];
-        let actual = indexed_items(&fixture);
-        let expected = vec!["0\tApple", "1\tApple", "2\tBanana"];
+        let expected = vec!["Bold", "Red"];
         assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_parse_fzf_index() {
-        assert_eq!(parse_fzf_index("0\tApple"), Some(0));
-        assert_eq!(parse_fzf_index("2\tBanana"), Some(2));
-        assert_eq!(parse_fzf_index("1\tApple"), Some(1));
-        assert_eq!(parse_fzf_index("notanindex\tApple"), None);
-        assert_eq!(parse_fzf_index(""), None);
     }
 
     #[test]
@@ -352,5 +259,21 @@ mod tests {
     fn test_with_starting_cursor() {
         let builder = ForgeWidget::select("Test", vec!["a", "b", "c"]).with_starting_cursor(2);
         assert_eq!(builder.starting_cursor, Some(2));
+    }
+
+    #[test]
+    fn test_parse_preview_layout_defaults_to_right() {
+        let fixture = None;
+        let actual = parse_preview_layout(fixture);
+        let expected = PreviewLayout { placement: PreviewPlacement::Right, percent: 50 };
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_preview_layout_supports_bottom_percent() {
+        let fixture = Some("down,60%");
+        let actual = parse_preview_layout(fixture);
+        let expected = PreviewLayout { placement: PreviewPlacement::Bottom, percent: 60 };
+        assert_eq!(actual, expected);
     }
 }
