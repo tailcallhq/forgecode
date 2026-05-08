@@ -67,6 +67,12 @@ pub trait API: Sync + Send {
     /// Lists all conversations for the active workspace
     async fn get_conversations(&self, limit: Option<usize>) -> Result<Vec<Conversation>>;
 
+    /// Lists conversations across all workspaces
+    async fn get_all_workspaces_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Vec<Conversation>>;
+
     /// Finds the last active conversation for the current workspace
     async fn last_conversation(&self) -> Result<Option<Conversation>>;
 

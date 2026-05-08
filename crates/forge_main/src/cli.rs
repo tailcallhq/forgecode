@@ -5,8 +5,11 @@
 //! remains compatible. The plugin at `shell-plugin/forge.plugin.zsh` implements
 //! shell completion and command shortcuts that depend on the CLI structure.
 
+use std::fmt;
 use std::path::PathBuf;
+use std::str::FromStr;
 
+use chrono::{DateTime, Duration, Utc};
 use clap::{Parser, Subcommand, ValueEnum};
 use forge_domain::{AgentId, ConversationId, Effort, ModelId, ProviderId};
 
@@ -454,10 +457,21 @@ pub enum ListCommand {
 
     /// List conversation history.
     #[command(alias = "session")]
-    Conversation,
+    Conversation {
+        /// List conversations across all workspaces (not just the current
+        /// workspace).
+        #[arg(long)]
+        all: bool,
+
+        /// Only show conversations within the given time range.
+        ///
+        /// Accepts durations like: 1h, 30m, 3d, 1w, 1M, 1y.
+        /// For example: --since 1w shows conversations from the last week.
+        #[arg(long)]
+        since: Option<SinceDuration>,
+    },
 
     /// List custom commands.
-    #[command(alias = "cmds")]
     Cmd,
 
     /// List available skills.
@@ -714,6 +728,18 @@ pub enum ConversationCommand {
         /// Output in machine-readable format.
         #[arg(long)]
         porcelain: bool,
+
+        /// List conversations across all workspaces (not just the current
+        /// workspace).
+        #[arg(long)]
+        all: bool,
+
+        /// Only show conversations within the given time range.
+        ///
+        /// Accepts durations like: 1h, 30m, 3d, 1w, 1M, 1y.
+        /// For example: --since 1w shows conversations from the last week.
+        #[arg(long)]
+        since: Option<SinceDuration>,
     },
 
     /// Create a new conversation.
@@ -938,6 +964,96 @@ pub struct LogsArgs {
     /// file in the forge logs directory.
     #[arg(long, short = 'f')]
     pub file: Option<PathBuf>,
+}
+
+/// A human-friendly duration for the `--since` flag.
+///
+/// Parses strings like `1w`, `3d`, `72h`, `30m`, `1M`, `1y`.
+#[derive(Debug, Clone, Copy)]
+pub struct SinceDuration {
+    seconds: u64,
+}
+
+impl SinceDuration {
+    /// Returns the cutoff time: now minus this duration.
+    pub fn cutoff(&self) -> DateTime<Utc> {
+        Utc::now() - Duration::seconds(self.seconds as i64)
+    }
+}
+
+impl fmt::Display for SinceDuration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = self.seconds;
+        if s.is_multiple_of(604_800) {
+            write!(f, "{}w", s / 604_800)
+        } else if s.is_multiple_of(86_400) {
+            write!(f, "{}d", s / 86_400)
+        } else if s.is_multiple_of(3600) {
+            write!(f, "{}h", s / 3600)
+        } else if s.is_multiple_of(60) {
+            write!(f, "{}m", s / 60)
+        } else {
+            write!(f, "{}s", s)
+        }
+    }
+}
+
+impl FromStr for SinceDuration {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        let s = input.trim();
+        if s.is_empty() {
+            return Err(
+                "Duration cannot be empty. Expected format: <number><unit> (e.g., 1w, 3d, 72h)"
+                    .to_string(),
+            );
+        }
+
+        // Split into leading digits and trailing unit
+        let (number_str, unit) = s
+            .char_indices()
+            .find(|(_, c)| !c.is_ascii_digit())
+            .map_or((s, ""), |(i, _)| {
+                // SAFETY: split_pos is at a char boundary (found by char_indices)
+                let (num, rest) = s.split_at(i);
+                (num, rest)
+            });
+
+        if number_str.is_empty() {
+            return Err(format!(
+                "Invalid duration '{s}'. Expected format: <number><unit> (e.g., 1w, 3d, 72h)"
+            ));
+        }
+
+        let number: u64 = number_str.parse().map_err(|_| {
+            format!(
+                "Invalid number '{number_str}' in duration '{s}'. Expected format: <number><unit>"
+            )
+        })?;
+
+        if number == 0 {
+            return Err("Duration cannot be zero".to_string());
+        }
+
+        let seconds = match unit {
+            "h" => number.checked_mul(3600),
+            "d" => number.checked_mul(86_400),
+            "w" => number.checked_mul(604_800),
+            "m" => number.checked_mul(60),
+            "M" => number.checked_mul(2_592_000),  // 30 days
+            "y" => number.checked_mul(31_536_000), // 365 days
+            _ => {
+                return Err(format!(
+                    "Unknown time unit '{unit}'. Use h (hours), d (days), w (weeks), m (minutes), M (months), or y (years)"
+                ));
+            }
+        };
+
+        let seconds = seconds.ok_or_else(|| format!("Duration '{s}' is too large"))?;
+
+        Ok(Self { seconds })
+    }
 }
 
 #[cfg(test)]
@@ -1293,7 +1409,9 @@ mod tests {
     fn test_list_conversation_command() {
         let fixture = Cli::parse_from(["forge", "list", "conversation"]);
         let is_conversation_list = match fixture.subcommands {
-            Some(TopLevelCommand::List(list)) => matches!(list.command, ListCommand::Conversation),
+            Some(TopLevelCommand::List(list)) => {
+                matches!(list.command, ListCommand::Conversation { .. })
+            }
             _ => false,
         };
         assert_eq!(is_conversation_list, true);
@@ -1303,7 +1421,9 @@ mod tests {
     fn test_list_session_alias_command() {
         let fixture = Cli::parse_from(["forge", "list", "session"]);
         let is_conversation_list = match fixture.subcommands {
-            Some(TopLevelCommand::List(list)) => matches!(list.command, ListCommand::Conversation),
+            Some(TopLevelCommand::List(list)) => {
+                matches!(list.command, ListCommand::Conversation { .. })
+            }
             _ => false,
         };
         assert_eq!(is_conversation_list, true);
@@ -1479,7 +1599,7 @@ mod tests {
         let fixture = Cli::parse_from(["forge", "conversation", "list", "--porcelain"]);
         let actual = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::List { porcelain } => porcelain,
+                ConversationCommand::List { porcelain, .. } => porcelain,
                 _ => false,
             },
             _ => false,
@@ -2022,5 +2142,205 @@ mod tests {
             _ => panic!("Expected Update command"),
         };
         assert!(!actual);
+    }
+
+    // --- --all flag tests ---
+
+    #[test]
+    fn test_conversation_list_with_all() {
+        let fixture = Cli::parse_from(["forge", "conversation", "list", "--all"]);
+        let (all, since) = match fixture.subcommands {
+            Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
+                ConversationCommand::List { all, since, .. } => (all, since),
+                _ => panic!("Expected ConversationCommand::List"),
+            },
+            _ => panic!("Expected TopLevelCommand::Conversation"),
+        };
+        assert!(all);
+        assert!(since.is_none());
+    }
+
+    #[test]
+    fn test_conversation_list_without_all() {
+        let fixture = Cli::parse_from(["forge", "conversation", "list"]);
+        let all = match fixture.subcommands {
+            Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
+                ConversationCommand::List { all, .. } => all,
+                _ => panic!("Expected ConversationCommand::List"),
+            },
+            _ => panic!("Expected TopLevelCommand::Conversation"),
+        };
+        assert!(!all);
+    }
+
+    #[test]
+    fn test_list_conversation_with_all() {
+        let fixture = Cli::parse_from(["forge", "list", "conversation", "--all"]);
+        let (all, since) = match fixture.subcommands {
+            Some(TopLevelCommand::List(list)) => match list.command {
+                ListCommand::Conversation { all, since } => (all, since),
+                _ => panic!("Expected ListCommand::Conversation"),
+            },
+            _ => panic!("Expected TopLevelCommand::List"),
+        };
+        assert!(all);
+        assert!(since.is_none());
+    }
+
+    #[test]
+    fn test_list_conversation_without_all() {
+        let fixture = Cli::parse_from(["forge", "list", "conversation"]);
+        let all = match fixture.subcommands {
+            Some(TopLevelCommand::List(list)) => match list.command {
+                ListCommand::Conversation { all, .. } => all,
+                _ => panic!("Expected ListCommand::Conversation"),
+            },
+            _ => panic!("Expected TopLevelCommand::List"),
+        };
+        assert!(!all);
+    }
+
+    // --- --since flag tests ---
+
+    #[test]
+    fn test_conversation_list_with_since() {
+        let fixture = Cli::parse_from(["forge", "conversation", "list", "--since", "1w"]);
+        let since = match fixture.subcommands {
+            Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
+                ConversationCommand::List { since, .. } => since,
+                _ => panic!("Expected ConversationCommand::List"),
+            },
+            _ => panic!("Expected TopLevelCommand::Conversation"),
+        };
+        assert!(since.is_some());
+        let since = since.unwrap();
+        // 1w = 7 * 86400 = 604800 seconds
+        assert_eq!(since.to_string(), "1w");
+    }
+
+    #[test]
+    fn test_list_conversation_with_since() {
+        let fixture = Cli::parse_from(["forge", "list", "conversation", "--since", "3d"]);
+        let since = match fixture.subcommands {
+            Some(TopLevelCommand::List(list)) => match list.command {
+                ListCommand::Conversation { since, .. } => since,
+                _ => panic!("Expected ListCommand::Conversation"),
+            },
+            _ => panic!("Expected TopLevelCommand::List"),
+        };
+        assert!(since.is_some());
+        let since = since.unwrap();
+        // 3d = 3 * 86400 = 259200 seconds
+        assert_eq!(since.to_string(), "3d");
+    }
+
+    #[test]
+    fn test_conversation_list_with_all_and_since() {
+        let fixture = Cli::parse_from(["forge", "conversation", "list", "--all", "--since", "72h"]);
+        let (all, since) = match fixture.subcommands {
+            Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
+                ConversationCommand::List { all, since, .. } => (all, since),
+                _ => panic!("Expected ConversationCommand::List"),
+            },
+            _ => panic!("Expected TopLevelCommand::Conversation"),
+        };
+        assert!(all);
+        assert!(since.is_some());
+        assert_eq!(since.unwrap().to_string(), "3d");
+    }
+
+    #[test]
+    fn test_list_conversation_with_all_and_since() {
+        let fixture = Cli::parse_from(["forge", "list", "conversation", "--all", "--since", "30m"]);
+        let (all, since) = match fixture.subcommands {
+            Some(TopLevelCommand::List(list)) => match list.command {
+                ListCommand::Conversation { all, since } => (all, since),
+                _ => panic!("Expected ListCommand::Conversation"),
+            },
+            _ => panic!("Expected TopLevelCommand::List"),
+        };
+        assert!(all);
+        assert!(since.is_some());
+        assert_eq!(since.unwrap().to_string(), "30m");
+    }
+
+    // --- SinceDuration parsing tests ---
+
+    #[test]
+    fn test_since_parse_hours() {
+        let d: SinceDuration = "72h".parse().unwrap();
+        // 72h normalizes to 3d in Display
+        assert_eq!(d.to_string(), "3d");
+    }
+
+    #[test]
+    fn test_since_parse_days() {
+        let d: SinceDuration = "3d".parse().unwrap();
+        assert_eq!(d.to_string(), "3d");
+    }
+
+    #[test]
+    fn test_since_parse_weeks() {
+        let d: SinceDuration = "1w".parse().unwrap();
+        assert_eq!(d.to_string(), "1w");
+    }
+
+    #[test]
+    fn test_since_parse_minutes() {
+        let d: SinceDuration = "30m".parse().unwrap();
+        assert_eq!(d.to_string(), "30m");
+    }
+
+    #[test]
+    fn test_since_parse_months() {
+        let d: SinceDuration = "1M".parse().unwrap();
+        // 1M = 2592000 seconds = 30 days
+        assert_eq!(d.to_string(), "30d");
+    }
+
+    #[test]
+    fn test_since_parse_years() {
+        let d: SinceDuration = "1y".parse().unwrap();
+        // 1y = 31536000 seconds = 365 days
+        assert_eq!(d.to_string(), "365d");
+    }
+
+    #[test]
+    fn test_since_parse_invalid_empty() {
+        let result: Result<SinceDuration, _> = "".parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn test_since_parse_invalid_no_number() {
+        let result: Result<SinceDuration, _> = "abc".parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid duration"));
+    }
+
+    #[test]
+    fn test_since_parse_invalid_unknown_unit() {
+        let result: Result<SinceDuration, _> = "5x".parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown time unit"));
+    }
+
+    #[test]
+    fn test_since_parse_invalid_zero() {
+        let result: Result<SinceDuration, _> = "0d".parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("zero"));
+    }
+
+    #[test]
+    fn test_since_cutoff_is_in_the_past() {
+        let d: SinceDuration = "1h".parse().unwrap();
+        let cutoff = d.cutoff();
+        let now = chrono::Utc::now();
+        assert!(cutoff < now);
+        let diff = now - cutoff;
+        assert!(diff.num_seconds() >= 3600);
+        assert!(diff.num_seconds() <= 3605);
     }
 }
