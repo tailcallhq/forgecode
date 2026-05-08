@@ -84,7 +84,7 @@ strip-ansi-escapes = "0.2.1"
 strum = "0.28.0"
 strum_macros = "0.28.0"
 syn = { version = "2.0.117", features = ["derive", "parsing"] }
-sysinfo = "0.39.0"
+sysinfo = "0.38.3"
 tempfile = "3.27.0"
 termimad = "0.34.1"
 tiny_http = "0.12.0"
@@ -130,7 +130,6 @@ rmcp = { version = "0.10.0", features = [
 ] }
 open = "5.3.2"
 nucleo = "0.5.0"
-nucleo-picker = "0.11.1"
 gray_matter = "0.3.2"
 num-format = "0.4"
 humantime = "2.1.0"

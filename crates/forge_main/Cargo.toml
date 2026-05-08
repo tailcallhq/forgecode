@@ -28,7 +28,6 @@ forge_select.workspace = true
 
 merge.workspace = true
 nucleo.workspace = true
-nucleo-picker.workspace = true
 libc = "0.2"
 forge_fs.workspace = true
 tokio.workspace = true
