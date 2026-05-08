@@ -82,8 +82,12 @@ impl Transformer for ProviderPipeline<'_> {
 
         let xai_compat = MakeXaiCompat.when(move |_| provider.id == ProviderId::XAI);
 
-        let ensure_system_first =
-            MergeSystemMessages.when(move |_| provider.id == ProviderId::NVIDIA);
+        // Apply to NVIDIA and custom (non-built-in) providers to ensure system messages are
+        // first. Built-in providers are excluded to avoid degrading their caching behaviour.
+        let ensure_system_first = MergeSystemMessages.when(move |_| {
+            provider.id == ProviderId::NVIDIA
+                || !ProviderId::built_in_providers().contains(&provider.id)
+        });
 
         let trim_tool_call_ids = TrimToolCallIds.when(move |_| provider.id == ProviderId::OPENAI);
 
