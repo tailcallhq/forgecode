@@ -1011,14 +1011,14 @@ impl FromStr for SinceDuration {
         }
 
         // Split into leading digits and trailing unit
-        let (number_str, unit) = s
-            .char_indices()
-            .find(|(_, c)| !c.is_ascii_digit())
-            .map_or((s, ""), |(i, _)| {
-                // SAFETY: split_pos is at a char boundary (found by char_indices)
-                let (num, rest) = s.split_at(i);
-                (num, rest)
-            });
+        let (number_str, unit) =
+            s.char_indices()
+                .find(|(_, c)| !c.is_ascii_digit())
+                .map_or((s, ""), |(i, _)| {
+                    // SAFETY: split_pos is at a char boundary (found by char_indices)
+                    let (num, rest) = s.split_at(i);
+                    (num, rest)
+                });
 
         if number_str.is_empty() {
             return Err(format!(
