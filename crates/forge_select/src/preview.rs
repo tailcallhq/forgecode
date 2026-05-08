@@ -11,14 +11,11 @@ use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
     MouseEventKind,
 };
-use crossterm::execute;
 use crossterm::style::{
     Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
 };
-use crossterm::terminal::{
-    self, Clear, ClearType, disable_raw_mode, enable_raw_mode,
-};
-use crossterm::queue;
+use crossterm::terminal::{self, Clear, ClearType, disable_raw_mode, enable_raw_mode};
+use crossterm::{execute, queue};
 use derive_setters::Setters;
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config as NucleoConfig, Nucleo, Utf32String};
@@ -734,7 +731,9 @@ fn bottom_preview_height(height: u16, body_height: u16, percent: u16) -> u16 {
 
     preview_height.clamp(
         minimum_preview_height.min(body_height),
-        maximum_preview_height.max(minimum_preview_height).min(body_height),
+        maximum_preview_height
+            .max(minimum_preview_height)
+            .min(body_height),
     )
 }
 
@@ -756,8 +755,9 @@ fn preview_content_height(
 
     (match layout.placement {
         PreviewPlacement::Right => body_height,
-        PreviewPlacement::Bottom => bottom_preview_height(height, body_height, layout.percent)
-            .saturating_sub(2),
+        PreviewPlacement::Bottom => {
+            bottom_preview_height(height, body_height, layout.percent).saturating_sub(2)
+        }
     }) as usize
 }
 
