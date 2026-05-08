@@ -3,23 +3,25 @@ use sha2::{Digest, Sha256};
 
 use crate::dto::anthropic::{Content, Message, Request, Role, SystemMessage};
 
+// Mirrors the Claude Code billing metadata transform from
+// https://github.com/ex-machina-co/opencode-anthropic-auth/tree/main.
+
 /// Claude Code version used for billing header computation.
-const CLAUDE_CODE_VERSION: &str = "1.0.43";
+const CLAUDE_CODE_VERSION: &str = "2.1.87";
 
 /// Salt used in version suffix computation.
-const CCH_SALT: &str = "v3";
+const CCH_SALT: &str = "59cf53e54c78";
 
 /// Character positions sampled from the first user message for version suffix.
-const CCH_POSITIONS: &[usize] = &[3, 11, 19, 27, 35, 43, 51, 59, 67, 75];
+const CCH_POSITIONS: &[usize] = &[4, 7, 20];
 
 /// Entrypoint name reported in the billing header.
-const ENTRYPOINT: &str = "forge";
+const ENTRYPOINT: &str = "sdk-cli";
 
-/// Adds the Anthropic billing header as the first system message block.
+/// Adds the Anthropic billing metadata block as the first system message.
 ///
-/// This mimics the official Claude Code client's billing telemetry so
-/// Anthropic routes usage to the user's Claude Code subscription rather
-/// than API credits.
+/// The OAuth-backed Claude Code provider uses this metadata shape when sending
+/// subscription-authenticated Anthropic requests.
 pub struct BillingHeader;
 
 impl BillingHeader {
@@ -111,12 +113,12 @@ mod tests {
         let header = BillingHeader::build_header_value(&messages);
 
         assert!(
-            header.starts_with("x-anthropic-billing-header: cc_version=1.0.43."),
+            header.starts_with("x-anthropic-billing-header: cc_version=2.1.87."),
             "Header should start with correct prefix, got: {header}"
         );
         assert!(
-            header.contains("cc_entrypoint=forge"),
-            "Header should contain forge entrypoint, got: {header}"
+            header.contains("cc_entrypoint=sdk-cli"),
+            "Header should contain Claude Code SDK entrypoint, got: {header}"
         );
         assert!(
             header.contains("cch="),
@@ -126,8 +128,10 @@ mod tests {
 
     #[test]
     fn test_transform_prepends_billing_header() {
-        let context = Context::default()
-            .add_message(ContextMessage::user("test message", Some(ModelId::new("claude-3-5-sonnet-20241022"))));
+        let context = Context::default().add_message(ContextMessage::user(
+            "test message",
+            Some(ModelId::new("claude-3-5-sonnet-20241022")),
+        ));
 
         let request = Request::try_from(context).unwrap();
         let transformed = BillingHeader.transform(request);
@@ -145,7 +149,10 @@ mod tests {
     fn test_transform_with_existing_system_messages() {
         let context = Context::default()
             .add_message(ContextMessage::system("You are helpful"))
-            .add_message(ContextMessage::user("hello", Some(ModelId::new("claude-3-5-sonnet-20241022"))));
+            .add_message(ContextMessage::user(
+                "hello",
+                Some(ModelId::new("claude-3-5-sonnet-20241022")),
+            ));
 
         let request = Request::try_from(context).unwrap();
         let transformed = BillingHeader.transform(request);

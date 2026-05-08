@@ -8,6 +8,9 @@ use url::Url;
 
 use crate::auth::util::build_http_client;
 
+// Anthropic's Claude Code OAuth flow matches the callback/code formats used by
+// https://github.com/ex-machina-co/opencode-anthropic-auth/tree/main.
+
 /// Anthropic Provider - Non-standard PKCE implementation
 /// Quirk: state parameter equals PKCE verifier
 #[allow(unused)]
@@ -106,7 +109,8 @@ impl OAuthHttpProvider for AnthropicHttpProvider {
             (Some(trimmed.to_string()), None)
         };
 
-        let auth_code = auth_code.ok_or_else(|| anyhow::anyhow!("Could not extract authorization code from input"))?;
+        let auth_code = auth_code
+            .ok_or_else(|| anyhow::anyhow!("Could not extract authorization code from input"))?;
 
         let verifier = verifier
             .ok_or_else(|| anyhow::anyhow!("PKCE verifier required for Anthropic OAuth"))?;
@@ -124,6 +128,7 @@ impl OAuthHttpProvider for AnthropicHttpProvider {
         let response = client
             .post(config.token_url.as_str())
             .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/plain, */*")
             .json(&request_body)
             .send()
             .await?;

@@ -58,11 +58,16 @@ impl Transformer for SetCache {
             }
         }
 
-        let keep_from = desired_markers.len().saturating_sub(MAX_CACHE_CONTROL_BLOCKS);
+        let keep_from = desired_markers
+            .len()
+            .saturating_sub(MAX_CACHE_CONTROL_BLOCKS);
         for marker in desired_markers.into_iter().skip(keep_from) {
             match marker {
                 CacheMarker::System(idx) => {
-                    if let Some(message) = request.system.as_mut().and_then(|messages| messages.get_mut(idx))
+                    if let Some(message) = request
+                        .system
+                        .as_mut()
+                        .and_then(|messages| messages.get_mut(idx))
                     {
                         *message = std::mem::take(message).cached(true);
                     }
@@ -337,8 +342,15 @@ mod tests {
         assert_eq!(system_cache_flags, vec![false, false, true, true, true]);
         assert!(request.get_messages()[0].is_cached());
 
-        let total_cached_blocks = system_cache_flags.into_iter().filter(|cached| *cached).count()
-            + request.get_messages().iter().filter(|message| message.is_cached()).count();
+        let total_cached_blocks = system_cache_flags
+            .into_iter()
+            .filter(|cached| *cached)
+            .count()
+            + request
+                .get_messages()
+                .iter()
+                .filter(|message| message.is_cached())
+                .count();
         assert_eq!(total_cached_blocks, MAX_CACHE_CONTROL_BLOCKS);
     }
 }
