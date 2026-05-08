@@ -218,6 +218,7 @@ fn clear_rendered_viewport(
 
 struct TerminalGuard {
     raw_mode_was_enabled: bool,
+    #[cfg_attr(windows, allow(dead_code))]
     keyboard_enhancement_enabled: bool,
 }
 
@@ -248,6 +249,7 @@ fn enable_keyboard_enhancement() -> anyhow::Result<bool> {
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = execute!(io::stderr(), Show);
+        #[cfg(not(windows))]
         if self.keyboard_enhancement_enabled {
             let _ = execute!(io::stderr(), PopKeyboardEnhancementFlags);
         }
