@@ -9,8 +9,11 @@ use bstr::ByteSlice;
 use crossterm::cursor::{Hide, MoveTo, MoveToColumn, MoveUp, Show};
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-    KeyboardEnhancementFlags, MouseEventKind, PopKeyboardEnhancementFlags,
-    PushKeyboardEnhancementFlags,
+    MouseEventKind,
+};
+#[cfg(not(windows))]
+use crossterm::event::{
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::style::{
     Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
@@ -215,30 +218,42 @@ fn clear_rendered_viewport(
 
 struct TerminalGuard {
     raw_mode_was_enabled: bool,
+    #[cfg_attr(windows, allow(dead_code))]
+    keyboard_enhancement_enabled: bool,
 }
 
 impl TerminalGuard {
     fn enter() -> anyhow::Result<Self> {
         let raw_mode_was_enabled = terminal::is_raw_mode_enabled()?;
         enable_raw_mode()?;
-        execute!(
-            io::stderr(),
-            EnableMouseCapture,
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
-            Hide
-        )?;
-        Ok(Self { raw_mode_was_enabled })
+        execute!(io::stderr(), EnableMouseCapture, Hide)?;
+        let keyboard_enhancement_enabled = enable_keyboard_enhancement()?;
+        Ok(Self { raw_mode_was_enabled, keyboard_enhancement_enabled })
     }
+}
+
+#[cfg(not(windows))]
+fn enable_keyboard_enhancement() -> anyhow::Result<bool> {
+    execute!(
+        io::stderr(),
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    )?;
+    Ok(true)
+}
+
+#[cfg(windows)]
+fn enable_keyboard_enhancement() -> anyhow::Result<bool> {
+    Ok(false)
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let _ = execute!(
-            io::stderr(),
-            Show,
-            PopKeyboardEnhancementFlags,
-            DisableMouseCapture
-        );
+        let _ = execute!(io::stderr(), Show);
+        #[cfg(not(windows))]
+        if self.keyboard_enhancement_enabled {
+            let _ = execute!(io::stderr(), PopKeyboardEnhancementFlags);
+        }
+        let _ = execute!(io::stderr(), DisableMouseCapture);
         if !self.raw_mode_was_enabled {
             let _ = disable_raw_mode();
         }
