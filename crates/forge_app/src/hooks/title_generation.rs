@@ -22,12 +22,27 @@ struct TitleGenerationState {
 pub struct TitleGenerationHandler<S> {
     services: Arc<S>,
     title_tasks: Arc<DashMap<ConversationId, TitleGenerationState>>,
+    /// When false, `handle()` returns immediately without spawning a
+    /// background turn. Lets callers (e.g. one-shot `--prompt` runs) skip
+    /// the parallel LLM call that title generation would otherwise add.
+    enabled: bool,
 }
 
 impl<S> TitleGenerationHandler<S> {
-    /// Creates a new title generation handler.
+    /// Creates a new title generation handler with title generation enabled.
     pub fn new(services: Arc<S>) -> Self {
-        Self { services, title_tasks: Arc::new(DashMap::new()) }
+        Self::with_enabled(services, true)
+    }
+
+    /// Creates a handler whose `enabled` flag controls whether title
+    /// generation actually runs. A disabled handler is registered just like
+    /// an enabled one but short-circuits the LLM call.
+    pub fn with_enabled(services: Arc<S>, enabled: bool) -> Self {
+        Self {
+            services,
+            title_tasks: Arc::new(DashMap::new()),
+            enabled,
+        }
     }
 }
 
@@ -38,6 +53,10 @@ impl<S: AgentService> EventHandle<EventData<StartPayload>> for TitleGenerationHa
         event: &EventData<StartPayload>,
         conversation: &mut Conversation,
     ) -> anyhow::Result<()> {
+        if !self.enabled {
+            return Ok(());
+        }
+
         if conversation.title.is_some() {
             return Ok(());
         }

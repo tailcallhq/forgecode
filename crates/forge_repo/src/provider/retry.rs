@@ -172,12 +172,12 @@ mod tests {
         } else {
             ErrorResponse::default()
         };
-        anyhow::Error::from(Error::Response(error))
+        anyhow::Error::from(Error::Response(Box::new(error)))
     }
 
     fn fixture_transport_error(code: &str) -> anyhow::Error {
         let error = ErrorResponse::default().code(ErrorCode::String(code.to_string()));
-        anyhow::Error::from(Error::Response(error))
+        anyhow::Error::from(Error::Response(Box::new(error)))
     }
 
     fn fixture_nested_transport_error(code: &str, depth: usize) -> anyhow::Error {
@@ -185,7 +185,7 @@ mod tests {
         for _ in 0..depth {
             error = ErrorResponse::default().error(Box::new(error));
         }
-        anyhow::Error::from(Error::Response(error))
+        anyhow::Error::from(Error::Response(Box::new(error)))
     }
 
     #[test]
@@ -211,12 +211,12 @@ mod tests {
 
         // String status code that parses to retryable number
         let error = ErrorResponse::default().code(ErrorCode::String("429".to_string()));
-        let error = anyhow::Error::from(Error::Response(error));
+        let error = anyhow::Error::from(Error::Response(Box::new(error)));
         assert!(is_retryable(into_retry(error, &retry_config)));
 
         // String status code that parses to non-retryable number
         let error = ErrorResponse::default().code(ErrorCode::String("404".to_string()));
-        let error = anyhow::Error::from(Error::Response(error));
+        let error = anyhow::Error::from(Error::Response(Box::new(error)));
         assert!(!is_retryable(into_retry(error, &retry_config)));
     }
 
@@ -263,7 +263,7 @@ mod tests {
         let retry_config = fixture_retry_config(vec![]);
 
         // Empty error is retryable
-        let error = anyhow::Error::from(Error::Response(ErrorResponse::default()));
+        let error = anyhow::Error::from(Error::Response(Box::new(ErrorResponse::default())));
         assert!(is_retryable(into_retry(error, &retry_config)));
 
         // Generic error is not retryable
@@ -299,23 +299,23 @@ mod tests {
         assert!(has_error_code(&error, RetryableApiErrorCode::Transport));
 
         // is_empty_error
-        let error = anyhow::Error::from(Error::Response(ErrorResponse::default()));
+        let error = anyhow::Error::from(Error::Response(Box::new(ErrorResponse::default())));
         assert!(is_empty_error(&error));
 
-        let error = anyhow::Error::from(Error::Response(
+        let error = anyhow::Error::from(Error::Response(Box::new(
             ErrorResponse::default().message("Error".to_string()),
-        ));
+        )));
         assert!(!is_empty_error(&error));
 
-        let error = anyhow::Error::from(Error::Response(
+        let error = anyhow::Error::from(Error::Response(Box::new(
             ErrorResponse::default().code(ErrorCode::Number(500)),
-        ));
+        )));
         assert!(!is_empty_error(&error));
 
         let nested = ErrorResponse::default().message("Nested".to_string());
-        let error = anyhow::Error::from(Error::Response(
+        let error = anyhow::Error::from(Error::Response(Box::new(
             ErrorResponse::default().error(Box::new(nested)),
-        ));
+        )));
         assert!(!is_empty_error(&error));
 
         // is_api_transport_error
@@ -339,19 +339,19 @@ mod tests {
     fn test_openai_server_overloaded_error_is_retryable() {
         let retry_config = fixture_retry_config(vec![]);
 
-        let error = anyhow::Error::from(Error::Response(
+        let error = anyhow::Error::from(Error::Response(Box::new(
             ErrorResponse::default()
                 .code(ErrorCode::String("server_is_overloaded".to_string()))
                 .message(
                     "Our servers are currently overloaded. Please try again later.".to_string(),
                 ),
-        ));
+        )));
 
         assert!(is_retryable(into_retry(error, &retry_config)));
 
-        let error = anyhow::Error::from(Error::Response(
+        let error = anyhow::Error::from(Error::Response(Box::new(
             ErrorResponse::default().code(ErrorCode::String("rate_limit".to_string())),
-        ));
+        )));
 
         assert!(!is_retryable(into_retry(error, &retry_config)));
     }

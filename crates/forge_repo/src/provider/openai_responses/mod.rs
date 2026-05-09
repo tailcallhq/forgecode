@@ -11,5 +11,6 @@ mod codex_transformer;
 mod repository;
 mod request;
 mod response;
+mod websocket;
 
 pub use repository::OpenAIResponsesResponseRepository;
