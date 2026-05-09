@@ -850,6 +850,10 @@
           "description": "The environment variable name used as the template variable key.",
           "type": "string"
         },
+        "optional": {
+          "description": "Whether this parameter is optional. When `true`, the parameter may be\nleft blank without causing an error.",
+          "type": "boolean"
+        },
         "options": {
           "description": "Optional preset values for this parameter shown as suggestions in the\nUI.",
           "type": "array",
