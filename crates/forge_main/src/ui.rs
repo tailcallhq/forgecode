@@ -3003,8 +3003,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         .prompt()?
                         .context("Parameter selection cancelled")?
                 } else {
-                    // Free-text path (existing behavior)
-                    let mut input = ForgeWidget::input(format!("Enter {}", param.name));
+                    // Free-text path
+                    let label = if param.optional {
+                        format!("Enter {} (optional, press Enter to skip)", param.name)
+                    } else {
+                        format!("Enter {}", param.name)
+                    };
+                    let mut input = ForgeWidget::input(label);
 
                     // Add default value if it exists in the credential
                     if let Some(params) = existing_url_params
@@ -3013,13 +3018,19 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         input = input.with_default(default_value.as_str());
                     }
 
+                    if param.optional {
+                        input = input.allow_empty(true);
+                    }
+
                     let param_value = input.prompt()?.context("Parameter input cancelled")?;
 
-                    anyhow::ensure!(
-                        !param_value.trim().is_empty(),
-                        "{} cannot be empty",
-                        param.name
-                    );
+                    if !param.optional {
+                        anyhow::ensure!(
+                            !param_value.trim().is_empty(),
+                            "{} cannot be empty",
+                            param.name
+                        );
+                    }
 
                     param_value.trim_end_matches('/').to_string()
                 };

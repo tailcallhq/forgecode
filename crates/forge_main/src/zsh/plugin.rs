@@ -426,6 +426,20 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
+    /// Regression: forge keybindings must survive zsh-vi-mode's `zvm_init`
+    /// by re-applying via `zvm_after_init_commands` (#2681).
+    #[test]
+    fn test_generated_plugin_registers_zvm_after_init_hook() {
+        use pretty_assertions::assert_eq;
+
+        let fixture = generate_zsh_plugin().unwrap();
+        let actual = fixture.contains("function _forge_apply_keybindings()")
+            && fixture.contains("typeset -ga zvm_after_init_commands")
+            && fixture.contains("zvm_after_init_commands+=('_forge_apply_keybindings')");
+        let expected = true;
+        assert_eq!(actual, expected);
+    }
+
     #[test]
     fn test_setup_zsh_integration_without_nerd_font_config() {
         use tempfile::TempDir;
