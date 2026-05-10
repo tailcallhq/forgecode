@@ -6,17 +6,16 @@ use std::time::Duration;
 use std::{cmp, fmt};
 
 use bstr::ByteSlice;
-use crossterm::cursor::{Hide, MoveToColumn, MoveUp, RestorePosition, SavePosition, Show};
+use crossterm::cursor::{Hide, MoveTo, MoveToColumn, MoveUp, Show};
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-    KeyboardEnhancementFlags, MouseEventKind, PopKeyboardEnhancementFlags,
-    PushKeyboardEnhancementFlags,
+    MouseEventKind,
 };
 use crossterm::style::{
     Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
 };
 use crossterm::terminal::{self, Clear, ClearType, disable_raw_mode, enable_raw_mode};
-use crossterm::{Command as CrosstermCommand, execute, queue};
+use crossterm::{execute, queue};
 use derive_setters::Setters;
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config as NucleoConfig, Nucleo, Utf32String};
@@ -94,7 +93,7 @@ impl Default for PreviewLayout {
     }
 }
 
-const SELECT_VIEWPORT_PERCENT: u16 = 80;
+const SELECT_VIEWPORT_PERCENT: u16 = 95;
 
 fn max_select_viewport_height(full_height: u16) -> u16 {
     let full_height = full_height.max(1);
@@ -113,22 +112,33 @@ fn select_viewport_height(full_height: u16, desired_height: u16) -> u16 {
     }
 }
 
-fn reserve_inline_viewport_space(stderr: &mut io::Stderr, desired_height: u16) -> io::Result<u16> {
-    let (_, full_height) = terminal::size()?;
-    let reserved_height = select_viewport_height(full_height, desired_height);
+fn preview_select_viewport_height(full_height: u16) -> u16 {
+    let full_height = full_height.max(1);
+    full_height.saturating_sub(1).max(1)
+}
 
+fn reserve_inline_viewport_space(
+    stderr: &mut impl Write,
+    desired_height: u16,
+) -> io::Result<(u16, u16)> {
+    let (_, full_height) = terminal::size()?;
+    let reserved_height = if desired_height == u16::MAX {
+        preview_select_viewport_height(full_height)
+    } else {
+        select_viewport_height(full_height, desired_height)
+    };
+
+    // Reserve space by scrolling the terminal, but leave the cursor on the
+    // original prompt row. The shell completion widget expects control to
+    // return on that same row so it can rewrite the current ZLE buffer.
     for _ in 0..reserved_height {
         queue!(stderr, Print("\r\n"))?;
     }
-    queue!(
-        stderr,
-        MoveUp(reserved_height),
-        MoveToColumn(0),
-        SavePosition
-    )?;
+    queue!(stderr, MoveUp(reserved_height), MoveToColumn(0))?;
     stderr.flush()?;
 
-    Ok(reserved_height)
+    let cursor_top_row = full_height.saturating_sub(reserved_height.max(1));
+    Ok((reserved_height, cursor_top_row))
 }
 
 fn desired_select_viewport_height(
@@ -151,63 +161,27 @@ fn desired_select_viewport_height(
     .max(1)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct DeleteLines(u16);
-
-impl CrosstermCommand for DeleteLines {
-    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        if self.0 > 0 {
-            write!(f, "\u{1b}[{}M", self.0)?;
-        }
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> io::Result<()> {
-        Ok(())
-    }
+fn viewport_move_to(x: u16, y: u16, top_row: u16) -> MoveTo {
+    MoveTo(x, top_row.saturating_add(y))
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ViewportMoveTo {
-    x: u16,
-    y: u16,
-}
+fn restore_select_viewport(
+    stderr: &mut impl Write,
+    reserved_height: u16,
+    viewport_top_row: u16,
+) -> io::Result<()> {
+    let (_, full_height) = terminal::size()?;
+    let max_top_row = full_height.saturating_sub(reserved_height.max(1));
+    let viewport_top_row = viewport_top_row.min(max_top_row);
 
-impl CrosstermCommand for ViewportMoveTo {
-    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        RestorePosition.write_ansi(f)?;
-        for _ in 0..self.y {
-            write!(f, "\r\n")?;
-        }
-        MoveToColumn(self.x).write_ansi(f)?;
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-fn viewport_move_to(x: u16, y: u16, _top_offset: u16) -> ViewportMoveTo {
-    ViewportMoveTo { x, y }
-}
-
-fn clear_rendered_viewport(stderr: &mut io::Stderr, reserved_height: u16) -> io::Result<()> {
     for row_index in 0..reserved_height {
         queue!(
             stderr,
-            viewport_move_to(0, row_index, 0),
+            viewport_move_to(0, row_index, viewport_top_row),
             Clear(ClearType::CurrentLine)
         )?;
     }
-    queue!(
-        stderr,
-        RestorePosition,
-        MoveToColumn(0),
-        DeleteLines(reserved_height)
-    )?;
+    queue!(stderr, MoveTo(0, viewport_top_row.saturating_sub(1)))?;
     stderr.flush()
 }
 
@@ -219,25 +193,14 @@ impl TerminalGuard {
     fn enter() -> anyhow::Result<Self> {
         let raw_mode_was_enabled = terminal::is_raw_mode_enabled()?;
         enable_raw_mode()?;
-        execute!(
-            io::stderr(),
-            EnableMouseCapture,
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
-            Hide
-        )?;
+        execute!(io::stderr(), EnableMouseCapture, Hide)?;
         Ok(Self { raw_mode_was_enabled })
     }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let mut stderr = io::stderr();
-        let _ = execute!(
-            stderr,
-            Show,
-            PopKeyboardEnhancementFlags,
-            DisableMouseCapture
-        );
+        let _ = execute!(io::stderr(), Show, DisableMouseCapture);
         if !self.raw_mode_was_enabled {
             let _ = disable_raw_mode();
         }
@@ -358,17 +321,27 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
     let _ = matcher.tick(50);
 
     let guard = TerminalGuard::enter()?;
-    let mut stderr = io::stderr();
+    let mut stderr = io::BufWriter::new(io::stderr());
     let prompt = prompt.unwrap_or_else(|| "❯ ".to_string());
     let preview_command = preview.unwrap_or_default();
     let initial_matched_rows = matched_rows(&matcher);
-    let initial_desired_height = desired_select_viewport_height(
-        header_rows.len(),
-        initial_matched_rows.len(),
-        0,
-        preview_layout,
-    );
-    let reserved_height = reserve_inline_viewport_space(&mut stderr, initial_desired_height)?;
+    // When a preview command is present, reserve the maximum available viewport
+    // height upfront. Without this, the initial reservation (calculated with
+    // zero preview lines) is too small: once a preview renders it consumes the
+    // configured percentage of the reserved space and leaves only 1–2 rows for
+    // the list, even when many items match.
+    let initial_desired_height = if !preview_command.is_empty() {
+        u16::MAX
+    } else {
+        desired_select_viewport_height(
+            header_rows.len(),
+            initial_matched_rows.len(),
+            0,
+            preview_layout,
+        )
+    };
+    let (reserved_height, viewport_top_row) =
+        reserve_inline_viewport_space(&mut stderr, initial_desired_height)?;
     let mut selected_index = 0usize;
     let mut initial_raw = initial_raw;
     let mut initial_selection_applied = false;
@@ -389,14 +362,9 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                 Normalization::Smart,
                 query.starts_with(&last_query),
             );
-            let previous_query = last_query.clone();
             last_query = query.clone();
             let _ = matcher.tick(50);
-            selected_index = if query.starts_with(&previous_query) {
-                selected_index
-            } else {
-                0
-            };
+            selected_index = 0;
             scroll_offset = 0;
             preview_scroll_offset = 0;
             needs_render = true;
@@ -458,6 +426,7 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                     preview_scroll_offset,
                     layout: preview_layout,
                     reserved_height,
+                    viewport_top_row,
                 },
             )?;
             needs_render = false;
@@ -524,7 +493,11 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                         }
                         PickerAction::Accept => {
                             if mode == SelectMode::Multi && !queued_indices.is_empty() {
-                                clear_rendered_viewport(&mut stderr, reserved_height)?;
+                                restore_select_viewport(
+                                    &mut stderr,
+                                    reserved_height,
+                                    viewport_top_row,
+                                )?;
                                 drop(guard);
                                 let selected = queued_indices
                                     .iter()
@@ -535,13 +508,21 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
                             }
 
                             if let Some(row) = selected_row {
-                                clear_rendered_viewport(&mut stderr, reserved_height)?;
+                                restore_select_viewport(
+                                    &mut stderr,
+                                    reserved_height,
+                                    viewport_top_row,
+                                )?;
                                 drop(guard);
                                 return Ok(Some(vec![row.raw.clone()]));
                             }
                         }
                         PickerAction::Exit => {
-                            clear_rendered_viewport(&mut stderr, reserved_height)?;
+                            restore_select_viewport(
+                                &mut stderr,
+                                reserved_height,
+                                viewport_top_row,
+                            )?;
                             drop(guard);
                             return Ok(None);
                         }
@@ -741,6 +722,21 @@ fn max_preview_scroll_offset(
     )
 }
 
+fn bottom_preview_height(height: u16, body_height: u16, percent: u16) -> u16 {
+    let requested = ((height as u32 * percent as u32) / 100) as u16;
+    let minimum_preview_height = 3;
+    let minimum_list_height = (body_height / 3).clamp(3, 8);
+    let maximum_preview_height = body_height.saturating_sub(minimum_list_height);
+    let preview_height = requested.max(maximum_preview_height);
+
+    preview_height.clamp(
+        minimum_preview_height.min(body_height),
+        maximum_preview_height
+            .max(minimum_preview_height)
+            .min(body_height),
+    )
+}
+
 fn preview_content_height(
     header_rows: usize,
     matched_rows: usize,
@@ -760,10 +756,7 @@ fn preview_content_height(
     (match layout.placement {
         PreviewPlacement::Right => body_height,
         PreviewPlacement::Bottom => {
-            let preview_height = ((height as u32 * layout.percent as u32) / 100) as u16;
-            preview_height
-                .clamp(3, body_height.saturating_sub(1).max(3))
-                .saturating_sub(2)
+            bottom_preview_height(height, body_height, layout.percent).saturating_sub(2)
         }
     }) as usize
 }
@@ -796,11 +789,13 @@ fn mouse_over_preview(
             column >= preview_x && column < width && row >= header_height && row < height
         }
         PreviewPlacement::Bottom => {
-            let preview_height = ((height as u32 * layout.percent as u32) / 100) as u16;
-            let preview_height = preview_height.clamp(3, body_height.saturating_sub(1).max(3));
+            let preview_height = bottom_preview_height(height, body_height, layout.percent);
             let list_height = body_height.saturating_sub(preview_height).max(1);
             let preview_y = header_height + list_height;
-            column < width && row >= preview_y && row < preview_y.saturating_add(preview_height)
+            preview_height > 0
+                && column < width
+                && row >= preview_y
+                && row < preview_y.saturating_add(preview_height)
         }
     }
 }
@@ -867,9 +862,10 @@ struct PreviewUi<'a> {
     preview_scroll_offset: usize,
     layout: PreviewLayout,
     reserved_height: u16,
+    viewport_top_row: u16,
 }
 
-fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result<()> {
+fn draw_preview_ui(stderr: &mut impl Write, ui: PreviewUi<'_>) -> anyhow::Result<()> {
     let PreviewUi {
         prompt,
         query,
@@ -882,20 +878,23 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
         preview_scroll_offset,
         layout,
         reserved_height,
+        viewport_top_row,
     } = ui;
-    let (width, height) = terminal::size()?;
+    let (width, full_height) = terminal::size()?;
     let width = width.max(20);
 
     let has_preview = !preview.is_empty();
-    let desired_height = desired_select_viewport_height(
-        header_rows.len(),
-        matched_rows.len(),
-        preview.lines().count(),
-        layout,
-    );
-    let height = select_viewport_height(height, desired_height).min(reserved_height);
-    let top_offset = 0;
-    let header_height = 3u16.saturating_add(header_rows.len() as u16);
+    // Always render into the full reserved region. Computing a smaller
+    // desired_height from current content and capping height to it would leave
+    // the already-reserved terminal rows blank, wasting visible space.
+    // Keep one safety row at the bottom of the reserved region to avoid
+    // terminal-specific implicit wrap/scroll behavior when writing at the
+    // final visible row. The reservation already accounts for that safety row
+    // when preview is enabled, so use all reserved rows here.
+    let height = reserved_height.max(1);
+    let max_top_row = full_height.saturating_sub(height.max(1));
+    let top_offset = viewport_top_row.min(max_top_row);
+    let header_height = 2u16.saturating_add(header_rows.len() as u16);
     let body_height = height.saturating_sub(header_height).max(1);
 
     let (
@@ -925,8 +924,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
                 )
             }
             PreviewPlacement::Bottom => {
-                let preview_height = ((height as u32 * layout.percent as u32) / 100) as u16;
-                let preview_height = preview_height.clamp(3, body_height.saturating_sub(1).max(3));
+                let preview_height = bottom_preview_height(height, body_height, layout.percent);
                 let list_height = body_height.saturating_sub(preview_height).max(1);
                 (
                     0,
@@ -956,7 +954,7 @@ fn draw_preview_ui(stderr: &mut io::Stderr, ui: PreviewUi<'_>) -> anyhow::Result
     for row_index in 0..reserved_height {
         queue!(
             stderr,
-            viewport_move_to(0, row_index, 0),
+            viewport_move_to(0, row_index, top_offset),
             Clear(ClearType::CurrentLine)
         )?;
     }
@@ -1332,6 +1330,38 @@ mod tests {
         let fixture = PreviewLayout { placement: PreviewPlacement::Bottom, percent: 50 };
         let actual = desired_select_viewport_height(1, 2, 4, fixture);
         let expected = 11;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_preview_select_viewport_height_keeps_prompt_safety_row() {
+        let fixture = 20;
+        let actual = preview_select_viewport_height(fixture);
+        let expected = 19;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_bottom_preview_height_keeps_preview_in_small_windows() {
+        let fixture = (10, 50);
+        let actual = bottom_preview_height(fixture.0, fixture.0, fixture.1);
+        let expected = 7;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_bottom_preview_height_caps_preview_to_keep_visible_list() {
+        let fixture = (20, 50);
+        let actual = bottom_preview_height(fixture.0, fixture.0, fixture.1);
+        let expected = 14;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_bottom_preview_height_uses_extra_body_space() {
+        let fixture = (28, 28, 50);
+        let actual = bottom_preview_height(fixture.0, fixture.1, fixture.2);
+        let expected = 20;
         assert_eq!(actual, expected);
     }
 }
