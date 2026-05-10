@@ -204,9 +204,9 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         model_id: &ModelId,
         context: Context,
         reasoning_supported: bool,
-        provider_id: &ProviderId,
     ) -> anyhow::Result<ChatCompletionMessageFull> {
         let tool_supported = self.is_tool_supported()?;
+        let provider_id = &self.agent.provider;
         let mut transformers = DefaultTransformation::default()
             .pipe(SortTools::new(self.agent.tool_order()))
             .pipe(NormalizeToolCallArguments::new())
@@ -303,7 +303,6 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                         &model_id,
                         context.clone(),
                         context.is_reasoning_supported(),
-                        &self.agent.provider,
                     )
                 },
                 self.sender.as_ref().map(|sender| {
