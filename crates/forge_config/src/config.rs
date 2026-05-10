@@ -57,6 +57,21 @@ pub struct ProviderUrlParam {
     /// UI.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<String>,
+    /// Whether this parameter is optional. When `true`, the parameter may be
+    /// left blank without causing an error.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub optional: bool,
+}
+
+/// Source of models for a provider: either a URL to fetch them from or a
+/// static list defined inline.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Dummy)]
+#[serde(untagged)]
+pub enum ModelListConfig {
+    /// URL template used to fetch the model list dynamically.
+    Url(String),
+    /// A static list of models defined directly in the configuration.
+    Hardcoded(Vec<forge_domain::Model>),
 }
 
 /// A single provider entry defined inline in `forge.toml`.
@@ -75,10 +90,10 @@ pub struct ProviderEntry {
     /// URL template for chat completions; may contain `{{VAR}}` placeholders
     /// that are substituted from the credential's url params.
     pub url: String,
-    /// URL template for fetching the model list; may contain `{{VAR}}`
-    /// placeholders.
+    /// Model source: either a URL template for dynamic discovery or a static
+    /// list of models defined inline.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub models: Option<String>,
+    pub models: Option<ModelListConfig>,
     /// Wire protocol used by this provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_type: Option<ProviderResponseType>,
@@ -287,6 +302,13 @@ pub struct ForgeConfig {
     #[serde(default)]
     pub verify_todos: bool,
 
+    /// Switches patch replacement fallback from the legacy fuzzy-search range
+    /// lookup to the newer text-patch gRPC API.
+    /// Defaults to `false` so patching continues to use the legacy fallback
+    /// behavior unless explicitly enabled in `forge.toml`.
+    #[serde(default)]
+    pub use_text_patch_fallback: bool,
+
     /// Whether the deep research agent is available.
     ///
     /// When set to `true`, the Sage agent is added to the agent list and
@@ -371,5 +393,92 @@ mod tests {
         let actual = ConfigReader::default().read_toml(&toml).build().unwrap();
 
         assert_eq!(actual.temperature, fixture.temperature);
+    }
+
+    #[test]
+    fn test_provider_static_model_list_deserialization() {
+        let fixture = r#"
+[[providers]]
+id = "ollama"
+url = "http://127.0.0.1:8000/v1/chat/completions"
+response_type = "OpenAI"
+auth_methods = ["api_key"]
+
+[[providers.models]]
+id = "Qwen3.6-35B-A3b-q3-mlx"
+name = "Qwen3.5-35B"
+description = "Qwen local reasoning model with advanced problem-solving capabilities"
+context_length = 262144
+tools_supported = true
+supports_parallel_tool_calls = true
+supports_reasoning = true
+input_modalities = ["text"]
+
+[[providers.models]]
+id = "llama3.2-3b"
+name = "Llama 3.2 3B"
+description = "Meta Llama 3.2 3B lightweight local model"
+context_length = 131072
+tools_supported = true
+supports_parallel_tool_calls = false
+supports_reasoning = false
+input_modalities = ["text"]
+"#;
+
+        let actual = ConfigReader::default().read_toml(fixture).build().unwrap();
+
+        let expected = vec![ProviderEntry {
+            id: "ollama".to_string(),
+            url: "http://127.0.0.1:8000/v1/chat/completions".to_string(),
+            response_type: Some(ProviderResponseType::OpenAI),
+            auth_methods: vec![ProviderAuthMethod::ApiKey],
+            models: Some(ModelListConfig::Hardcoded(vec![
+                forge_domain::Model::new("Qwen3.6-35B-A3b-q3-mlx")
+                    .name("Qwen3.5-35B".to_string())
+                    .description(
+                        "Qwen local reasoning model with advanced problem-solving capabilities"
+                            .to_string(),
+                    )
+                    .context_length(262144)
+                    .tools_supported(true)
+                    .supports_parallel_tool_calls(true)
+                    .supports_reasoning(true)
+                    .input_modalities(vec![forge_domain::InputModality::Text]),
+                forge_domain::Model::new("llama3.2-3b")
+                    .name("Llama 3.2 3B".to_string())
+                    .description("Meta Llama 3.2 3B lightweight local model".to_string())
+                    .context_length(131072)
+                    .tools_supported(true)
+                    .supports_parallel_tool_calls(false)
+                    .supports_reasoning(false)
+                    .input_modalities(vec![forge_domain::InputModality::Text]),
+            ])),
+            ..Default::default()
+        }];
+
+        assert_eq!(actual.providers, expected);
+    }
+
+    #[test]
+    fn test_provider_url_model_list_deserialization() {
+        let fixture = r#"
+[[providers]]
+id = "my_provider"
+url = "http://example.com/v1/chat/completions"
+models = "http://example.com/v1/models"
+"#;
+
+        let actual = ConfigReader::default().read_toml(fixture).build().unwrap();
+
+        let expected = vec![ProviderEntry {
+            id: "my_provider".to_string(),
+            url: "http://example.com/v1/chat/completions".to_string(),
+            models: Some(ModelListConfig::Url(
+                "http://example.com/v1/models".to_string(),
+            )),
+            ..Default::default()
+        }];
+
+        assert_eq!(actual.providers, expected);
     }
 }
