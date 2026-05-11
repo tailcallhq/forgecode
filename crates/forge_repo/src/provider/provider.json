@@ -3310,9 +3310,9 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "accounts/fireworks/routers/kimi-k2p6",
-        "name": "Kimi K2.6 (Firepass)",
-        "description": "Kimi K2.6 model",
+        "id": "accounts/fireworks/routers/kimi-k2p6-turbo",
+        "name": "Kimi K2.6 Turbo (Fire Pass)",
+        "description": "Kimi K2.6 Turbo model",
         "context_length": 262144,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
