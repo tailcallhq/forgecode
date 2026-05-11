@@ -431,6 +431,7 @@ impl TryFrom<Part> for ChatCompletionMessage {
                         name: Some(ToolName::new(function_call.name)),
                         arguments_part: serde_json::to_string(&function_call.args)?,
                         thought_signature,
+                        namespace: None,
                     },
                 ),
             ),

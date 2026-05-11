@@ -275,6 +275,9 @@ impl From<&Context> for ContextSummary {
                     }
                 }
                 ContextMessage::Image(_) => {}
+                ContextMessage::ToolSearchOutput(_) => {
+                    // Tool search output is not included in the summary
+                }
             }
         }
 
@@ -900,6 +903,7 @@ mod tests {
             call_id: Some(ToolCallId::new("call_1")),
             arguments: ToolCallArguments::from_json(r#"{"title": "Bug report"}"#),
             thought_signature: None,
+            namespace: None,
         };
 
         let actual = extract_tool_info(&fixture, &[]);
@@ -992,6 +996,7 @@ mod tests {
                     r#"{"path": "/test", "pattern": "pattern"}"#,
                 ),
                 thought_signature: None,
+                namespace: None,
             }],
         )]);
 
@@ -1469,6 +1474,7 @@ mod tests {
                     r#"{"title": "Bug report", "body": "Description"}"#,
                 ),
                 thought_signature: None,
+                namespace: None,
             }],
         )]);
 
@@ -1498,6 +1504,7 @@ mod tests {
                     call_id: Some(ToolCallId::new("call_1")),
                     arguments: ToolCallArguments::from_json(r#"{"title": "Bug"}"#),
                     thought_signature: None,
+                    namespace: None,
                 }],
             ),
             tool_result("mcp_github_create_issue", "call_1", false),
@@ -1528,6 +1535,7 @@ mod tests {
                     call_id: Some(ToolCallId::new("call_1")),
                     arguments: ToolCallArguments::from_json(r#"{"title": "Bug"}"#),
                     thought_signature: None,
+                    namespace: None,
                 },
                 ToolCallFull {
                     name: ToolName::new("mcp_slack_post_message"),
@@ -1536,6 +1544,7 @@ mod tests {
                         r##"{"channel": "#dev", "text": "Hello"}"##,
                     ),
                     thought_signature: None,
+                    namespace: None,
                 },
             ],
         )]);
@@ -1571,6 +1580,7 @@ mod tests {
                     call_id: Some(ToolCallId::new("call_2")),
                     arguments: ToolCallArguments::from_json(r#"{"title": "Bug"}"#),
                     thought_signature: None,
+                    namespace: None,
                 },
                 ToolCatalog::tool_call_write("/test/output.txt", "result").call_id("call_3"),
             ],

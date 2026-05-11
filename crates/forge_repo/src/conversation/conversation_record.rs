@@ -116,6 +116,8 @@ pub(super) struct ToolCallFullRecord {
     arguments: ToolCallArgumentsRecord,
     #[serde(skip_serializing_if = "Option::is_none")]
     thought_signature: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    namespace: Option<String>,
 }
 
 impl From<&forge_domain::ToolCallFull> for ToolCallFullRecord {
@@ -125,6 +127,7 @@ impl From<&forge_domain::ToolCallFull> for ToolCallFullRecord {
             call_id: call.call_id.as_ref().map(ToolCallIdRecord::from),
             arguments: ToolCallArgumentsRecord::from(&call.arguments),
             thought_signature: call.thought_signature.clone(),
+            namespace: call.namespace.clone(),
         }
     }
 }
@@ -136,6 +139,7 @@ impl From<ToolCallFullRecord> for forge_domain::ToolCallFull {
             call_id: record.call_id.map(Into::into),
             arguments: record.arguments.into(),
             thought_signature: record.thought_signature,
+            namespace: record.namespace,
         }
     }
 }
@@ -317,6 +321,8 @@ pub(super) struct TextMessageRecord {
     reasoning_details: Option<Vec<ReasoningFullRecord>>,
     #[serde(default, skip_serializing_if = "is_false")]
     droppable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    response_items: Option<Vec<forge_domain::ResponseOutputItem>>,
 }
 
 /// Helper function for serde to skip serializing false boolean values
@@ -341,6 +347,7 @@ impl From<&forge_domain::TextMessage> for TextMessageRecord {
                 .as_ref()
                 .map(|details| details.iter().map(ReasoningFullRecord::from).collect()),
             droppable: msg.droppable,
+            response_items: msg.response_items.clone(),
         }
     }
 }
@@ -363,6 +370,7 @@ impl TryFrom<TextMessageRecord> for forge_domain::TextMessage {
                 .map(|details| details.into_iter().map(Into::into).collect()),
             droppable: record.droppable,
             phase: None,
+            response_items: record.response_items,
         })
     }
 }
@@ -498,16 +506,25 @@ pub(super) enum ContextMessageValueRecord {
     Text(TextMessageRecord),
     Tool(ToolResultRecord),
     Image(ImageRecord),
+    ToolSearchOutput(forge_domain::ToolSearchOutput),
 }
 
-impl From<&forge_domain::ContextMessage> for ContextMessageValueRecord {
-    fn from(value: &forge_domain::ContextMessage) -> Self {
+impl ContextMessageValueRecord {
+    /// Tries to convert a domain ContextMessage to a record.
+    /// All variants are currently persisted and included in the conversation
+    /// record.
+    fn try_from_domain(value: &forge_domain::ContextMessage) -> Option<Self> {
         match value {
-            forge_domain::ContextMessage::Text(msg) => Self::Text(TextMessageRecord::from(msg)),
-            forge_domain::ContextMessage::Tool(result) => {
-                Self::Tool(ToolResultRecord::from(result))
+            forge_domain::ContextMessage::Text(msg) => {
+                Some(Self::Text(TextMessageRecord::from(msg)))
             }
-            forge_domain::ContextMessage::Image(img) => Self::Image(ImageRecord::from(img)),
+            forge_domain::ContextMessage::Tool(result) => {
+                Some(Self::Tool(ToolResultRecord::from(result)))
+            }
+            forge_domain::ContextMessage::ToolSearchOutput(tso) => {
+                Some(Self::ToolSearchOutput(tso.clone()))
+            }
+            forge_domain::ContextMessage::Image(img) => Some(Self::Image(ImageRecord::from(img))),
         }
     }
 }
@@ -520,6 +537,7 @@ impl TryFrom<ContextMessageValueRecord> for forge_domain::ContextMessage {
             ContextMessageValueRecord::Text(msg) => Self::Text(msg.try_into()?),
             ContextMessageValueRecord::Tool(result) => Self::Tool(result.try_into()?),
             ContextMessageValueRecord::Image(img) => Self::Image(img.into()),
+            ContextMessageValueRecord::ToolSearchOutput(tso) => Self::ToolSearchOutput(tso),
         })
     }
 }
@@ -561,12 +579,11 @@ impl<'de> Deserialize<'de> for ContextMessageRecord {
     }
 }
 
-impl From<&forge_domain::MessageEntry> for ContextMessageRecord {
-    fn from(msg: &forge_domain::MessageEntry) -> Self {
-        Self {
-            message: ContextMessageValueRecord::from(&msg.message),
-            usage: msg.usage.as_ref().map(UsageRecord::from),
-        }
+impl ContextMessageRecord {
+    /// Converts a domain MessageEntry to a record.
+    fn try_from_entry(msg: &forge_domain::MessageEntry) -> Option<Self> {
+        ContextMessageValueRecord::try_from_domain(&msg.message)
+            .map(|message| Self { message, usage: msg.usage.as_ref().map(UsageRecord::from) })
     }
 }
 
@@ -754,7 +771,7 @@ impl From<&Context> for ContextRecord {
             messages: context
                 .messages
                 .iter()
-                .map(ContextMessageRecord::from)
+                .filter_map(ContextMessageRecord::try_from_entry)
                 .collect(),
             tools: context
                 .tools
@@ -819,6 +836,7 @@ impl TryFrom<ContextRecord> for Context {
             reasoning: record.reasoning.map(Into::into),
             stream: record.stream,
             response_format: None,
+            tool_search: None,
         })
     }
 }

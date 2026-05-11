@@ -7,7 +7,8 @@ use forge_template::Element;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use super::{ToolCallFull, ToolResult};
+use super::{ToolCallFull, ToolResult, ToolSearchOutput};
+use crate::ResponseOutputItem;
 
 /// Helper function for serde to skip serializing false boolean values
 fn is_false(value: &bool) -> bool {
@@ -42,6 +43,7 @@ pub enum ContextMessage {
     Text(TextMessage),
     Tool(ToolResult),
     Image(Image),
+    ToolSearchOutput(ToolSearchOutput),
 }
 
 /// Creates a filtered version of ToolOutput that excludes base64 images to
@@ -72,6 +74,7 @@ impl ContextMessage {
             ContextMessage::Text(text_message) => Some(&text_message.content),
             ContextMessage::Tool(_) => None,
             ContextMessage::Image(_) => None,
+            ContextMessage::ToolSearchOutput(_) => None,
         }
     }
 
@@ -82,6 +85,7 @@ impl ContextMessage {
             ContextMessage::Text(text_message) => text_message.raw_content.as_ref(),
             ContextMessage::Tool(_) => None,
             ContextMessage::Image(_) => None,
+            ContextMessage::ToolSearchOutput(_) => None,
         }
     }
 
@@ -104,6 +108,12 @@ impl ContextMessage {
                     _ => 0,
                 })
                 .sum(),
+            ContextMessage::ToolSearchOutput(tool_search) => {
+                // Approximate tokens for tool search output based on JSON representation
+                serde_json::to_string(&tool_search.tools)
+                    .map(|s| s.chars().count())
+                    .unwrap_or(0)
+            }
             _ => 0,
         };
 
@@ -156,6 +166,21 @@ impl ContextMessage {
                     .render()
             }
             ContextMessage::Image(_) => Element::new("image").attr("path", "[base64 URL]").render(),
+            ContextMessage::ToolSearchOutput(tool_search) => Element::new("message")
+                .attr("role", "assistant")
+                .append(
+                    Element::new("tool_search_output")
+                        .attr(
+                            "call_id",
+                            tool_search
+                                .call_id
+                                .as_ref()
+                                .map(|id| id.as_str())
+                                .unwrap_or("null"),
+                        )
+                        .cdata(serde_json::to_string(&tool_search.tools).unwrap()),
+                )
+                .render(),
         }
     }
 
@@ -170,6 +195,7 @@ impl ContextMessage {
             model,
             droppable: false,
             phase: None,
+            response_items: None,
         }
         .into()
     }
@@ -185,6 +211,7 @@ impl ContextMessage {
             reasoning_details: None,
             droppable: false,
             phase: None,
+            response_items: None,
         }
         .into()
     }
@@ -206,6 +233,7 @@ impl ContextMessage {
             model: None,
             droppable: false,
             phase: None,
+            response_items: None,
         }
         .into()
     }
@@ -219,6 +247,7 @@ impl ContextMessage {
             ContextMessage::Text(message) => message.role == role,
             ContextMessage::Tool(_) => false,
             ContextMessage::Image(_) => Role::User == role,
+            ContextMessage::ToolSearchOutput(_) => false,
         }
     }
 
@@ -227,6 +256,7 @@ impl ContextMessage {
             ContextMessage::Text(message) => message.droppable,
             ContextMessage::Tool(_) => false,
             ContextMessage::Image(_) => false,
+            ContextMessage::ToolSearchOutput(_) => false,
         }
     }
 
@@ -235,6 +265,7 @@ impl ContextMessage {
             ContextMessage::Text(_) => false,
             ContextMessage::Tool(_) => true,
             ContextMessage::Image(_) => false,
+            ContextMessage::ToolSearchOutput(_) => false,
         }
     }
 
@@ -243,6 +274,7 @@ impl ContextMessage {
             ContextMessage::Text(message) => message.tool_calls.is_some(),
             ContextMessage::Tool(_) => false,
             ContextMessage::Image(_) => false,
+            ContextMessage::ToolSearchOutput(_) => false,
         }
     }
 
@@ -251,6 +283,7 @@ impl ContextMessage {
             ContextMessage::Text(message) => message.reasoning_details.is_some(),
             ContextMessage::Tool(_) => false,
             ContextMessage::Image(_) => false,
+            ContextMessage::ToolSearchOutput(_) => false,
         }
     }
 
@@ -258,6 +291,15 @@ impl ContextMessage {
     pub fn as_tool_result(&self) -> Option<&ToolResult> {
         match self {
             ContextMessage::Tool(result) => Some(result),
+            _ => None,
+        }
+    }
+
+    /// Returns the tool search output if this message is a ToolSearchOutput
+    /// variant
+    pub fn as_tool_search_output(&self) -> Option<&ToolSearchOutput> {
+        match self {
+            ContextMessage::ToolSearchOutput(output) => Some(output),
             _ => None,
         }
     }
@@ -318,6 +360,12 @@ pub struct TextMessage {
     /// requests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phase: Option<MessagePhase>,
+    /// Ordered output items from the Responses API, preserving the exact
+    /// interleaving of reasoning, tool_search, and function_call items.
+    /// When present, the serializer emits these items directly instead of
+    /// the bundled reasoning_details/tool_calls fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_items: Option<Vec<crate::ResponseOutputItem>>,
 }
 
 impl TextMessage {
@@ -333,6 +381,7 @@ impl TextMessage {
             reasoning_details: None,
             droppable: false,
             phase: None,
+            response_items: None,
         }
     }
 
@@ -355,6 +404,7 @@ impl TextMessage {
             model,
             droppable: false,
             phase: None,
+            response_items: None,
         }
     }
 }
@@ -430,6 +480,12 @@ pub struct Context {
     /// Response format for structured output (JSON schema)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
+    /// Whether server-side tool search with deferred tool loading is enabled.
+    /// When `true` and the model supports it, MCP tools are deferred and a
+    /// `tool_search` tool is injected. When `false`, all tools are sent
+    /// eagerly. Defaults to `None` (treated as disabled).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_search: Option<bool>,
 }
 
 impl Context {
@@ -569,6 +625,8 @@ impl Context {
         usage: Usage,
         tool_records: Vec<(ToolCallFull, ToolResult)>,
         phase: Option<MessagePhase>,
+        tool_search_output: Option<ToolSearchOutput>,
+        response_items: Option<Vec<ResponseOutputItem>>,
     ) -> Self {
         // Convert flat reasoning string to reasoning_details only when no structured
         // reasoning_details are present. When reasoning_details already exists it
@@ -585,7 +643,15 @@ impl Context {
             (None, None) => None,
         };
 
-        // Adding tool calls
+        // Append tool search output AFTER the assistant message.
+        // Although the server discovers deferred tools before the model's
+        // tool call, the from_domain conversion re-orders items to match
+        // the API's expected input order:
+        // The API expects tool_search items BEFORE the assistant's reasoning and
+        // function calls. Insert ToolSearchOutput first so from_domain emits:
+        //   tool_search_call -> tool_search_output -> reasoning -> function_calls
+        let mut ctx = self;
+
         let mut message: MessageEntry = ContextMessage::assistant(
             content,
             thought_signature,
@@ -599,9 +665,11 @@ impl Context {
         )
         .into();
 
-        // Set phase on the assistant TextMessage if provided
+        // Set phase and response_items on the assistant TextMessage if provided
+        let response_items_present = response_items.is_some();
         if let ContextMessage::Text(ref mut text_msg) = message.message {
             text_msg.phase = phase;
+            text_msg.response_items = response_items;
         }
 
         let tool_results = tool_records
@@ -609,8 +677,21 @@ impl Context {
             .map(|record| record.1.clone())
             .collect::<Vec<_>>();
 
-        self.add_entry(message.usage(usage))
-            .add_tool_results(tool_results)
+        ctx = ctx.add_entry(message.usage(usage));
+
+        // Add ToolSearchOutput as a separate context message ONLY when response_items
+        // is not present (backward compatibility with non-Responses API providers).
+        // When response_items IS present, tool_search data is already inline in the
+        // ordered items list and doesn't need a separate context message.
+        if let Some(tool_search_output) = tool_search_output {
+            if response_items_present {
+                // response_items already contains the tool_search data inline
+            } else {
+                ctx = ctx.add_message(ContextMessage::ToolSearchOutput(tool_search_output));
+            }
+        }
+
+        ctx.add_tool_results(tool_results)
     }
 
     /// Returns the token count for context
@@ -1367,12 +1448,14 @@ mod tests {
                         name: crate::ToolName::new("tool1"),
                         arguments: serde_json::json!({"arg": "value"}).into(),
                         thought_signature: None,
+                        namespace: None,
                     },
                     ToolCallFull {
                         call_id: Some(crate::ToolCallId::new("call2")),
                         name: crate::ToolName::new("tool2"),
                         arguments: serde_json::json!({"arg": "value"}).into(),
                         thought_signature: None,
+                        namespace: None,
                     },
                 ]),
             ))
@@ -1488,12 +1571,14 @@ mod tests {
                 name: crate::ToolName::new("fs_search"),
                 arguments: serde_json::json!({"query": "test"}).into(),
                 thought_signature: None,
+                namespace: None,
             },
             ToolCallFull {
                 call_id: Some(crate::ToolCallId::new("call2")),
                 name: crate::ToolName::new("calculate"),
                 arguments: serde_json::json!({"expression": "2+2"}).into(),
                 thought_signature: None,
+                namespace: None,
             },
         ];
         let fixture =
@@ -1728,6 +1813,8 @@ mod tests {
             Usage::default(),
             vec![],
             None,
+            None,
+            None, // response_items
         );
 
         // Extract the stored reasoning_details from the assistant message.

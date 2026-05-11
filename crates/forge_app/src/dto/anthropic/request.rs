@@ -271,6 +271,10 @@ impl TryFrom<ContextMessage> for Message {
             ContextMessage::Tool(tool_result) => {
                 Message { role: Role::User, content: vec![tool_result.try_into()?] }
             }
+            ContextMessage::ToolSearchOutput(_) => {
+                // Tool search output is OpenAI Responses API specific - skip for Anthropic
+                Message { role: Role::User, content: vec![] }
+            }
             ContextMessage::Image(img) => {
                 Message { content: vec![Content::from(img)], role: Role::User }
             }

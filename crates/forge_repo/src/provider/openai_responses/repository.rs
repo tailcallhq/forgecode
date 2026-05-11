@@ -155,6 +155,7 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
         model: &ModelId,
         context: ChatContext,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
+        let tool_search_enabled = context.tool_search.unwrap_or(false);
         let conversation_id = context.conversation_id.as_ref().map(ToString::to_string);
         let headers = create_headers(self.get_headers_for_conversation(conversation_id.as_deref()));
         let mut request = oai::CreateResponse::from_domain(context)?;
@@ -164,6 +165,16 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
         if self.provider.id == forge_domain::ProviderId::CODEX {
             use forge_domain::Transformer;
             request = super::codex_transformer::CodexTransformer.transform(request);
+        }
+
+        // Apply deferred loading for GPT 5.4 and newer models when tool_search is
+        // enabled.
+        let model_str = model.as_str();
+        if tool_search_enabled
+            && (model_str.starts_with("gpt-5.4") || model_str.starts_with("gpt-5.5"))
+        {
+            use forge_domain::Transformer;
+            request = super::codex_transformer::SetDeferLoading.transform(request);
         }
 
         info!(

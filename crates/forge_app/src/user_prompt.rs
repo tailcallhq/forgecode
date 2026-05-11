@@ -80,6 +80,7 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
                 model: Some(self.agent.model.clone()),
                 droppable: true, // Droppable so it can be removed during context compression
                 phase: None,
+                response_items: None,
             };
             context = context.add_message(ContextMessage::Text(todo_message));
         }
@@ -126,6 +127,7 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
                 model: Some(self.agent.model.clone()),
                 droppable: true, // Piped input is droppable
                 phase: None,
+                response_items: None,
             };
             context = context.add_message(ContextMessage::Text(piped_message));
         }
@@ -211,6 +213,7 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
                 model: Some(self.agent.model.clone()),
                 droppable: false,
                 phase: None,
+                response_items: None,
             };
             context = context.add_message(ContextMessage::Text(message));
         }

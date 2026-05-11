@@ -119,6 +119,28 @@ td {
   display: inline-block;
 }
 
+.tool-search-info {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background-color: #e8f4e8;
+  border-left: 3px solid #4caf50;
+  font-size: 0.9em;
+  color: #2e7d32;
+}
+
+.tool-search-info summary {
+  cursor: pointer;
+}
+
+.tool-search-info pre {
+  background-color: #f5f5f5;
+  color: #333;
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin-top: 6px;
+}
+
 img {
   max-width: 100%;
 }
