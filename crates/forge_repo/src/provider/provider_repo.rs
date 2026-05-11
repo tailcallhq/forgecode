@@ -591,13 +591,29 @@ impl<
     }
 
     /// Writes credentials to the JSON file
+    ///
+    /// Sets file permissions to 0o600 (user read/write only) on Unix systems
+    /// to prevent other users from reading sensitive credentials.
     async fn write_credentials(&self, credentials: &Vec<AuthCredential>) -> anyhow::Result<()> {
         let path = self.infra.get_environment().credentials_path();
-
         let content = serde_json::to_string_pretty(credentials)?;
         self.infra.write(&path, Bytes::from(content)).await?;
+
+        #[cfg(unix)]
+        set_owner_only_permissions(&path).await?;
+
         Ok(())
     }
+}
+
+/// Restricts a file's permissions to owner read/write only (`0o600`).
+#[cfg(unix)]
+async fn set_owner_only_permissions(path: &std::path::Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = tokio::fs::metadata(path).await?.permissions();
+    perms.set_mode(0o600);
+    tokio::fs::set_permissions(path, perms).await?;
+    Ok(())
 }
 
 #[async_trait::async_trait]
@@ -954,20 +970,24 @@ mod env_tests {
 
     use super::*;
 
-    // Mock infrastructure that provides environment variables
+    // Mock infrastructure that provides environment variables.
+    // Uses a real temp directory so that file-permission checks work on Unix.
     struct MockInfra {
         env_vars: HashMap<String, String>,
         base_path: PathBuf,
         credentials: tokio::sync::Mutex<Option<Vec<AuthCredential>>>,
+        _tmp: tempfile::TempDir,
     }
 
     impl MockInfra {
         fn new(env_vars: HashMap<String, String>) -> Self {
-            use fake::{Fake, Faker};
+            let tmp = tempfile::TempDir::new().unwrap();
+            let base_path = tmp.path().to_path_buf();
             Self {
                 env_vars,
-                base_path: Faker.fake(),
+                base_path,
                 credentials: tokio::sync::Mutex::new(None),
+                _tmp: tmp,
             }
         }
     }
@@ -1043,12 +1063,17 @@ mod env_tests {
     #[async_trait::async_trait]
     impl FileWriterInfra for MockInfra {
         async fn write(&self, path: &std::path::Path, content: Bytes) -> anyhow::Result<()> {
-            // Capture writes to credentials file
+            // Capture writes to credentials file and persist to the real temp dir
+            // so that OS-level permission checks work in tests.
             if path == self.get_environment().credentials_path() {
                 let content_str = String::from_utf8(content.to_vec())?;
                 let creds: Vec<AuthCredential> = serde_json::from_str(&content_str)?;
                 let mut guard = self.credentials.lock().await;
                 *guard = Some(creds);
+                if let Some(parent) = path.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
+                tokio::fs::write(path, content_str).await?;
             }
             Ok(())
         }
@@ -1260,6 +1285,85 @@ mod env_tests {
         assert!(
             credentials.iter().any(|c| c.id == ProviderId::OPENAI),
             "Should have OpenAI credential"
+        );
+    }
+
+    /// Verifies that `.credentials.json` is written with mode 0o600 so that
+    /// group and world cannot read provider API keys.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_credentials_file_has_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let infra = Arc::new(MockInfra::new(HashMap::new()));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry
+            .upsert_credential(AuthCredential {
+                id: ProviderId::OPENAI,
+                auth_details: AuthDetails::ApiKey(ApiKey::from("sk-test".to_string())),
+                url_params: std::collections::HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        let path = infra.get_environment().credentials_path();
+        let actual = tokio::fs::metadata(&path)
+            .await
+            .unwrap()
+            .permissions()
+            .mode();
+        let expected = 0o600;
+        assert_eq!(
+            actual & 0o777,
+            expected,
+            "credentials file must be 0o600, got 0o{:o}",
+            actual & 0o777
+        );
+    }
+
+    /// Verifies that an existing credentials file with overly broad permissions
+    /// (e.g. 0o644) is tightened to 0o600 when credentials are updated.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_credentials_file_permissions_corrected_on_update() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let infra = Arc::new(MockInfra::new(HashMap::new()));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        let credential = AuthCredential {
+            id: ProviderId::OPENAI,
+            auth_details: AuthDetails::ApiKey(ApiKey::from("sk-test".to_string())),
+            url_params: std::collections::HashMap::new(),
+        };
+
+        // First write — establishes the file
+        registry
+            .upsert_credential(credential.clone())
+            .await
+            .unwrap();
+
+        // Simulate a pre-existing file with world-readable permissions
+        let path = infra.get_environment().credentials_path();
+        let mut perms = tokio::fs::metadata(&path).await.unwrap().permissions();
+        perms.set_mode(0o644);
+        tokio::fs::set_permissions(&path, perms).await.unwrap();
+
+        // Second write — must correct the insecure permissions
+        registry.upsert_credential(credential).await.unwrap();
+
+        let actual = tokio::fs::metadata(&path)
+            .await
+            .unwrap()
+            .permissions()
+            .mode();
+        let expected = 0o600;
+        assert_eq!(
+            actual & 0o777,
+            expected,
+            "credentials file must be corrected to 0o600, got 0o{:o}",
+            actual & 0o777
         );
     }
 
