@@ -33,6 +33,7 @@ forge_walker.workspace = true
 
 
 forge_eventsource.workspace = true
+forge_reqwest.workspace = true
 glob.workspace = true
 futures.workspace = true
 diesel = { version= "2.3.7", features = ["sqlite", "r2d2", "chrono"] }
@@ -41,7 +42,7 @@ diesel_migrations = "2.2.0"
 chrono = { version = "0.4", features = ["serde"] }
 cacache = { version = "13.1.0", features = ["tokio-runtime"], default-features = false }
 serde.workspace = true
-oauth2 = { version = "5.0", features = ["reqwest"] }
+oauth2 = { version = "5.0", default-features = false }
 serde_urlencoded = "0.7.1"
 base64.workspace = true
 http.workspace = true

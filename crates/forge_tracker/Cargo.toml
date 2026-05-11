@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 reqwest.workspace = true
+forge_reqwest.workspace = true
 derive_more.workspace = true
 url.workspace = true
 serde.workspace = true
