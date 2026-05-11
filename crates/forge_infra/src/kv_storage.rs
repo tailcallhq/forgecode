@@ -132,6 +132,9 @@ impl forge_app::KVStore for CacacheStorage {
     }
 
     async fn cache_clear(&self) -> Result<()> {
+        if !self.cache_dir.exists() {
+            return Ok(());
+        }
         cacache::clear(&self.cache_dir)
             .await
             .context("Failed to clear cache")?;
@@ -259,5 +262,13 @@ mod tests {
         let result: Option<TestValue> = cache.cache_get(&key).await.unwrap();
 
         assert_eq!(result, Some(value));
+    }
+
+    #[tokio::test]
+    async fn test_should_not_fail_when_no_cache_dir_present() {
+        let cache_dir = PathBuf::from("/tmp/forge_test_nonexistent_cache_dir_that_does_not_exist");
+        let cache = CacacheStorage::new(cache_dir, None);
+        let actual = cache.cache_clear().await;
+        assert!(actual.is_ok());
     }
 }
