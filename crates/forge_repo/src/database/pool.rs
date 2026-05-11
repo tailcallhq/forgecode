@@ -164,13 +164,6 @@ struct SqliteCustomizer;
 
 impl CustomizeConnection<SqliteConnection, diesel::r2d2::Error> for SqliteCustomizer {
     fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), diesel::r2d2::Error> {
-        // Health check: verify the connection is alive before handing it out.
-        // This catches stale connections that were evicted and recreated during
-        // idle periods.
-        diesel::sql_query("SELECT 1")
-            .execute(conn)
-            .map_err(diesel::r2d2::Error::QueryError)?;
-
         diesel::sql_query("PRAGMA busy_timeout = 30000;")
             .execute(conn)
             .map_err(diesel::r2d2::Error::QueryError)?;
@@ -181,12 +174,6 @@ impl CustomizeConnection<SqliteConnection, diesel::r2d2::Error> for SqliteCustom
             .execute(conn)
             .map_err(diesel::r2d2::Error::QueryError)?;
         diesel::sql_query("PRAGMA wal_autocheckpoint = 1000;")
-            .execute(conn)
-            .map_err(diesel::r2d2::Error::QueryError)?;
-        // Checkpoint the WAL to ensure a clean state, especially important
-        // after long idle periods where the WAL may have grown or become
-        // inconsistent.
-        diesel::sql_query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(conn)
             .map_err(diesel::r2d2::Error::QueryError)?;
         Ok(())
@@ -299,23 +286,6 @@ mod tests {
     }
 
     #[test]
-    fn test_health_check_on_acquire() -> anyhow::Result<()> {
-        let pool = DatabasePool::in_memory()?;
-
-        // Every get_connection should succeed because on_acquire runs SELECT 1
-        // to validate the connection
-        for _ in 0..5 {
-            let mut conn = pool.get_connection()?;
-            let actual = diesel::sql_query("SELECT 1 AS result")
-                .execute(&mut *conn)
-                .unwrap();
-            let expected = 1;
-            assert_eq!(actual, expected);
-        }
-        Ok(())
-    }
-
-    #[test]
     fn test_pool_config_defaults() {
         let config = PoolConfig::new(PathBuf::from("/tmp/test.sqlite"));
 
@@ -357,23 +327,6 @@ mod tests {
         let result: Result<i32, _> =
             diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>("1")).first(&mut *conn);
         assert!(result.is_ok(), "Pool should be usable after recreation");
-        Ok(())
-    }
-
-    #[test]
-    fn test_wal_checkpoint_on_acquire() -> anyhow::Result<()> {
-        let pool = DatabasePool::in_memory()?;
-
-        // The on_acquire hook runs PRAGMA wal_checkpoint(TRUNCATE).
-        // For an in-memory DB this is a no-op but should not error.
-        let mut conn = pool.get_connection()?;
-
-        // Verify the connection is usable after all PRAGMAs
-        let actual = diesel::sql_query("SELECT 1 AS result")
-            .execute(&mut *conn)
-            .unwrap();
-        let expected = 1;
-        assert_eq!(actual, expected);
         Ok(())
     }
 }
