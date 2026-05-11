@@ -64,7 +64,6 @@ expression: actual.tools
         "range",
         "show_line_numbers"
       ],
-      "title": "FSRead",
       "type": "object"
     },
     "strict": true,
@@ -94,7 +93,6 @@ expression: actual.tools
         "file_path",
         "overwrite"
       ],
-      "title": "FSWrite",
       "type": "object"
     },
     "strict": true,
@@ -268,7 +266,6 @@ expression: actual.tools
         "pattern",
         "type"
       ],
-      "title": "FSSearch",
       "type": "object"
     },
     "strict": true,
@@ -307,7 +304,6 @@ expression: actual.tools
       "required": [
         "queries"
       ],
-      "title": "SemanticSearch",
       "type": "object"
     },
     "strict": true,
@@ -327,7 +323,6 @@ expression: actual.tools
       "required": [
         "path"
       ],
-      "title": "FSRemove",
       "type": "object"
     },
     "strict": true,
@@ -363,7 +358,6 @@ expression: actual.tools
         "old_string",
         "replace_all"
       ],
-      "title": "FSPatch",
       "type": "object"
     },
     "strict": true,
@@ -413,7 +407,6 @@ expression: actual.tools
         "edits",
         "file_path"
       ],
-      "title": "FSMultiPatch",
       "type": "object"
     },
     "strict": true,
@@ -433,7 +426,6 @@ expression: actual.tools
       "required": [
         "path"
       ],
-      "title": "FSUndo",
       "type": "object"
     },
     "strict": true,
@@ -497,7 +489,6 @@ expression: actual.tools
         "env",
         "keep_ansi"
       ],
-      "title": "Shell",
       "type": "object"
     },
     "strict": true,
@@ -530,7 +521,6 @@ expression: actual.tools
         "raw",
         "url"
       ],
-      "title": "NetFetch",
       "type": "object"
     },
     "strict": true,
@@ -622,7 +612,6 @@ expression: actual.tools
         "option5",
         "question"
       ],
-      "title": "Followup",
       "type": "object"
     },
     "strict": true,
@@ -652,7 +641,6 @@ expression: actual.tools
         "plan_name",
         "version"
       ],
-      "title": "PlanCreate",
       "type": "object"
     },
     "strict": true,
@@ -672,7 +660,6 @@ expression: actual.tools
       "required": [
         "name"
       ],
-      "title": "SkillFetch",
       "type": "object"
     },
     "strict": true,
@@ -717,7 +704,6 @@ expression: actual.tools
       "required": [
         "todos"
       ],
-      "title": "TodoWrite",
       "type": "object"
     },
     "strict": true,
@@ -730,7 +716,6 @@ expression: actual.tools
       "additionalProperties": false,
       "properties": {},
       "required": [],
-      "title": "TodoRead",
       "type": "object"
     },
     "strict": true,
@@ -771,7 +756,6 @@ expression: actual.tools
         "session_id",
         "tasks"
       ],
-      "title": "TaskInput",
       "type": "object"
     },
     "strict": true,
