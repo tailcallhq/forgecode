@@ -237,8 +237,8 @@ impl DatabasePool {
 
 #[cfg(test)]
 mod tests {
-    use pretty_assertions::assert_eq;
     use diesel::prelude::*;
+    use pretty_assertions::assert_eq;
 
     use super::*;
 
