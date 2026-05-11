@@ -129,7 +129,8 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
         }
     }
 
-    /// Returns a reference to the underlying [`Client`], building it on first call.
+    /// Returns a reference to the underlying [`Client`], building it on first
+    /// call.
     fn client(&self) -> &Client {
         self.client.get_or_init(|| build_client(&self.config))
     }
