@@ -491,7 +491,7 @@ mod tests {
             rule: Rule::Mcp(McpRule {
                 mcp: "github".to_string(),
                 scope: Some(forge_app::domain::Scope::Local),
-                dir: None,
+                dir: Some("/home/user/project".to_string()),
             }),
         });
 
