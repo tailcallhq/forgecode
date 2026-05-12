@@ -321,26 +321,27 @@ pub enum McpTrustResponse {
     Reject,
 }
 
-/// Persists trust decisions for project-local MCP config files across
-/// restarts. Keyed by a `(canonical_path_string, content_hash_u64)` pair so
-/// that any modification to the file revokes the stored trust.
+/// Persists accepted MCP config hashes across restarts. A path maps to its
+/// content hash so that any modification to the file revokes the stored trust
+/// and triggers a new prompt.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct McpTrustStore {
     #[serde(default)]
-    trusted: std::collections::HashSet<(String, u64)>,
+    trusted: std::collections::HashMap<String, u64>,
 }
 
 impl McpTrustStore {
-    /// Returns true if the given path+hash pair has been permanently trusted.
+    /// Returns true if the given path+hash pair has been previously accepted.
     pub fn is_trusted(&self, path: &std::path::Path, content_hash: u64) -> bool {
         self.trusted
-            .contains(&(path.to_string_lossy().into_owned(), content_hash))
+            .get(&path.to_string_lossy().into_owned())
+            .is_some_and(|&stored| stored == content_hash)
     }
 
-    /// Records a permanent trust decision for the given path and content hash.
+    /// Records a trust decision for the given path and content hash.
     pub fn remember(&mut self, path: std::path::PathBuf, content_hash: u64) {
         self.trusted
-            .insert((path.to_string_lossy().into_owned(), content_hash));
+            .insert(path.to_string_lossy().into_owned(), content_hash);
     }
 }
 
