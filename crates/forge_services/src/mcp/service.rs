@@ -239,14 +239,15 @@ where
     C: From<<I as McpServerInfra>::Client>,
 {
     async fn get_mcp_servers(&self) -> anyhow::Result<McpServers> {
-        // Read current configs to compute merged hash
-        let mcp_config = self.manager.read_mcp_config(None).await?;
-
-        // Compute unified hash from merged config
-        let config_hash = mcp_config.cache_key();
+        // Apply the trust gate before computing the cache key so that rejected
+        // servers are excluded. Using the raw config hash would allow a stale KV
+        // cache entry (populated before a rejection) to be returned, bypassing
+        // filter_trusted entirely and leaking rejected tools into requests.
+        let raw_mcp = self.manager.read_mcp_config(None).await?;
+        let trusted_mcp = self.manager.filter_trusted(raw_mcp).await?;
+        let config_hash = trusted_mcp.cache_key();
 
         // Check if cache is valid (exists and not expired)
-        // Cache is valid, retrieve it
         if let Some(cache) = self.infra.cache_get::<_, McpServers>(&config_hash).await? {
             return Ok(cache.clone());
         }
