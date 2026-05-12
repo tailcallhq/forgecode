@@ -14,4 +14,3 @@ policies:
   - permission: confirm
     rule:
       mcp: "*"
-      dir: "."

@@ -27,9 +27,5 @@ pub enum PermissionOperation {
     /// it appears in `.mcp.json`. Evaluated once per server when the MCP
     /// service brings up connections; the decision then gates every tool
     /// call routed through that server.
-    Mcp {
-        server: String,
-        cwd: PathBuf,
-        message: String,
-    },
+    Mcp { server: String, message: String },
 }

@@ -272,15 +272,9 @@ fn create_policy_for_operation(
                 }),
             }
         }
-        PermissionOperation::Mcp { server, cwd, .. } => Some(Policy::Simple {
+        PermissionOperation::Mcp { server, .. } => Some(Policy::Simple {
             permission: Permission::Allow,
-            rule: Rule::Mcp(McpRule {
-                mcp: server.clone(),
-                // Scope the remembered decision to the directory the user was in
-                // when they confirmed the prompt: trusting an MCP server is a
-                // per-project decision, not a global one.
-                dir: Some(cwd.clone()),
-            }),
+            rule: Rule::Mcp(McpRule { mcp: server.clone() }),
         }),
     }
 }
@@ -465,10 +459,9 @@ mod tests {
     }
 
     #[test]
-    fn test_create_policy_for_mcp_operation_scopes_dir_to_cwd() {
+    fn test_create_policy_for_mcp_operation() {
         let operation = PermissionOperation::Mcp {
             server: "github".to_string(),
-            cwd: PathBuf::from("/home/user/project"),
             message: "Connect to MCP server: github".to_string(),
         };
 
@@ -476,10 +469,7 @@ mod tests {
 
         let expected = Some(Policy::Simple {
             permission: Permission::Allow,
-            rule: Rule::Mcp(McpRule {
-                mcp: "github".to_string(),
-                dir: Some(PathBuf::from("/home/user/project")),
-            }),
+            rule: Rule::Mcp(McpRule { mcp: "github".to_string() }),
         });
 
         assert_eq!(actual, expected);

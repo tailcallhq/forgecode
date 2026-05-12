@@ -208,12 +208,11 @@ mod tests {
     fn test_policy_engine_mcp_unmatched_defaults_to_confirm() {
         let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
             permission: Permission::Allow,
-            rule: Rule::Mcp(McpRule { mcp: "github".to_string(), dir: None }),
+            rule: Rule::Mcp(McpRule { mcp: "github".to_string() }),
         });
         let fixture = PolicyEngine::new(&fixture_workflow);
         let operation = PermissionOperation::Mcp {
             server: "slack".to_string(),
-            cwd: std::path::PathBuf::from("/test/cwd"),
             message: "Execute MCP tool: mcp_slack_tool_send".to_string(),
         };
 
@@ -226,12 +225,11 @@ mod tests {
     fn test_policy_engine_mcp_matching_glob_allows() {
         let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
             permission: Permission::Allow,
-            rule: Rule::Mcp(McpRule { mcp: "git*".to_string(), dir: None }),
+            rule: Rule::Mcp(McpRule { mcp: "git*".to_string() }),
         });
         let fixture = PolicyEngine::new(&fixture_workflow);
         let operation = PermissionOperation::Mcp {
             server: "github".to_string(),
-            cwd: std::path::PathBuf::from("/test/cwd"),
             message: "Execute MCP tool: mcp_github_tool_create_issue".to_string(),
         };
 
