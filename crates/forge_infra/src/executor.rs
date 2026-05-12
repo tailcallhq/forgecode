@@ -108,13 +108,8 @@ impl ForgeCommandExecutorService {
         let mut stdout_pipe = child.stdout.take();
         let mut stderr_pipe = child.stderr.take();
 
-        // Stream the output of the command to stdout and stderr concurrently.
-        //
-        // TODO(acp): when `silent` is true (ACP stdio mode), output is
-        // streamed to io::sink() so that raw command output does not
-        // contaminate the ACP JSON-RPC transport on stdout. The captured
-        // output is still returned via CommandOutput for the ACP
-        // notification channel.
+        // Suppress stdout in headless mode to avoid contaminating the JSON-RPC
+        // transport.
         let (status, stdout_buffer, stderr_buffer) = if silent {
             tokio::try_join!(
                 child.wait(),

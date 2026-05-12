@@ -26,6 +26,13 @@ pub struct Orchestrator<S> {
     error_tracker: ToolErrorTracker,
     hook: Arc<Hook>,
     config: forge_config::ForgeConfig,
+    /// When `true`, shell tool output is suppressed on stdout to avoid
+    /// contaminating the ACP JSON-RPC transport.
+    ///
+    /// Set from [`ChatRequest::tool_silent`] during `ForgeApp::chat()`. This field
+    /// is consumed in [`Orchestrator::run()`] when constructing the
+    /// [`ToolCallContext`].
+    tool_silent: bool,
 }
 
 impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orchestrator<S> {
@@ -45,6 +52,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             models: Default::default(),
             error_tracker: Default::default(),
             hook: Arc::new(Hook::default()),
+            tool_silent: false,
         }
     }
 
@@ -262,11 +270,11 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
 
         // Retrieve the number of requests allowed per tick.
         let max_requests_per_turn = self.agent.max_requests_per_turn;
-        // TODO(acp): when running in ACP stdio mode, chain `.silent(true)`
-        // so that shell tool output is suppressed on stdout (see
-        // ToolCallContext and tool_executor).
-        let tool_context =
-            ToolCallContext::new(self.conversation.metrics.clone()).sender(self.sender.clone());
+        // Propagate silent mode to ToolCallContext.
+        // See designs/acp-silent-mode-propagation.md.
+        let tool_context = ToolCallContext::new(self.conversation.metrics.clone())
+            .sender(self.sender.clone())
+            .silent(self.tool_silent);
 
         while !should_yield {
             // Set context for the current loop iteration
