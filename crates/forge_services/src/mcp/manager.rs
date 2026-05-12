@@ -1,6 +1,5 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::Context;
 use bytes::Bytes;
@@ -13,7 +12,6 @@ use merge::Merge;
 
 pub struct ForgeMcpManager<I> {
     infra: Arc<I>,
-    session_trusted: Mutex<HashSet<(String, u64)>>,
 }
 
 impl<I> ForgeMcpManager<I>
@@ -22,7 +20,7 @@ where
 {
     /// Creates a new [`ForgeMcpManager`] wrapping the provided infrastructure.
     pub fn new(infra: Arc<I>) -> Self {
-        Self { infra, session_trusted: Default::default() }
+        Self { infra }
     }
 
     async fn read_config(&self, path: &Path) -> anyhow::Result<McpConfig> {
@@ -49,8 +47,8 @@ where
         + KVStore
         + UserInfra,
 {
-    /// Reads the persisted trust store from disk, returning a default empty
-    /// store if the file is absent.
+    /// Reads the persisted trust store from disk, returning an empty store if
+    /// the file is absent or unreadable.
     async fn read_trust_store(&self) -> anyhow::Result<McpTrustStore> {
         let path = self.infra.get_environment().mcp_trust_path();
         if !self.infra.is_file(&path).await.unwrap_or(false) {
@@ -67,26 +65,11 @@ where
         self.infra.write(&path, Bytes::from(content)).await
     }
 
-    /// Returns true if the given path+hash pair is trusted for this session.
-    fn is_session_trusted(&self, path: &Path, hash: u64) -> bool {
-        self.session_trusted
-            .lock()
-            .unwrap()
-            .contains(&(path.to_string_lossy().into_owned(), hash))
-    }
-
-    /// Records a session-scoped trust decision.
-    fn add_session_trust(&self, path: &Path, hash: u64) {
-        self.session_trusted
-            .lock()
-            .unwrap()
-            .insert((path.to_string_lossy().into_owned(), hash));
-    }
-
     /// Applies the interactive trust gate for a project-local MCP config.
     ///
-    /// Returns the config as-is when already trusted (session or persistent),
-    /// otherwise prompts the user and acts on their choice.
+    /// Checks the persisted trust store first: if the config hash is already
+    /// recorded the prompt is skipped entirely. Otherwise the user is asked to
+    /// Accept (persists the hash) or Reject (returns an empty config).
     async fn apply_trust_gate(
         &self,
         local: McpConfig,
@@ -97,34 +80,22 @@ where
         }
 
         let hash = local.cache_key();
-
-        // Fast path: already trusted in this session.
-        if self.is_session_trusted(local_path, hash) {
-            return Ok(local);
-        }
-
-        // Check persistent trust store.
         let mut store = self.read_trust_store().await?;
+
+        // Skip the prompt if this exact config was previously accepted.
         if store.is_trusted(local_path, hash) {
-            self.add_session_trust(local_path, hash);
             return Ok(local);
         }
 
-        // Build and display the prompt.
         let prompt = format_trust_prompt(local_path);
         match self
             .infra
             .select_one_enum::<McpTrustResponse>(&prompt)
             .await?
         {
-            Some(McpTrustResponse::TrustAndRemember) => {
+            Some(McpTrustResponse::Accept) => {
                 store.remember(local_path.to_path_buf(), hash);
                 self.write_trust_store(&store).await?;
-                self.add_session_trust(local_path, hash);
-                Ok(local)
-            }
-            Some(McpTrustResponse::TrustOnce) => {
-                self.add_session_trust(local_path, hash);
                 Ok(local)
             }
             Some(McpTrustResponse::Reject) | None => Ok(McpConfig::default()),

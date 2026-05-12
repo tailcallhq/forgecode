@@ -118,9 +118,9 @@ where
             return Ok(());
         }
 
-        // Apply the trust gate. If init_mcp was called at startup, the manager's
-        // session trust cache already holds the decision and this returns immediately
-        // without re-prompting.
+        // Apply the trust gate. The prompt was already shown at startup via
+        // init_mcp, so on first tool use the user's decision is re-applied by
+        // calling filter_trusted again.
         let raw_hash = raw_mcp.cache_key();
         let trusted_mcp = self.manager.filter_trusted(raw_mcp).await?;
 
@@ -265,10 +265,10 @@ where
     }
 
     async fn init_mcp(&self) -> anyhow::Result<()> {
-        // Run the trust gate to populate the manager's session trust cache.
-        // The result is intentionally discarded — servers are NOT connected here.
-        // Connections remain lazy and happen on first tool use via
-        // ensure_mcp_initialized, which fast-paths through the session cache.
+        // Run the trust gate prompt at startup so the user's decision is captured
+        // before any tool use. The result is intentionally discarded — servers are
+        // NOT connected here. Connections remain lazy and happen on first tool use
+        // via ensure_mcp_initialized.
         let raw_mcp = self.manager.read_mcp_config(None).await?;
         let _ = self.manager.filter_trusted(raw_mcp).await?;
         Ok(())

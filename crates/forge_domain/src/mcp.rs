@@ -307,17 +307,15 @@ impl McpConfig {
     }
 }
 
-/// The three choices presented to the user when an untrusted project-local
+/// The two choices presented to the user when an untrusted project-local
 /// `.mcp.json` is detected at startup.
 #[derive(Debug, Clone, PartialEq, Eq, StrumDisplay, EnumIter, EnumString)]
 pub enum McpTrustResponse {
-    /// Allow the servers for this session only, without persisting the
-    /// decision.
-    #[strum(to_string = "Trust once")]
-    TrustOnce,
     /// Allow the servers and remember this decision across future sessions.
-    #[strum(to_string = "Trust and remember")]
-    TrustAndRemember,
+    /// The config hash is persisted so the prompt is skipped on next startup
+    /// as long as the file has not changed.
+    #[strum(to_string = "Accept")]
+    Accept,
     /// Reject all servers from this config file.
     #[strum(to_string = "Reject")]
     Reject,
