@@ -164,10 +164,7 @@ where
         + UserInfra,
 {
     /// Unconditionally persist an allow policy for the given operation.
-    async fn allow_operation(
-        &self,
-        operation: &PermissionOperation,
-    ) -> anyhow::Result<()> {
+    async fn allow_operation(&self, operation: &PermissionOperation) -> anyhow::Result<()> {
         self.add_policy_for_operation(operation).await?;
         Ok(())
     }

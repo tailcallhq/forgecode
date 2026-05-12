@@ -30,12 +30,8 @@ use crate::tool_services::{
     ForgeFsUndo, ForgeFsWrite, ForgeImageRead, ForgePlanCreate, ForgeShell, ForgeSkillFetch,
 };
 
-type McpService<F> = ForgeMcpService<
-    ForgeMcpManager<F>,
-    F,
-    <F as McpServerInfra>::Client,
-    ForgePolicyService<F>,
->;
+type McpService<F> =
+    ForgeMcpService<ForgeMcpManager<F>, F, <F as McpServerInfra>::Client, ForgePolicyService<F>>;
 type AuthService<F> = ForgeAuthService<F>;
 
 /// ForgeApp is the main application container that implements the App trait.

@@ -7,9 +7,8 @@ use forge_app::dto::ToolsOverview;
 use forge_app::{
     AgentProviderResolver, AgentRegistry, AppConfigService, AuthService, CommandInfra,
     CommandLoaderService, ConversationService, DataGenerationApp, EnvironmentInfra,
-    FileDiscoveryService, ForgeApp, GitApp, GrpcInfra, McpConfigManager, McpService,
-    PolicyService, ProviderAuthService, ProviderService, Services, User, UserUsage, Walker,
-    WorkspaceService,
+    FileDiscoveryService, ForgeApp, GitApp, GrpcInfra, McpConfigManager, McpService, PolicyService,
+    ProviderAuthService, ProviderService, Services, User, UserUsage, Walker, WorkspaceService,
 };
 use forge_config::ForgeConfig;
 use forge_domain::{Agent, ConsoleWriter, *};

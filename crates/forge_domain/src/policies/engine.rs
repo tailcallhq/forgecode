@@ -250,11 +250,7 @@ mod tests {
         // A `scope: user` rule must not affect a Local-scope operation.
         let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
             permission: Permission::Allow,
-            rule: Rule::Mcp(McpRule {
-                mcp: "*".to_string(),
-                scope: Some(Scope::User),
-                dir: None,
-            }),
+            rule: Rule::Mcp(McpRule { mcp: "*".to_string(), scope: Some(Scope::User), dir: None }),
         });
         let fixture = PolicyEngine::new(&fixture_workflow);
         let operation = PermissionOperation::Mcp {

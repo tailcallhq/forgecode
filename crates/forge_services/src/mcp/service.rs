@@ -220,8 +220,7 @@ where
                         authorized.insert(name.clone());
                     }
                     Ok(_) => {
-                        denied
-                            .push((name.clone(), "Connection denied by user policy".to_string()));
+                        denied.push((name.clone(), "Connection denied by user policy".to_string()));
                     }
                     Err(err) => {
                         denied.push((name.clone(), format!("Policy check failed: {err:?}")));
@@ -477,18 +476,14 @@ mod tests {
             Ok(PolicyDecision { allowed: true, path: None })
         }
 
-        async fn allow_operation(
-            &self,
-            _operation: &PermissionOperation,
-        ) -> anyhow::Result<()> {
+        async fn allow_operation(&self, _operation: &PermissionOperation) -> anyhow::Result<()> {
             Ok(())
         }
     }
 
     // ── Fixture ──────────────────────────────────────────────────────────────
 
-    fn fixture()
-    -> ForgeMcpService<MockMcpManager, MockInfra, MockMcpClient, AlwaysAllowPolicy> {
+    fn fixture() -> ForgeMcpService<MockMcpManager, MockInfra, MockMcpClient, AlwaysAllowPolicy> {
         ForgeMcpService::new(
             Arc::new(MockMcpManager),
             Arc::new(MockInfra),
