@@ -68,8 +68,9 @@ where
     /// Applies the interactive trust gate for a project-local MCP config.
     ///
     /// Checks the persisted trust store first: if the config hash is already
-    /// recorded the prompt is skipped entirely. Otherwise the user is asked to
-    /// Accept (persists the hash) or Reject (returns an empty config).
+    /// recorded as accepted or rejected, the prompt is skipped entirely.
+    /// Otherwise the user is asked to Accept (persists the hash as trusted) or
+    /// Reject (persists the hash as rejected and returns an empty config).
     async fn apply_trust_gate(
         &self,
         local: McpConfig,
@@ -87,6 +88,11 @@ where
             return Ok(local);
         }
 
+        // Skip the prompt if this exact config was previously rejected.
+        if store.is_rejected(local_path, hash) {
+            return Ok(McpConfig::default());
+        }
+
         let prompt = format_trust_prompt(local_path);
         match self
             .infra
@@ -98,7 +104,11 @@ where
                 self.write_trust_store(&store).await?;
                 Ok(local)
             }
-            Some(McpTrustResponse::Reject) | None => Ok(McpConfig::default()),
+            Some(McpTrustResponse::Reject) | None => {
+                store.reject(local_path.to_path_buf(), hash);
+                self.write_trust_store(&store).await?;
+                Ok(McpConfig::default())
+            }
         }
     }
 }

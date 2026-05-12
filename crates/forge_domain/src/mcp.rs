@@ -321,13 +321,15 @@ pub enum McpTrustResponse {
     Reject,
 }
 
-/// Persists accepted MCP config hashes across restarts. A path maps to its
-/// content hash so that any modification to the file revokes the stored trust
-/// and triggers a new prompt.
+/// Persists accepted and rejected MCP config hashes across restarts. A path
+/// maps to its content hash so that any modification to the file revokes the
+/// stored decision and triggers a new prompt.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct McpTrustStore {
     #[serde(default)]
     trusted: std::collections::HashMap<String, u64>,
+    #[serde(default)]
+    rejected: std::collections::HashMap<String, u64>,
 }
 
 impl McpTrustStore {
@@ -338,10 +340,27 @@ impl McpTrustStore {
             .is_some_and(|&stored| stored == content_hash)
     }
 
-    /// Records a trust decision for the given path and content hash.
+    /// Returns true if the given path+hash pair has been previously rejected.
+    pub fn is_rejected(&self, path: &std::path::Path, content_hash: u64) -> bool {
+        self.rejected
+            .get(&path.to_string_lossy().into_owned())
+            .is_some_and(|&stored| stored == content_hash)
+    }
+
+    /// Records an accepted trust decision for the given path and content hash.
+    /// Clears any prior rejection for the same path.
     pub fn remember(&mut self, path: std::path::PathBuf, content_hash: u64) {
-        self.trusted
-            .insert(path.to_string_lossy().into_owned(), content_hash);
+        let key = path.to_string_lossy().into_owned();
+        self.rejected.remove(&key);
+        self.trusted.insert(key, content_hash);
+    }
+
+    /// Records a rejected trust decision for the given path and content hash.
+    /// Clears any prior acceptance for the same path.
+    pub fn reject(&mut self, path: std::path::PathBuf, content_hash: u64) {
+        let key = path.to_string_lossy().into_owned();
+        self.trusted.remove(&key);
+        self.rejected.insert(key, content_hash);
     }
 }
 
