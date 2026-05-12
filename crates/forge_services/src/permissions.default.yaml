@@ -11,3 +11,7 @@ policies:
   - permission: allow
     rule:
       url: "*"
+  - permission: confirm
+    rule:
+      mcp: "*"
+      dir: "."

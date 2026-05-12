@@ -223,6 +223,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.display_banner()?;
         self.trace_user();
         self.hydrate_caches();
+        // Resolve MCP trust prompts up front — see the note on
+        // `hydrate_caches` for why `get_tools` must not be spawned.
+        let _ = self.api.get_tools().await;
         Ok(())
     }
 
@@ -368,6 +371,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.hydrate_caches();
         self.init_conversation().await?;
 
+        // Resolve any pending MCP trust prompts before the REPL takes over
+        // stdin. `get_tools` is the entry point that triggers MCP server
+        // authorisation; awaiting it here ensures every `Permission::Confirm`
+        // dialog is answered while the main task still owns the terminal.
+        let _ = self.api.get_tools().await;
+
         // Check for dispatch flag first
         if let Some(dispatch_json) = self.cli.event.clone() {
             return self.handle_dispatch(dispatch_json).await;
@@ -447,8 +456,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     fn hydrate_caches(&self) {
         let api = self.api.clone();
         tokio::spawn(async move { api.get_models().await });
-        let api = self.api.clone();
-        tokio::spawn(async move { api.get_tools().await });
         let api = self.api.clone();
         tokio::spawn(async move { api.get_agent_infos().await });
         let api = self.api.clone();

@@ -23,4 +23,13 @@ pub enum PermissionOperation {
         cwd: PathBuf,
         message: String,
     },
+    /// MCP server connection authorization, identified by the server name as
+    /// it appears in `.mcp.json`. Evaluated once per server when the MCP
+    /// service brings up connections; the decision then gates every tool
+    /// call routed through that server.
+    Mcp {
+        server: String,
+        cwd: PathBuf,
+        message: String,
+    },
 }

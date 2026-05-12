@@ -4,8 +4,8 @@ use std::sync::{Arc, LazyLock};
 use anyhow::Context;
 use bytes::Bytes;
 use forge_app::domain::{
-    ExecuteRule, Fetch, Permission, PermissionOperation, Policy, PolicyConfig, PolicyEngine,
-    ReadRule, Rule, WriteRule,
+    ExecuteRule, Fetch, McpRule, Permission, PermissionOperation, Policy, PolicyConfig,
+    PolicyEngine, ReadRule, Rule, WriteRule,
 };
 use forge_app::{
     DirectoryReaderInfra, EnvironmentInfra, FileInfoInfra, FileReaderInfra, FileWriterInfra,
@@ -27,9 +27,16 @@ pub enum PolicyPermission {
     AcceptAndRemember,
 }
 
-#[derive(Clone)]
 pub struct ForgePolicyService<I> {
     infra: Arc<I>,
+}
+
+impl<I> Clone for ForgePolicyService<I> {
+    // Manual impl so callers don't need `I: Clone`; we only ever clone the
+    // `Arc<I>` which is always cheap.
+    fn clone(&self) -> Self {
+        Self { infra: self.infra.clone() }
+    }
 }
 /// Default policies loaded once at startup from the embedded YAML file
 static DEFAULT_POLICIES: LazyLock<PolicyConfig> = LazyLock::new(|| {
@@ -185,6 +192,9 @@ where
                     PermissionOperation::Fetch { message, .. } => {
                         format!("{message}. How would you like to proceed?")
                     }
+                    PermissionOperation::Mcp { message, .. } => {
+                        format!("{message}. How would you like to proceed?")
+                    }
                 };
 
                 match self
@@ -262,6 +272,16 @@ fn create_policy_for_operation(
                 }),
             }
         }
+        PermissionOperation::Mcp { server, cwd, .. } => Some(Policy::Simple {
+            permission: Permission::Allow,
+            rule: Rule::Mcp(McpRule {
+                mcp: server.clone(),
+                // Scope the remembered decision to the directory the user was in
+                // when they confirmed the prompt: trusting an MCP server is a
+                // per-project decision, not a global one.
+                dir: Some(cwd.clone()),
+            }),
+        }),
     }
 }
 
@@ -439,6 +459,27 @@ mod tests {
         let expected = Some(Policy::Simple {
             permission: Permission::Allow,
             rule: Rule::Execute(ExecuteRule { command: "ls*".to_string(), dir: working_directory }),
+        });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_create_policy_for_mcp_operation_scopes_dir_to_cwd() {
+        let operation = PermissionOperation::Mcp {
+            server: "github".to_string(),
+            cwd: PathBuf::from("/home/user/project"),
+            message: "Connect to MCP server: github".to_string(),
+        };
+
+        let actual = create_policy_for_operation(&operation, None);
+
+        let expected = Some(Policy::Simple {
+            permission: Permission::Allow,
+            rule: Rule::Mcp(McpRule {
+                mcp: "github".to_string(),
+                dir: Some(PathBuf::from("/home/user/project")),
+            }),
         });
 
         assert_eq!(actual, expected);

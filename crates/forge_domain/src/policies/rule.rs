@@ -1,5 +1,5 @@
 use std::fmt::{Display, Formatter};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use glob::Pattern;
 use schemars::JsonSchema;
@@ -39,6 +39,18 @@ pub struct Fetch {
     pub dir: Option<String>,
 }
 
+/// Rule for MCP tool invocations matched by server-name glob
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+pub struct McpRule {
+    /// Glob over the MCP server name as it appears in `.mcp.json`.
+    pub mcp: String,
+    /// Optional directory scope. The literal value `"."` is interpreted as
+    /// "the operation's current working directory"; any other value is
+    /// matched as a glob pattern against the operation's cwd.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<PathBuf>,
+}
+
 /// Rules that define what operations are covered by a policy
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
@@ -51,6 +63,8 @@ pub enum Rule {
     Execute(ExecuteRule),
     /// Rule for network fetch operations with a URL pattern
     Fetch(Fetch),
+    /// Rule for MCP tool invocations with a tool-name glob pattern
+    Mcp(McpRule),
 }
 
 impl Rule {
@@ -93,6 +107,19 @@ impl Rule {
                                    * directory */
                 };
                 url_matches && dir_matches
+            }
+            (Rule::Mcp(rule), PermissionOperation::Mcp { server, cwd, message: _ }) => {
+                let server_matches = match_pattern(&rule.mcp, server);
+                // MCP rules treat a `dir` of `"."` as "the operation's current
+                // working directory", letting the shipped default rule
+                // (`server: "*"`, `dir: "."`) prompt the user once per
+                // project root. Any other pattern is matched literally.
+                let dir_matches = match rule.dir.as_deref() {
+                    None => true,
+                    Some(p) if p.display().to_string() == cwd.display().to_string() => true,
+                    Some(p) => match_pattern(&p.to_string_lossy(), cwd),
+                };
+                server_matches && dir_matches
             }
             _ => false,
         }
@@ -150,6 +177,16 @@ impl Display for Fetch {
     }
 }
 
+impl Display for McpRule {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if let Some(wd) = &self.dir {
+            write!(f, "mcp server '{}' in '{}'", self.mcp, wd.display())
+        } else {
+            write!(f, "mcp server '{}'", self.mcp)
+        }
+    }
+}
+
 impl Display for Rule {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -157,6 +194,7 @@ impl Display for Rule {
             Rule::Read(rule) => write!(f, "{rule}"),
             Rule::Execute(rule) => write!(f, "{rule}"),
             Rule::Fetch(rule) => write!(f, "{rule}"),
+            Rule::Mcp(rule) => write!(f, "{rule}"),
         }
     }
 }
@@ -205,6 +243,14 @@ mod tests {
             url: "https://api.example.com/data".to_string(),
             cwd: PathBuf::from("/home/user/project"),
             message: "Fetch content from URL: https://api.example.com/data".to_string(),
+        }
+    }
+
+    fn fixture_mcp_operation() -> PermissionOperation {
+        PermissionOperation::Mcp {
+            server: "github".to_string(),
+            cwd: PathBuf::from("/home/user/project"),
+            message: "Execute MCP tool: mcp_github_tool_create_issue".to_string(),
         }
     }
 
@@ -320,6 +366,85 @@ mod tests {
     fn test_execute_no_working_directory_pattern_matches_any() {
         let fixture = Rule::Execute(ExecuteRule { command: "cargo *".to_string(), dir: None });
         let operation = fixture_execute_operation();
+
+        let actual = fixture.matches(&operation);
+
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_mcp_rule_exact_match() {
+        let fixture = Rule::Mcp(McpRule { mcp: "github".to_string(), dir: None });
+        let operation = fixture_mcp_operation();
+
+        let actual = fixture.matches(&operation);
+
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_mcp_rule_glob_wildcard() {
+        let fixture = Rule::Mcp(McpRule { mcp: "git*".to_string(), dir: None });
+        let operation = fixture_mcp_operation();
+
+        let actual = fixture.matches(&operation);
+
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_mcp_rule_does_not_match_other_server() {
+        let fixture = Rule::Mcp(McpRule { mcp: "slack".to_string(), dir: None });
+        let operation = fixture_mcp_operation();
+
+        let actual = fixture.matches(&operation);
+
+        assert_eq!(actual, false);
+    }
+
+    #[test]
+    fn test_mcp_rule_does_not_match_non_mcp_operation() {
+        let fixture = Rule::Mcp(McpRule { mcp: "*".to_string(), dir: None });
+        let operation = fixture_execute_operation();
+
+        let actual = fixture.matches(&operation);
+
+        assert_eq!(actual, false);
+    }
+
+    #[test]
+    fn test_mcp_rule_dir_pattern_match() {
+        let fixture = Rule::Mcp(McpRule {
+            mcp: "github".to_string(),
+            dir: Some(PathBuf::from("/home/user/*")),
+        });
+        let operation = fixture_mcp_operation();
+
+        let actual = fixture.matches(&operation);
+
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_mcp_rule_dir_pattern_no_match() {
+        let fixture = Rule::Mcp(McpRule {
+            mcp: "github".to_string(),
+            dir: Some(PathBuf::from("/other/path/*")),
+        });
+        let operation = fixture_mcp_operation();
+
+        let actual = fixture.matches(&operation);
+
+        assert_eq!(actual, false);
+    }
+
+    #[test]
+    fn test_mcp_rule_dir_dot_resolves_to_cwd() {
+        // `dir: "."` should match every cwd because it expands to the
+        // operation's own cwd before glob matching.
+        let fixture =
+            Rule::Mcp(McpRule { mcp: "*".to_string(), dir: Some(PathBuf::from(".")) });
+        let operation = fixture_mcp_operation();
 
         let actual = fixture.matches(&operation);
 

@@ -1,14 +1,17 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context;
 use forge_app::domain::{
-    McpConfig, McpServerConfig, McpServers, ServerName, ToolCallFull, ToolDefinition, ToolName,
-    ToolOutput,
+    McpConfig, McpServerConfig, McpServers, PermissionOperation, Scope, ServerName, ToolCallFull,
+    ToolDefinition, ToolName, ToolOutput,
 };
 use forge_app::{
     EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService,
+    PolicyService,
 };
+use merge::Merge;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::mcp::tool::McpExecutor;
@@ -22,14 +25,25 @@ fn generate_mcp_tool_name(server_name: &ServerName, tool_name: &ToolName) -> Too
     ))
 }
 
+/// Directory used to scope trust decisions for the servers loaded from a
+/// given MCP config file. Falls back to `.` if the config path has no parent
+/// (which should not happen in practice for either user or local configs).
+fn config_scope_dir(config_path: &Path) -> PathBuf {
+    config_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 #[derive(Clone)]
-pub struct ForgeMcpService<M, I, C> {
+pub struct ForgeMcpService<M, I, C, P> {
     tools: Arc<RwLock<HashMap<ToolName, ToolHolder<McpExecutor<C>>>>>,
     failed_servers: Arc<RwLock<HashMap<ServerName, String>>>,
     previous_config_hash: Arc<Mutex<u64>>,
     init_lock: Arc<Mutex<()>>,
     manager: Arc<M>,
     infra: Arc<I>,
+    policy: Arc<P>,
 }
 
 #[derive(Clone)]
@@ -39,14 +53,15 @@ struct ToolHolder<T> {
     server_name: String,
 }
 
-impl<M, I, C> ForgeMcpService<M, I, C>
+impl<M, I, C, P> ForgeMcpService<M, I, C, P>
 where
     M: McpConfigManager,
     I: McpServerInfra + KVStore + EnvironmentInfra,
     C: McpClientInfra + Clone,
     C: From<<I as McpServerInfra>::Client>,
+    P: PolicyService,
 {
-    pub fn new(manager: Arc<M>, infra: Arc<I>) -> Self {
+    pub fn new(manager: Arc<M>, infra: Arc<I>, policy: Arc<P>) -> Self {
         Self {
             tools: Default::default(),
             failed_servers: Default::default(),
@@ -54,6 +69,7 @@ where
             init_lock: Arc::new(Mutex::new(())),
             manager,
             infra,
+            policy,
         }
     }
 
@@ -101,11 +117,11 @@ where
     }
 
     async fn init_mcp(&self) -> anyhow::Result<()> {
-        let mcp = self.manager.read_mcp_config(None).await?;
+        let (merged, user_cfg, local_cfg) = self.load_scoped_configs().await?;
 
         // Fast path: if config is unchanged, skip reinitialization without acquiring
         // the lock
-        if !self.is_config_modified(&mcp).await {
+        if !self.is_config_modified(&merged).await {
             return Ok(());
         }
 
@@ -114,27 +130,62 @@ where
         let _guard = self.init_lock.lock().await;
 
         // Double-check under the lock: a concurrent caller may have already updated
-        if !self.is_config_modified(&mcp).await {
+        if !self.is_config_modified(&merged).await {
             return Ok(());
         }
 
-        self.update_mcp(mcp).await
+        self.update_mcp(merged, user_cfg, local_cfg).await
     }
 
-    async fn update_mcp(&self, mcp: McpConfig) -> Result<(), anyhow::Error> {
+    /// Read user- and local-scope configs and return them alongside a merged
+    /// view. The merged view follows `read_mcp_config`'s precedence rules
+    /// (local overrides user) and is what gets exposed to callers; the
+    /// individual scope configs are retained so trust decisions can be
+    /// attributed back to the file that declared each server.
+    async fn load_scoped_configs(&self) -> anyhow::Result<(McpConfig, McpConfig, McpConfig)> {
+        let user_cfg = self.manager.read_mcp_config(Some(&Scope::User)).await?;
+        let local_cfg = self.manager.read_mcp_config(Some(&Scope::Local)).await?;
+        let mut merged = user_cfg.clone();
+        merged.merge(local_cfg.clone());
+        Ok((merged, user_cfg, local_cfg))
+    }
+
+    async fn update_mcp(
+        &self,
+        merged: McpConfig,
+        user_cfg: McpConfig,
+        local_cfg: McpConfig,
+    ) -> Result<(), anyhow::Error> {
         // Compute the hash early before mcp is consumed, but write it only after
         // all connections are established so waiters on init_lock see a consistent
         // state.
-        let new_hash = mcp.cache_key();
+        let new_hash = merged.cache_key();
         self.clear_tools().await;
 
         // Clear failed servers map before attempting new connections
         self.failed_servers.write().await.clear();
 
-        let connections: Vec<_> = mcp
+        // Resolve a permission decision for every enabled server *before* any
+        // network/process work begins. Trust is scoped to the directory of the
+        // config file that declared each server: user-scope persists across
+        // projects, local-scope stays project-local. Local entries shadow
+        // user entries of the same name, so they're authorized first.
+        let env = self.infra.get_environment();
+        let user_dir = config_scope_dir(&env.mcp_user_config());
+        let local_dir = config_scope_dir(&env.mcp_local_config());
+        let authorized = self
+            .authorize_servers([
+                (&local_cfg, local_dir.as_path()),
+                (&user_cfg, user_dir.as_path()),
+            ])
+            .await?;
+
+        // Disabled servers are dropped inside `authorize_servers`, so a single
+        // membership check is enough to filter the connection set here.
+        let connections: Vec<_> = merged
             .mcp_servers
             .into_iter()
-            .filter(|v| !v.1.is_disabled())
+            .filter(|(name, _)| authorized.contains(name))
             .map(|(name, server)| async move {
                 let conn = self
                     .connect(&name, server)
@@ -148,17 +199,13 @@ where
         let results = futures::future::join_all(connections).await;
 
         for (server_name, result) in results {
-            match result {
-                Ok(_) => {}
-                Err(error) => {
-                    // Format error with full chain for detailed diagnostics
-                    // Using Debug formatting with alternate flag shows the full error chain
-                    let error_string = format!("{error:?}");
-                    self.failed_servers
-                        .write()
-                        .await
-                        .insert(server_name.clone(), error_string.clone());
-                }
+            if let Err(error) = result {
+                // Format error with full chain for detailed diagnostics
+                let error_string = format!("{error:?}");
+                self.failed_servers
+                    .write()
+                    .await
+                    .insert(server_name, error_string);
             }
         }
 
@@ -168,6 +215,62 @@ where
         *self.previous_config_hash.lock().await = new_hash;
 
         Ok(())
+    }
+
+    /// Asks the policy engine which configured MCP servers may be connected.
+    ///
+    /// Each `(config, cwd)` pair represents a scope: every server declared
+    /// in `config` is checked with that `cwd` as its trust scope. Scopes are
+    /// processed in order, and servers already seen in an earlier scope are
+    /// skipped so duplicate names (e.g. local overriding user) trigger only
+    /// the authoritative scope's prompt. Servers that the user denies
+    /// (either by an existing `Deny` policy or interactively in response to
+    /// a `Confirm` policy) are recorded in `failed_servers` with a
+    /// human-readable reason and excluded from the returned set.
+    async fn authorize_servers<'a>(
+        &self,
+        scoped: impl IntoIterator<Item = (&'a McpConfig, &'a Path)>,
+    ) -> anyhow::Result<HashSet<ServerName>> {
+        let mut authorized = HashSet::new();
+        let mut visited: HashSet<ServerName> = HashSet::new();
+        let mut denied: Vec<(ServerName, String)> = Vec::new();
+
+        // Evaluate policy for each server sequentially — prompts require user
+        // input and must not hold any lock while awaiting a response.
+        for (cfg, cwd) in scoped {
+            for (name, server) in &cfg.mcp_servers {
+                if server.is_disabled() || !visited.insert(name.clone()) {
+                    continue;
+                }
+                let operation = PermissionOperation::Mcp {
+                    server: name.to_string(),
+                    cwd: cwd.to_path_buf(),
+                    message: format!("Connect to MCP server: {name}"),
+                };
+                match self.policy.check_operation_permission(&operation).await {
+                    Ok(decision) if decision.allowed => {
+                        authorized.insert(name.clone());
+                    }
+                    Ok(_) => {
+                        denied
+                            .push((name.clone(), "Connection denied by user policy".to_string()));
+                    }
+                    Err(err) => {
+                        denied.push((name.clone(), format!("Policy check failed: {err:?}")));
+                    }
+                }
+            }
+        }
+
+        // Write all denials in one lock acquisition after prompting is done.
+        if !denied.is_empty() {
+            let mut failures = self.failed_servers.write().await;
+            for (name, reason) in denied {
+                failures.insert(name, reason);
+            }
+        }
+
+        Ok(authorized)
     }
 
     async fn list(&self) -> anyhow::Result<McpServers> {
@@ -226,11 +329,13 @@ where
 }
 
 #[async_trait::async_trait]
-impl<M: McpConfigManager, I: McpServerInfra + KVStore + EnvironmentInfra, C> McpService
-    for ForgeMcpService<M, I, C>
+impl<M, I, C, P> McpService for ForgeMcpService<M, I, C, P>
 where
+    M: McpConfigManager,
+    I: McpServerInfra + KVStore + EnvironmentInfra,
     C: McpClientInfra + Clone,
     C: From<<I as McpServerInfra>::Client>,
+    P: PolicyService,
 {
     async fn get_mcp_servers(&self) -> anyhow::Result<McpServers> {
         // Read current configs to compute merged hash
@@ -266,11 +371,12 @@ mod tests {
 
     use fake::{Fake, Faker};
     use forge_app::domain::{
-        ConfigOperation, Environment, McpConfig, McpServerConfig, Scope, ServerName, ToolCallFull,
-        ToolDefinition, ToolName, ToolOutput,
+        ConfigOperation, Environment, McpConfig, McpServerConfig, PermissionOperation, Scope,
+        ServerName, ToolCallFull, ToolDefinition, ToolName, ToolOutput,
     };
     use forge_app::{
         EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService,
+        PolicyDecision, PolicyService,
     };
     use forge_config::ForgeConfig;
     use pretty_assertions::assert_eq;
@@ -388,10 +494,32 @@ mod tests {
         }
     }
 
+    // ── Mock policy service ──────────────────────────────────────────────────
+
+    /// Permits every operation. Tests need MCP connections to go through
+    /// without prompting; production behaviour (Confirm by default) is covered
+    /// by `forge_services::policy` and `forge_domain::policies::engine` tests.
+    struct AlwaysAllowPolicy;
+
+    #[async_trait::async_trait]
+    impl PolicyService for AlwaysAllowPolicy {
+        async fn check_operation_permission(
+            &self,
+            _operation: &PermissionOperation,
+        ) -> anyhow::Result<PolicyDecision> {
+            Ok(PolicyDecision { allowed: true, path: None })
+        }
+    }
+
     // ── Fixture ──────────────────────────────────────────────────────────────
 
-    fn fixture() -> ForgeMcpService<MockMcpManager, MockInfra, MockMcpClient> {
-        ForgeMcpService::new(Arc::new(MockMcpManager), Arc::new(MockInfra))
+    fn fixture()
+    -> ForgeMcpService<MockMcpManager, MockInfra, MockMcpClient, AlwaysAllowPolicy> {
+        ForgeMcpService::new(
+            Arc::new(MockMcpManager),
+            Arc::new(MockInfra),
+            Arc::new(AlwaysAllowPolicy),
+        )
     }
 
     #[test]

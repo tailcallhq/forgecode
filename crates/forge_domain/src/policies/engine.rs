@@ -91,7 +91,9 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::{ExecuteRule, Fetch, Permission, Policy, PolicyConfig, ReadRule, Rule, WriteRule};
+    use crate::{
+        ExecuteRule, Fetch, McpRule, Permission, Policy, PolicyConfig, ReadRule, Rule, WriteRule,
+    };
 
     fn fixture_workflow_with_read_policy() -> PolicyConfig {
         PolicyConfig::new().add_policy(Policy::Simple {
@@ -195,6 +197,42 @@ mod tests {
             url: "https://api.example.com/data".to_string(),
             cwd: std::path::PathBuf::from("/test/cwd"),
             message: "Fetch content from URL: https://api.example.com/data".to_string(),
+        };
+
+        let actual = fixture.can_perform(&operation);
+
+        assert_eq!(actual, Permission::Allow);
+    }
+
+    #[test]
+    fn test_policy_engine_mcp_unmatched_defaults_to_confirm() {
+        let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
+            permission: Permission::Allow,
+            rule: Rule::Mcp(McpRule { mcp: "github".to_string(), dir: None }),
+        });
+        let fixture = PolicyEngine::new(&fixture_workflow);
+        let operation = PermissionOperation::Mcp {
+            server: "slack".to_string(),
+            cwd: std::path::PathBuf::from("/test/cwd"),
+            message: "Execute MCP tool: mcp_slack_tool_send".to_string(),
+        };
+
+        let actual = fixture.can_perform(&operation);
+
+        assert_eq!(actual, Permission::Confirm);
+    }
+
+    #[test]
+    fn test_policy_engine_mcp_matching_glob_allows() {
+        let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
+            permission: Permission::Allow,
+            rule: Rule::Mcp(McpRule { mcp: "git*".to_string(), dir: None }),
+        });
+        let fixture = PolicyEngine::new(&fixture_workflow);
+        let operation = PermissionOperation::Mcp {
+            server: "github".to_string(),
+            cwd: std::path::PathBuf::from("/test/cwd"),
+            message: "Execute MCP tool: mcp_github_tool_create_issue".to_string(),
         };
 
         let actual = fixture.can_perform(&operation);
