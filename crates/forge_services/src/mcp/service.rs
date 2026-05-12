@@ -121,17 +121,16 @@ where
         // Apply the trust gate. The prompt was already shown at startup via
         // init_mcp, so on first tool use the user's decision is re-applied by
         // calling filter_trusted again.
-        let raw_hash = raw_mcp.cache_key();
         let trusted_mcp = self.manager.filter_trusted(raw_mcp).await?;
 
-        self.update_mcp(trusted_mcp, raw_hash).await
+        self.update_mcp(trusted_mcp).await
     }
 
-    async fn update_mcp(&self, mcp: McpConfig, raw_hash: u64) -> Result<(), anyhow::Error> {
+    async fn update_mcp(&self, mcp: McpConfig) -> Result<(), anyhow::Error> {
         // Use the raw config hash (pre-trust-gate) so that is_config_modified always
         // compares against the original file hash, preventing infinite re-prompt loops
         // when some servers are rejected.
-        let new_hash = raw_hash;
+        let raw_hash = mcp.cache_key();
         self.clear_tools().await;
 
         // Clear failed servers map before attempting new connections
@@ -171,7 +170,7 @@ where
         // Write the hash only after join_all finishes so that any waiter on
         // init_lock re-checks is_config_modified only once self.tools is fully
         // populated, preventing "Tool not found" races.
-        *self.previous_config_hash.lock().await = new_hash;
+        *self.previous_config_hash.lock().await = raw_hash;
 
         Ok(())
     }
