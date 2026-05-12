@@ -49,9 +49,14 @@ pub fn install_extension() -> Result<bool, std::io::Error> {
 /// Returns true if we should install the extension
 ///
 /// This will return true only when:
+/// - Not running on native Windows
 /// - Running in VS Code terminal
 /// - Extension is not installed
 pub fn should_install_extension() -> bool {
+    if cfg!(windows) {
+        return false;
+    }
+
     is_vscode_terminal() && !is_extension_installed()
 }
 
