@@ -9,7 +9,7 @@ use forge_app::domain::{
 };
 use forge_app::{
     DirectoryReaderInfra, EnvironmentInfra, FileInfoInfra, FileReaderInfra, FileWriterInfra,
-    PolicyDecision, PolicyService, UserInfra,
+    PolicyDecision, PolicyService, SelectPrompt, UserInfra,
 };
 use strum_macros::{Display, EnumIter};
 
@@ -197,27 +197,28 @@ where
             Permission::Allow => Ok(PolicyDecision { allowed: true, path }),
             Permission::Confirm => {
                 // Request user confirmation using UserInfra
-                let confirmation_msg = match operation {
+                let prompt = match operation {
                     PermissionOperation::Read { message, .. } => {
-                        format!("{message}. How would you like to proceed?")
+                        SelectPrompt::new(format!("{message}. How would you like to proceed?"))
                     }
                     PermissionOperation::Write { message, .. } => {
-                        format!("{message}. How would you like to proceed?")
+                        SelectPrompt::new(format!("{message}. How would you like to proceed?"))
                     }
                     PermissionOperation::Execute { .. } => {
-                        "How would you like to proceed?".to_string()
+                        SelectPrompt::new("How would you like to proceed?")
                     }
                     PermissionOperation::Fetch { message, .. } => {
-                        format!("{message}. How would you like to proceed?")
+                        SelectPrompt::new(format!("{message}. How would you like to proceed?"))
                     }
-                    PermissionOperation::Mcp { message, .. } => {
-                        format!("{message}. How would you like to proceed?")
+                    PermissionOperation::Mcp { message, config, .. } => {
+                        let header = mcp_config_header(config);
+                        SelectPrompt::new(message.clone()).with_header(header)
                     }
                 };
 
                 match self
                     .infra
-                    .select_one_enum::<PolicyPermission>(&confirmation_msg)
+                    .select_one_enum::<PolicyPermission>(prompt)
                     .await?
                 {
                     Some(PolicyPermission::Accept) => Ok(PolicyDecision { allowed: true, path }),
@@ -231,6 +232,21 @@ where
                 }
             }
         }
+    }
+}
+
+/// Builds the header lines describing an MCP server's configuration.
+fn mcp_config_header(config: &forge_app::domain::McpServerConfig) -> Vec<String> {
+    use forge_app::domain::McpServerConfig;
+    match config {
+        McpServerConfig::Stdio(s) => {
+            let mut lines = vec![format!("command: {}", s.command)];
+            if !s.args.is_empty() {
+                lines.push(format!("args: {}", s.args.join(" ")));
+            }
+            lines
+        }
+        McpServerConfig::Http(h) => vec![format!("url: {}", h.url)],
     }
 }
 

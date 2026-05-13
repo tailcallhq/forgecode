@@ -11,7 +11,7 @@ pub struct SelectBuilder<T> {
     pub(crate) options: Vec<T>,
     pub(crate) starting_cursor: Option<usize>,
     pub(crate) default: Option<bool>,
-    pub(crate) help_message: Option<&'static str>,
+    pub(crate) help_message: Vec<String>,
     pub(crate) initial_text: Option<String>,
     pub(crate) header_lines: usize,
     pub(crate) preview: Option<String>,
@@ -43,9 +43,10 @@ impl<T: 'static> SelectBuilder<T> {
         self
     }
 
-    /// Set help message displayed as a header above the list.
-    pub fn with_help_message(mut self, message: &'static str) -> Self {
-        self.help_message = Some(message);
+    /// Set one or more header lines displayed above the list.
+    /// Each entry becomes a separate non-selectable header row.
+    pub fn with_help_message(mut self, lines: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.help_message = lines.into_iter().map(|l| l.into()).collect();
         self
     }
 
@@ -124,9 +125,12 @@ impl<T: 'static> SelectBuilder<T> {
             selector = selector.initial_raw(Some(cursor.to_string()));
         }
 
-        if let Some(help) = self.help_message {
-            selector.rows.insert(0, SelectRow::header(help));
-            selector.header_lines = selector.header_lines.saturating_add(1);
+        if !self.help_message.is_empty() {
+            let count = self.help_message.len();
+            for line in self.help_message.into_iter().rev() {
+                selector.rows.insert(0, SelectRow::header(line));
+            }
+            selector.header_lines = selector.header_lines.saturating_add(count);
         }
 
         let selected = selector.prompt()?;

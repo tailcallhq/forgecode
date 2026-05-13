@@ -201,21 +201,10 @@ where
         let mut failures = Vec::new();
 
         for (name, server) in cfg.mcp_servers.iter().filter(|(_, s)| !s.is_disabled()) {
-            let detail = match server {
-                McpServerConfig::Stdio(s) => {
-                    let args = s.args.join(" ");
-                    if args.is_empty() {
-                        s.command.clone()
-                    } else {
-                        format!("{} {args}", s.command)
-                    }
-                }
-                McpServerConfig::Http(h) => h.url.clone(),
-            };
             let operation = PermissionOperation::Mcp {
                 config: server.clone(),
                 cwd: env.cwd.clone(),
-                message: format!("Allow MCP server \"{name}\" to connect?\n  {detail}"),
+                message: format!("Allow MCP server \"{name}\" to connect?"),
             };
             match self.policy.check_operation_permission(&operation).await {
                 Ok(decision) if decision.allowed => {

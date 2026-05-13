@@ -18,7 +18,7 @@ impl ForgeWidget {
             options,
             starting_cursor: None,
             default: None,
-            help_message: None,
+            help_message: Vec::new(),
             initial_text: None,
             header_lines: 0,
             preview: None,

@@ -3349,7 +3349,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .collect();
 
         match ForgeWidget::select("Select authentication method:", method_names.clone())
-            .with_help_message("Use arrow keys to navigate and Enter to select")
+            .with_help_message(vec!["Use arrow keys to navigate and Enter to select"])
             .prompt()?
         {
             Some(selected_name) => {
