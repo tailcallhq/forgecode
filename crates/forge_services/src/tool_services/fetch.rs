@@ -1,6 +1,10 @@
+use std::env;
+use std::fs;
+
 use anyhow::{Context, anyhow};
 use forge_app::{HttpResponse, NetFetchService, ResponseContext, is_binary_content_type};
-use reqwest::{Client, Url};
+use reqwest::{Client, Certificate, Url};
+use tracing::warn;
 
 /// Retrieves content from URLs as markdown or raw text. Enables access to
 /// current online information including websites, APIs and documentation. Use
@@ -23,7 +27,74 @@ impl Default for ForgeFetch {
 
 impl ForgeFetch {
     pub fn new() -> Self {
-        Self { client: Client::new() }
+        // Explicitly disable hickory-dns so that DNS resolution is delegated to
+        // the system resolver (or the configured HTTP proxy). The workspace
+        // enables the `hickory-dns` cargo feature for reqwest, which causes
+        // `Client::new()` to perform direct DNS lookups that bypass
+        // HTTP_PROXY / HTTPS_PROXY — breaking connectivity in corporate proxy
+        // environments.
+        let mut builder = Client::builder().hickory_dns(false);
+
+        // Load additional CA certificates so the fetch tool works in corporate
+        // proxy environments that perform TLS interception (MITM). Without
+        // these, rustls only trusts the webpki-roots bundle and rejects the
+        // proxy's re-signed certificates.
+        //
+        // Certificates are loaded from, in order:
+        //   1. FORGE_ROOT_CERT_PATHS  — comma-separated list of PEM/DER paths
+        //   2. SSL_CERT_FILE          — single PEM bundle (common convention)
+        //   3. NODE_EXTRA_CA_CERTS    — single PEM file (Node.js convention)
+        //   4. REQUESTS_CA_BUNDLE     — single PEM bundle (Python convention)
+        let cert_paths: Vec<String> = if let Ok(val) = env::var("FORGE_ROOT_CERT_PATHS") {
+            val.split(',').map(|s| s.trim().to_string()).collect()
+        } else if let Ok(val) = env::var("SSL_CERT_FILE") {
+            vec![val]
+        } else if let Ok(val) = env::var("NODE_EXTRA_CA_CERTS") {
+            vec![val]
+        } else if let Ok(val) = env::var("REQUESTS_CA_BUNDLE") {
+            vec![val]
+        } else {
+            vec![]
+        };
+
+        for cert_path in &cert_paths {
+            match fs::read(cert_path) {
+                Ok(buf) => {
+                    // A PEM file may contain multiple certificates (bundle).
+                    // reqwest's Certificate::from_pem only parses the first one,
+                    // so we use from_pem_bundle to load them all.
+                    match Certificate::from_pem_bundle(&buf) {
+                        Ok(certs) => {
+                            for cert in certs {
+                                builder = builder.add_root_certificate(cert);
+                            }
+                        }
+                        Err(_) => {
+                            // Fall back to single PEM, then DER
+                            if let Ok(cert) = Certificate::from_pem(&buf) {
+                                builder = builder.add_root_certificate(cert);
+                            } else if let Ok(cert) = Certificate::from_der(&buf) {
+                                builder = builder.add_root_certificate(cert);
+                            } else {
+                                warn!(
+                                    "Failed to parse certificate from {}, skipping",
+                                    cert_path
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    warn!(
+                        "Failed to read certificate file {}: {}, skipping",
+                        cert_path, err
+                    );
+                }
+            }
+        }
+
+        let client = builder.build().expect("failed to build fetch HTTP client");
+        Self { client }
     }
 }
 
