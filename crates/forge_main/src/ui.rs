@@ -582,13 +582,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     // is not prompted again on first use — importing is itself an
                     // explicit opt-in.
                     for server_name in &added_servers {
-                        let operation = forge_domain::PermissionOperation::Mcp {
-                            server: server_name.to_string(),
-                            scope,
-                            cwd: cwd.clone(),
-                            message: format!("Connect to MCP server: {server_name}"),
-                        };
-                        self.api.allow_operation(&operation).await?;
+                        if let Some(server_config) = scope_config.mcp_servers.get(server_name) {
+                            let operation = forge_domain::PermissionOperation::Mcp {
+                                config: server_config.clone(),
+                                cwd: cwd.clone(),
+                                message: format!("Connect to MCP server: {server_name}"),
+                            };
+                            self.api.allow_operation(&operation).await?;
+                        }
                     }
 
                     // Log each added server after successful write

@@ -11,15 +11,3 @@ policies:
   - permission: allow
     rule:
       url: "*"
-  # MCP servers declared in the user-level ~/.forge/.mcp.json are trusted
-  # automatically: editing that file is itself a deliberate, global opt-in.
-  - permission: allow
-    rule:
-      mcp: "*"
-      scope: user
-  # MCP servers declared in the project's local .mcp.json require explicit
-  # per-server confirmation before the first connection.
-  - permission: confirm
-    rule:
-      mcp: "*"
-      scope: local

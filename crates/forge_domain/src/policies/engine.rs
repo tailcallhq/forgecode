@@ -93,9 +93,10 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::mcp::Scope;
+    use crate::mcp::McpServerConfig;
     use crate::{
-        ExecuteRule, Fetch, McpRule, Permission, Policy, PolicyConfig, ReadRule, Rule, WriteRule,
+        ExecuteRule, Fetch, McpFilter, McpRule, Permission, Policy, PolicyConfig, ReadRule, Rule,
+        WriteRule,
     };
 
     fn fixture_workflow_with_read_policy() -> PolicyConfig {
@@ -208,17 +209,22 @@ mod tests {
     }
 
     #[test]
-    fn test_policy_engine_mcp_unmatched_defaults_to_confirm() {
+    fn test_policy_engine_mcp_unmatched_command_defaults_to_confirm() {
+        // Rule targets "node" but operation uses "npx" — should not match.
         let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
             permission: Permission::Allow,
-            rule: Rule::Mcp(McpRule { mcp: "github".to_string(), scope: None, dir: None }),
+            rule: Rule::Mcp(McpRule {
+                mcp: McpFilter {
+                    command: Some("node".to_string()),
+                    ..McpFilter::default()
+                },
+            }),
         });
         let fixture = PolicyEngine::new(&fixture_workflow);
         let operation = PermissionOperation::Mcp {
-            server: "slack".to_string(),
-            scope: Scope::Local,
+            config: McpServerConfig::new_stdio("npx", vec![], None),
             cwd: PathBuf::from("/home/user/project"),
-            message: "Execute MCP tool: mcp_slack_tool_send".to_string(),
+            message: "Connect to MCP server: github".to_string(),
         };
 
         let actual = fixture.can_perform(&operation);
@@ -227,17 +233,21 @@ mod tests {
     }
 
     #[test]
-    fn test_policy_engine_mcp_matching_glob_allows() {
+    fn test_policy_engine_mcp_matching_command_glob_allows() {
         let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
             permission: Permission::Allow,
-            rule: Rule::Mcp(McpRule { mcp: "git*".to_string(), scope: None, dir: None }),
+            rule: Rule::Mcp(McpRule {
+                mcp: McpFilter {
+                    command: Some("np*".to_string()),
+                    ..McpFilter::default()
+                },
+            }),
         });
         let fixture = PolicyEngine::new(&fixture_workflow);
         let operation = PermissionOperation::Mcp {
-            server: "github".to_string(),
-            scope: Scope::Local,
+            config: McpServerConfig::new_stdio("npx", vec![], None),
             cwd: PathBuf::from("/home/user/project"),
-            message: "Execute MCP tool: mcp_github_tool_create_issue".to_string(),
+            message: "Connect to MCP server: github".to_string(),
         };
 
         let actual = fixture.can_perform(&operation);
@@ -246,18 +256,22 @@ mod tests {
     }
 
     #[test]
-    fn test_policy_engine_mcp_scope_filter_skips_non_matching_scope() {
-        // A `scope: user` rule must not affect a Local-scope operation.
+    fn test_policy_engine_mcp_url_rule_does_not_match_stdio() {
+        // A url-only rule must not match a stdio server.
         let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
             permission: Permission::Allow,
-            rule: Rule::Mcp(McpRule { mcp: "*".to_string(), scope: Some(Scope::User), dir: None }),
+            rule: Rule::Mcp(McpRule {
+                mcp: McpFilter {
+                    url: Some("*".to_string()),
+                    ..McpFilter::default()
+                },
+            }),
         });
         let fixture = PolicyEngine::new(&fixture_workflow);
         let operation = PermissionOperation::Mcp {
-            server: "github".to_string(),
-            scope: Scope::Local,
+            config: McpServerConfig::new_stdio("npx", vec![], None),
             cwd: PathBuf::from("/home/user/project"),
-            message: "Execute MCP tool: mcp_github_tool_create_issue".to_string(),
+            message: "Connect to MCP server: github".to_string(),
         };
 
         let actual = fixture.can_perform(&operation);

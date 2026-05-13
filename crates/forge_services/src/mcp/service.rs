@@ -148,7 +148,7 @@ where
         // first because they shadow user entries of the same name in the
         // merged config; the `visited` set prevents prompting twice for a
         // duplicated name.
-        let authorized = self
+        let authorized: HashSet<ServerName> = self
             .authorize_servers([(Scope::Local, &local_cfg), (Scope::User, &user_cfg)])
             .await?;
 
@@ -204,14 +204,13 @@ where
         // Sequential: prompts require user input and must not hold any lock
         // while awaiting a response.
         let cwd = self.infra.get_environment().cwd;
-        for (scope, cfg) in scoped {
+        for (_scope, cfg) in scoped {
             for (name, server) in &cfg.mcp_servers {
                 if server.is_disabled() || !visited.insert(name.clone()) {
                     continue;
                 }
                 let operation = PermissionOperation::Mcp {
-                    server: name.to_string(),
-                    scope,
+                    config: server.clone(),
                     cwd: cwd.clone(),
                     message: format!("Connect to MCP server: {name}"),
                 };
@@ -474,6 +473,13 @@ mod tests {
             _operation: &PermissionOperation,
         ) -> anyhow::Result<PolicyDecision> {
             Ok(PolicyDecision { allowed: true, path: None })
+        }
+
+        async fn is_operation_permitted(
+            &self,
+            _operation: &PermissionOperation,
+        ) -> anyhow::Result<bool> {
+            Ok(true)
         }
 
         async fn allow_operation(&self, _operation: &PermissionOperation) -> anyhow::Result<()> {

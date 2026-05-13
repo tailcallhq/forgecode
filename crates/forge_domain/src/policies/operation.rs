@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::mcp::Scope;
+use crate::mcp::McpServerConfig;
 
 /// Operations that can be performed and need policy checking
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,16 +25,13 @@ pub enum PermissionOperation {
         cwd: PathBuf,
         message: String,
     },
-    /// MCP server connection authorization, identified by the server name as
-    /// it appears in `.mcp.json`. Evaluated once per server when the MCP
-    /// service brings up connections; the decision then gates every tool
-    /// call routed through that server.
+    /// MCP server connection authorization. Evaluated once per server when the
+    /// MCP service brings up connections; the decision then gates every tool
+    /// call routed through that server. The `config` field carries either a
+    /// stdio server (command + args) or an HTTP server (url) — never both.
     Mcp {
-        server: String,
-        /// Which config file declared the server. Lets policy rules
-        /// differentiate user-level (global) trust from project-local
-        /// trust.
-        scope: Scope,
+        /// The server configuration — either `Stdio` (command + args) or `Http` (url).
+        config: McpServerConfig,
         /// The current working directory at the time of the operation.
         cwd: PathBuf,
         message: String,

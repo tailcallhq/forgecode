@@ -4,8 +4,8 @@ use std::sync::{Arc, LazyLock};
 use anyhow::Context;
 use bytes::Bytes;
 use forge_app::domain::{
-    ExecuteRule, Fetch, McpRule, Permission, PermissionOperation, Policy, PolicyConfig,
-    PolicyEngine, ReadRule, Rule, WriteRule,
+    ExecuteRule, Fetch, McpFilter, McpRule, Permission, PermissionOperation,
+    Policy, PolicyConfig, PolicyEngine, ReadRule, Rule, WriteRule,
 };
 use forge_app::{
     DirectoryReaderInfra, EnvironmentInfra, FileInfoInfra, FileReaderInfra, FileWriterInfra,
@@ -290,17 +290,9 @@ fn create_policy_for_operation(
                 }),
             }
         }
-        PermissionOperation::Mcp { server, scope, cwd, .. } => Some(Policy::Simple {
+        PermissionOperation::Mcp { config, cwd, .. } => Some(Policy::Simple {
             permission: Permission::Allow,
-            // Scope the remembered decision to the same scope that triggered
-            // the prompt so the trust doesn't silently leak to a different
-            // `.mcp.json` later (e.g. accepting a local-scope server should
-            // not also auto-allow a user-scope entry with the same name).
-            rule: Rule::Mcp(McpRule {
-                mcp: server.clone(),
-                scope: Some(*scope),
-                dir: Some(cwd.to_string_lossy().to_string()),
-            }),
+            rule: Rule::Mcp(McpRule { mcp: McpFilter::from_config(config, cwd) }),
         }),
     }
 }
@@ -485,10 +477,13 @@ mod tests {
     }
 
     #[test]
-    fn test_create_policy_for_mcp_operation() {
+    fn test_create_policy_for_mcp_stdio_operation() {
         let operation = PermissionOperation::Mcp {
-            server: "github".to_string(),
-            scope: forge_app::domain::Scope::Local,
+            config: forge_app::domain::McpServerConfig::new_stdio(
+                "npx",
+                vec!["-y".to_string(), "@github/mcp".to_string()],
+                None,
+            ),
             cwd: PathBuf::from("/home/user/project"),
             message: "Connect to MCP server: github".to_string(),
         };
@@ -498,9 +493,36 @@ mod tests {
         let expected = Some(Policy::Simple {
             permission: Permission::Allow,
             rule: Rule::Mcp(McpRule {
-                mcp: "github".to_string(),
-                scope: Some(forge_app::domain::Scope::Local),
-                dir: Some("/home/user/project".to_string()),
+                mcp: McpFilter {
+                    command: Some("npx".to_string()),
+                    args: Some(vec!["-y".to_string(), "@github/mcp".to_string()]),
+                    url: None,
+                    dir: Some("/home/user/project".to_string()),
+                },
+            }),
+        });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_create_policy_for_mcp_http_operation() {
+        let operation = PermissionOperation::Mcp {
+            config: forge_app::domain::McpServerConfig::new_http("https://mcp.example.com/sse"),
+            cwd: PathBuf::from("/home/user/project"),
+            message: "Connect to MCP server: example".to_string(),
+        };
+
+        let actual = create_policy_for_operation(&operation, None);
+
+        let expected = Some(Policy::Simple {
+            permission: Permission::Allow,
+            rule: Rule::Mcp(McpRule {
+                mcp: McpFilter {
+                    url: Some("https://mcp.example.com/sse".to_string()),
+                    dir: Some("/home/user/project".to_string()),
+                    ..McpFilter::default()
+                },
             }),
         });
 

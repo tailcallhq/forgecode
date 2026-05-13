@@ -21,7 +21,7 @@ pub enum Scope {
     User,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(untagged)]
 pub enum McpServerConfig {
     Stdio(McpStdioServer),
@@ -71,7 +71,7 @@ impl McpServerConfig {
     }
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize, Setters, PartialEq, Hash)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, Setters, PartialEq, Eq, Hash)]
 #[setters(strip_option, into)]
 pub struct McpStdioServer {
     /// Command to execute for starting this MCP server
@@ -97,7 +97,7 @@ pub struct McpStdioServer {
     pub disable: bool,
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct McpHttpServer {
     /// Url of the MCP server (auto-detects HTTP vs SSE transport)
     #[serde(skip_serializing_if = "String::is_empty", alias = "serverUrl")]
@@ -150,7 +150,7 @@ impl McpHttpServer {
 /// Represents the OAuth setting for an MCP server.
 /// Supports three states: auto-detect (default), explicitly disabled, or
 /// explicitly configured.
-#[derive(Debug, Clone, PartialEq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum McpOAuthSetting {
     /// No explicit OAuth config - auto-detect via server 401 response
     #[default]
@@ -233,7 +233,7 @@ impl McpOAuthSetting {
 /// Supports automatic OAuth configuration discovery from server metadata.
 /// When auth_url/token_url are not provided, Forge will automatically
 /// discover them using RFC 8414 OAuth 2.0 Authorization Server Metadata.
-#[derive(Default, Debug, Clone, Serialize, Deserialize, Setters, PartialEq, Hash)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, Setters, PartialEq, Eq, Hash)]
 #[setters(strip_option, into)]
 #[serde(rename_all = "camelCase")]
 pub struct McpOAuthConfig {
