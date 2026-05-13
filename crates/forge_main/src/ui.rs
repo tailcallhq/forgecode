@@ -138,6 +138,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         if let Ok(tools) = self.api.get_tools().await {
             let warnings = tools.mcp.get_warnings();
             if !warnings.is_empty() {
+                let permissions_path = self.api.environment().permissions_path();
                 let server_list = warnings
                     .iter()
                     .map(|w| format!("    - {}", w.server_name))
@@ -145,7 +146,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     .join("\n");
                 self.writeln_title(TitleFormat::warning(format!(
                     "Some MCP servers are not allowed to execute by default. \
-                To enable them, add matching rules in permissions.yaml.\n{server_list}",
+                    To enable them, add matching rules in '{}'.\n{server_list}",
+                    permissions_path.display(),
                 )))?;
             }
         }
