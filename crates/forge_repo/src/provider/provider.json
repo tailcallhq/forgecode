@@ -3442,7 +3442,7 @@
   },
   {
     "id": "fireworks-ai-firepass",
-    "api_key_vars": "FIREWORKS_AI_API_KEY",
+    "api_key_vars": "FIREWORKS_AI_FIREPASS_API_KEY",
     "url_param_vars": [],
     "response_type": "OpenAI",
     "url": "https://api.fireworks.ai/inference/v1/chat/completions",
