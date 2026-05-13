@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use anyhow::Context;
+use futures::future;
 use forge_app::domain::{
     McpConfig, McpPermissionWarning, McpServerConfig, McpServers, PermissionOperation, Scope,
     ServerName, ToolCallFull, ToolDefinition, ToolName, ToolOutput,
@@ -14,6 +15,13 @@ use merge::Merge;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::mcp::tool::McpExecutor;
+
+/// Result of a single server authorization check.
+enum AuthorizationResult {
+    Authorized(ServerName),
+    Denied(ServerName, String),
+    Failed(ServerName, String),
+}
 
 fn generate_mcp_tool_name(server_name: &ServerName, tool_name: &ToolName) -> ToolName {
     let sanitized_server_name = ToolName::sanitized(server_name.to_string().as_str());
@@ -196,30 +204,49 @@ where
         &self,
         cfg: &McpConfig,
     ) -> anyhow::Result<(HashSet<ServerName>, Vec<McpPermissionWarning>)> {
+        let env = self.infra.get_environment();
+
+        // Collect all enabled servers and run permission checks in parallel
+        let permission_futures: Vec<_> = cfg
+            .mcp_servers
+            .iter()
+            .filter(|(_, server)| !server.is_disabled())
+            .map(|(name, server)| {
+                let operation = PermissionOperation::Mcp {
+                    config: server.clone(),
+                    cwd: env.cwd.clone(),
+                    message: format!("Connect to MCP server: {name}"),
+                };
+                async move {
+                    let name = name.clone();
+                    match self.policy.is_operation_permitted(&operation).await {
+                        Ok(true) => AuthorizationResult::Authorized(name),
+                        Ok(false) => AuthorizationResult::Denied(name, "Connection denied by policy".to_string()),
+                        Err(err) => AuthorizationResult::Failed(name, format!("Policy check failed: {err:?}")),
+                    }
+                }
+            })
+            .collect();
+
+        // Execute all permission checks concurrently
+        let results = future::join_all(permission_futures).await;
+
+        // Collect results
         let mut authorized = HashSet::new();
         let mut denied: Vec<(ServerName, String)> = Vec::new();
         let mut warnings: Vec<McpPermissionWarning> = Vec::new();
 
-        let env = self.infra.get_environment();
-        for (name, server) in &cfg.mcp_servers {
-            if server.is_disabled() {
-                continue;
-            }
-            let operation = PermissionOperation::Mcp {
-                config: server.clone(),
-                cwd: env.cwd.clone(),
-                message: format!("Connect to MCP server: {name}"),
-            };
-            match self.policy.is_operation_permitted(&operation).await {
-                Ok(true) => {
-                    authorized.insert(name.clone());
+        for result in results {
+            match result {
+                AuthorizationResult::Authorized(name) => {
+                    authorized.insert(name);
                 }
-                Ok(false) => {
-                    denied.push((name.clone(), "Connection denied by policy".to_string()));
-                    warnings.push(McpPermissionWarning { server_name: name.clone() });
+                AuthorizationResult::Denied(name, reason) => {
+                    denied.push((name.clone(), reason));
+                    warnings.push(McpPermissionWarning { server_name: name });
                 }
-                Err(err) => {
-                    denied.push((name.clone(), format!("Policy check failed: {err:?}")));
+                AuthorizationResult::Failed(name, reason) => {
+                    denied.push((name, reason));
                 }
             }
         }
