@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use forge_app::{FileReaderInfra, SyncProgressCounter, WorkspaceStatus, compute_hash};
 use forge_domain::{ApiKey, FileHash, SyncProgress, UserId, WorkspaceId, WorkspaceIndexRepository};
+use futures::FutureExt;
 use futures::stream::{Stream, StreamExt};
 use tracing::{info, warn};
 
@@ -172,15 +173,15 @@ impl<F: 'static + WorkspaceIndexRepository + FileReaderInfra, D: FileDiscovery +
         let mut upload_stream = Box::pin(self.upload_files(sync_paths.upload));
 
         // Process uploads as they complete, updating progress incrementally
-        while let Some(result) = upload_stream.next().await {
+        while let Some((attempted, result)) = upload_stream.next().await {
             match result {
-                Ok(count) => {
-                    counter.complete(count);
+                Ok(()) => {
+                    counter.complete(attempted);
                     emit(counter.sync_progress()).await;
                 }
                 Err(e) => {
                     warn!(workspace_id = %self.workspace_id, error = ?e, "Failed to upload file during sync");
-                    failed_files += 1;
+                    failed_files += attempted;
                     // Continue processing remaining uploads
                 }
             }
@@ -269,54 +270,47 @@ impl<F: 'static + WorkspaceIndexRepository + FileReaderInfra, D: FileDiscovery +
     /// [`forge_domain::FileUpload`] payload, and uploaded in one request.
     /// Batches are processed sequentially — only one HTTP request is in-flight
     /// at a time — which keeps both memory usage and server concurrency
-    /// bounded. The stream yields the number of files successfully uploaded
-    /// per batch.
+    /// bounded. The stream yields the number of files attempted per batch
+    /// along with whether the batch upload succeeded.
     fn upload_files(
         &self,
         paths: Vec<PathBuf>,
-    ) -> impl Stream<Item = Result<usize, anyhow::Error>> + Send {
+    ) -> impl Stream<Item = (usize, Result<(), anyhow::Error>)> + Send {
         let user_id = self.user_id.clone();
         let workspace_id = self.workspace_id.clone();
         let token = self.token.clone();
         let infra = self.infra.clone();
         let batch_size = self.batch_size;
 
-        futures::stream::iter(paths).chunks(batch_size).then(move |batch| {
-            let user_id = user_id.clone();
-            let workspace_id = workspace_id.clone();
-            let token = token.clone();
-            let infra = infra.clone();
-            async move {
-                let mut files = Vec::with_capacity(batch.len());
-                for file_path in &batch {
-                    info!(workspace_id = %workspace_id, path = %file_path.display(), "File sync started");
-                    let content = infra
-                        .read_utf8(file_path)
-                        .await
-                        .with_context(|| {
+        futures::stream::iter(paths)
+            .chunks(batch_size)
+            .then(move |batch| {
+                let user_id = user_id.clone();
+                let workspace_id = workspace_id.clone();
+                let token = token.clone();
+                let infra = infra.clone();
+                let attempted = batch.len();
+                async move {
+                    let mut files = Vec::with_capacity(batch.len());
+                    for file_path in &batch {
+                        let content = infra.read_utf8(file_path).await.with_context(|| {
                             format!("Failed to read file '{}' for upload", file_path.display())
                         })?;
-                    files.push(forge_domain::FileRead::new(
-                        file_path.to_string_lossy().into_owned(),
-                        content,
-                    ));
+                        files.push(forge_domain::FileRead::new(
+                            file_path.to_string_lossy().into_owned(),
+                            content,
+                        ));
+                    }
+                    let upload =
+                        forge_domain::CodeBase::new(user_id.clone(), workspace_id.clone(), files);
+                    infra
+                        .upload_files(&upload, &token)
+                        .await
+                        .context("Failed to upload files")?;
+                    Ok::<_, anyhow::Error>(())
                 }
-                let count = files.len();
-                let upload = forge_domain::CodeBase::new(
-                    user_id.clone(),
-                    workspace_id.clone(),
-                    files,
-                );
-                infra
-                    .upload_files(&upload, &token)
-                    .await
-                    .context("Failed to upload files")?;
-                for file_path in &batch {
-                    info!(workspace_id = %workspace_id, path = %file_path.display(), "File sync completed");
-                }
-                Ok::<_, anyhow::Error>(count)
-            }
-        })
+                .map(move |result| (attempted, result))
+            })
     }
 
     /// Discovers workspace files and streams their hashes without retaining
@@ -363,5 +357,108 @@ impl<F: 'static + WorkspaceIndexRepository + FileReaderInfra, D: FileDiscovery +
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use async_trait::async_trait;
+    use forge_app::FileReaderInfra;
+    use forge_domain::{
+        ApiKey, FileDeletion, FileHash, FileInfo, FileUpload, FileUploadInfo, Node, UserId,
+        WorkspaceAuth, WorkspaceFiles, WorkspaceId, WorkspaceIndexRepository, WorkspaceInfo,
+    };
+    use futures::StreamExt;
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    /// Minimal infra for `upload_files`: only `read_utf8` + `upload_files`
+    /// are exercised; everything else is intentionally unreachable.
+    struct MockInfra {
+        fail_upload: bool,
+    }
+
+    #[async_trait]
+    #[rustfmt::skip]
+    impl FileReaderInfra for MockInfra {
+        async fn read_utf8(&self, _path: &Path) -> anyhow::Result<String> { Ok(String::new()) }
+        fn read_batch_utf8(&self, _: usize, _: Vec<PathBuf>) -> impl futures::Stream<Item = (PathBuf, anyhow::Result<String>)> + Send { futures::stream::empty() }
+        async fn read(&self, _: &Path) -> anyhow::Result<Vec<u8>> { unreachable!() }
+        async fn range_read_utf8(&self, _: &Path, _: u64, _: u64) -> anyhow::Result<(String, FileInfo)> { unreachable!() }
+    }
+
+    #[async_trait]
+    #[rustfmt::skip]
+    impl WorkspaceIndexRepository for MockInfra {
+        async fn upload_files(&self, _: &FileUpload, _: &ApiKey) -> anyhow::Result<FileUploadInfo> {
+            if self.fail_upload { Err(anyhow::anyhow!("boom")) } else { Ok(FileUploadInfo::default()) }
+        }
+        async fn authenticate(&self) -> anyhow::Result<WorkspaceAuth> { unreachable!() }
+        async fn create_workspace(&self, _: &Path, _: &ApiKey) -> anyhow::Result<WorkspaceId> { unreachable!() }
+        async fn search(&self, _: &forge_domain::CodeSearchQuery<'_>, _: &ApiKey) -> anyhow::Result<Vec<Node>> { unreachable!() }
+        async fn list_workspaces(&self, _: &ApiKey) -> anyhow::Result<Vec<WorkspaceInfo>> { unreachable!() }
+        async fn get_workspace(&self, _: &WorkspaceId, _: &ApiKey) -> anyhow::Result<Option<WorkspaceInfo>> { unreachable!() }
+        async fn list_workspace_files(&self, _: &WorkspaceFiles, _: &ApiKey) -> anyhow::Result<Vec<FileHash>> { unreachable!() }
+        async fn delete_files(&self, _: &FileDeletion, _: &ApiKey) -> anyhow::Result<()> { unreachable!() }
+        async fn delete_workspace(&self, _: &WorkspaceId, _: &ApiKey) -> anyhow::Result<()> { unreachable!() }
+    }
+
+    /// Discovery is not invoked by `upload_files`; a no-op satisfies the bound.
+    struct NoDiscovery;
+    #[async_trait]
+    impl FileDiscovery for NoDiscovery {
+        async fn discover(&self, _: &Path) -> anyhow::Result<Vec<PathBuf>> {
+            Ok(vec![])
+        }
+    }
+
+    fn fixture(fail_upload: bool) -> WorkspaceSyncEngine<MockInfra, NoDiscovery> {
+        WorkspaceSyncEngine::new(
+            Arc::new(MockInfra { fail_upload }),
+            Arc::new(NoDiscovery),
+            PathBuf::new(),
+            WorkspaceId::generate(),
+            UserId::generate(),
+            ApiKey::from(String::new()),
+            3, // batch_size
+        )
+    }
+
+    /// Regression test for the bug where a failed batch counted as 1 failure
+    /// instead of N. With batch_size=3 and 5 files, batches are [3, 2] and
+    /// each must report its full size on failure.
+    #[tokio::test]
+    async fn test_failed_batch_reports_full_batch_size() {
+        let engine = fixture(true);
+        let paths: Vec<PathBuf> = (0..5).map(|i| PathBuf::from(format!("f{i}"))).collect();
+
+        let actual: Vec<(usize, bool)> = engine
+            .upload_files(paths)
+            .map(|(n, r)| (n, r.is_ok()))
+            .collect()
+            .await;
+        let expected = vec![(3, false), (2, false)];
+
+        assert_eq!(actual, expected);
+    }
+
+    /// Successful batches must also yield their full size so the progress
+    /// counter advances correctly.
+    #[tokio::test]
+    async fn test_successful_batch_reports_full_batch_size() {
+        let engine = fixture(false);
+        let paths: Vec<PathBuf> = (0..5).map(|i| PathBuf::from(format!("f{i}"))).collect();
+
+        let actual: Vec<(usize, bool)> = engine
+            .upload_files(paths)
+            .map(|(n, r)| (n, r.is_ok()))
+            .collect()
+            .await;
+        let expected = vec![(3, true), (2, true)];
+
+        assert_eq!(actual, expected);
     }
 }

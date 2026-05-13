@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use forge_app::dto::ToolsOverview;
 use forge_app::{
     AgentProviderResolver, AgentRegistry, AppConfigService, AuthService, CommandInfra,
@@ -107,6 +107,12 @@ impl<
         diff: Option<String>,
         additional_context: Option<String>,
     ) -> Result<forge_app::CommitResult> {
+        let use_forge_committer = self
+            .services
+            .get_config()
+            .context("Failed to read forge config for commit settings")?
+            .use_forge_committer;
+
         let git_app = GitApp::new(self.services.clone());
         let result = git_app
             .commit_message(max_diff_size, diff, additional_context)
@@ -116,7 +122,7 @@ impl<
             Ok(result)
         } else {
             git_app
-                .commit(result.message, result.has_staged_files)
+                .commit(result.message, result.has_staged_files, use_forge_committer)
                 .await
         }
     }

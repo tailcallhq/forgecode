@@ -5,8 +5,9 @@ use crate::dto::openai::Request;
 /// Transformer that converts standard ReasoningConfig to reasoning_effort
 /// format
 ///
-/// OpenAI-compatible APIs expect `reasoning_effort` parameter instead of the
-/// internal `reasoning` config object.
+/// OpenAI-compatible APIs (Requesty, GitHub Copilot, DeepSeek) expect
+/// `reasoning_effort` parameter instead of the internal `reasoning` config
+/// object.
 ///
 /// # Transformation Rules
 ///

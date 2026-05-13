@@ -1,8 +1,8 @@
 use anyhow::Context;
 use forge_app::domain::ChatCompletionMessage;
 use forge_app::dto::openai::Error;
+use forge_eventsource::{Event, EventSource};
 use reqwest::Url;
-use reqwest_eventsource::{Event, EventSource};
 use serde::de::DeserializeOwned;
 use tokio_stream::{Stream, StreamExt};
 use tracing::debug;
@@ -18,7 +18,7 @@ where
     ChatCompletionMessage: TryFrom<Response, Error = anyhow::Error>,
 {
     source
-            .take_while(|message| !matches!(message, Err(reqwest_eventsource::Error::StreamEnded)))
+            .take_while(|message| !matches!(message, Err(forge_eventsource::Error::StreamEnded)))
             .then(|event| async {
                 match event {
                     Ok(event) => match event {
@@ -49,8 +49,8 @@ where
                         ),
                     },
                     Err(error) => match error {
-                        reqwest_eventsource::Error::StreamEnded => None,
-                        reqwest_eventsource::Error::InvalidStatusCode(_, response) => {
+                        forge_eventsource::Error::StreamEnded => None,
+                        forge_eventsource::Error::InvalidStatusCode(_, response) => {
                             let status = response.status();
                             let body = response.text().await.ok();
                             Some(Err(Error::InvalidStatusCode(status.as_u16())).with_context(
@@ -64,7 +64,7 @@ where
                                 },
                             ))
                         }
-                        reqwest_eventsource::Error::InvalidContentType(_, ref response) => {
+                        forge_eventsource::Error::InvalidContentType(_, ref response) => {
                             let status_code = response.status();
                             debug!(response = ?response, "Invalid content type");
                             Some(Err(error).with_context(|| format!("Http Status: {status_code}")))

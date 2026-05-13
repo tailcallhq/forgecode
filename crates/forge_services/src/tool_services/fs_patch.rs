@@ -3,8 +3,12 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use forge_app::domain::PatchOperation;
-use forge_app::{FileWriterInfra, FsPatchService, PatchOutput, compute_hash};
-use forge_domain::{FuzzySearchRepository, SearchMatch, SnapshotRepository, ValidationRepository};
+use forge_app::{EnvironmentInfra, FileWriterInfra, FsPatchService, PatchOutput, compute_hash};
+use forge_config::ForgeConfig;
+use forge_domain::{
+    FuzzySearchRepository, SearchMatch, SnapshotRepository, TextPatchBlock, TextPatchRepository,
+    ValidationRepository,
+};
 use thiserror::Error;
 use tokio::fs;
 
@@ -59,6 +63,7 @@ impl Range {
     }
 
     /// Create a range from a fuzzy search match
+    #[allow(dead_code)]
     fn from_search_match(source: &str, search_match: &SearchMatch) -> Self {
         let lines: Vec<&str> = source.lines().collect();
 
@@ -145,6 +150,8 @@ enum Error {
         "Match range [{0}..{1}) is out of bounds for content of length {2}. File may have changed externally, consider reading the file again."
     )]
     RangeOutOfBounds(usize, usize, usize),
+    #[error("Failed to build fuzzy patch: {message}")]
+    PatchBuild { message: String },
 }
 
 /// Compute a range from search text, with operation-aware error handling
@@ -356,6 +363,87 @@ fn apply_replacement(
 
 // Using FSPatchInput from forge_domain
 
+fn build_fuzzy_patch(
+    current_content: &str,
+    search_text: &str,
+    content: &str,
+    patch: TextPatchBlock,
+) -> String {
+    let _ = (
+        Range::normalize_search_line_endings(current_content, search_text),
+        Range::normalize_search_line_endings(current_content, content),
+        patch.patch,
+    );
+    patch.patched_text
+}
+
+async fn apply_fuzzy_search_fallback<F: FuzzySearchRepository>(
+    infra: &F,
+    current_content: String,
+    search_text: String,
+    content: &str,
+    operation: &PatchOperation,
+) -> Result<String, Error> {
+    let range = match infra
+        .fuzzy_search(&search_text, &current_content, false)
+        .await
+    {
+        Ok(matches) if !matches.is_empty() => matches
+            .first()
+            .map(|m| Range::from_search_match(&current_content, m)),
+        _ => return Err(Error::NoMatch(search_text)),
+    };
+
+    apply_replacement(current_content, range, operation, content)
+}
+
+async fn apply_text_patch_fallback<F: TextPatchRepository>(
+    infra: &F,
+    current_content: String,
+    search_text: String,
+    content: &str,
+) -> Result<String, Error> {
+    let normalized_search = Range::normalize_search_line_endings(&current_content, &search_text);
+    let normalized_content = Range::normalize_search_line_endings(&current_content, content);
+    let patch = infra
+        .build_text_patch(&current_content, &normalized_search, &normalized_content)
+        .await
+        .map_err(|error| Error::PatchBuild { message: error.to_string() })?;
+    Ok(build_fuzzy_patch(
+        &current_content,
+        &search_text,
+        content,
+        patch,
+    ))
+}
+
+async fn apply_replace_operation<F: FuzzySearchRepository + TextPatchRepository>(
+    infra: &F,
+    current_content: String,
+    search: &str,
+    content: &str,
+    operation: &PatchOperation,
+    use_text_patch_fallback: bool,
+) -> Result<String, Error> {
+    match compute_range(&current_content, Some(search), operation) {
+        Ok(range) => apply_replacement(current_content, range, operation, content),
+        Err(Error::NoMatch(search_text))
+            if matches!(
+                operation,
+                PatchOperation::Replace | PatchOperation::ReplaceAll | PatchOperation::Swap
+            ) =>
+        {
+            if use_text_patch_fallback {
+                apply_text_patch_fallback(infra, current_content, search_text, content).await
+            } else {
+                apply_fuzzy_search_fallback(infra, current_content, search_text, content, operation)
+                    .await
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Service for patching files with snapshot coordination
 ///
 /// This service coordinates between infrastructure (file I/O) and repository
@@ -371,8 +459,14 @@ impl<F> ForgeFsPatch<F> {
 }
 
 #[async_trait::async_trait]
-impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearchRepository>
-    FsPatchService for ForgeFsPatch<F>
+impl<
+    F: EnvironmentInfra<Config = ForgeConfig>
+        + FileWriterInfra
+        + SnapshotRepository
+        + ValidationRepository
+        + FuzzySearchRepository
+        + TextPatchRepository,
+> FsPatchService for ForgeFsPatch<F>
 {
     async fn patch(
         &self,
@@ -399,36 +493,17 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
 
         // Save the old content before modification for diff generation
         let old_content = current_content.clone();
+        let use_text_patch_fallback = self.infra.get_config()?.use_text_patch_fallback;
 
-        // Compute range from search if provided
-        let range = match compute_range(&current_content, Some(&search), &operation) {
-            Ok(r) => r,
-            Err(Error::NoMatch(search_text))
-                if matches!(
-                    operation,
-                    PatchOperation::Replace | PatchOperation::ReplaceAll | PatchOperation::Swap
-                ) =>
-            {
-                // Try fuzzy search as fallback
-                match self
-                    .infra
-                    .fuzzy_search(&search_text, &current_content, false)
-                    .await
-                {
-                    Ok(matches) if !matches.is_empty() => {
-                        // Use the first fuzzy match
-                        matches
-                            .first()
-                            .map(|m| Range::from_search_match(&current_content, m))
-                    }
-                    _ => return Err(Error::NoMatch(search_text).into()),
-                }
-            }
-            Err(e) => return Err(e.into()),
-        };
-
-        // Apply the replacement
-        current_content = apply_replacement(current_content, range, &operation, &content)?;
+        current_content = apply_replace_operation(
+            &*self.infra,
+            current_content,
+            &search,
+            &content,
+            &operation,
+            use_text_patch_fallback,
+        )
+        .await?;
 
         // SNAPSHOT COORDINATION: Always capture snapshot before modifying
         self.infra.insert_snapshot(path).await?;
@@ -470,6 +545,7 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
             .map_err(Error::FileOperation)?;
         // Save the old content before modification for diff generation
         let old_content = current_content.clone();
+        let use_text_patch_fallback = self.infra.get_config()?.use_text_patch_fallback;
 
         // Apply each edit sequentially
         for edit in &edits {
@@ -480,36 +556,15 @@ impl<F: FileWriterInfra + SnapshotRepository + ValidationRepository + FuzzySearc
                 PatchOperation::Replace
             };
 
-            // Compute range from search if provided
-            let range = match compute_range(&current_content, Some(&edit.old_string), &operation) {
-                Ok(r) => r,
-                Err(Error::NoMatch(search_text))
-                    if matches!(
-                        operation,
-                        PatchOperation::Replace | PatchOperation::ReplaceAll | PatchOperation::Swap
-                    ) =>
-                {
-                    // Try fuzzy search as fallback
-                    match self
-                        .infra
-                        .fuzzy_search(&search_text, &current_content, false)
-                        .await
-                    {
-                        Ok(matches) if !matches.is_empty() => {
-                            // Use the first fuzzy match
-                            matches
-                                .first()
-                                .map(|m| Range::from_search_match(&current_content, m))
-                        }
-                        _ => return Err(Error::NoMatch(search_text).into()),
-                    }
-                }
-                Err(e) => return Err(e.into()),
-            };
-
-            // Apply the replacement
-            current_content =
-                apply_replacement(current_content, range, &operation, &edit.new_string)?;
+            current_content = apply_replace_operation(
+                &*self.infra,
+                current_content,
+                &edit.old_string,
+                &edit.new_string,
+                &operation,
+                use_text_patch_fallback,
+            )
+            .await?;
         }
 
         // SNAPSHOT COORDINATION: Always capture snapshot before modifying
@@ -544,6 +599,72 @@ mod tests {
     use forge_app::domain::PatchOperation;
     use forge_domain::SearchMatch;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_apply_replace_operation_uses_fuzzy_search_when_text_patch_fallback_disabled() {
+        let fixture = tokio::runtime::Runtime::new().unwrap();
+
+        let actual = fixture.block_on(super::apply_replace_operation(
+            &FallbackRepository,
+            "alpha\nbeta\ngamma".to_string(),
+            "betaa",
+            "delta",
+            &PatchOperation::Replace,
+            false,
+        ));
+
+        let expected = "alpha\ndelta\ngamma";
+        assert_eq!(actual.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_apply_replace_operation_uses_text_patch_when_enabled() {
+        let fixture = tokio::runtime::Runtime::new().unwrap();
+
+        let actual = fixture.block_on(super::apply_replace_operation(
+            &FallbackRepository,
+            "alpha\nbeta\ngamma".to_string(),
+            "betaa",
+            "delta",
+            &PatchOperation::Replace,
+            true,
+        ));
+
+        let expected = "patched via text patch";
+        assert_eq!(actual.unwrap(), expected);
+    }
+
+    #[derive(Default)]
+    struct FallbackRepository;
+
+    #[async_trait::async_trait]
+    impl forge_domain::FuzzySearchRepository for FallbackRepository {
+        async fn fuzzy_search(
+            &self,
+            _needle: &str,
+            _haystack: &str,
+            _search_all: bool,
+        ) -> anyhow::Result<Vec<forge_domain::SearchMatch>> {
+            let actual = vec![forge_domain::SearchMatch { start_line: 1, end_line: 1 }];
+            Ok(actual)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl forge_domain::TextPatchRepository for FallbackRepository {
+        async fn build_text_patch(
+            &self,
+            _haystack: &str,
+            _old_string: &str,
+            _new_string: &str,
+        ) -> anyhow::Result<forge_domain::TextPatchBlock> {
+            let actual = forge_domain::TextPatchBlock {
+                patch: "@@ -1 +1 @@".to_string(),
+                patched_text: "patched via text patch".to_string(),
+            };
+            Ok(actual)
+        }
+    }
 
     #[test]
     fn test_range_from_search_match_single_line() {

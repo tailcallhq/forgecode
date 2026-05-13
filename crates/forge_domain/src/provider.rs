@@ -78,6 +78,7 @@ impl ProviderId {
     pub const MODAL: ProviderId = ProviderId(Cow::Borrowed("modal"));
     pub const ADAL: ProviderId = ProviderId(Cow::Borrowed("adal"));
     pub const XIAOMI_MIMO: ProviderId = ProviderId(Cow::Borrowed("xiaomi_mimo"));
+    pub const NVIDIA: ProviderId = ProviderId(Cow::Borrowed("nvidia"));
 
     /// Returns all built-in provider IDs
     ///
@@ -116,6 +117,7 @@ impl ProviderId {
             ProviderId::MODAL,
             ProviderId::ADAL,
             ProviderId::XIAOMI_MIMO,
+            ProviderId::NVIDIA,
         ]
     }
 
@@ -148,6 +150,7 @@ impl ProviderId {
             "modal" => "Modal".to_string(),
             "adal" => "AdaL".to_string(),
             "xiaomi_mimo" => "XiaomiMimo".to_string(),
+            "nvidia" => "NVIDIA".to_string(),
             _ => {
                 // For other providers, use UpperCamelCase conversion
                 use convert_case::{Case, Casing};
@@ -201,6 +204,7 @@ impl std::str::FromStr for ProviderId {
             "modal" => ProviderId::MODAL,
             "adal" => ProviderId::ADAL,
             "xiaomi_mimo" => ProviderId::XIAOMI_MIMO,
+            "nvidia" => ProviderId::NVIDIA,
             // For custom providers, use Cow::Owned to avoid memory leaks
             custom => ProviderId(Cow::Owned(custom.to_string())),
         };
@@ -576,6 +580,7 @@ mod tests {
         assert_eq!(ProviderId::OPENCODE_ZEN.to_string(), "OpenCode Zen");
         assert_eq!(ProviderId::OPENCODE_GO.to_string(), "OpenCode Go");
         assert_eq!(ProviderId::GOOGLE_AI_STUDIO.to_string(), "GoogleAIStudio");
+        assert_eq!(ProviderId::NVIDIA.to_string(), "NVIDIA");
     }
 
     #[test]
@@ -615,6 +620,7 @@ mod tests {
         assert!(built_in.contains(&ProviderId::VIVGRID));
         assert!(built_in.contains(&ProviderId::OPENCODE_GO));
         assert!(built_in.contains(&ProviderId::GOOGLE_AI_STUDIO));
+        assert!(built_in.contains(&ProviderId::NVIDIA));
     }
 
     #[test]

@@ -64,7 +64,7 @@ mod tests {
                     call_id: Some(ToolCallId::new("call_001")),
                     // This is what an old dump would have - stringified JSON
                     arguments: ToolCallArguments::from_json(
-                        r#"{"file_path": "/test/path", "start_line": 1}"#,
+                        r#"{"file_path": "/test/path", "range": {"start_line": 1, "end_line": 10}}"#,
                     ),
                     thought_signature: None,
                 }]),
@@ -99,7 +99,7 @@ mod tests {
         match &tool_call.arguments {
             ToolCallArguments::Parsed(value) => {
                 assert_eq!(value["file_path"], "/test/path");
-                assert_eq!(value["start_line"], 1);
+                assert_eq!(value["range"]["start_line"], 1);
             }
             ToolCallArguments::Unparsed(_) => {
                 panic!("Arguments should be Parsed after normalization")
@@ -141,7 +141,7 @@ mod tests {
                     call_id: Some(ToolCallId::new("call_001")),
                     arguments: ToolCallArguments::Parsed(json!({
                         "file_path": "/test/path",
-                        "start_line": 1
+                        "range": {"start_line": 1, "end_line": 10}
                     })),
                     thought_signature: None,
                 }]),

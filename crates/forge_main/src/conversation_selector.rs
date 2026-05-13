@@ -1,10 +1,8 @@
-use std::fmt::Display;
-
 use anyhow::Result;
 use chrono::Utc;
 use forge_api::Conversation;
 use forge_domain::ConversationId;
-use forge_select::ForgeWidget;
+use forge_select::{ForgeWidget, PreviewLayout, PreviewPlacement, SelectRow};
 
 use crate::display_constants::markers;
 use crate::info::Info;
@@ -14,16 +12,18 @@ use crate::porcelain::Porcelain;
 pub struct ConversationSelector;
 
 impl ConversationSelector {
-    /// Select a conversation from the provided list using porcelain-style
-    /// tabular display matching the shell plugin's `:conversation` action.
+    /// Select a conversation from the provided list using a custom TUI with
+    /// a preview pane showing conversation details.
     ///
-    /// Displays columns: TITLE, UPDATED (hiding the UUID column).
-    /// The header row is non-selectable via `header_lines=1`.
+    /// The preview command uses `forge conversation info` and
+    /// `forge conversation show` to display the selected conversation's
+    /// metadata and last message side-by-side with the picker list.
     ///
-    /// Returns the selected conversation, or None if no selection was made.
+    /// Returns the selected conversation, or None if the user cancelled.
     pub async fn select_conversation(
         conversations: &[Conversation],
-        current_conversation_id: Option<ConversationId>,
+        _current_conversation_id: Option<ConversationId>,
+        query: Option<String>,
     ) -> Result<Option<Conversation>> {
         if conversations.is_empty() {
             return Ok(None);
@@ -32,14 +32,14 @@ impl ConversationSelector {
         // Filter to conversations with titles and context
         let valid_conversations: Vec<&Conversation> = conversations
             .iter()
-            .filter(|c| c.title.is_some() && c.context.is_some())
+            .filter(|c| c.context.is_some())
             .collect();
 
         if valid_conversations.is_empty() {
             return Ok(None);
         }
 
-        // Build Info structure (same as on_show_conversations)
+        // Build Info structure for display
         let now = Utc::now();
         let mut info = Info::new();
 
@@ -67,7 +67,8 @@ impl ConversationSelector {
                 .add_key_value("Updated", time_ago);
         }
 
-        // Convert to porcelain, drop UUID column (col 0), truncate title
+        // Convert to porcelain, drop the UUID title column (col 0), truncate the
+        // Title column for display, uppercase headers
         let porcelain_output = Porcelain::from(&info)
             .drop_col(0)
             .truncate(0, 60)
@@ -79,47 +80,52 @@ impl ConversationSelector {
             return Ok(None);
         }
 
-        #[derive(Clone)]
-        struct ConversationRow {
-            conversation: Option<Conversation>,
-            display: String,
+        // Build SelectRow items for the shared Rust selector UI.
+        // Each row stores the UUID in `fields[0]` so that `{1}` in the preview
+        // command resolves to the conversation ID. The `raw` field is what gets
+        // returned on selection (the UUID).
+        let mut rows: Vec<SelectRow> = Vec::with_capacity(all_lines.len());
+
+        // Header row (non-selectable via header_lines=1)
+        if let Some(header) = all_lines.first() {
+            rows.push(SelectRow::header(header.to_string()));
         }
-        impl Display for ConversationRow {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", self.display)
+
+        // Data rows: each maps to a conversation
+        for (i, line) in all_lines.iter().skip(1).enumerate() {
+            if let Some(conv) = valid_conversations.get(i) {
+                let uuid = conv.id.to_string();
+                rows.push(SelectRow {
+                    raw: uuid.clone(),
+                    display: line.to_string(),
+                    search: line.to_string(),
+                    fields: vec![uuid],
+                });
             }
         }
 
-        let mut rows: Vec<ConversationRow> = Vec::with_capacity(all_lines.len());
-        // Header row (non-selectable via header_lines=1)
-        if let Some(header) = all_lines.first() {
-            rows.push(ConversationRow { conversation: None, display: header.to_string() });
-        }
-        // Data rows
-        for (i, line) in all_lines.iter().skip(1).enumerate() {
-            rows.push(ConversationRow {
-                conversation: valid_conversations.get(i).cloned().cloned(),
-                display: line.to_string(),
-            });
-        }
+        // Build a lookup map from UUID to Conversation for the result
+        let conv_map: std::collections::HashMap<String, Conversation> = valid_conversations
+            .into_iter()
+            .map(|c| (c.id.to_string(), c.clone()))
+            .collect();
 
-        // Find starting cursor for the current conversation
-        let starting_cursor = current_conversation_id
-            .and_then(|current| valid_conversations.iter().position(|c| c.id == current))
-            .unwrap_or(0);
+        let preview_command =
+            "CLICOLOR_FORCE=1 forge conversation info {1}; echo; CLICOLOR_FORCE=1 forge conversation show {1}"
+                .to_string();
 
-        if let Some(selected) = tokio::task::spawn_blocking(move || {
-            ForgeWidget::select("Conversation", rows)
-                .with_starting_cursor(starting_cursor)
-                .with_header_lines(1)
-                .prompt()
+        let selected_uuid = tokio::task::spawn_blocking(move || -> Result<Option<String>> {
+            Ok(ForgeWidget::select_rows("Conversation", rows)
+                .query(query)
+                .header_lines(1_usize)
+                .preview(Some(preview_command))
+                .preview_layout(PreviewLayout { placement: PreviewPlacement::Bottom, percent: 60 })
+                .prompt()?
+                .map(|row| row.raw))
         })
-        .await??
-        {
-            Ok(selected.conversation)
-        } else {
-            Ok(None)
-        }
+        .await??;
+
+        Ok(selected_uuid.and_then(|uuid| conv_map.get(&uuid).cloned()))
     }
 }
 
@@ -146,7 +152,7 @@ mod tests {
     #[tokio::test]
     async fn test_select_conversation_empty_list() {
         let conversations = vec![];
-        let result = ConversationSelector::select_conversation(&conversations, None)
+        let result = ConversationSelector::select_conversation(&conversations, None, None)
             .await
             .unwrap();
         assert!(result.is_none());
@@ -165,8 +171,6 @@ mod tests {
             ),
         ];
 
-        // We can't test the actual selection without mocking the UI,
-        // but we can test that the function structure is correct
         assert_eq!(conversations.len(), 2);
     }
 

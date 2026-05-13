@@ -32,6 +32,8 @@ research_subagent = false
 currency_symbol = "$"
 currency_conversion_rate = 1.0
 subagents = true
+use_forge_committer = true
+use_text_patch_fallback = false
 
 [retry]
 backoff_factor = 2
