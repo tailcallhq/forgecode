@@ -142,15 +142,17 @@ where
         self.clear_tools().await;
         self.failed_servers.write().await.clear();
 
-        // Run policy authorisation against both scopes. The default policy ships
-        // an `allow` rule for `scope: user` and a `confirm` rule for `scope:
-        // local`, but users can override either. Local entries are checked
-        // first because they shadow user entries of the same name in the
-        // merged config; the `visited` set prevents prompting twice for a
-        // duplicated name.
-        let (authorized, warnings) = self
-            .authorize_servers([(Scope::Local, &local_cfg), (Scope::User, &user_cfg)])
-            .await?;
+        // User-scoped servers are trusted by default — authorize without policy check.
+        let mut authorized: HashSet<ServerName> = user_cfg
+            .mcp_servers
+            .iter()
+            .filter(|(_, s)| !s.is_disabled())
+            .map(|(name, _)| name.clone())
+            .collect();
+
+        // Only local-scoped servers go through the policy engine.
+        let (local_authorized, warnings) = self.authorize_servers(&local_cfg).await?;
+        authorized.extend(local_authorized);
 
         let connections: Vec<_> = merged
             .mcp_servers
@@ -186,44 +188,38 @@ where
         Ok(warnings)
     }
 
-    /// Runs the permission policy against every enabled server in each
-    /// `(scope, config)` pair without prompting the user. Returns the set of
-    /// authorised server names and a list of typed warnings for every server
-    /// that was denied by policy. Denials are also recorded in
-    /// `failed_servers`. Scopes are processed in iteration order; a server
-    /// name already seen in an earlier scope is skipped so the authoritative
-    /// scope is used when the same name appears in both configs.
-    async fn authorize_servers<'a>(
+    /// Runs the permission policy against every enabled server in `cfg`
+    /// without prompting the user. Returns the set of authorised server names
+    /// and a list of typed warnings for every server denied by policy.
+    /// Denials are also recorded in `failed_servers`.
+    async fn authorize_servers(
         &self,
-        scoped: impl IntoIterator<Item = (Scope, &'a McpConfig)>,
+        cfg: &McpConfig,
     ) -> anyhow::Result<(HashSet<ServerName>, Vec<McpPermissionWarning>)> {
         let mut authorized = HashSet::new();
-        let mut visited: HashSet<ServerName> = HashSet::new();
         let mut denied: Vec<(ServerName, String)> = Vec::new();
         let mut warnings: Vec<McpPermissionWarning> = Vec::new();
 
         let env = self.infra.get_environment();
-        for (_scope, cfg) in scoped {
-            for (name, server) in &cfg.mcp_servers {
-                if server.is_disabled() || !visited.insert(name.clone()) {
-                    continue;
+        for (name, server) in &cfg.mcp_servers {
+            if server.is_disabled() {
+                continue;
+            }
+            let operation = PermissionOperation::Mcp {
+                config: server.clone(),
+                cwd: env.cwd.clone(),
+                message: format!("Connect to MCP server: {name}"),
+            };
+            match self.policy.is_operation_permitted(&operation).await {
+                Ok(true) => {
+                    authorized.insert(name.clone());
                 }
-                let operation = PermissionOperation::Mcp {
-                    config: server.clone(),
-                    cwd: env.cwd.clone(),
-                    message: format!("Connect to MCP server: {name}"),
-                };
-                match self.policy.is_operation_permitted(&operation).await {
-                    Ok(true) => {
-                        authorized.insert(name.clone());
-                    }
-                    Ok(false) => {
-                        denied.push((name.clone(), "Connection denied by policy".to_string()));
-                        warnings.push(McpPermissionWarning { server_name: name.clone() });
-                    }
-                    Err(err) => {
-                        denied.push((name.clone(), format!("Policy check failed: {err:?}")));
-                    }
+                Ok(false) => {
+                    denied.push((name.clone(), "Connection denied by policy".to_string()));
+                    warnings.push(McpPermissionWarning { server_name: name.clone() });
+                }
+                Err(err) => {
+                    denied.push((name.clone(), format!("Policy check failed: {err:?}")));
                 }
             }
         }
