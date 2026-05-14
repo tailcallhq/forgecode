@@ -183,9 +183,9 @@ impl SelectPrompt {
         Self { message: message.into(), header: Vec::new() }
     }
 
-    /// Adds header lines to the prompt.
+    /// Sets the header lines of the prompt, replacing any previously set lines.
     pub fn with_header(mut self, lines: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        self.header.extend(lines.into_iter().map(|l| l.into()));
+        self.header = lines.into_iter().map(|l| l.into()).collect();
         self
     }
 }
