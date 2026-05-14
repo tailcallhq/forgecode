@@ -177,7 +177,6 @@ where
             .into_iter()
             .filter(|(name, server)| !server.is_disabled() && authorized.contains(name))
             .collect::<Vec<_>>();
-        let new_hash = new_hash;
 
         tokio::spawn(async move {
             // Connect to each server sequentially and collect results
@@ -281,6 +280,23 @@ where
         tool.executable.call_tool(call.arguments.parse()?).await
     }
 
+    /// Returns `true` if any enabled server in `cfg` does not have a
+    /// persisted `Allow` policy, meaning a permission prompt would be required.
+    async fn has_servers_requiring_permission(&self, cfg: &McpConfig) -> anyhow::Result<bool> {
+        let env = self.infra.get_environment();
+        for (name, server) in cfg.mcp_servers.iter().filter(|(_, s)| !s.is_disabled()) {
+            let operation = PermissionOperation::Mcp {
+                config: server.clone(),
+                cwd: env.cwd.clone(),
+                message: format!("Allow MCP server \"{name}\" to connect?"),
+            };
+            if !self.policy.is_operation_permitted(&operation).await? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Refresh the MCP cache by clearing cached data.
     /// Does NOT eagerly connect to servers - connections happen lazily
     /// when list() or call() is invoked, avoiding interactive OAuth during
@@ -310,19 +326,30 @@ where
 {
     async fn get_mcp_servers(&self) -> anyhow::Result<McpServers> {
         // Read current configs to compute merged hash
-        let mcp_config = self.manager.read_mcp_config(None).await?;
+        let user_cfg = self.manager.read_mcp_config(Some(&Scope::User)).await?;
+        let local_cfg = self.manager.read_mcp_config(Some(&Scope::Local)).await?;
+        let config_hash = user_cfg.cache_key();
 
-        // Compute unified hash from merged config
-        let config_hash = mcp_config.cache_key();
+        // Skip the cache if any servers require permission confirmation.
+        // Local-scoped servers always require permission re-verification.
+        // User-scoped servers that were accepted only once (not "Accept and Remember")
+        // do not have a persisted Allow policy, so they must prompt again.
+        let needs_permission_check = self.has_servers_requiring_permission(&local_cfg).await?;
 
-        // Check if cache is valid (exists and not expired)
-        // Cache is valid, retrieve it
-        if let Some(cache) = self.infra.cache_get::<_, McpServers>(&config_hash).await? {
-            return Ok(cache.clone());
+        if !needs_permission_check {
+            if let Some(cache) = self.infra.cache_get::<_, McpServers>(&config_hash).await? {
+                return Ok(cache.clone());
+            }
         }
 
         let servers = self.list().await?;
-        self.infra.cache_set(&config_hash, &servers).await?;
+
+        // Only cache when all servers have explicit persisted Allow policies so
+        // we never silently skip a required permission prompt on the next call.
+        if !needs_permission_check {
+            self.infra.cache_set(&config_hash, &servers).await?;
+        }
+
         Ok(servers)
     }
 
