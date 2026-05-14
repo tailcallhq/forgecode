@@ -1,3 +1,5 @@
+mod acp;
+mod acp_app;
 mod agent;
 mod agent_executor;
 mod agent_provider_resolver;
@@ -39,6 +41,7 @@ pub mod utils;
 mod walker;
 mod workspace_status;
 
+pub use acp_app::*;
 pub use agent::*;
 pub use agent_provider_resolver::*;
 pub use app::*;
