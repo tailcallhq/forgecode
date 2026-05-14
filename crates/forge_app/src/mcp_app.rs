@@ -53,14 +53,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> McpApp<
     /// explicit `Allow` policy. Never prompts — call
     /// [`Self::request_mcp_permissions`] first to ensure decisions exist.
     pub async fn permitted_mcp_config(&self) -> Result<McpConfig> {
-        let mut user = self
-            .services
-            .read_mcp_config(Some(&Scope::User))
-            .await?;
-        let local = self
-            .services
-            .read_mcp_config(Some(&Scope::Local))
-            .await?;
+        let mut user = self.services.read_mcp_config(Some(&Scope::User)).await?;
+        let local = self.services.read_mcp_config(Some(&Scope::Local)).await?;
         let cwd = self.services.get_environment().cwd;
 
         let mut filtered_local = McpConfig::default();

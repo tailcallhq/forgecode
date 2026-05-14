@@ -40,7 +40,8 @@ impl<A, F> ForgeAPI<A, F> {
         ForgeApp::new(self.services.clone())
     }
 
-    /// Creates an McpApp instance for MCP permission and connection orchestration.
+    /// Creates an McpApp instance for MCP permission and connection
+    /// orchestration.
     fn mcp_app(&self) -> McpApp<A>
     where
         A: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>,

@@ -459,7 +459,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let api = self.api.clone();
         tokio::spawn(async move { api.get_models().await });
         let api = self.api.clone();
-        tokio::spawn(async move { let _ = api.get_tools().await; });
+        tokio::spawn(async move {
+            let _ = api.get_tools().await;
+        });
         let api = self.api.clone();
         tokio::spawn(async move { api.get_agent_infos().await });
         let api = self.api.clone();
