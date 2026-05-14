@@ -247,7 +247,7 @@ mod tests {
 
     use fake::{Fake, Faker};
     use forge_app::domain::{
-        ConfigOperation, Environment, McpConfig, McpServerConfig, Scope, ServerName, ToolCallFull,
+        ConfigOperation, Environment, McpConfig, McpServerConfig, ServerName, ToolCallFull,
         ToolDefinition, ToolName, ToolOutput,
     };
     use forge_app::{EnvironmentInfra, KVStore, McpClientInfra, McpServerInfra, McpService};
@@ -274,30 +274,6 @@ mod tests {
             _input: serde_json::Value,
         ) -> anyhow::Result<ToolOutput> {
             Ok(ToolOutput::text("mock result"))
-        }
-    }
-
-    // ── Mock config manager ──────────────────────────────────────────────────
-
-    struct MockMcpManager;
-
-    #[async_trait::async_trait]
-    impl McpConfigManager for MockMcpManager {
-        async fn read_mcp_config(&self, _scope: Option<&Scope>) -> anyhow::Result<McpConfig> {
-            let mut servers = BTreeMap::new();
-            servers.insert(
-                ServerName::from("test-server".to_string()),
-                McpServerConfig::new_stdio("echo", vec![], None),
-            );
-            Ok(McpConfig { mcp_servers: servers })
-        }
-
-        async fn write_mcp_config(
-            &self,
-            _config: &McpConfig,
-            _scope: &Scope,
-        ) -> anyhow::Result<()> {
-            Ok(())
         }
     }
 
@@ -369,8 +345,8 @@ mod tests {
 
     // ── Fixture ──────────────────────────────────────────────────────────────
 
-    fn fixture() -> ForgeMcpService<MockMcpManager, MockInfra, MockMcpClient> {
-        ForgeMcpService::new(Arc::new(MockMcpManager), Arc::new(MockInfra))
+    fn fixture() -> ForgeMcpService<MockInfra, MockMcpClient> {
+        ForgeMcpService::new(Arc::new(MockInfra))
     }
 
     fn fixture_cfg() -> McpConfig {
