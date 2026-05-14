@@ -40,17 +40,11 @@ enum McpPermission {
     Reject,
 }
 
+#[derive(Clone)]
 pub struct ForgePolicyService<I> {
     infra: Arc<I>,
 }
 
-impl<I> Clone for ForgePolicyService<I> {
-    // Manual impl so callers don't need `I: Clone`; we only ever clone the
-    // `Arc<I>` which is always cheap.
-    fn clone(&self) -> Self {
-        Self { infra: self.infra.clone() }
-    }
-}
 /// Default policies loaded once at startup from the embedded YAML file
 static DEFAULT_POLICIES: LazyLock<PolicyConfig> = LazyLock::new(|| {
     let yaml_content = include_str!("./permissions.default.yaml");
