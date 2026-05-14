@@ -585,9 +585,6 @@ mod tests {
         r1.unwrap();
         r2.unwrap();
 
-        // Wait for background initialization tasks to complete
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
         let servers = service.get_mcp_servers().await.unwrap();
         let tool_name = servers
             .get_servers()
