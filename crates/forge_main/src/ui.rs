@@ -11,7 +11,7 @@ use convert_case::{Case, Casing};
 use forge_api::{
     API, AgentId, AnyProvider, ApiKeyRequest, AuthContextRequest, AuthContextResponse, ChatRequest,
     ChatResponse, CodeRequest, ConfigOperation, Conversation, ConversationId, DeviceCodeRequest,
-    Event, InterruptionReason, ModelId, Provider, ProviderId, TextMessage, UserPrompt,
+    Event, InterruptionReason, ModelId, Provider, ProviderId, Scope, TextMessage, UserPrompt,
 };
 use forge_app::utils::{format_display_path, truncate_key};
 use forge_app::{CommitResult, ToolResolver};
@@ -223,9 +223,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.display_banner()?;
         self.trace_user();
         self.hydrate_caches();
-        // Resolve MCP connections up front and surface any permission
-        // warnings before control returns to the caller.
-        let _ = self.api.get_tools().await;
+        self.request_local_mcp_permissions().await?;
         Ok(())
     }
 
@@ -370,10 +368,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.trace_user();
         self.hydrate_caches();
         self.init_conversation().await?;
-
-        // Initialise MCP connections and display any permission warnings
-        // before the REPL takes over stdin.
-        let _ = self.api.get_tools().await;
+        self.request_local_mcp_permissions().await?;
 
         // Check for dispatch flag first
         if let Some(dispatch_json) = self.cli.event.clone() {
@@ -450,10 +445,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
     }
 
+    /// Reads the local-scope MCP config and asks the user for permission for
+    /// each server that does not yet have a recorded decision. Call this
+    /// synchronously before the REPL takes over stdin so prompts don't race
+    /// with user input.
+    async fn request_local_mcp_permissions(&self) -> Result<()> {
+        let local_cfg = self.api.read_mcp_config(Some(&Scope::Local)).await?;
+        self.api.request_mcp_permissions(local_cfg).await
+    }
+
     // Improve startup time by hydrating caches
     fn hydrate_caches(&self) {
         let api = self.api.clone();
         tokio::spawn(async move { api.get_models().await });
+        let api = self.api.clone();
+        tokio::spawn(async move { let _ = api.get_tools().await; });
         let api = self.api.clone();
         tokio::spawn(async move { api.get_agent_infos().await });
         let api = self.api.clone();
@@ -574,21 +580,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     // Write back to the specific scope only
                     self.api.write_mcp_config(&scope, &scope_config).await?;
 
-                    let cwd = self.api.environment().cwd;
-
-                    // Grant allow permission for each imported server so the user
-                    // is not prompted again on first use — importing is itself an
-                    // explicit opt-in.
-                    for server_name in &added_servers {
-                        if let Some(server_config) = scope_config.mcp_servers.get(server_name) {
-                            let operation = forge_domain::PermissionOperation::Mcp {
-                                config: server_config.clone(),
-                                cwd: cwd.clone(),
-                                message: format!("Connect to MCP server: {server_name}"),
-                            };
-                            self.api.allow_operation(&operation).await?;
-                        }
-                    }
+                    // Importing is an explicit opt-in — persist Allow decisions so
+                    // the user is not prompted on first use.
+                    self.api.allow_mcp_servers(&added_servers).await?;
 
                     // Log each added server after successful write
                     for server_name in added_servers {

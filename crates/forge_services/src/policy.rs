@@ -27,30 +27,24 @@ pub enum PolicyPermission {
     AcceptAndRemember,
 }
 
-/// Two-choice prompt used exclusively for MCP server connections.
-/// Both choices are persisted so the user is not re-prompted on subsequent
-/// starts.
+/// Two-choice prompt for operations where both Accept and Reject are
+/// persisted so the user is never asked again. Use this instead of
+/// [`PolicyPermission`] when there is no meaningful "one-off allow" path.
 #[derive(Debug, Clone, PartialEq, Eq, Display, EnumIter, strum_macros::EnumString)]
-enum McpPermission {
-    /// Allow this MCP server to connect and persist the decision
+enum ConfirmPermission {
+    /// Allow the operation and remember this choice
     #[strum(to_string = "Accept")]
     Accept,
-    /// Deny this MCP server and persist the decision
+    /// Deny the operation and remember this choice
     #[strum(to_string = "Reject")]
     Reject,
 }
 
+#[derive(Clone)]
 pub struct ForgePolicyService<I> {
     infra: Arc<I>,
 }
 
-impl<I> Clone for ForgePolicyService<I> {
-    // Manual impl so callers don't need `I: Clone`; we only ever clone the
-    // `Arc<I>` which is always cheap.
-    fn clone(&self) -> Self {
-        Self { infra: self.infra.clone() }
-    }
-}
 /// Default policies loaded once at startup from the embedded YAML file
 static DEFAULT_POLICIES: LazyLock<PolicyConfig> = LazyLock::new(|| {
     let yaml_content = include_str!("./permissions.default.yaml");
@@ -225,12 +219,12 @@ where
                     PermissionOperation::Mcp { message, config, cwd } => {
                         let header = mcp_config_header(config);
                         let prompt = SelectPrompt::new(message.clone()).with_header(header);
-                        return match self.infra.select_one_enum::<McpPermission>(prompt).await? {
-                            Some(McpPermission::Accept) => {
+                        return match self.infra.select_one_enum::<ConfirmPermission>(prompt).await? {
+                            Some(ConfirmPermission::Accept) => {
                                 let update_path = self.add_policy_for_operation(operation).await?;
                                 Ok(PolicyDecision { allowed: true, path: update_path.or(path) })
                             }
-                            Some(McpPermission::Reject) | None => {
+                            Some(ConfirmPermission::Reject) | None => {
                                 let deny_policy = Policy::Simple {
                                     permission: Permission::Deny,
                                     rule: forge_app::domain::Rule::Mcp(
