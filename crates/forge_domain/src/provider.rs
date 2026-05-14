@@ -72,6 +72,8 @@ impl ProviderId {
     pub const OPENCODE_ZEN: ProviderId = ProviderId(Cow::Borrowed("opencode_zen"));
     pub const OPENCODE_GO: ProviderId = ProviderId(Cow::Borrowed("opencode_go"));
     pub const FIREWORKS_AI: ProviderId = ProviderId(Cow::Borrowed("fireworks-ai"));
+    pub const FIREWORKS_AI_FIREPASS: ProviderId =
+        ProviderId(Cow::Borrowed("fireworks-ai-firepass"));
     pub const NOVITA: ProviderId = ProviderId(Cow::Borrowed("novita"));
     pub const VIVGRID: ProviderId = ProviderId(Cow::Borrowed("vivgrid"));
     pub const GOOGLE_AI_STUDIO: ProviderId = ProviderId(Cow::Borrowed("google_ai_studio"));
@@ -111,6 +113,7 @@ impl ProviderId {
             ProviderId::OPENCODE_ZEN,
             ProviderId::OPENCODE_GO,
             ProviderId::FIREWORKS_AI,
+            ProviderId::FIREWORKS_AI_FIREPASS,
             ProviderId::NOVITA,
             ProviderId::VIVGRID,
             ProviderId::GOOGLE_AI_STUDIO,
@@ -144,6 +147,7 @@ impl ProviderId {
             "opencode_zen" => "OpenCode Zen".to_string(),
             "opencode_go" => "OpenCode Go".to_string(),
             "fireworks-ai" => "FireworksAI".to_string(),
+            "fireworks-ai-firepass" => "FireworksAIFirepass".to_string(),
             "novita" => "Novita".to_string(),
             "vivgrid" => "Vivgrid".to_string(),
             "google_ai_studio" => "GoogleAIStudio".to_string(),
@@ -195,6 +199,7 @@ impl std::str::FromStr for ProviderId {
             "codex" => ProviderId::CODEX,
             "opencode_go" => ProviderId::OPENCODE_GO,
             "fireworks-ai" => ProviderId::FIREWORKS_AI,
+            "fireworks-ai-firepass" => ProviderId::FIREWORKS_AI_FIREPASS,
             "novita" => ProviderId::NOVITA,
             "vertex_ai_anthropic" => ProviderId::VERTEX_AI_ANTHROPIC,
             "bedrock" => ProviderId::BEDROCK,
@@ -792,6 +797,27 @@ mod tests {
         let actual = fixture.url.clone();
         let expected = Url::parse("https://us-central1-aiplatform.googleapis.com/v1/projects/test_project/locations/us-central1/endpoints/openapi/chat/completions").unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_fireworks_ai_firepass_from_str() {
+        let actual = ProviderId::from_str("fireworks-ai-firepass").unwrap();
+        let expected = ProviderId::FIREWORKS_AI_FIREPASS;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_fireworks_ai_firepass_display_name() {
+        assert_eq!(
+            ProviderId::FIREWORKS_AI_FIREPASS.to_string(),
+            "FireworksAIFirepass"
+        );
+    }
+
+    #[test]
+    fn test_fireworks_ai_firepass_in_built_in_providers() {
+        let built_in = ProviderId::built_in_providers();
+        assert!(built_in.contains(&ProviderId::FIREWORKS_AI_FIREPASS));
     }
 
     #[test]

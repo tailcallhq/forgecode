@@ -23,16 +23,36 @@ impl<R> ForgeProviderService<R> {
         Self { repository }
     }
 
-    /// Renders a URL template with provided parameters
+    /// Renders a URL template with provided parameters.
+    ///
+    /// Params present in the credential are passed through as strings.
+    /// Optional specs that are absent from the credential entirely are
+    /// inserted as JSON `null` so that `{{#if PARAM}}` blocks evaluate
+    /// to false in the Handlebars template (e.g. a port not provided).
     fn render_url_template(
         &self,
         template: &str,
         params: &HashMap<forge_domain::URLParam, forge_domain::URLParamValue>,
+        specs: &[forge_domain::URLParamSpec],
     ) -> Result<Url> {
-        let template_data: HashMap<&str, &str> = params
+        // Start with all stored params as string values.
+        let mut template_data: HashMap<&str, serde_json::Value> = params
             .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .map(|(k, v)| {
+                (
+                    k.as_str(),
+                    serde_json::Value::String(v.as_str().to_string()),
+                )
+            })
             .collect();
+
+        // For optional specs that are entirely absent from the credential,
+        // inject null so {{#if PARAM}} is falsy instead of erroring.
+        for spec in specs {
+            if spec.optional && !params.contains_key(&spec.name) {
+                template_data.insert(spec.name.as_str(), serde_json::Value::Null);
+            }
+        }
 
         let handlebars = forge_app::TemplateEngine::handlebar_instance();
         let rendered = handlebars.render_template(template, &template_data)?;
@@ -48,14 +68,21 @@ impl<R> ForgeProviderService<R> {
             .ok_or_else(|| anyhow::anyhow!("Provider has no credential"))?;
 
         // Render main URL
-        let url =
-            self.render_url_template(&template_provider.url.template, &credential.url_params)?;
+        let url = self.render_url_template(
+            &template_provider.url.template,
+            &credential.url_params,
+            &template_provider.url_params,
+        )?;
 
         // Render model source URLs
         let models = template_provider.models.as_ref().and_then(|m| match m {
             ModelSource::Url(template) => {
                 let model_url = self
-                    .render_url_template(&template.template, &credential.url_params)
+                    .render_url_template(
+                        &template.template,
+                        &credential.url_params,
+                        &template_provider.url_params,
+                    )
                     .ok();
                 model_url.map(ModelSource::Url)
             }
@@ -298,5 +325,67 @@ mod tests {
                 "https://api.openai.com/v1/chat/completions"
             );
         }
+    }
+
+    #[test]
+    fn test_render_url_template_optional_port_absent() {
+        // VLLM_PORT is absent from the credential (user left it blank).
+        // render_url_template must inject null so {{#if VLLM_PORT}} is falsy.
+        let service = ForgeProviderService::new(Arc::new(MockProviderRepository::new(vec![])));
+        let template = "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}{{#if VLLM_PORT}}:{{VLLM_PORT}}{{/if}}/v1/chat/completions";
+
+        let mut params = HashMap::new();
+        params.insert(
+            forge_domain::URLParam::from("VLLM_SSL_SCHEME".to_string()),
+            forge_domain::URLParamValue::from("https".to_string()),
+        );
+        params.insert(
+            forge_domain::URLParam::from("VLLM_HOST".to_string()),
+            forge_domain::URLParamValue::from("my.server.url".to_string()),
+        );
+        // VLLM_PORT intentionally absent — not in the credential map at all.
+
+        let specs = vec![forge_domain::URLParamSpec::optional(
+            forge_domain::URLParam::from("VLLM_PORT".to_string()),
+        )];
+
+        let actual = service
+            .render_url_template(template, &params, &specs)
+            .unwrap();
+        let expected = "https://my.server.url/v1/chat/completions";
+
+        assert_eq!(actual.as_str(), expected);
+    }
+
+    #[test]
+    fn test_render_url_template_optional_port_with_value() {
+        // When VLLM_PORT has a value, it should appear in the URL.
+        let service = ForgeProviderService::new(Arc::new(MockProviderRepository::new(vec![])));
+        let template = "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}{{#if VLLM_PORT}}:{{VLLM_PORT}}{{/if}}/v1/chat/completions";
+
+        let mut params = HashMap::new();
+        params.insert(
+            forge_domain::URLParam::from("VLLM_SSL_SCHEME".to_string()),
+            forge_domain::URLParamValue::from("https".to_string()),
+        );
+        params.insert(
+            forge_domain::URLParam::from("VLLM_HOST".to_string()),
+            forge_domain::URLParamValue::from("my.server.url".to_string()),
+        );
+        params.insert(
+            forge_domain::URLParam::from("VLLM_PORT".to_string()),
+            forge_domain::URLParamValue::from("8000".to_string()),
+        );
+
+        let specs = vec![forge_domain::URLParamSpec::optional(
+            forge_domain::URLParam::from("VLLM_PORT".to_string()),
+        )];
+
+        let actual = service
+            .render_url_template(template, &params, &specs)
+            .unwrap();
+        let expected = "https://my.server.url:8000/v1/chat/completions";
+
+        assert_eq!(actual.as_str(), expected);
     }
 }
