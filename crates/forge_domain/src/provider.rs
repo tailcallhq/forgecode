@@ -72,7 +72,8 @@ impl ProviderId {
     pub const OPENCODE_ZEN: ProviderId = ProviderId(Cow::Borrowed("opencode_zen"));
     pub const OPENCODE_GO: ProviderId = ProviderId(Cow::Borrowed("opencode_go"));
     pub const FIREWORKS_AI: ProviderId = ProviderId(Cow::Borrowed("fireworks-ai"));
-    pub const FIREWORKS_AI_FIREPASS: ProviderId = ProviderId(Cow::Borrowed("fireworks-ai-firepass"));
+    pub const FIREWORKS_AI_FIREPASS: ProviderId =
+        ProviderId(Cow::Borrowed("fireworks-ai-firepass"));
     pub const NOVITA: ProviderId = ProviderId(Cow::Borrowed("novita"));
     pub const VIVGRID: ProviderId = ProviderId(Cow::Borrowed("vivgrid"));
     pub const GOOGLE_AI_STUDIO: ProviderId = ProviderId(Cow::Borrowed("google_ai_studio"));
