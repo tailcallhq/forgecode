@@ -1,16 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Context;
 use forge_app::domain::{
-    McpConfig, McpServerConfig, McpServers, PermissionOperation, Scope, ServerName, ToolCallFull,
-    ToolDefinition, ToolName, ToolOutput,
+    McpConfig, McpServerConfig, McpServers, ServerName, ToolCallFull, ToolDefinition, ToolName,
+    ToolOutput,
 };
-use forge_app::{
-    EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService,
-    PolicyService,
-};
-use merge::Merge;
+use forge_app::{EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::mcp::tool::McpExecutor;
@@ -24,28 +20,14 @@ fn generate_mcp_tool_name(server_name: &ServerName, tool_name: &ToolName) -> Too
     ))
 }
 
-pub struct ForgeMcpService<M, I, C, P> {
+#[derive(Clone)]
+pub struct ForgeMcpService<M, I, C> {
     tools: Arc<RwLock<HashMap<ToolName, ToolHolder<McpExecutor<C>>>>>,
     failed_servers: Arc<RwLock<HashMap<ServerName, String>>>,
     previous_config_hash: Arc<Mutex<u64>>,
     init_lock: Arc<Mutex<()>>,
     manager: Arc<M>,
     infra: Arc<I>,
-    policy: Arc<P>,
-}
-
-impl<M, I, C, P> Clone for ForgeMcpService<M, I, C, P> {
-    fn clone(&self) -> Self {
-        ForgeMcpService {
-            tools: Arc::clone(&self.tools),
-            failed_servers: Arc::clone(&self.failed_servers),
-            previous_config_hash: Arc::clone(&self.previous_config_hash),
-            init_lock: Arc::clone(&self.init_lock),
-            manager: Arc::clone(&self.manager),
-            infra: Arc::clone(&self.infra),
-            policy: Arc::clone(&self.policy),
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -55,15 +37,14 @@ struct ToolHolder<T> {
     server_name: String,
 }
 
-impl<M, I, C, P> ForgeMcpService<M, I, C, P>
+impl<M, I, C> ForgeMcpService<M, I, C>
 where
     M: McpConfigManager + 'static,
     I: McpServerInfra + KVStore + EnvironmentInfra + 'static,
     C: McpClientInfra + Clone,
     C: From<<I as McpServerInfra>::Client>,
-    P: PolicyService + 'static,
 {
-    pub fn new(manager: Arc<M>, infra: Arc<I>, policy: Arc<P>) -> Self {
+    pub fn new(manager: Arc<M>, infra: Arc<I>) -> Self {
         Self {
             tools: Default::default(),
             failed_servers: Default::default(),
@@ -71,7 +52,6 @@ where
             init_lock: Arc::new(Mutex::new(())),
             manager,
             infra,
-            policy,
         }
     }
 
@@ -118,15 +98,10 @@ where
         Ok(())
     }
 
-    async fn init_mcp(&self) -> anyhow::Result<()> {
-        let user_cfg = self.manager.read_mcp_config(Some(&Scope::User)).await?;
-        let local_cfg = self.manager.read_mcp_config(Some(&Scope::Local)).await?;
-        let mut merged = user_cfg.clone();
-        merged.merge(local_cfg.clone());
-
+    async fn init_mcp(&self, cfg: McpConfig) -> anyhow::Result<()> {
         // Fast path: if config is unchanged, skip reinitialization without acquiring
         // the lock
-        if !self.is_config_modified(&merged).await {
+        if !self.is_config_modified(&cfg).await {
             return Ok(());
         }
 
@@ -135,42 +110,25 @@ where
         let _guard = self.init_lock.lock().await;
 
         // Double-check under the lock: a concurrent caller may have already updated
-        if !self.is_config_modified(&merged).await {
+        if !self.is_config_modified(&cfg).await {
             return Ok(());
         }
 
-        self.update_mcp(user_cfg, local_cfg, merged).await
+        self.update_mcp(cfg).await
     }
 
-    async fn update_mcp(
-        &self,
-        user_cfg: McpConfig,
-        local_cfg: McpConfig,
-        merged: McpConfig,
-    ) -> anyhow::Result<()> {
-        // Compute the hash early before `merged` is consumed, but write it only
+    async fn update_mcp(&self, mcp: McpConfig) -> anyhow::Result<()> {
+        // Compute the hash early before `mcp` is consumed, but write it only
         // after all connections are established so waiters on init_lock see a
         // consistent state.
-        let new_hash = merged.cache_key();
+        let new_hash = mcp.cache_key();
         self.clear_tools().await;
         self.failed_servers.write().await.clear();
 
-        // User-scoped servers are trusted by default — authorize without policy check.
-        let mut authorized: HashSet<ServerName> = user_cfg
-            .mcp_servers
-            .iter()
-            .filter(|(_, s)| !s.is_disabled())
-            .map(|(name, _)| name.clone())
-            .collect();
-
-        // Only local-scoped servers go through the policy engine.
-        let local_authorized = self.authorize_servers(&local_cfg).await?;
-        authorized.extend(local_authorized);
-
-        let connections: Vec<_> = merged
+        let connections: Vec<_> = mcp
             .mcp_servers
             .into_iter()
-            .filter(|(name, server)| !server.is_disabled() && authorized.contains(name))
+            .filter(|(_, server)| !server.is_disabled())
             .map(|(name, server)| async move {
                 let conn = self
                     .connect(&name, server)
@@ -199,46 +157,8 @@ where
         Ok(())
     }
 
-    /// Runs the permission policy against every enabled server in `cfg`.
-    /// Returns the set of authorised server names.
-    /// Denials are recorded in `failed_servers`.
-    async fn authorize_servers(&self, cfg: &McpConfig) -> anyhow::Result<HashSet<ServerName>> {
-        let env = self.infra.get_environment();
-
-        let mut authorized = HashSet::new();
-        let mut failures = Vec::new();
-
-        for (name, server) in cfg.mcp_servers.iter().filter(|(_, s)| !s.is_disabled()) {
-            let operation = PermissionOperation::Mcp {
-                config: server.clone(),
-                cwd: env.cwd.clone(),
-                message: format!("Allow MCP server \"{name}\" to connect?"),
-            };
-            match self.policy.check_operation_permission(&operation).await {
-                Ok(decision) if decision.allowed => {
-                    authorized.insert(name.clone());
-                }
-                Ok(_) => {
-                    failures.push((name.clone(), "Connection denied by policy".to_string()));
-                }
-                Err(err) => {
-                    failures.push((name.clone(), format!("Policy check failed: {err:?}")));
-                }
-            }
-        }
-
-        if !failures.is_empty() {
-            let mut failed = self.failed_servers.write().await;
-            for (name, reason) in failures {
-                failed.insert(name, reason);
-            }
-        }
-
-        Ok(authorized)
-    }
-
-    async fn list(&self) -> anyhow::Result<McpServers> {
-        self.init_mcp().await?;
+    async fn list(&self, cfg: McpConfig) -> anyhow::Result<McpServers> {
+        self.init_mcp(cfg).await?;
 
         let tools = self.tools.read().await;
         let mut grouped_tools = std::collections::HashMap::new();
@@ -254,13 +174,17 @@ where
 
         Ok(McpServers::new(grouped_tools, failures))
     }
+
     async fn clear_tools(&self) {
         self.tools.write().await.clear()
     }
 
     async fn call(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput> {
-        // Ensure MCP connections are initialized before calling tools
-        self.init_mcp().await?;
+        // Ensure MCP connections are initialized before calling tools.
+        // For execute_mcp we read the merged (unfiltered) config so that all
+        // previously-connected servers are reachable regardless of scope.
+        let cfg = self.manager.read_mcp_config(None).await?;
+        self.init_mcp(cfg).await?;
 
         let tools = self.tools.read().await;
 
@@ -272,23 +196,6 @@ where
             .context("Tool not found")?;
 
         tool.executable.call_tool(call.arguments.parse()?).await
-    }
-
-    /// Returns `true` if any enabled server in `cfg` does not have a
-    /// persisted `Allow` policy, meaning a permission prompt would be required.
-    async fn has_servers_requiring_permission(&self, cfg: &McpConfig) -> anyhow::Result<bool> {
-        let env = self.infra.get_environment();
-        for (name, server) in cfg.mcp_servers.iter().filter(|(_, s)| !s.is_disabled()) {
-            let operation = PermissionOperation::Mcp {
-                config: server.clone(),
-                cwd: env.cwd.clone(),
-                message: format!("Allow MCP server \"{name}\" to connect?"),
-            };
-            if !self.policy.is_operation_permitted(&operation).await? {
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
 
     /// Refresh the MCP cache by clearing cached data.
@@ -310,34 +217,22 @@ where
 }
 
 #[async_trait::async_trait]
-impl<M, I, C, P> McpService for ForgeMcpService<M, I, C, P>
+impl<M, I, C> McpService for ForgeMcpService<M, I, C>
 where
     M: McpConfigManager + 'static,
     I: McpServerInfra + KVStore + EnvironmentInfra + 'static,
     C: McpClientInfra + Clone,
     C: From<<I as McpServerInfra>::Client>,
-    P: PolicyService + 'static,
 {
-    async fn get_mcp_servers(&self) -> anyhow::Result<McpServers> {
-        let user_cfg = self.manager.read_mcp_config(Some(&Scope::User)).await?;
-        let local_cfg = self.manager.read_mcp_config(Some(&Scope::Local)).await?;
-        let mut merged_cfg = user_cfg.clone();
-        merged_cfg.merge(local_cfg.clone());
-        let config_hash = merged_cfg.cache_key();
+    async fn get_mcp_servers(&self, cfg: McpConfig) -> anyhow::Result<McpServers> {
+        let config_hash = cfg.cache_key();
 
-        let needs_permission_check = self.has_servers_requiring_permission(&local_cfg).await?;
-
-        if !needs_permission_check
-            && let Some(cache) = self.infra.cache_get::<_, McpServers>(&config_hash).await?
-        {
-            return Ok(cache.clone());
+        if let Some(cache) = self.infra.cache_get::<_, McpServers>(&config_hash).await? {
+            return Ok(cache);
         }
 
-        let servers = self.list().await?;
-
-        if !needs_permission_check {
-            self.infra.cache_set(&config_hash, &servers).await?;
-        }
+        let servers = self.list(cfg).await?;
+        self.infra.cache_set(&config_hash, &servers).await?;
 
         Ok(servers)
     }
@@ -358,13 +253,10 @@ mod tests {
 
     use fake::{Fake, Faker};
     use forge_app::domain::{
-        ConfigOperation, Environment, McpConfig, McpServerConfig, PermissionOperation, Scope,
-        ServerName, ToolCallFull, ToolDefinition, ToolName, ToolOutput,
+        ConfigOperation, Environment, McpConfig, McpServerConfig, Scope, ServerName, ToolCallFull,
+        ToolDefinition, ToolName, ToolOutput,
     };
-    use forge_app::{
-        EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService,
-        PolicyDecision, PolicyService,
-    };
+    use forge_app::{EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService};
     use forge_config::ForgeConfig;
     use pretty_assertions::assert_eq;
     use serde::de::DeserializeOwned;
@@ -481,42 +373,19 @@ mod tests {
         }
     }
 
-    // ── Mock policy service ──────────────────────────────────────────────────
-
-    /// Permits every operation. Tests need MCP connections to go through
-    /// without prompting; production behaviour (Confirm by default) is covered
-    /// by `forge_services::policy` and `forge_domain::policies::engine` tests.
-    struct AlwaysAllowPolicy;
-
-    #[async_trait::async_trait]
-    impl PolicyService for AlwaysAllowPolicy {
-        async fn check_operation_permission(
-            &self,
-            _operation: &PermissionOperation,
-        ) -> anyhow::Result<PolicyDecision> {
-            Ok(PolicyDecision { allowed: true, path: None })
-        }
-
-        async fn is_operation_permitted(
-            &self,
-            _operation: &PermissionOperation,
-        ) -> anyhow::Result<bool> {
-            Ok(true)
-        }
-
-        async fn allow_operation(&self, _operation: &PermissionOperation) -> anyhow::Result<()> {
-            Ok(())
-        }
-    }
-
     // ── Fixture ──────────────────────────────────────────────────────────────
 
-    fn fixture() -> ForgeMcpService<MockMcpManager, MockInfra, MockMcpClient, AlwaysAllowPolicy> {
-        ForgeMcpService::new(
-            Arc::new(MockMcpManager),
-            Arc::new(MockInfra),
-            Arc::new(AlwaysAllowPolicy),
-        )
+    fn fixture() -> ForgeMcpService<MockMcpManager, MockInfra, MockMcpClient> {
+        ForgeMcpService::new(Arc::new(MockMcpManager), Arc::new(MockInfra))
+    }
+
+    fn fixture_cfg() -> McpConfig {
+        let mut servers = BTreeMap::new();
+        servers.insert(
+            ServerName::from("test-server".to_string()),
+            McpServerConfig::new_stdio("echo", vec![], None),
+        );
+        McpConfig { mcp_servers: servers }
     }
 
     #[test]
@@ -570,14 +439,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_concurrent_init_does_not_race() {
         let service = Arc::new(fixture());
+        let cfg = fixture_cfg();
 
         let s1 = service.clone();
         let s2 = service.clone();
-        let (r1, r2) = tokio::join!(s1.get_mcp_servers(), s2.get_mcp_servers());
+        let c1 = cfg.clone();
+        let c2 = cfg.clone();
+        let (r1, r2) = tokio::join!(s1.get_mcp_servers(c1), s2.get_mcp_servers(c2));
         r1.unwrap();
         r2.unwrap();
 
-        let servers = service.get_mcp_servers().await.unwrap();
+        let servers = service.get_mcp_servers(cfg).await.unwrap();
         let tool_name = servers
             .get_servers()
             .values()

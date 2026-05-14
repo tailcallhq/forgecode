@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use forge_app::dto::ToolsOverview;
 use forge_app::{User, UserUsage};
-use forge_domain::{AgentId, Effort, ModelId, PermissionOperation, ProviderModels};
+use forge_domain::{AgentId, Effort, ModelId, ProviderModels};
 use forge_stream::MpscStream;
 use futures::stream::BoxStream;
 use url::Url;
@@ -124,10 +124,14 @@ pub trait API: Sync + Send {
     /// project directory
     async fn write_mcp_config(&self, scope: &Scope, config: &McpConfig) -> Result<()>;
 
-    /// Unconditionally persists an allow policy for the given operation.
-    /// Use this when the user has explicitly opted in (e.g. via `mcp import`)
-    /// so no interactive confirmation is required on first use.
-    async fn allow_operation(&self, operation: &PermissionOperation) -> Result<()>;
+    /// Prompts for missing permissions for each enabled server in `cfg`.
+    /// Idempotent — servers with existing decisions are skipped.
+    /// Call this synchronously at startup before the REPL takes over stdin.
+    async fn request_mcp_permissions(&self, cfg: McpConfig) -> Result<()>;
+
+    /// Persist `Allow` decisions for the named servers without prompting.
+    /// Used by `mcp import` to record consent on the user's behalf.
+    async fn allow_mcp_servers(&self, names: &[ServerName]) -> Result<()>;
 
     /// Retrieves the provider configuration for the specified agent
     async fn get_agent_provider(&self, agent_id: AgentId) -> anyhow::Result<Provider<Url>>;

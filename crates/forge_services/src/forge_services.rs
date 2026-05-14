@@ -30,8 +30,7 @@ use crate::tool_services::{
     ForgeFsUndo, ForgeFsWrite, ForgeImageRead, ForgePlanCreate, ForgeShell, ForgeSkillFetch,
 };
 
-type McpService<F> =
-    ForgeMcpService<ForgeMcpManager<F>, F, <F as McpServerInfra>::Client, ForgePolicyService<F>>;
+type McpService<F> = ForgeMcpService<ForgeMcpManager<F>, F, <F as McpServerInfra>::Client>;
 type AuthService<F> = ForgeAuthService<F>;
 
 /// ForgeApp is the main application container that implements the App trait.
@@ -112,11 +111,7 @@ impl<
     pub fn new(infra: Arc<F>) -> Self {
         let mcp_manager = Arc::new(ForgeMcpManager::new(infra.clone()));
         let policy_service = ForgePolicyService::new(infra.clone());
-        let mcp_service = Arc::new(ForgeMcpService::new(
-            mcp_manager.clone(),
-            infra.clone(),
-            Arc::new(policy_service.clone()),
-        ));
+        let mcp_service = Arc::new(ForgeMcpService::new(mcp_manager.clone(), infra.clone()));
         let template_service = Arc::new(ForgeTemplateService::new(infra.clone()));
         let attachment_service = Arc::new(ForgeChatRequest::new(infra.clone()));
         let suggestion_service = Arc::new(ForgeDiscoveryService::new(infra.clone()));

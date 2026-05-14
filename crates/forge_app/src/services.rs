@@ -218,7 +218,11 @@ pub trait McpConfigManager: Send + Sync {
 
 #[async_trait::async_trait]
 pub trait McpService: Send + Sync {
-    async fn get_mcp_servers(&self) -> anyhow::Result<McpServers>;
+    /// Connect to and list tools from the given MCP servers.
+    /// The caller is responsible for filtering `cfg` through any policy
+    /// gating before calling; this method connects every enabled server
+    /// in `cfg` without re-checking permissions.
+    async fn get_mcp_servers(&self, cfg: McpConfig) -> anyhow::Result<McpServers>;
     async fn execute_mcp(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput>;
     /// Refresh the MCP cache by fetching fresh data
     async fn reload_mcp(&self) -> anyhow::Result<()>;
@@ -702,8 +706,8 @@ impl<I: Services> McpConfigManager for I {
 
 #[async_trait::async_trait]
 impl<I: Services> McpService for I {
-    async fn get_mcp_servers(&self) -> anyhow::Result<McpServers> {
-        self.mcp_service().get_mcp_servers().await
+    async fn get_mcp_servers(&self, cfg: McpConfig) -> anyhow::Result<McpServers> {
+        self.mcp_service().get_mcp_servers(cfg).await
     }
 
     async fn execute_mcp(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput> {
