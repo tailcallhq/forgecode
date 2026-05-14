@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use forge_app::domain::{
-    McpConfig, McpServerConfig, McpServers, PermissionOperation, Scope,
-    ServerName, ToolCallFull, ToolDefinition, ToolName, ToolOutput,
+    McpConfig, McpServerConfig, McpServers, PermissionOperation, Scope, ServerName, ToolCallFull,
+    ToolDefinition, ToolName, ToolOutput,
 };
 use forge_app::{
     EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService,
@@ -182,7 +182,9 @@ where
             // Connect to each server sequentially and collect results
             let mut results = Vec::with_capacity(mcp_servers.len());
             for (name, server) in mcp_servers {
-                let result = service.connect(&name, server).await
+                let result = service
+                    .connect(&name, server)
+                    .await
                     .context(format!("Failed to initiate MCP server: {name}"));
                 results.push((name, result));
             }
@@ -190,7 +192,10 @@ where
             // Record failures
             for (server_name, result) in results {
                 if let Err(error) = result {
-                    failed_servers.write().await.insert(server_name, format!("{error:?}"));
+                    failed_servers
+                        .write()
+                        .await
+                        .insert(server_name, format!("{error:?}"));
                 }
             }
 
@@ -205,10 +210,7 @@ where
     /// Runs the permission policy against every enabled server in `cfg`.
     /// Returns the set of authorised server names.
     /// Denials are recorded in `failed_servers`.
-    async fn authorize_servers(
-        &self,
-        cfg: &McpConfig,
-    ) -> anyhow::Result<HashSet<ServerName>> {
+    async fn authorize_servers(&self, cfg: &McpConfig) -> anyhow::Result<HashSet<ServerName>> {
         let env = self.infra.get_environment();
 
         let mut authorized = HashSet::new();
@@ -336,11 +338,10 @@ where
         // do not have a persisted Allow policy, so they must prompt again.
         let needs_permission_check = self.has_servers_requiring_permission(&local_cfg).await?;
 
-        if !needs_permission_check {
-            if let Some(cache) = self.infra.cache_get::<_, McpServers>(&config_hash).await? {
+        if !needs_permission_check
+            && let Some(cache) = self.infra.cache_get::<_, McpServers>(&config_hash).await? {
                 return Ok(cache.clone());
             }
-        }
 
         let servers = self.list().await?;
 

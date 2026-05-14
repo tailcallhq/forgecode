@@ -218,7 +218,10 @@ pub trait UserInfra: Send + Sync {
 
     /// Prompts the user to select a single option from an enum that implements
     /// IntoEnumIterator Returns None if the user interrupts the selection
-    async fn select_one_enum<T>(&self, prompt: impl Into<SelectPrompt> + Send) -> anyhow::Result<Option<T>>
+    async fn select_one_enum<T>(
+        &self,
+        prompt: impl Into<SelectPrompt> + Send,
+    ) -> anyhow::Result<Option<T>>
     where
         T: Clone + std::fmt::Display + Send + 'static + strum::IntoEnumIterator + std::str::FromStr,
         <T as std::str::FromStr>::Err: std::fmt::Debug,

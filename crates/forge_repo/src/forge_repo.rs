@@ -424,7 +424,10 @@ where
         self.infra.select_one(prompt, options).await
     }
 
-    async fn select_one_enum<T>(&self, prompt: impl Into<forge_app::SelectPrompt> + Send) -> anyhow::Result<Option<T>>
+    async fn select_one_enum<T>(
+        &self,
+        prompt: impl Into<forge_app::SelectPrompt> + Send,
+    ) -> anyhow::Result<Option<T>>
     where
         T: Clone + std::fmt::Display + Send + 'static + strum::IntoEnumIterator + std::str::FromStr,
         <T as std::str::FromStr>::Err: std::fmt::Debug,
