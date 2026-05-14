@@ -223,7 +223,10 @@ pub trait McpService: Send + Sync {
     /// gating before calling; this method connects every enabled server
     /// in `cfg` without re-checking permissions.
     async fn get_mcp_servers(&self, cfg: McpConfig) -> anyhow::Result<McpServers>;
-    async fn execute_mcp(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput>;
+    /// Execute a tool call against an already-connected server. The caller is
+    /// responsible for supplying a pre-filtered `cfg` (same one used for
+    /// `get_mcp_servers`) so denied servers are never reconnected here.
+    async fn execute_mcp(&self, call: ToolCallFull, cfg: McpConfig) -> anyhow::Result<ToolOutput>;
     /// Refresh the MCP cache by fetching fresh data
     async fn reload_mcp(&self) -> anyhow::Result<()>;
 }
@@ -710,8 +713,8 @@ impl<I: Services> McpService for I {
         self.mcp_service().get_mcp_servers(cfg).await
     }
 
-    async fn execute_mcp(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput> {
-        self.mcp_service().execute_mcp(call).await
+    async fn execute_mcp(&self, call: ToolCallFull, cfg: McpConfig) -> anyhow::Result<ToolOutput> {
+        self.mcp_service().execute_mcp(call, cfg).await
     }
 
     async fn reload_mcp(&self) -> anyhow::Result<()> {

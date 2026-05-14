@@ -8,7 +8,7 @@ pub struct McpExecutor<S> {
     services: Arc<S>,
 }
 
-impl<S: McpService> McpExecutor<S> {
+impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> McpExecutor<S> {
     pub fn new(services: Arc<S>) -> Self {
         Self { services }
     }
@@ -22,11 +22,11 @@ impl<S: McpService> McpExecutor<S> {
             .send_tool_input(TitleFormat::info("MCP").sub_title(input.name.as_str()))
             .await?;
 
-        self.services.execute_mcp(input).await
+        let mcp_app = McpApp::new(self.services.clone());
+        let cfg = mcp_app.permitted_mcp_config().await?;
+        self.services.execute_mcp(input, cfg).await
     }
-}
 
-impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> McpExecutor<S> {
     pub async fn contains_tool(&self, tool_name: &ToolName) -> anyhow::Result<bool> {
         let mcp_servers = McpApp::new(self.services.clone()).get_mcp_servers().await?;
         // Convert Claude Code format (mcp__{server}__{tool}) to the internal legacy

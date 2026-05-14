@@ -6,7 +6,7 @@ use forge_app::domain::{
     McpConfig, McpServerConfig, McpServers, ServerName, ToolCallFull, ToolDefinition, ToolName,
     ToolOutput,
 };
-use forge_app::{EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService};
+use forge_app::{EnvironmentInfra, KVStore, McpClientInfra, McpServerInfra, McpService};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::mcp::tool::McpExecutor;
@@ -21,12 +21,11 @@ fn generate_mcp_tool_name(server_name: &ServerName, tool_name: &ToolName) -> Too
 }
 
 #[derive(Clone)]
-pub struct ForgeMcpService<M, I, C> {
+pub struct ForgeMcpService<I, C> {
     tools: Arc<RwLock<HashMap<ToolName, ToolHolder<McpExecutor<C>>>>>,
     failed_servers: Arc<RwLock<HashMap<ServerName, String>>>,
     previous_config_hash: Arc<Mutex<u64>>,
     init_lock: Arc<Mutex<()>>,
-    manager: Arc<M>,
     infra: Arc<I>,
 }
 
@@ -37,20 +36,18 @@ struct ToolHolder<T> {
     server_name: String,
 }
 
-impl<M, I, C> ForgeMcpService<M, I, C>
+impl<I, C> ForgeMcpService<I, C>
 where
-    M: McpConfigManager + 'static,
     I: McpServerInfra + KVStore + EnvironmentInfra + 'static,
     C: McpClientInfra + Clone,
     C: From<<I as McpServerInfra>::Client>,
 {
-    pub fn new(manager: Arc<M>, infra: Arc<I>) -> Self {
+    pub fn new(infra: Arc<I>) -> Self {
         Self {
             tools: Default::default(),
             failed_servers: Default::default(),
             previous_config_hash: Arc::new(Mutex::new(Default::default())),
             init_lock: Arc::new(Mutex::new(())),
-            manager,
             infra,
         }
     }
@@ -179,11 +176,9 @@ where
         self.tools.write().await.clear()
     }
 
-    async fn call(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput> {
-        // Ensure MCP connections are initialized before calling tools.
-        // For execute_mcp we read the merged (unfiltered) config so that all
-        // previously-connected servers are reachable regardless of scope.
-        let cfg = self.manager.read_mcp_config(None).await?;
+    async fn call(&self, call: ToolCallFull, cfg: McpConfig) -> anyhow::Result<ToolOutput> {
+        // Use the caller-supplied pre-filtered config so only permitted servers
+        // are (re)connected here.
         self.init_mcp(cfg).await?;
 
         let tools = self.tools.read().await;
@@ -217,9 +212,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<M, I, C> McpService for ForgeMcpService<M, I, C>
+impl<I, C> McpService for ForgeMcpService<I, C>
 where
-    M: McpConfigManager + 'static,
     I: McpServerInfra + KVStore + EnvironmentInfra + 'static,
     C: McpClientInfra + Clone,
     C: From<<I as McpServerInfra>::Client>,
@@ -237,8 +231,8 @@ where
         Ok(servers)
     }
 
-    async fn execute_mcp(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput> {
-        self.call(call).await
+    async fn execute_mcp(&self, call: ToolCallFull, cfg: McpConfig) -> anyhow::Result<ToolOutput> {
+        self.call(call, cfg).await
     }
 
     async fn reload_mcp(&self) -> anyhow::Result<()> {
@@ -256,7 +250,7 @@ mod tests {
         ConfigOperation, Environment, McpConfig, McpServerConfig, Scope, ServerName, ToolCallFull,
         ToolDefinition, ToolName, ToolOutput,
     };
-    use forge_app::{EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService};
+    use forge_app::{EnvironmentInfra, KVStore, McpClientInfra, McpServerInfra, McpService};
     use forge_config::ForgeConfig;
     use pretty_assertions::assert_eq;
     use serde::de::DeserializeOwned;
@@ -460,7 +454,7 @@ mod tests {
             .clone();
 
         let call = ToolCallFull::new(tool_name);
-        let actual = service.execute_mcp(call).await.unwrap();
+        let actual = service.execute_mcp(call, fixture_cfg()).await.unwrap();
         let expected = ToolOutput::text("mock result");
         assert_eq!(actual, expected);
     }
