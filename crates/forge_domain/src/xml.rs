@@ -58,6 +58,16 @@ pub fn remove_tag_with_prefix(text: &str, prefix: &str) -> String {
     result
 }
 
+/// Removes all XML/HTML tags from the text, keeping only the content between tags.
+/// Multiple whitespace characters are collapsed into a single space.
+pub fn strip_xml_tags(text: &str) -> String {
+    let tag_pattern = regex::Regex::new(r"<[^>]*>").unwrap();
+    let result = tag_pattern.replace_all(text, "").to_string();
+    // Collapse multiple whitespace characters into a single space
+    let re_whitespace = regex::Regex::new(r"\s+").unwrap();
+    re_whitespace.replace_all(&result, " ").trim().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;

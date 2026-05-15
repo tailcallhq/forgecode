@@ -17,6 +17,7 @@ fn is_false(value: &bool) -> bool {
 use crate::temperature::Temperature;
 use crate::top_k::TopK;
 use crate::top_p::TopP;
+use crate::xml::strip_xml_tags;
 use crate::{
     Attachment, AttachmentContent, ConversationId, EventValue, Image, MessagePhase, ModelId,
     ReasoningFull, ToolChoice, ToolDefinition, ToolOutput, ToolValue, Usage,
@@ -731,6 +732,7 @@ impl Context {
             .enumerate()
             .map(|(_user_idx, (full_idx, entry))| {
                 let preview = entry.content().unwrap_or("").trim();
+                let preview = strip_xml_tags(preview);
                 let max_len = 100;
                 let preview = if preview.len() > max_len {
                     format!("{}...", &preview[..max_len])
