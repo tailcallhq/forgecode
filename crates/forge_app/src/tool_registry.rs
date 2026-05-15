@@ -5,8 +5,8 @@ use anyhow::Context;
 use console::style;
 use forge_domain::{
     Agent, AgentId, AgentInput, ChatResponse, ChatResponseContent, Environment, InputModality,
-    Model, SystemContext, TemplateConfig, ToolCallContext, ToolCallFull, ToolCatalog,
-    ToolDefinition, ToolKind, ToolName, ToolOutput, ToolResult,
+    Model, SystemContext, TemplateConfig, ToolCallContext, ToolCallFull,
+    ToolCatalog, ToolDefinition, ToolKind, ToolName, ToolOutput, ToolResult,
 };
 use forge_template::Element;
 use futures::future::join_all;
@@ -218,9 +218,13 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
     ) -> ToolResult {
         let call_id = call.call_id.clone();
         let tool_name = call.name.clone();
+        let modified_files = Self::extract_modified_files(&call);
         let output = self.call_inner(agent, call, context).await;
 
-        ToolResult::new(tool_name).call_id(call_id).output(output)
+        ToolResult::new(tool_name)
+            .call_id(call_id)
+            .output(output)
+            .modified_files(modified_files)
     }
 
     pub async fn list(&self) -> anyhow::Result<Vec<ToolDefinition>> {
@@ -379,6 +383,28 @@ impl<S> ToolRegistry<S> {
 
         let path_lower = path.to_lowercase();
         IMAGE_EXTENSIONS.iter().any(|ext| path_lower.ends_with(ext))
+    }
+
+    /// Extracts the file path from a tool call's arguments if it's a
+    /// file-modifying tool (write, patch, remove). Returns an empty vec
+    /// for non-modifying tools or if the path cannot be parsed.
+    fn extract_modified_files(call: &ToolCallFull) -> Vec<String> {
+        match call.name.as_str() {
+            "write" | "patch" | "remove" => {
+                if let Ok(args) = call.arguments.parse() {
+                    if let Some(file_path) =
+                        args.get("file_path").and_then(|v| v.as_str())
+                    {
+                        return vec![file_path.to_string()];
+                    }
+                    if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
+                        return vec![path.to_string()];
+                    }
+                }
+                vec![]
+            }
+            _ => vec![],
+        }
     }
 
     /// Validates if a tool's modality requirements are supported by the current

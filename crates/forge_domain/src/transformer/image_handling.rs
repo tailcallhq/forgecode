@@ -100,6 +100,7 @@ mod tests {
                 ],
                 is_error: false,
             },
+            modified_files: vec![],
         }])
     }
 
@@ -114,11 +115,13 @@ mod tests {
                     name: ToolName::new("image_tool_1"),
                     call_id: Some(ToolCallId::new("call_1")),
                     output: ToolOutput::image(image1),
+                    modified_files: vec![],
                 },
                 ToolResult {
                     name: ToolName::new("image_tool_2"),
                     call_id: Some(ToolCallId::new("call_2")),
                     output: ToolOutput::image(image2),
+                    modified_files: vec![],
                 },
             ])
     }
@@ -141,6 +144,7 @@ mod tests {
                 name: ToolName::new("text_tool"),
                 call_id: Some(ToolCallId::new("call_text")),
                 output: ToolOutput::text("Just text output".to_string()),
+                modified_files: vec![],
             }]);
 
         let mut transformer = ImageHandling::new();
@@ -178,6 +182,7 @@ mod tests {
                 ],
                 is_error: false,
             },
+            modified_files: vec![],
         }]);
 
         let mut transformer = ImageHandling::new();
@@ -201,6 +206,7 @@ mod tests {
                 ],
                 is_error: true,
             },
+            modified_files: vec![],
         }]);
 
         let mut transformer = ImageHandling::new();
@@ -237,6 +243,7 @@ mod tests {
                 name: ToolName::new("image_tool"),
                 call_id: Some(ToolCallId::new("call_preserve")),
                 output: ToolOutput::image(image),
+                modified_files: vec![],
             }]);
 
         let mut transformer = ImageHandling::new();

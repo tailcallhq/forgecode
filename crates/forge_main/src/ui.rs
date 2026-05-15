@@ -2729,6 +2729,22 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         let total_before = context.messages.len();
 
+        // Find the full index of the Nth user message before truncating
+        // so we can collect the files that will be removed.
+        let cut_index = context
+            .messages
+            .iter()
+            .enumerate()
+            .filter_map(|(i, entry)| entry.has_role(Role::User).then_some(i))
+            .nth(keep_nth_user);
+
+        // Collect file paths that were modified by tool results in messages
+        // that will be removed. These files' snapshots need to be reverted.
+        let modified_files: Vec<String> = match cut_index {
+            Some(idx) => context.modified_files_after(idx),
+            None => vec![],
+        };
+
         // Perform the truncation (keep messages up to and including the selected user message)
         let truncated_context = context.clone().truncate_to_user_message(keep_nth_user);
         let removed = total_before - truncated_context.messages.len();
@@ -2738,6 +2754,34 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         conversation.metadata.updated_at = Some(chrono::Utc::now());
 
         self.api.upsert_conversation(conversation).await?;
+
+        // Revert file modifications from the removed messages (best-effort)
+        if !modified_files.is_empty() {
+            self.writeln_title(TitleFormat::info("Reverting file changes..."))?;
+            let mut unique_files = std::collections::BTreeSet::new();
+            for f in &modified_files {
+                unique_files.insert(f.clone());
+            }
+            let mut failed = 0u32;
+            for file_path in &unique_files {
+                match self.api.undo_snapshot(file_path).await {
+                    Ok(_) => {
+                        tracing::info!(file = %file_path, "Rewind reverted snapshot");
+                    }
+                    Err(e) => {
+                        tracing::warn!(file = %file_path, error = %e, "Failed to revert snapshot during rewind");
+                        failed += 1;
+                    }
+                }
+            }
+            let file_count = unique_files.len();
+            let status = if failed == 0 {
+                format!("Reverted {file_count} file(s).")
+            } else {
+                format!("Reverted {} of {file_count} file(s). {failed} failed.", file_count - failed as usize)
+            };
+            self.writeln(status)?;
+        }
 
         let summary = if removed > 0 {
             format!("Removed {removed} messages. Now has {num_messages} messages.")

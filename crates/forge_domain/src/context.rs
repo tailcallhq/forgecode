@@ -750,6 +750,19 @@ impl Context {
             .count()
     }
 
+    /// Returns the file paths modified by tool results in messages
+    /// after the given index (exclusive). Used by rewind to know which
+    /// file snapshots to revert.
+    pub fn modified_files_after(&self, keep_up_to: usize) -> Vec<String> {
+        let mut files = Vec::new();
+        for msg in &self.messages[usize::min(keep_up_to + 1, self.messages.len())..] {
+            if let ContextMessage::Tool(result) = &msg.message {
+                files.extend(result.modified_files.iter().cloned());
+            }
+        }
+        files
+    }
+
     /// Returns the count of assistant messages in the context
     pub fn assistant_message_count(&self) -> usize {
         self.messages
@@ -963,6 +976,7 @@ mod tests {
                     name: crate::ToolName::new("text_tool"),
                     call_id: Some(crate::ToolCallId::new("call1")),
                     output: crate::ToolOutput::text("Text output".to_string()),
+                    modified_files: vec![],
                 },
                 ToolResult {
                     name: crate::ToolName::new("empty_tool"),
@@ -971,6 +985,7 @@ mod tests {
                         values: vec![crate::ToolValue::Empty],
                         is_error: false,
                     },
+                    modified_files: vec![],
                 },
             ]);
 
@@ -989,6 +1004,7 @@ mod tests {
                 name: crate::ToolName::new("image_tool"),
                 call_id: Some(crate::ToolCallId::new("call1")),
                 output: crate::ToolOutput::image(image),
+                modified_files: vec![],
             }]);
 
         let mut transformer = crate::transformer::ImageHandling::new();
@@ -1013,6 +1029,7 @@ mod tests {
                 ],
                 is_error: false,
             },
+            modified_files: vec![],
         }]);
 
         let mut transformer = crate::transformer::ImageHandling::new();
@@ -1032,16 +1049,19 @@ mod tests {
                     name: crate::ToolName::new("text_tool"),
                     call_id: Some(crate::ToolCallId::new("call1")),
                     output: crate::ToolOutput::text("Text output".to_string()),
+                    modified_files: vec![],
                 },
                 ToolResult {
                     name: crate::ToolName::new("image_tool1"),
                     call_id: Some(crate::ToolCallId::new("call2")),
                     output: crate::ToolOutput::image(image1),
+                    modified_files: vec![],
                 },
                 ToolResult {
                     name: crate::ToolName::new("image_tool2"),
                     call_id: Some(crate::ToolCallId::new("call3")),
                     output: crate::ToolOutput::image(image2),
+                    modified_files: vec![],
                 },
             ]);
 
@@ -1075,6 +1095,7 @@ mod tests {
                     ],
                     is_error: false,
                 },
+                modified_files: vec![],
             }]);
 
         let mut transformer = crate::transformer::ImageHandling::new();
@@ -1093,6 +1114,7 @@ mod tests {
                 values: vec![crate::ToolValue::Image(image)],
                 is_error: true,
             },
+            modified_files: vec![],
         }]);
 
         let mut transformer = crate::transformer::ImageHandling::new();
@@ -1438,11 +1460,13 @@ mod tests {
                     name: crate::ToolName::new("tool1"),
                     call_id: Some(crate::ToolCallId::new("call1")),
                     output: crate::ToolOutput::text("Result 1".to_string()),
+                    modified_files: vec![],
                 },
                 ToolResult {
                     name: crate::ToolName::new("tool2"),
                     call_id: Some(crate::ToolCallId::new("call2")),
                     output: crate::ToolOutput::text("Result 2".to_string()),
+                    modified_files: vec![],
                 },
             ]);
 
@@ -1595,6 +1619,7 @@ mod tests {
             name: crate::ToolName::new("fs_search"),
             call_id: Some(crate::ToolCallId::new("call1")),
             output: crate::ToolOutput::text("Search results: Found 3 items".to_string()),
+            modified_files: vec![],
         });
         let actual = fixture.token_count_approx();
         let expected = 8; // 30 chars / 4 = 8 tokens (rounded up)
@@ -1609,6 +1634,7 @@ mod tests {
             name: crate::ToolName::new("screenshot"),
             call_id: Some(crate::ToolCallId::new("call1")),
             output: crate::ToolOutput::image(fixture_image),
+            modified_files: vec![],
         });
         let actual = fixture.token_count_approx();
         let expected = 0; // Images are not counted in token approximation

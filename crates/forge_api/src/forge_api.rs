@@ -67,7 +67,8 @@ impl<
     F: CommandInfra
         + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + SkillRepository
-        + GrpcInfra,
+        + GrpcInfra
+        + SnapshotRepository,
 > API for ForgeAPI<A, F>
 {
     async fn discover(&self) -> Result<Vec<File>> {
@@ -433,6 +434,13 @@ impl<
     async fn mcp_auth_status(&self, server_url: &str) -> Result<String> {
         let env = self.services.get_environment().clone();
         Ok(forge_infra::mcp_auth_status(server_url, &env).await)
+    }
+
+    async fn undo_snapshot(&self, path: &str) -> Result<()> {
+        self.infra
+            .undo_snapshot(std::path::Path::new(path))
+            .await?;
+        Ok(())
     }
 
     fn hydrate_channel(&self) -> Result<()> {

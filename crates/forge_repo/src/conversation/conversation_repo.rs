@@ -716,6 +716,7 @@ mod tests {
                     is_error: false,
                     values: vec![ToolValue::Text("Result text".to_string()), ToolValue::Empty],
                 },
+                modified_files: vec![],
             })
             .into(),
             forge_domain::MessageEntry {
