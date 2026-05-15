@@ -430,7 +430,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                     match error.downcast::<ReadLineError>() {
                         Ok(error) => {
-                            return Err(error)?;
+                            Err(error)?;
                         }
                         Err(error) => self.writeln_to_stderr(
                             TitleFormat::error(error.to_string()).display().to_string(),
