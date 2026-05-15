@@ -2765,12 +2765,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // Revert file modifications from the removed messages (best-effort)
         if !modified_files.is_empty() {
             self.writeln_title(TitleFormat::info("Reverting file changes..."))?;
-            let mut unique_files = std::collections::BTreeSet::new();
-            for f in &modified_files {
-                unique_files.insert(f.clone());
-            }
             let mut failed = 0u32;
-            for file_path in &unique_files {
+            let total_undos = modified_files.len();
+            for file_path in modified_files.iter().rev() {
                 match self.api.undo_snapshot(file_path).await {
                     Ok(_) => {
                         tracing::info!(file = %file_path, "Rewind reverted snapshot");
@@ -2781,11 +2778,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     }
                 }
             }
-            let file_count = unique_files.len();
             let status = if failed == 0 {
-                format!("Reverted {file_count} file(s).")
+                format!("Reverted {total_undos} file change(s).")
             } else {
-                format!("Reverted {} of {file_count} file(s). {failed} failed.", file_count - failed as usize)
+                format!("Reverted {} of {total_undos} file change(s). {failed} failed.", total_undos - failed as usize)
             };
             self.writeln(status)?;
         }

@@ -390,7 +390,7 @@ impl<S> ToolRegistry<S> {
     /// for non-modifying tools or if the path cannot be parsed.
     fn extract_modified_files(call: &ToolCallFull) -> Vec<String> {
         match call.name.as_str() {
-            "write" | "patch" | "remove" => {
+            "write" | "patch" | "multi_patch" | "remove" => {
                 if let Ok(args) = call.arguments.parse() {
                     if let Some(file_path) =
                         args.get("file_path").and_then(|v| v.as_str())
