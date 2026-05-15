@@ -729,7 +729,7 @@ impl Context {
             .enumerate()
             .filter(|(_, entry)| entry.has_role(Role::User))
             .enumerate()
-            .map(|(user_idx, (full_idx, entry))| {
+            .map(|(_user_idx, (full_idx, entry))| {
                 let preview = entry.content().unwrap_or("").trim();
                 let max_len = 100;
                 let preview = if preview.len() > max_len {
