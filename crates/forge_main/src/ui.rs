@@ -2735,7 +2735,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .messages
             .iter()
             .enumerate()
-            .filter_map(|(i, entry)| entry.has_role(Role::User).then_some(i))
+            .filter_map(|(i, entry)| {
+                match &entry.message {
+                    ContextMessage::Text(msg) if msg.role == Role::User && !msg.droppable => {
+                        Some(i)
+                    }
+                    _ => None,
+                }
+            })
             .nth(keep_nth_user);
 
         // Collect file paths that were modified by tool results in messages

@@ -709,7 +709,14 @@ impl Context {
             .messages
             .iter()
             .enumerate()
-            .filter_map(|(i, entry)| entry.has_role(Role::User).then_some(i))
+            .filter_map(|(i, entry)| {
+                match &entry.message {
+                    ContextMessage::Text(msg) if msg.role == Role::User && !msg.droppable => {
+                        Some(i)
+                    }
+                    _ => None,
+                }
+            })
             .nth(nth_user);
 
         match cut_after {
