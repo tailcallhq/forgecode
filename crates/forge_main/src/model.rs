@@ -494,6 +494,15 @@ pub enum AppCommand {
         id: Option<String>,
     },
 
+    /// Rewind a conversation to an earlier message, discarding subsequent
+    /// messages. This can be triggered with the '/rewind' command.
+    #[strum(props(usage = "Rewind a conversation to an earlier message"))]
+    Rewind {
+        /// Conversation ID to rewind (optional — prompts interactively if
+        /// absent)
+        id: Option<String>,
+    },
+
     /// Rename any conversation interactively.
     /// This can be triggered with the '/conversation-rename' command.
     #[strum(props(usage = "Rename a conversation interactively"))]
@@ -733,6 +742,7 @@ impl AppCommand {
             AppCommand::CommitPreview => "commit-preview",
             AppCommand::Suggest { .. } => "suggest",
             AppCommand::Clone { .. } => "clone",
+            AppCommand::Rewind { .. } => "rewind",
             AppCommand::ConversationRename { .. } => "conversation-rename",
             AppCommand::Copy => "copy",
             AppCommand::WorkspaceSync => "workspace-sync",

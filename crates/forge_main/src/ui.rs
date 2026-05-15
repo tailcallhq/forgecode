@@ -2271,6 +2271,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             AppCommand::Clone { id } => {
                 self.on_slash_clone(id).await?;
             }
+            AppCommand::Rewind { id } => {
+                self.on_slash_rewind(id).await?;
+            }
             AppCommand::ConversationRename { name } => {
                 let args = if name.is_empty() {
                     None
@@ -2618,6 +2621,139 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.writeln_title(
             TitleFormat::info("Cloned").sub_title(format!("[{original_id} → {new_id}]")),
         )?;
+
+        Ok(())
+    }
+
+    /// Rewinds a conversation to an earlier message, discarding all subsequent
+    /// messages and their associated tool results and usage data.
+    ///
+    /// # Arguments
+    /// * `id` - Optional conversation ID. If `None`, an interactive picker is
+    ///   shown.
+    async fn on_slash_rewind(&mut self, id: Option<String>) -> anyhow::Result<()> {
+        let target_id = if let Some(id_str) = id {
+            ConversationId::parse(&id_str)
+                .map_err(|_| anyhow::anyhow!("Invalid conversation ID: {id_str}"))?
+        } else if let Some(cid) = self.state.conversation_id {
+            cid
+        } else {
+            // Show conversation picker
+            let conversations = self
+                .api
+                .get_conversations(Some(self.config.max_conversations))
+                .await?;
+
+            if conversations.is_empty() {
+                self.writeln_title(TitleFormat::error(
+                    "No conversations found. Start a conversation first.",
+                ))?;
+                return Ok(());
+            }
+
+            let selected = ConversationSelector::select_conversation(
+                &conversations,
+                self.state.conversation_id,
+                None,
+            )
+            .await?;
+
+            match selected {
+                Some(conv) => conv.id,
+                None => return Ok(()),
+            }
+        };
+
+        // Fetch the conversation
+        let mut conversation = self
+            .api
+            .conversation(&target_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Conversation '{target_id}' not found"))?;
+
+        let context = conversation
+            .context
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Conversation has no context to rewind"))?;
+
+        if context.messages.is_empty() {
+            self.writeln_title(TitleFormat::error(
+                "Conversation has no messages to rewind.",
+            ))?;
+            return Ok(());
+        }
+
+        // Display messages with indices
+        self.writeln_title(TitleFormat::info(format!(
+            "Conversation {} — select message index to rewind to:",
+            target_id.into_string()
+        )))?;
+        self.writeln(
+            "Rewinding will discard ALL messages after the chosen index (inclusive).",
+        )?;
+        self.writeln("")?;
+
+        let lines = context.format_messages_for_rewind();
+        for line in &lines {
+            self.writeln(line)?;
+        }
+
+        self.writeln("")?;
+
+        // Ask user for the message index to rewind to
+        let default = format!("{}", context.messages.len().saturating_sub(1));
+        let input = ForgeWidget::input("Rewind to message index (leave empty to cancel)")
+            .allow_empty(true)
+            .with_default(&default)
+            .prompt()?;
+
+        let input = match input {
+            Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+            _ => {
+                self.writeln_title(TitleFormat::info("Rewind cancelled."))?;
+                return Ok(());
+            }
+        };
+
+        let keep_idx: usize = match input.parse() {
+            Ok(n) if n < context.messages.len() => n,
+            _ => {
+                self.writeln_title(TitleFormat::error(format!(
+                    "Invalid index. Must be between 0 and {}.",
+                    context.messages.len() - 1
+                )))?;
+                return Ok(());
+            }
+        };
+
+        let total_before = context.messages.len();
+
+        // Perform the truncation
+        let mut truncated_context = context.clone();
+        truncated_context = truncated_context.truncate(keep_idx);
+        let removed = total_before - truncated_context.messages.len();
+
+        conversation.context = Some(truncated_context);
+        conversation.metadata.updated_at = Some(chrono::Utc::now());
+
+        self.api.upsert_conversation(conversation).await?;
+
+        let summary = if removed > 0 {
+            format!("Removed {removed} messages. Now has {} messages.", keep_idx + 1)
+        } else {
+            format!("No messages removed. Still {} messages.", total_before)
+        };
+
+        self.writeln_title(
+            TitleFormat::info("Rewound")
+                .sub_title(format!("[{}] {summary}", target_id.into_string())),
+        )?;
+
+        // If this is the active conversation, update the state
+        if self.state.conversation_id == Some(target_id) {
+            self.spinner.start(Some("Reloading conversation context"))?;
+            self.spinner.stop(None)?;
+        }
 
         Ok(())
     }

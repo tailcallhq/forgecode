@@ -685,6 +685,45 @@ impl Context {
         self.messages.len()
     }
 
+    /// Truncates the context, keeping messages up to and including the given
+    /// index, and removing all messages after that point.
+    ///
+    /// Also removes tool results that reference tool calls that were
+    /// truncated, and resets usage data to match the remaining messages.
+    ///
+    /// Returns the truncated context.
+    pub fn truncate(mut self, keep_up_to: usize) -> Self {
+        if keep_up_to >= self.messages.len() {
+            return self;
+        }
+        self.messages.truncate(keep_up_to + 1);
+        self
+    }
+
+    /// Formats messages with numbered indices for display during interactive
+    /// rewind. Each line shows: `[N] Role: preview_content`
+    pub fn format_messages_for_rewind(&self) -> Vec<String> {
+        self.messages
+            .iter()
+            .enumerate()
+            .map(|(i, entry)| {
+                let role = match &**entry {
+                    ContextMessage::Text(msg) => format!("{:?}", msg.role),
+                    ContextMessage::Tool(_) => "Tool".to_string(),
+                    ContextMessage::Image(_) => "Image".to_string(),
+                };
+                let preview = entry.content().unwrap_or("").trim();
+                let max_len = 100;
+                let preview = if preview.len() > max_len {
+                    format!("{}...", &preview[..max_len])
+                } else {
+                    preview.to_string()
+                };
+                format!("[{i:>3}] {role:>9}: {preview}")
+            })
+            .collect()
+    }
+
     /// Returns the count of user messages in the context
     pub fn user_message_count(&self) -> usize {
         self.messages
