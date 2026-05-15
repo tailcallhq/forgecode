@@ -34,6 +34,7 @@ currency_conversion_rate = 1.0
 subagents = true
 use_forge_committer = true
 use_text_patch_fallback = false
+show_model_in_prompt = true
 
 [retry]
 backoff_factor = 2

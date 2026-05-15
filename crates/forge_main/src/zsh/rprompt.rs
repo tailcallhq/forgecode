@@ -53,6 +53,10 @@ pub struct ZshRPrompt {
     /// Conversion ratio for cost display. Cost is multiplied by this value.
     /// Defaults to 1.0.
     conversion_ratio: f64,
+    /// Whether to render the model name in the prompt. Defaults to `true`.
+    /// When `false`, both the model and reasoning effort segments are
+    /// suppressed.
+    show_model: bool,
 }
 impl ZshRPrompt {
     /// Constructs a [`ZshRPrompt`] with currency settings populated from the
@@ -61,6 +65,7 @@ impl ZshRPrompt {
         Self::default()
             .currency_symbol(config.currency_symbol.clone())
             .conversion_ratio(config.currency_conversion_rate.value())
+            .show_model(config.show_model_in_prompt)
     }
 }
 
@@ -76,6 +81,7 @@ impl Default for ZshRPrompt {
             use_nerd_font: true,
             currency_symbol: "\u{f155}".to_string(),
             conversion_ratio: 1.0,
+            show_model: true,
         }
     }
 }
@@ -139,51 +145,53 @@ impl Display for ZshRPrompt {
         }
 
         // Add model
-        if let Some(ref model_id) = self.model {
-            let model_id = if self.use_nerd_font {
-                format!("{MODEL_SYMBOL} {}", model_id)
-            } else {
-                model_id.to_string()
-            };
-            let styled = if active {
-                model_id.zsh().fg(ZshColor::CYAN)
-            } else {
-                model_id.zsh().fg(ZshColor::DIMMED)
-            };
-            write!(f, " {}", styled)?;
-        }
+        if self.show_model {
+            if let Some(ref model_id) = self.model {
+                let model_id = if self.use_nerd_font {
+                    format!("{MODEL_SYMBOL} {}", model_id)
+                } else {
+                    model_id.to_string()
+                };
+                let styled = if active {
+                    model_id.zsh().fg(ZshColor::CYAN)
+                } else {
+                    model_id.zsh().fg(ZshColor::DIMMED)
+                };
+                write!(f, " {}", styled)?;
+            }
 
-        // Add reasoning effort (rendered to the right of the model).
-        // `Effort::None` is suppressed because it carries no useful information
-        // for the user to see in the prompt. Below `WIDE_TERMINAL_THRESHOLD`
-        // columns the label collapses to its first three characters so the
-        // prompt stays compact on narrow terminals; above the threshold the
-        // full uppercase label is rendered for readability.
-        if let Some(ref effort) = self.reasoning_effort
-            && !matches!(effort, Effort::None)
-        {
-            let is_wide =
-                self.terminal_width.unwrap_or(WIDE_TERMINAL_THRESHOLD) >= WIDE_TERMINAL_THRESHOLD;
-            // Use `chars().take(3).collect()` rather than `&label[..3]` to
-            // satisfy the `clippy::string_slice` lint that is denied in CI.
-            // `Effort` serializes as lowercase ASCII, so taking the first
-            // three chars is always well-defined.
-            let effort_label = if is_wide {
-                effort.to_string().to_uppercase()
-            } else {
-                effort
-                    .to_string()
-                    .chars()
-                    .take(3)
-                    .collect::<String>()
-                    .to_uppercase()
-            };
-            let styled = if active {
-                effort_label.zsh().fg(ZshColor::YELLOW)
-            } else {
-                effort_label.zsh().fg(ZshColor::DIMMED)
-            };
-            write!(f, " {}", styled)?;
+            // Add reasoning effort (rendered to the right of the model).
+            // `Effort::None` is suppressed because it carries no useful information
+            // for the user to see in the prompt. Below `WIDE_TERMINAL_THRESHOLD`
+            // columns the label collapses to its first three characters so the
+            // prompt stays compact on narrow terminals; above the threshold the
+            // full uppercase label is rendered for readability.
+            if let Some(ref effort) = self.reasoning_effort
+                && !matches!(effort, Effort::None)
+            {
+                let is_wide =
+                    self.terminal_width.unwrap_or(WIDE_TERMINAL_THRESHOLD) >= WIDE_TERMINAL_THRESHOLD;
+                // Use `chars().take(3).collect()` rather than `&label[..3]` to
+                // satisfy the `clippy::string_slice` lint that is denied in CI.
+                // `Effort` serializes as lowercase ASCII, so taking the first
+                // three chars is always well-defined.
+                let effort_label = if is_wide {
+                    effort.to_string().to_uppercase()
+                } else {
+                    effort
+                        .to_string()
+                        .chars()
+                        .take(3)
+                        .collect::<String>()
+                        .to_uppercase()
+                };
+                let styled = if active {
+                    effort_label.zsh().fg(ZshColor::YELLOW)
+                } else {
+                    effort_label.zsh().fg(ZshColor::DIMMED)
+                };
+                write!(f, " {}", styled)?;
+            }
         }
 
         Ok(())
@@ -436,5 +444,45 @@ mod tests {
         let expected =
             " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b %F{134}\u{ec19} gpt-4%f %F{3}MIN%f";
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_rprompt_hide_model() {
+        // When show_model is false, model and reasoning effort are hidden
+        let actual = ZshRPrompt::default()
+            .agent(Some(AgentId::new("forge")))
+            .model(Some(ModelId::new("gpt-4")))
+            .token_count(Some(TokenCount::Actual(1500)))
+            .reasoning_effort(Some(Effort::High))
+            .show_model(false)
+            .to_string();
+
+        let expected = " %B%F{15}\u{f167a} FORGE%f%b %B%F{15}1.5k%f%b";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_rprompt_hide_model_init_state() {
+        // Inactive state with show_model false: no model, no reasoning effort
+        let actual = ZshRPrompt::default()
+            .agent(Some(AgentId::new("forge")))
+            .model(Some(ModelId::new("gpt-4")))
+            .reasoning_effort(Some(Effort::Medium))
+            .show_model(false)
+            .to_string();
+
+        let expected = " %B%F{240}\u{f167a} FORGE%f%b";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_rprompt_show_model_default_true() {
+        // By default show_model is true, so model is visible
+        let actual = ZshRPrompt::default()
+            .agent(Some(AgentId::new("forge")))
+            .model(Some(ModelId::new("gpt-4")))
+            .to_string();
+
+        assert!(actual.contains("gpt-4"));
     }
 }
