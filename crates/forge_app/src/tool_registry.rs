@@ -5,8 +5,8 @@ use anyhow::Context;
 use console::style;
 use forge_domain::{
     Agent, AgentId, AgentInput, ChatResponse, ChatResponseContent, Environment, InputModality,
-    Model, SystemContext, TemplateConfig, ToolCallContext, ToolCallFull,
-    ToolCatalog, ToolDefinition, ToolKind, ToolName, ToolOutput, ToolResult,
+    Model, SystemContext, TemplateConfig, ToolCallContext, ToolCallFull, ToolCatalog,
+    ToolDefinition, ToolKind, ToolName, ToolOutput, ToolResult,
 };
 use forge_template::Element;
 use futures::future::join_all;
@@ -429,9 +429,7 @@ impl<S> ToolRegistry<S> {
         match call.name.as_str() {
             "write" | "patch" | "multi_patch" | "remove" => {
                 if let Ok(args) = call.arguments.parse() {
-                    if let Some(file_path) =
-                        args.get("file_path").and_then(|v| v.as_str())
-                    {
+                    if let Some(file_path) = args.get("file_path").and_then(|v| v.as_str()) {
                         return vec![file_path.to_string()];
                     }
                     if let Some(path) = args.get("path").and_then(|v| v.as_str()) {

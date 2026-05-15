@@ -708,13 +708,9 @@ impl Context {
             .messages
             .iter()
             .enumerate()
-            .filter_map(|(i, entry)| {
-                match &entry.message {
-                    ContextMessage::Text(msg) if msg.role == Role::User && !msg.droppable => {
-                        Some(i)
-                    }
-                    _ => None,
-                }
+            .filter_map(|(i, entry)| match &entry.message {
+                ContextMessage::Text(msg) if msg.role == Role::User && !msg.droppable => Some(i),
+                _ => None,
             })
             .nth(nth_user);
 
@@ -734,11 +730,9 @@ impl Context {
         self.messages
             .iter()
             .enumerate()
-            .filter(|(_, entry)| {
-                match &entry.message {
-                    ContextMessage::Text(msg) => msg.role == Role::User && !msg.droppable,
-                    _ => false,
-                }
+            .filter(|(_, entry)| match &entry.message {
+                ContextMessage::Text(msg) => msg.role == Role::User && !msg.droppable,
+                _ => false,
             })
             .enumerate()
             .map(|(_user_idx, (full_idx, entry))| {
@@ -760,11 +754,9 @@ impl Context {
     pub fn user_message_count(&self) -> usize {
         self.messages
             .iter()
-            .filter(|msg| {
-                match &msg.message {
-                    ContextMessage::Text(msg) => msg.role == Role::User && !msg.droppable,
-                    _ => false,
-                }
+            .filter(|msg| match &msg.message {
+                ContextMessage::Text(msg) => msg.role == Role::User && !msg.droppable,
+                _ => false,
             })
             .count()
     }
@@ -777,7 +769,41 @@ impl Context {
         if from_index < self.messages.len() {
             for msg in &self.messages[from_index..] {
                 if let ContextMessage::Tool(result) = &msg.message {
+                    // 1. Use the pre-calculated modified files from the tool execution
                     files.extend(result.modified_files.iter().cloned());
+
+                    // 2. Fallback dynamic extraction for older conversations where modified_files might be empty
+                    if let Some(text) = result.output.as_str() {
+                        let mut extracted_paths = Vec::new();
+                        if let Some(tag) = crate::xml::extract_tag(text, "plan_created") {
+                            if let Some(path) = crate::xml::extract_attribute(tag, "path") {
+                                extracted_paths.push(path);
+                            }
+                        } else if let Some(tag) = crate::xml::extract_tag(text, "file_created") {
+                            if let Some(path) = crate::xml::extract_attribute(tag, "path") {
+                                extracted_paths.push(path);
+                            }
+                        } else if let Some(tag) = crate::xml::extract_tag(text, "file_overwritten")
+                        {
+                            if let Some(path) = crate::xml::extract_attribute(tag, "path") {
+                                extracted_paths.push(path);
+                            }
+                        } else if let Some(tag) = crate::xml::extract_tag(text, "file_diff") {
+                            if let Some(path) = crate::xml::extract_attribute(tag, "path") {
+                                extracted_paths.push(path);
+                            }
+                        } else if let Some(tag) = crate::xml::extract_tag(text, "file_removed") {
+                            if let Some(path) = crate::xml::extract_attribute(tag, "path") {
+                                extracted_paths.push(path);
+                            }
+                        }
+
+                        for p in extracted_paths {
+                            if !files.contains(&p) {
+                                files.push(p);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1850,7 +1876,10 @@ mod tests {
 
         // From U1 (idx 0)
         let files = context.modified_files_from(0);
-        assert_eq!(files, vec!["file1.txt".to_string(), "file2.txt".to_string()]);
+        assert_eq!(
+            files,
+            vec!["file1.txt".to_string(), "file2.txt".to_string()]
+        );
     }
 
     /// Regression test: when both `reasoning` (raw text) and

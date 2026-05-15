@@ -76,9 +76,6 @@ impl<
             .await
             .with_context(|| format!("Failed to write plan file: {}", file_path.display()))?;
 
-        Ok(PlanCreateOutput {
-            path: file_path,
-            before: None,
-        })
+        Ok(PlanCreateOutput { path: file_path, before: None })
     }
 }

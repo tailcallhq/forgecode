@@ -437,9 +437,7 @@ impl<
     }
 
     async fn undo_snapshot(&self, path: &str) -> Result<()> {
-        self.infra
-            .undo_snapshot(std::path::Path::new(path))
-            .await?;
+        self.infra.undo_snapshot(std::path::Path::new(path)).await?;
         Ok(())
     }
 

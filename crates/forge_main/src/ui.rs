@@ -2691,28 +2691,27 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let lines = context.format_messages_for_rewind();
         let user_count = lines.len();
         if user_count == 0 {
-            self.writeln_title(TitleFormat::error(
-                "No user messages to rewind to.",
-            ))?;
+            self.writeln_title(TitleFormat::error("No user messages to rewind to."))?;
             return Ok(());
         }
 
-        let last_full_idx = lines.last().map(|(fi, _)| fi.to_string()).unwrap_or_default();
+        let last_full_idx = lines
+            .last()
+            .map(|(fi, _)| fi.to_string())
+            .unwrap_or_default();
         let mut rows: Vec<SelectRow> = Vec::with_capacity(lines.len());
         for (full_idx, display) in &lines {
             rows.push(
-                SelectRow::new(full_idx.to_string(), display.clone())
-                    .search(display.clone()),
+                SelectRow::new(full_idx.to_string(), display.clone()).search(display.clone()),
             );
         }
 
-        let selected =
-            tokio::task::spawn_blocking(move || -> anyhow::Result<Option<SelectRow>> {
-                Ok(ForgeWidget::select_rows("Rewind to message", rows)
-                    .initial_raw(last_full_idx)
-                    .prompt()?)
-            })
-            .await??;
+        let selected = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<SelectRow>> {
+            Ok(ForgeWidget::select_rows("Rewind to message", rows)
+                .initial_raw(last_full_idx)
+                .prompt()?)
+        })
+        .await??;
 
         let full_idx = match selected {
             Some(row) => row
@@ -2772,7 +2771,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             let status = if failed == 0 {
                 format!("Reverted {total_undos} file change(s).")
             } else {
-                format!("Reverted {} of {total_undos} file change(s). {failed} failed.", total_undos - failed as usize)
+                format!(
+                    "Reverted {} of {total_undos} file change(s). {failed} failed.",
+                    total_undos - failed as usize
+                )
             };
             self.writeln(status)?;
         }
