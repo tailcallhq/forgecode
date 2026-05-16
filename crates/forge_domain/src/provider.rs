@@ -364,13 +364,14 @@ impl AnyProvider {
     }
 }
 
-/// Represents a provider with its available models
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Represents a provider with its available models, or the per-provider
+/// error encountered while fetching them.
+#[derive(Debug)]
 pub struct ProviderModels {
     /// The provider identifier
     pub provider_id: ProviderId,
-    /// Available models from this provider
-    pub models: Vec<Model>,
+    /// Available models from this provider, or the per-provider fetch error.
+    pub models: anyhow::Result<Vec<Model>>,
 }
 
 #[cfg(test)]

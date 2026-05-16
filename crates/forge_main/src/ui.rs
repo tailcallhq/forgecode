@@ -1388,14 +1388,16 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // Sort models and then providers
         all_provider_models
             .iter_mut()
-            .for_each(|pm| pm.models.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str())));
+            .filter_map(|pm| pm.models.as_mut().ok())
+            .for_each(|models| models.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str())));
         all_provider_models.sort_by(|a, b| a.provider_id.as_ref().cmp(b.provider_id.as_ref()));
 
         let mut info = Info::new();
         for pm in &all_provider_models {
             let provider_id: &str = &pm.provider_id;
             let provider_display = pm.provider_id.to_string();
-            for model in &pm.models {
+            let Ok(models) = &pm.models else { continue };
+            for model in models {
                 let id = model.id.to_string();
                 info = info
                     .add_title(&id)
@@ -1446,6 +1448,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             self.writeln(Porcelain::from(&info).truncate(1, 40).uppercase_headers())?;
         } else {
             self.writeln(info)?;
+        }
+
+        for pm in &all_provider_models {
+            if let Err(err) = &pm.models {
+                self.writeln_title(TitleFormat::error(format!("{err:?}")))?;
+            }
         }
 
         Ok(())
@@ -2828,6 +2836,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             all_provider_models.retain(|pm| &pm.provider_id == filter_id);
         }
 
+        all_provider_models.retain(|pm| pm.models.is_ok());
+
         if all_provider_models.is_empty() {
             return Ok(None);
         }
@@ -2835,7 +2845,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // Sort models and providers (same as on_show_models)
         all_provider_models
             .iter_mut()
-            .for_each(|pm| pm.models.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str())));
+            .filter_map(|pm| pm.models.as_mut().ok())
+            .for_each(|models| models.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str())));
         all_provider_models.sort_by(|a, b| a.provider_id.as_ref().cmp(b.provider_id.as_ref()));
 
         // Build the same Info structure as on_show_models, then convert to
@@ -2843,7 +2854,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let mut info = Info::new();
         for pm in &all_provider_models {
             let provider_display = pm.provider_id.to_string();
-            for model in &pm.models {
+            let Ok(models) = &pm.models else { continue };
+            for model in models {
                 let id = model.id.to_string();
                 info = info
                     .add_title(&id)
@@ -2904,7 +2916,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // the Info entries (sorted by provider, then model within provider).
         let mut model_entries: Vec<(ModelId, ProviderId)> = Vec::new();
         for pm in &all_provider_models {
-            for model in &pm.models {
+            let Ok(models) = &pm.models else { continue };
+            for model in models {
                 model_entries.push((model.id.clone(), pm.provider_id.clone()));
             }
         }
@@ -3660,8 +3673,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let model_available = provider_models
                     .iter()
                     .find(|pm| pm.provider_id == provider.id)
-                    .map(|pm| pm.models.iter().any(|m| m.id == current_model))
-                    .unwrap_or(false);
+                    .and_then(|pm| pm.models.as_ref().ok())
+                    .is_some_and(|models| models.iter().any(|m| m.id == current_model));
                 if model_available {
                     (false, Some(current_model))
                 } else {
@@ -4566,7 +4579,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     .with_context(|| {
                         format!("Provider '{provider_id}' not found or returned no models")
                     })?
-                    .models
+                    .models?
             }
         };
         let model_id = ModelId::new(model_str);
