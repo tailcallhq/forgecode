@@ -140,20 +140,10 @@ impl forge_app::KVStore for CacacheStorage {
         // fails with ENOTDIR when regular files (e.g. .mcp.json) are present.
         tokio::fs::remove_dir_all(&self.cache_dir)
             .await
-            .with_context(|| {
-                format!(
-                    "Failed to clear cache at {}",
-                    self.cache_dir.display()
-                )
-            })?;
+            .with_context(|| format!("Failed to clear cache at {}", self.cache_dir.display()))?;
         tokio::fs::create_dir_all(&self.cache_dir)
             .await
-            .with_context(|| {
-                format!(
-                    "Failed to recreate cache at {}",
-                    self.cache_dir.display()
-                )
-            })?;
+            .with_context(|| format!("Failed to recreate cache at {}", self.cache_dir.display()))?;
         Ok(())
     }
 }
