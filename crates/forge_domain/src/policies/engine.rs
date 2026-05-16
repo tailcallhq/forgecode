@@ -25,64 +25,30 @@ impl<'a> PolicyEngine<'a> {
         self.evaluate_policies(operation)
     }
 
-    /// Internal helper function to evaluate policies for a given operation
-    /// Returns permission result, defaults to Confirm if no policies match
+    /// Internal helper function to evaluate policies for a given operation.
+    /// Returns the permission of the first policy whose rule matches the
+    /// operation, or [`Permission::Confirm`] if no policy matches.
     fn evaluate_policies(&self, operation: &PermissionOperation) -> Permission {
-        let has_policies = !self.policies.policies.is_empty();
-
-        if !has_policies {
-            return Permission::Confirm;
-        }
-
-        let mut last_allow: Option<Permission> = None;
-
-        // Evaluate all policies in order: workflow policies first, then extended
-        // policies
-
-        if let Some(permission) = self.evaluate_policy_set(self.policies.policies.iter(), operation)
-        {
-            match permission {
-                Permission::Deny | Permission::Confirm => {
-                    // Return immediately for denials or confirmations
-                    return permission;
-                }
-                Permission::Allow => {
-                    // Keep track of the last allow
-                    last_allow = Some(permission);
-                }
-            }
-        }
-
-        // Return last allow if found, otherwise default to Confirm
-        last_allow.unwrap_or(Permission::Confirm)
+        self.evaluate_policy_set(self.policies.policies.iter(), operation)
+            .unwrap_or(Permission::Confirm)
     }
 
-    /// Helper function to evaluate a set of policies
-    /// Returns the first non-Allow result, or the last Allow result if all are
-    /// Allow
+    /// Finds the most-specific matching policy. Ties broken by restrictiveness
+    /// (Deny > Confirm > Allow).
     fn evaluate_policy_set<'p, I: IntoIterator<Item = &'p Policy>>(
         &self,
         policies: I,
         operation: &PermissionOperation,
     ) -> Option<Permission> {
-        let mut last_allow: Option<Permission> = None;
-
-        for policy in policies {
-            if let Some(permission) = policy.eval(operation) {
-                match permission {
-                    Permission::Deny | Permission::Confirm => {
-                        // Return immediately for denials or confirmations
-                        return Some(permission);
-                    }
-                    Permission::Allow => {
-                        // Keep track of the last allow
-                        last_allow = Some(permission);
-                    }
-                }
-            }
-        }
-
-        last_allow
+        policies
+            .into_iter()
+            .filter_map(|policy| {
+                policy
+                    .eval(operation)
+                    .map(|permission| (permission, policy.specificity()))
+            })
+            .max_by_key(|(permission, specificity)| (*specificity, permission.restrictiveness()))
+            .map(|(permission, _)| permission)
     }
 }
 
@@ -185,6 +151,148 @@ mod tests {
         let actual = fixture.can_perform(&operation);
 
         assert_eq!(actual, Permission::Allow);
+    }
+
+    /// Regression: specific allow should win over broad deny (issue #3085).
+    #[test]
+    fn test_policy_engine_specific_allow_should_win_over_broad_deny() {
+        let fixture_workflow = PolicyConfig::new()
+            .add_policy(Policy::Simple {
+                permission: Permission::Allow,
+                rule: Rule::Read(ReadRule { read: "**/*".to_string(), dir: None }),
+            })
+            .add_policy(Policy::Simple {
+                permission: Permission::Allow,
+                rule: Rule::Write(WriteRule { write: "**/*.rs".to_string(), dir: None }),
+            })
+            .add_policy(Policy::Simple {
+                permission: Permission::Deny,
+                rule: Rule::Write(WriteRule { write: "**/*".to_string(), dir: None }),
+            });
+        let fixture = PolicyEngine::new(&fixture_workflow);
+        let operation = PermissionOperation::Write {
+            path: std::path::PathBuf::from("test.rs"),
+            cwd: std::path::PathBuf::from("/test/cwd"),
+            message: "Create/overwrite file: test.rs".to_string(),
+        };
+
+        let actual = fixture.can_perform(&operation);
+        let expected = Permission::Allow;
+
+        assert_eq!(actual, expected);
+    }
+
+    /// Verifies order independence: deny first, allow second should yield same
+    /// result.
+    #[test]
+    fn test_policy_engine_specific_allow_wins_regardless_of_order() {
+        let fixture_workflow = PolicyConfig::new()
+            .add_policy(Policy::Simple {
+                permission: Permission::Deny,
+                rule: Rule::Write(WriteRule { write: "**/*".to_string(), dir: None }),
+            })
+            .add_policy(Policy::Simple {
+                permission: Permission::Allow,
+                rule: Rule::Write(WriteRule { write: "**/*.rs".to_string(), dir: None }),
+            });
+        let fixture = PolicyEngine::new(&fixture_workflow);
+        let rs_op = PermissionOperation::Write {
+            path: std::path::PathBuf::from("test.rs"),
+            cwd: std::path::PathBuf::from("/test/cwd"),
+            message: "Create/overwrite file: test.rs".to_string(),
+        };
+        let py_op = PermissionOperation::Write {
+            path: std::path::PathBuf::from("test.py"),
+            cwd: std::path::PathBuf::from("/test/cwd"),
+            message: "Create/overwrite file: test.py".to_string(),
+        };
+
+        // .rs matches both rules; the more-specific allow wins.
+        assert_eq!(fixture.can_perform(&rs_op), Permission::Allow);
+        // .py only matches the broad deny, so it stays denied.
+        assert_eq!(fixture.can_perform(&py_op), Permission::Deny);
+    }
+
+    /// Verifies carve-out exception: specific deny beats broad allow.
+    #[test]
+    fn test_policy_engine_specific_deny_carves_out_exception_in_broad_allow() {
+        let fixture_workflow = PolicyConfig::new()
+            .add_policy(Policy::Simple {
+                permission: Permission::Allow,
+                rule: Rule::Write(WriteRule { write: "**/*.rs".to_string(), dir: None }),
+            })
+            .add_policy(Policy::Simple {
+                permission: Permission::Deny,
+                rule: Rule::Write(WriteRule { write: "secret.rs".to_string(), dir: None }),
+            });
+        let fixture = PolicyEngine::new(&fixture_workflow);
+        let secret_op = PermissionOperation::Write {
+            path: std::path::PathBuf::from("secret.rs"),
+            cwd: std::path::PathBuf::from("/test/cwd"),
+            message: "Create/overwrite file: secret.rs".to_string(),
+        };
+        let other_op = PermissionOperation::Write {
+            path: std::path::PathBuf::from("main.rs"),
+            cwd: std::path::PathBuf::from("/test/cwd"),
+            message: "Create/overwrite file: main.rs".to_string(),
+        };
+
+        assert_eq!(fixture.can_perform(&secret_op), Permission::Deny);
+        assert_eq!(fixture.can_perform(&other_op), Permission::Allow);
+    }
+
+    /// Tie-breaker: Deny wins when specificity is equal.
+    #[test]
+    fn test_policy_engine_equal_specificity_prefers_deny() {
+        let fixture_workflow = PolicyConfig::new()
+            .add_policy(Policy::Simple {
+                permission: Permission::Allow,
+                rule: Rule::Write(WriteRule { write: "secret.rs".to_string(), dir: None }),
+            })
+            .add_policy(Policy::Simple {
+                permission: Permission::Deny,
+                rule: Rule::Write(WriteRule { write: "secret.rs".to_string(), dir: None }),
+            });
+        let fixture = PolicyEngine::new(&fixture_workflow);
+        let operation = PermissionOperation::Write {
+            path: std::path::PathBuf::from("secret.rs"),
+            cwd: std::path::PathBuf::from("/test/cwd"),
+            message: "Create/overwrite file: secret.rs".to_string(),
+        };
+
+        let actual = fixture.can_perform(&operation);
+        let expected = Permission::Deny;
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_policy_engine_path_prefix_specificity() {
+        let fixture_workflow = PolicyConfig::new()
+            .add_policy(Policy::Simple {
+                permission: Permission::Allow,
+                rule: Rule::Write(WriteRule { write: "src/**/*.rs".to_string(), dir: None }),
+            })
+            .add_policy(Policy::Simple {
+                permission: Permission::Deny,
+                rule: Rule::Write(WriteRule { write: "*.rs".to_string(), dir: None }),
+            });
+        let fixture = PolicyEngine::new(&fixture_workflow);
+        let inside_src = PermissionOperation::Write {
+            path: std::path::PathBuf::from("src/utils/helper.rs"),
+            cwd: std::path::PathBuf::from("/test/cwd"),
+            message: "Create/overwrite file: src/utils/helper.rs".to_string(),
+        };
+        let outside_src = PermissionOperation::Write {
+            path: std::path::PathBuf::from("test.rs"),
+            cwd: std::path::PathBuf::from("/test/cwd"),
+            message: "Create/overwrite file: test.rs".to_string(),
+        };
+
+        // Path "narrowness" (src/ prefix) wins because it has more literals.
+        assert_eq!(fixture.can_perform(&inside_src), Permission::Allow);
+        // File outside src/ only matches the broad deny.
+        assert_eq!(fixture.can_perform(&outside_src), Permission::Deny);
     }
 
     #[test]

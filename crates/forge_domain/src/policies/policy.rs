@@ -111,6 +111,16 @@ impl Policy {
             _ => None,
         }
     }
+
+    /// Returns the max specificity across child rules.
+    pub fn specificity(&self) -> usize {
+        match self {
+            Policy::Simple { permission: _, rule } => rule.specificity(),
+            Policy::All { all } => all.iter().map(Policy::specificity).max().unwrap_or(0),
+            Policy::Any { any } => any.iter().map(Policy::specificity).max().unwrap_or(0),
+            Policy::Not { not } => not.specificity(),
+        }
+    }
 }
 
 impl Display for Policy {

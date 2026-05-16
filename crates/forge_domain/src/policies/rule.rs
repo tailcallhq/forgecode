@@ -97,6 +97,22 @@ impl Rule {
             _ => false,
         }
     }
+
+    /// Returns a specificity score (count of literal chars) for tie-breaking.
+    pub fn specificity(&self) -> usize {
+        fn count_literals(pattern: &str) -> usize {
+            pattern.chars().filter(|c| !matches!(c, '*' | '?')).count()
+        }
+
+        let (primary, dir) = match self {
+            Rule::Write(r) => (r.write.as_str(), r.dir.as_deref()),
+            Rule::Read(r) => (r.read.as_str(), r.dir.as_deref()),
+            Rule::Execute(r) => (r.command.as_str(), r.dir.as_deref()),
+            Rule::Fetch(r) => (r.url.as_str(), r.dir.as_deref()),
+        };
+
+        count_literals(primary) + dir.map_or(0, count_literals)
+    }
 }
 
 /// Helper function to match a glob pattern against a path or string

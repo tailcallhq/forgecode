@@ -15,6 +15,17 @@ pub enum Permission {
     Confirm,
 }
 
+impl Permission {
+    /// Tie-breaker score: Deny > Confirm > Allow.
+    pub(crate) fn restrictiveness(&self) -> u8 {
+        match self {
+            Permission::Deny => 2,
+            Permission::Confirm => 1,
+            Permission::Allow => 0,
+        }
+    }
+}
+
 impl Display for Permission {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
