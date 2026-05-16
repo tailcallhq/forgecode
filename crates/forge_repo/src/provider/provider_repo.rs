@@ -11,7 +11,7 @@ use merge::Merge;
 use serde::Deserialize;
 
 /// Represents the source of models for a provider
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(untagged)]
 enum Models {
     /// Models are fetched from a URL
@@ -27,8 +27,15 @@ enum Models {
 enum UrlParamVarConfig {
     /// A plain environment variable name with free-text UI input.
     Plain(String),
-    /// A parameter with a constrained set of options, rendered as a dropdown.
-    WithOptions { name: String, options: Vec<String> },
+    /// A parameter with a constrained set of options, rendered as a dropdown,
+    /// and an optional flag indicating the param may be left blank.
+    WithOptions {
+        name: String,
+        #[serde(default)]
+        options: Vec<String>,
+        #[serde(default)]
+        optional: bool,
+    },
 }
 
 impl UrlParamVarConfig {
@@ -40,18 +47,32 @@ impl UrlParamVarConfig {
         }
     }
 
+    /// Returns whether this parameter is optional.
+    fn is_optional(&self) -> bool {
+        match self {
+            Self::Plain(_) => false,
+            Self::WithOptions { optional, .. } => *optional,
+        }
+    }
+
     /// Converts into a `URLParamSpec` for use in the domain layer.
     fn into_spec(self) -> URLParamSpec {
         match self {
             Self::Plain(s) => URLParamSpec::new(URLParam::from(s)),
-            Self::WithOptions { name, options } => {
-                URLParamSpec::with_options(URLParam::from(name), options)
+            Self::WithOptions { name, options, optional } => {
+                let mut spec = if options.is_empty() {
+                    URLParamSpec::new(URLParam::from(name))
+                } else {
+                    URLParamSpec::with_options(URLParam::from(name), options)
+                };
+                spec.optional = optional;
+                spec
             }
         }
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Merge)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Merge)]
 struct ProviderConfig {
     #[merge(strategy = overwrite)]
     id: ProviderId,
@@ -77,6 +98,33 @@ struct ProviderConfig {
     #[serde(default)]
     #[merge(strategy = overwrite)]
     custom_headers: Option<std::collections::HashMap<String, String>>,
+}
+
+/// Maps new environment variable names to their legacy fallback names.
+/// This enables backward compatibility when renaming env vars (e.g. OLLAMA_URL
+/// → OLLAMA_HOST).
+fn legacy_env_var_fallback(new_name: &str) -> Option<&'static str> {
+    match new_name {
+        "OLLAMA_HOST" => Some("OLLAMA_URL"),
+        "VLLM_HOST" => Some("VLLM_URL"),
+        "LM_STUDIO_HOST" => Some("LM_STUDIO_URL"),
+        "LLAMA_CPP_HOST" => Some("LLAMA_CPP_URL"),
+        "JAN_AI_HOST" => Some("JAN_AI_URL"),
+        _ => None,
+    }
+}
+
+/// Returns the default value for URL parameters that should be optional during
+/// environment migration.
+fn default_url_param_value(name: &str) -> Option<&'static str> {
+    match name {
+        "OLLAMA_SSL_SCHEME"
+        | "VLLM_SSL_SCHEME"
+        | "LM_STUDIO_SSL_SCHEME"
+        | "LLAMA_CPP_SSL_SCHEME"
+        | "JAN_AI_SSL_SCHEME" => Some("http"),
+        _ => None,
+    }
 }
 
 fn overwrite<T>(base: &mut T, other: T) {
@@ -105,10 +153,14 @@ fn merge_configs(base: &mut Vec<ProviderConfig>, other: Vec<ProviderConfig>) {
 
 impl From<forge_config::ProviderUrlParam> for UrlParamVarConfig {
     fn from(param: forge_config::ProviderUrlParam) -> Self {
-        if param.options.is_empty() {
+        if param.options.is_empty() && !param.optional {
             UrlParamVarConfig::Plain(param.name)
         } else {
-            UrlParamVarConfig::WithOptions { name: param.name, options: param.options }
+            UrlParamVarConfig::WithOptions {
+                name: param.name,
+                options: param.options,
+                optional: param.optional,
+            }
         }
     }
 }
@@ -148,6 +200,11 @@ impl From<forge_config::ProviderEntry> for ProviderConfig {
             forge_config::ProviderResponseType::OpenCode => ProviderResponse::OpenCode,
         });
 
+        let models = entry.models.map(|m| match m {
+            forge_config::ModelListConfig::Url(url) => Models::Url(url),
+            forge_config::ModelListConfig::Hardcoded(model_list) => Models::Hardcoded(model_list),
+        });
+
         ProviderConfig {
             id: ProviderId::from(entry.id),
             provider_type,
@@ -155,7 +212,7 @@ impl From<forge_config::ProviderEntry> for ProviderConfig {
             url_param_vars: entry.url_param_vars.into_iter().map(Into::into).collect(),
             response_type,
             url: entry.url,
-            models: entry.models.map(Models::Url),
+            models,
             auth_methods,
             custom_headers: entry.custom_headers,
         }
@@ -351,8 +408,25 @@ impl<
 
         for env_var in &config.url_param_vars {
             let name = env_var.param_name();
-            if let Some(value) = self.infra.get_env_var(name) {
+            let value = self
+                .infra
+                .get_env_var(name)
+                // Fall back to legacy env var name for backward compatibility
+                .or_else(|| {
+                    legacy_env_var_fallback(name).and_then(|legacy| self.infra.get_env_var(legacy))
+                });
+            if let Some(value) = value {
                 url_params.insert(URLParam::from(name.to_string()), URLParamValue::from(value));
+            } else if let Some(value) = default_url_param_value(name) {
+                url_params.insert(
+                    URLParam::from(name.to_string()),
+                    URLParamValue::from(value.to_string()),
+                );
+            } else if env_var.is_optional() {
+                // Optional param absent from env — omit from credential
+                // entirely. `render_url_template` injects null
+                // for absent optional params so `{{#if PARAM}}`
+                // evaluates to false.
             } else {
                 return Err(Error::env_var_not_found(config.id.clone(), name).into());
             }
@@ -517,13 +591,29 @@ impl<
     }
 
     /// Writes credentials to the JSON file
+    ///
+    /// Sets file permissions to 0o600 (user read/write only) on Unix systems
+    /// to prevent other users from reading sensitive credentials.
     async fn write_credentials(&self, credentials: &Vec<AuthCredential>) -> anyhow::Result<()> {
         let path = self.infra.get_environment().credentials_path();
-
         let content = serde_json::to_string_pretty(credentials)?;
         self.infra.write(&path, Bytes::from(content)).await?;
+
+        #[cfg(unix)]
+        set_owner_only_permissions(&path).await?;
+
         Ok(())
     }
+}
+
+/// Restricts a file's permissions to owner read/write only (`0o600`).
+#[cfg(unix)]
+async fn set_owner_only_permissions(path: &std::path::Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = tokio::fs::metadata(path).await?.permissions();
+    perms.set_mode(0o600);
+    tokio::fs::set_permissions(path, perms).await?;
+    Ok(())
 }
 
 #[async_trait::async_trait]
@@ -794,6 +884,75 @@ mod tests {
             "https://integrate.api.nvidia.com/v1/chat/completions"
         );
     }
+
+    #[test]
+    fn test_provider_entry_with_static_models_converts_to_hardcoded() {
+        let model = forge_domain::Model::new("Qwen3.6-35B-A3b-q3-mlx")
+            .name("Qwen3.5-35B".to_string())
+            .description(
+                "Qwen local reasoning model with advanced problem-solving capabilities".to_string(),
+            )
+            .context_length(262144)
+            .tools_supported(true)
+            .supports_parallel_tool_calls(true)
+            .supports_reasoning(true)
+            .input_modalities(vec![forge_domain::InputModality::Text]);
+
+        let entry = forge_config::ProviderEntry {
+            id: "ollama".to_string(),
+            url: "http://127.0.0.1:8000/v1/chat/completions".to_string(),
+            response_type: Some(forge_config::ProviderResponseType::OpenAI),
+            auth_methods: vec![forge_config::ProviderAuthMethod::ApiKey],
+            models: Some(forge_config::ModelListConfig::Hardcoded(vec![
+                model.clone(),
+            ])),
+            ..Default::default()
+        };
+
+        let actual = ProviderConfig::from(entry);
+
+        let expected = ProviderConfig {
+            id: ProviderId::from("ollama".to_string()),
+            provider_type: forge_domain::ProviderType::Llm,
+            api_key_vars: None,
+            url_param_vars: vec![],
+            response_type: Some(forge_app::domain::ProviderResponse::OpenAI),
+            url: "http://127.0.0.1:8000/v1/chat/completions".to_string(),
+            models: Some(Models::Hardcoded(vec![model])),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            custom_headers: None,
+        };
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_provider_entry_with_url_models_converts_to_url() {
+        let entry = forge_config::ProviderEntry {
+            id: "my_provider".to_string(),
+            url: "http://example.com/v1/chat/completions".to_string(),
+            models: Some(forge_config::ModelListConfig::Url(
+                "http://example.com/v1/models".to_string(),
+            )),
+            ..Default::default()
+        };
+
+        let actual = ProviderConfig::from(entry);
+
+        let expected = ProviderConfig {
+            id: ProviderId::from("my_provider".to_string()),
+            provider_type: forge_domain::ProviderType::Llm,
+            api_key_vars: None,
+            url_param_vars: vec![],
+            response_type: None,
+            url: "http://example.com/v1/chat/completions".to_string(),
+            models: Some(Models::Url("http://example.com/v1/models".to_string())),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            custom_headers: None,
+        };
+
+        assert_eq!(actual, expected);
+    }
 }
 
 #[cfg(test)]
@@ -811,20 +970,24 @@ mod env_tests {
 
     use super::*;
 
-    // Mock infrastructure that provides environment variables
+    // Mock infrastructure that provides environment variables.
+    // Uses a real temp directory so that file-permission checks work on Unix.
     struct MockInfra {
         env_vars: HashMap<String, String>,
         base_path: PathBuf,
         credentials: tokio::sync::Mutex<Option<Vec<AuthCredential>>>,
+        _tmp: tempfile::TempDir,
     }
 
     impl MockInfra {
         fn new(env_vars: HashMap<String, String>) -> Self {
-            use fake::{Fake, Faker};
+            let tmp = tempfile::TempDir::new().unwrap();
+            let base_path = tmp.path().to_path_buf();
             Self {
                 env_vars,
-                base_path: Faker.fake(),
+                base_path,
                 credentials: tokio::sync::Mutex::new(None),
+                _tmp: tmp,
             }
         }
     }
@@ -900,12 +1063,17 @@ mod env_tests {
     #[async_trait::async_trait]
     impl FileWriterInfra for MockInfra {
         async fn write(&self, path: &std::path::Path, content: Bytes) -> anyhow::Result<()> {
-            // Capture writes to credentials file
+            // Capture writes to credentials file and persist to the real temp dir
+            // so that OS-level permission checks work in tests.
             if path == self.get_environment().credentials_path() {
                 let content_str = String::from_utf8(content.to_vec())?;
                 let creds: Vec<AuthCredential> = serde_json::from_str(&content_str)?;
                 let mut guard = self.credentials.lock().await;
                 *guard = Some(creds);
+                if let Some(parent) = path.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
+                tokio::fs::write(path, content_str).await?;
             }
             Ok(())
         }
@@ -952,7 +1120,7 @@ mod env_tests {
             _url: &reqwest::Url,
             _headers: Option<reqwest::header::HeaderMap>,
             _body: bytes::Bytes,
-        ) -> anyhow::Result<reqwest_eventsource::EventSource> {
+        ) -> anyhow::Result<forge_eventsource::EventSource> {
             Err(anyhow::anyhow!("HTTP not implemented in mock"))
         }
     }
@@ -1117,6 +1285,85 @@ mod env_tests {
         assert!(
             credentials.iter().any(|c| c.id == ProviderId::OPENAI),
             "Should have OpenAI credential"
+        );
+    }
+
+    /// Verifies that `.credentials.json` is written with mode 0o600 so that
+    /// group and world cannot read provider API keys.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_credentials_file_has_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let infra = Arc::new(MockInfra::new(HashMap::new()));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry
+            .upsert_credential(AuthCredential {
+                id: ProviderId::OPENAI,
+                auth_details: AuthDetails::ApiKey(ApiKey::from("sk-test".to_string())),
+                url_params: std::collections::HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        let path = infra.get_environment().credentials_path();
+        let actual = tokio::fs::metadata(&path)
+            .await
+            .unwrap()
+            .permissions()
+            .mode();
+        let expected = 0o600;
+        assert_eq!(
+            actual & 0o777,
+            expected,
+            "credentials file must be 0o600, got 0o{:o}",
+            actual & 0o777
+        );
+    }
+
+    /// Verifies that an existing credentials file with overly broad permissions
+    /// (e.g. 0o644) is tightened to 0o600 when credentials are updated.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_credentials_file_permissions_corrected_on_update() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let infra = Arc::new(MockInfra::new(HashMap::new()));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        let credential = AuthCredential {
+            id: ProviderId::OPENAI,
+            auth_details: AuthDetails::ApiKey(ApiKey::from("sk-test".to_string())),
+            url_params: std::collections::HashMap::new(),
+        };
+
+        // First write — establishes the file
+        registry
+            .upsert_credential(credential.clone())
+            .await
+            .unwrap();
+
+        // Simulate a pre-existing file with world-readable permissions
+        let path = infra.get_environment().credentials_path();
+        let mut perms = tokio::fs::metadata(&path).await.unwrap().permissions();
+        perms.set_mode(0o644);
+        tokio::fs::set_permissions(&path, perms).await.unwrap();
+
+        // Second write — must correct the insecure permissions
+        registry.upsert_credential(credential).await.unwrap();
+
+        let actual = tokio::fs::metadata(&path)
+            .await
+            .unwrap()
+            .permissions()
+            .mode();
+        let expected = 0o600;
+        assert_eq!(
+            actual & 0o777,
+            expected,
+            "credentials file must be corrected to 0o600, got 0o{:o}",
+            actual & 0o777
         );
     }
 
@@ -1293,6 +1540,193 @@ mod env_tests {
     }
 
     #[tokio::test]
+    async fn test_migration_ollama_with_new_env_var() {
+        // New users use OLLAMA_HOST
+        let mut env_vars = HashMap::new();
+        env_vars.insert("OLLAMA_API_KEY".to_string(), "ollama-key".to_string());
+        env_vars.insert("OLLAMA_HOST".to_string(), "http://localhost".to_string());
+        env_vars.insert("OLLAMA_PORT".to_string(), "11434".to_string());
+
+        let infra = Arc::new(MockInfra::new(env_vars));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry.migrate_env_to_file().await.unwrap();
+
+        let credentials = infra.credentials.lock().await;
+        let creds = credentials.as_ref().unwrap();
+
+        let ollama_id = ProviderId::from("ollama".to_string());
+        let ollama_cred = creds.iter().find(|c| c.id == ollama_id).unwrap();
+        assert_eq!(
+            ollama_cred
+                .url_params
+                .get(&URLParam::from("OLLAMA_SSL_SCHEME".to_string()))
+                .map(|v| v.as_str()),
+            Some("http")
+        );
+        assert_eq!(
+            ollama_cred
+                .url_params
+                .get(&URLParam::from("OLLAMA_HOST".to_string()))
+                .map(|v| v.as_str()),
+            Some("http://localhost")
+        );
+        assert_eq!(
+            ollama_cred
+                .url_params
+                .get(&URLParam::from("OLLAMA_PORT".to_string()))
+                .map(|v| v.as_str()),
+            Some("11434")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_migration_ollama_with_legacy_env_var() {
+        // Old users still use OLLAMA_URL (backward compat)
+        let mut env_vars = HashMap::new();
+        env_vars.insert("OLLAMA_API_KEY".to_string(), "ollama-key".to_string());
+        env_vars.insert("OLLAMA_URL".to_string(), "http://localhost".to_string());
+        env_vars.insert("OLLAMA_PORT".to_string(), "11434".to_string());
+
+        let infra = Arc::new(MockInfra::new(env_vars));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry.migrate_env_to_file().await.unwrap();
+
+        let credentials = infra.credentials.lock().await;
+        let creds = credentials.as_ref().unwrap();
+
+        let ollama_id = ProviderId::from("ollama".to_string());
+        let ollama_cred = creds.iter().find(|c| c.id == ollama_id).unwrap();
+        // Should still be stored under OLLAMA_HOST key (the new param name)
+        assert_eq!(
+            ollama_cred
+                .url_params
+                .get(&URLParam::from("OLLAMA_HOST".to_string()))
+                .map(|v| v.as_str()),
+            Some("http://localhost")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_migration_ollama_new_env_var_takes_precedence_over_legacy() {
+        // If both OLLAMA_HOST and OLLAMA_URL are set, OLLAMA_HOST wins
+        let mut env_vars = HashMap::new();
+        env_vars.insert("OLLAMA_API_KEY".to_string(), "ollama-key".to_string());
+        env_vars.insert("OLLAMA_HOST".to_string(), "http://new-host".to_string());
+        env_vars.insert("OLLAMA_URL".to_string(), "http://old-host".to_string());
+        env_vars.insert("OLLAMA_PORT".to_string(), "11434".to_string());
+
+        let infra = Arc::new(MockInfra::new(env_vars));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry.migrate_env_to_file().await.unwrap();
+
+        let credentials = infra.credentials.lock().await;
+        let creds = credentials.as_ref().unwrap();
+
+        let ollama_id = ProviderId::from("ollama".to_string());
+        let ollama_cred = creds.iter().find(|c| c.id == ollama_id).unwrap();
+        assert_eq!(
+            ollama_cred
+                .url_params
+                .get(&URLParam::from("OLLAMA_HOST".to_string()))
+                .map(|v| v.as_str()),
+            Some("http://new-host")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_migration_vllm_with_legacy_env_var() {
+        let mut env_vars = HashMap::new();
+        env_vars.insert("VLLM_API_KEY".to_string(), "vllm-key".to_string());
+        env_vars.insert("VLLM_URL".to_string(), "http://vllm-host".to_string());
+        env_vars.insert("VLLM_PORT".to_string(), "8000".to_string());
+
+        let infra = Arc::new(MockInfra::new(env_vars));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry.migrate_env_to_file().await.unwrap();
+
+        let credentials = infra.credentials.lock().await;
+        let creds = credentials.as_ref().unwrap();
+
+        let vllm_id = ProviderId::from("vllm".to_string());
+        let vllm_cred = creds.iter().find(|c| c.id == vllm_id).unwrap();
+        assert_eq!(
+            vllm_cred
+                .url_params
+                .get(&URLParam::from("VLLM_HOST".to_string()))
+                .map(|v| v.as_str()),
+            Some("http://vllm-host")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_migration_lm_studio_with_legacy_env_var() {
+        let mut env_vars = HashMap::new();
+        env_vars.insert("LM_STUDIO_API_KEY".to_string(), "lm-key".to_string());
+        env_vars.insert("LM_STUDIO_URL".to_string(), "http://lm-host".to_string());
+        env_vars.insert("LM_STUDIO_PORT".to_string(), "1234".to_string());
+
+        let infra = Arc::new(MockInfra::new(env_vars));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry.migrate_env_to_file().await.unwrap();
+
+        let credentials = infra.credentials.lock().await;
+        let creds = credentials.as_ref().unwrap();
+
+        let cred_id = ProviderId::from("lm_studio".to_string());
+        let cred = creds.iter().find(|c| c.id == cred_id).unwrap();
+        assert_eq!(
+            cred.url_params
+                .get(&URLParam::from("LM_STUDIO_HOST".to_string()))
+                .map(|v| v.as_str()),
+            Some("http://lm-host")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ollama_config_uses_new_host_param() {
+        let configs = get_provider_configs();
+        let ollama_id = ProviderId::from("ollama".to_string());
+        let config = configs.iter().find(|c| c.id == ollama_id).unwrap();
+        assert_eq!(
+            config
+                .url_param_vars
+                .iter()
+                .map(|v| v.param_name())
+                .collect::<Vec<_>>(),
+            vec!["OLLAMA_SSL_SCHEME", "OLLAMA_HOST", "OLLAMA_PORT"]
+        );
+        assert!(config.url.contains("{{OLLAMA_SSL_SCHEME}}://"));
+        assert!(config.url.contains("{{OLLAMA_HOST}}"));
+        assert!(!config.url.contains("{{OLLAMA_URL}}"));
+    }
+
+    #[tokio::test]
+    async fn test_ollama_ssl_scheme_config_uses_options() {
+        let configs = get_provider_configs();
+        let ollama_id = ProviderId::from("ollama".to_string());
+        let config = configs.iter().find(|c| c.id == ollama_id).unwrap();
+        let ssl_scheme = config
+            .url_param_vars
+            .iter()
+            .find(|v| v.param_name() == "OLLAMA_SSL_SCHEME")
+            .unwrap()
+            .clone()
+            .into_spec();
+        assert_eq!(
+            ssl_scheme,
+            URLParamSpec::with_options(
+                URLParam::from("OLLAMA_SSL_SCHEME".to_string()),
+                vec!["http".to_string(), "https".to_string()]
+            )
+        );
+    }
+
+    #[tokio::test]
     async fn test_merge_base_provider_configs() {
         use std::io::Write;
 
@@ -1438,7 +1872,7 @@ mod env_tests {
                 _url: &reqwest::Url,
                 _headers: Option<reqwest::header::HeaderMap>,
                 _body: bytes::Bytes,
-            ) -> anyhow::Result<reqwest_eventsource::EventSource> {
+            ) -> anyhow::Result<forge_eventsource::EventSource> {
                 Err(anyhow::anyhow!("HTTP not implemented in mock"))
             }
         }
@@ -1519,5 +1953,50 @@ mod env_tests {
             .iter()
             .find(|c| c.id == ProviderId::OPEN_ROUTER);
         assert!(openrouter_config.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_vllm_port_is_optional() {
+        let configs = get_provider_configs();
+        let vllm_id = ProviderId::from("vllm".to_string());
+        let config = configs.iter().find(|c| c.id == vllm_id).unwrap();
+
+        let port_param = config
+            .url_param_vars
+            .iter()
+            .find(|v| v.param_name() == "VLLM_PORT")
+            .unwrap();
+
+        assert!(port_param.is_optional(), "VLLM_PORT should be optional");
+    }
+
+    #[tokio::test]
+    async fn test_vllm_migration_without_port() {
+        // vLLM behind a reverse proxy — no port needed
+        let mut env_vars = HashMap::new();
+        env_vars.insert("VLLM_API_KEY".to_string(), "vllm-key".to_string());
+        env_vars.insert("VLLM_HOST".to_string(), "my.server.url".to_string());
+        env_vars.insert("VLLM_SSL_SCHEME".to_string(), "https".to_string());
+        // VLLM_PORT intentionally absent
+
+        let infra = Arc::new(MockInfra::new(env_vars));
+        let registry = ForgeProviderRepository::new(infra.clone());
+
+        registry.migrate_env_to_file().await.unwrap();
+
+        let credentials = infra.credentials.lock().await;
+        let creds = credentials.as_ref().unwrap();
+
+        let vllm_id = ProviderId::from("vllm".to_string());
+        let vllm_cred = creds.iter().find(|c| c.id == vllm_id).unwrap();
+
+        // Optional absent param should not be stored in the credential at all.
+        // `render_url_template` handles the absent key by injecting null.
+        assert!(
+            !vllm_cred
+                .url_params
+                .contains_key(&URLParam::from("VLLM_PORT".to_string())),
+            "VLLM_PORT should be absent from credential when not provided"
+        );
     }
 }

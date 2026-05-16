@@ -901,11 +901,53 @@ impl FromDomain<schemars::Schema> for aws_sdk_bedrockruntime::types::ToolInputSc
         use aws_sdk_bedrockruntime::types::ToolInputSchema;
 
         // Serialize Schema to JSON value first
-        let json_value =
+        let mut json_value =
             serde_json::to_value(&schema).with_context(|| "Failed to serialize Schema")?;
+        sanitize_bedrock_tool_schema_numbers(&mut json_value);
 
         // Convert JSON value to Document and wrap in ToolInputSchema
         Ok(ToolInputSchema::Json(json_value_to_document(json_value)))
+    }
+}
+
+fn sanitize_bedrock_tool_schema_numbers(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for key in [
+                "maxLength",
+                "minLength",
+                "maximum",
+                "minimum",
+                "maxItems",
+                "minItems",
+                "maxProperties",
+                "minProperties",
+                "multipleOf",
+            ] {
+                if let Some(number_value) = map.get_mut(key) {
+                    clamp_bedrock_schema_number(number_value);
+                }
+            }
+
+            for value in map.values_mut() {
+                sanitize_bedrock_tool_schema_numbers(value);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for value in items {
+                sanitize_bedrock_tool_schema_numbers(value);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn clamp_bedrock_schema_number(value: &mut serde_json::Value) {
+    let Some(number) = value.as_i64() else { return };
+
+    let clamped = number.clamp(i32::MIN as i64, i32::MAX as i64);
+    if clamped != number {
+        *value = serde_json::Value::Number(clamped.into());
     }
 }
 
@@ -1223,6 +1265,50 @@ mod tests {
         let fixture = bedrock_provider_fixture("us-gov-west-1");
         let actual = fixture.transform_model_id("anthropic.claude-3-sonnet");
         let expected = "anthropic.claude-3-sonnet";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_sanitize_bedrock_tool_schema_numbers_clamps_nested_integer_bounds() {
+        let mut fixture = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "maxLength": 9_007_199_254_740_991_i64
+                },
+                "items": {
+                    "type": "array",
+                    "maxItems": 9_007_199_254_740_991_i64,
+                    "items": {
+                        "type": "number",
+                        "minimum": -9_007_199_254_740_991_i64,
+                        "maximum": 9_007_199_254_740_991_i64
+                    }
+                }
+            }
+        });
+
+        sanitize_bedrock_tool_schema_numbers(&mut fixture);
+        let actual = fixture;
+        let expected = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "maxLength": i32::MAX
+                },
+                "items": {
+                    "type": "array",
+                    "maxItems": i32::MAX,
+                    "items": {
+                        "type": "number",
+                        "minimum": i32::MIN,
+                        "maximum": i32::MAX
+                    }
+                }
+            }
+        });
         assert_eq!(actual, expected);
     }
 

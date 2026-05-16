@@ -14,13 +14,13 @@ use forge_domain::{
     Conversation, ConversationId, ConversationRepository, Environment, FileInfo,
     FuzzySearchRepository, McpServerConfig, MigrationResult, Model, ModelId, Provider, ProviderId,
     ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository, Snapshot,
-    SnapshotRepository,
+    SnapshotRepository, TextPatchBlock, TextPatchRepository,
 };
+use forge_eventsource::EventSource;
 // Re-export CacacheStorage from forge_infra
 pub use forge_infra::CacacheStorage;
 use reqwest::Response;
 use reqwest::header::HeaderMap;
-use reqwest_eventsource::EventSource;
 use url::Url;
 
 use crate::agent::ForgeAgentRepository;
@@ -625,6 +625,29 @@ impl<F: GrpcInfra + Send + Sync> FuzzySearchRepository for ForgeRepo<F> {
         self.fuzzy_search_repository
             .fuzzy_search(needle, haystack, search_all)
             .await
+    }
+}
+
+#[async_trait::async_trait]
+impl<F: GrpcInfra + Send + Sync> TextPatchRepository for ForgeRepo<F> {
+    async fn build_text_patch(
+        &self,
+        haystack: &str,
+        old_string: &str,
+        new_string: &str,
+    ) -> anyhow::Result<TextPatchBlock> {
+        let request = tonic::Request::new(crate::proto_generated::BuildTextPatchRequest {
+            haystack: haystack.to_string(),
+            old_string: old_string.to_string(),
+            new_string: new_string.to_string(),
+        });
+
+        let channel = self.infra.channel()?;
+        let mut client =
+            crate::proto_generated::forge_service_client::ForgeServiceClient::new(channel);
+        let response = client.build_text_patch(request).await?.into_inner();
+
+        Ok(TextPatchBlock { patch: response.patch, patched_text: response.patched_text })
     }
 }
 

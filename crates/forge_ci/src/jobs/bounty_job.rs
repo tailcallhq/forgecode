@@ -18,7 +18,7 @@ const TSX: &str = "npx tsx";
 
 /// Returns a checkout step — required before script invocation.
 fn checkout_step() -> Step<Use> {
-    Step::new("Checkout").uses("actions", "checkout", "v4")
+    Step::new("Checkout").uses("actions", "checkout", "v6")
 }
 
 /// Builds a three-step job: checkout + npm install + a single script

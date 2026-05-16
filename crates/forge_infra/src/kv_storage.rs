@@ -132,9 +132,18 @@ impl forge_app::KVStore for CacacheStorage {
     }
 
     async fn cache_clear(&self) -> Result<()> {
-        cacache::clear(&self.cache_dir)
+        if !self.cache_dir.exists() {
+            return Ok(());
+        }
+        // Use remove_dir_all + create_dir_all instead of cacache::clear because
+        // cacache::clear calls remove_dir_all on every directory entry, which
+        // fails with ENOTDIR when regular files (e.g. .mcp.json) are present.
+        tokio::fs::remove_dir_all(&self.cache_dir)
             .await
-            .context("Failed to clear cache")?;
+            .with_context(|| format!("Failed to clear cache at {}", self.cache_dir.display()))?;
+        tokio::fs::create_dir_all(&self.cache_dir)
+            .await
+            .with_context(|| format!("Failed to recreate cache at {}", self.cache_dir.display()))?;
         Ok(())
     }
 }
@@ -259,5 +268,13 @@ mod tests {
         let result: Option<TestValue> = cache.cache_get(&key).await.unwrap();
 
         assert_eq!(result, Some(value));
+    }
+
+    #[tokio::test]
+    async fn test_should_not_fail_when_no_cache_dir_present() {
+        let cache_dir = PathBuf::from("/tmp/forge_test_nonexistent_cache_dir_that_does_not_exist");
+        let cache = CacacheStorage::new(cache_dir, None);
+        let actual = cache.cache_clear().await;
+        assert!(actual.is_ok());
     }
 }

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 pub enum UpdateFrequency {
     Daily,
     Weekly,
+    Never,
     #[default]
     Always,
 }
@@ -19,7 +20,8 @@ impl From<UpdateFrequency> for Duration {
         match val {
             UpdateFrequency::Daily => Duration::from_secs(60 * 60 * 24), // 1 day
             UpdateFrequency::Weekly => Duration::from_secs(60 * 60 * 24 * 7), // 1 week
-            UpdateFrequency::Always => Duration::ZERO,                   // one time,
+            UpdateFrequency::Never => Duration::MAX,
+            UpdateFrequency::Always => Duration::ZERO, // one time,
         }
     }
 }
