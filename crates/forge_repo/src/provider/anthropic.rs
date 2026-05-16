@@ -5,9 +5,9 @@ use forge_app::domain::{
     ChatCompletionMessage, Context, Model, ModelId, ResultStream, Transformer,
 };
 use forge_app::dto::anthropic::{
-    AuthSystemMessage, CapitalizeToolNames, DropInvalidToolUse, EnforceStrictObjectSchema,
-    EventData, ListModelResponse, McpToolNames, ReasoningTransform, RemoveOutputFormat, Request,
-    SanitizeToolIds, SetCache,
+    AuthSystemMessage, BillingHeader, CapitalizeToolNames, DropInvalidToolUse,
+    EnforceStrictObjectSchema, EventData, ListModelResponse, McpToolNames, ReasoningTransform,
+    RemoveOutputFormat, Request, SanitizeToolIds, SetCache,
 };
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider, ProviderId};
@@ -20,6 +20,15 @@ use tracing::debug;
 use crate::provider::event::into_chat_completion_message;
 use crate::provider::retry::into_retry;
 use crate::provider::utils::{create_headers, format_http_context};
+
+// Claude Code OAuth headers and request transforms follow
+// https://github.com/ex-machina-co/opencode-anthropic-auth/tree/main.
+
+/// OAuth-related Anthropic beta feature flags required for Claude Code auth.
+const OAUTH_BETA: &str = "oauth-2025-04-20";
+const INTERLEAVED_THINKING_BETA: &str = "interleaved-thinking-2025-05-14";
+const STRUCTURED_OUTPUTS_BETA: &str = "structured-outputs-2025-11-13";
+const CLAUDE_CODE_USER_AGENT: &str = "claude-cli/2.1.87 (external, cli)";
 
 #[derive(Clone)]
 struct Anthropic<T> {
@@ -73,18 +82,28 @@ impl<H: HttpInfra> Anthropic<H> {
         if self.provider.id != ProviderId::VERTEX_AI_ANTHROPIC {
             let mut betas: Vec<&'static str> = Vec::new();
             if self.use_oauth {
-                betas.push("claude-code-20250219");
-                betas.push("oauth-2025-04-20");
+                betas.push(OAUTH_BETA);
             }
             // Adaptive thinking auto-enables interleaved thinking on Opus 4.7,
             // Opus 4.6, and Sonnet 4.6 — the beta header is redundant there per
             // the Opus 4.7 migration guide. Keep it for older models so manual
             // `extended-thinking` requests still get interleaved turns.
             if interleaved_thinking_required(model) {
-                betas.push("interleaved-thinking-2025-05-14");
+                betas.push(INTERLEAVED_THINKING_BETA);
             }
-            betas.push("structured-outputs-2025-11-13");
+            betas.push(STRUCTURED_OUTPUTS_BETA);
             headers.push(("anthropic-beta".to_string(), betas.join(",")));
+        }
+
+        if self.use_oauth {
+            headers.push(("user-agent".to_string(), CLAUDE_CODE_USER_AGENT.to_string()));
+        }
+
+        // Append provider-level custom headers (from provider.json config)
+        if let Some(custom_headers) = &self.provider.custom_headers {
+            for (k, v) in custom_headers {
+                headers.push((k.clone(), v.clone()));
+            }
         }
 
         headers
@@ -126,8 +145,9 @@ impl<T: HttpInfra> Anthropic<T> {
             request = request.model(model.as_str().to_string());
         }
 
-        let pipeline = AuthSystemMessage::default()
+        let pipeline = BillingHeader
             .when(|_| self.use_oauth)
+            .pipe(AuthSystemMessage::default().when(|_| self.use_oauth))
             .pipe(McpToolNames.when(|_| self.use_oauth))
             .pipe(CapitalizeToolNames)
             .pipe(DropInvalidToolUse)
@@ -708,14 +728,14 @@ mod tests {
 
         let (_, beta_value) = beta_header.unwrap();
         assert!(
-            beta_value.contains("structured-outputs-2025-11-13"),
+            beta_value.contains(STRUCTURED_OUTPUTS_BETA),
             "Beta header should include structured-outputs flag"
         );
         // When the model is unknown (e.g., model listing), keep the
         // interleaved-thinking header since it is harmless on non-chat
         // endpoints and still required for older chat models.
         assert!(
-            beta_value.contains("interleaved-thinking-2025-05-14"),
+            beta_value.contains(INTERLEAVED_THINKING_BETA),
             "Beta header should include interleaved-thinking flag when model is unknown"
         );
     }
@@ -790,12 +810,58 @@ mod tests {
 
         let (_, beta_value) = beta_header.unwrap();
         assert!(
-            beta_value.contains("structured-outputs-2025-11-13"),
+            beta_value.contains(STRUCTURED_OUTPUTS_BETA),
             "Beta header should include structured-outputs flag"
         );
         assert!(
-            beta_value.contains("oauth-2025-04-20"),
+            beta_value.contains(OAUTH_BETA),
             "Beta header should include oauth flag for OAuth auth"
+        );
+    }
+
+    #[test]
+    fn test_get_headers_includes_provider_custom_headers() {
+        let chat_url = Url::parse("https://api.anthropic.com/v1/messages").unwrap();
+        let model_url = Url::parse("https://api.anthropic.com/v1/models").unwrap();
+
+        let mut custom = std::collections::HashMap::new();
+        custom.insert(
+            "anthropic-client".to_string(),
+            "2025-04-08/forge".to_string(),
+        );
+
+        let provider = Provider {
+            id: forge_app::domain::ProviderId::ANTHROPIC,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(forge_app::domain::ProviderResponse::Anthropic),
+            url: chat_url,
+            credential: Some(forge_domain::AuthCredential {
+                id: forge_app::domain::ProviderId::ANTHROPIC,
+                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                    "sk-test-key".to_string(),
+                )),
+                url_params: std::collections::HashMap::new(),
+            }),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: Some(forge_domain::ModelSource::Url(model_url)),
+            custom_headers: Some(custom),
+        };
+
+        let fixture = Anthropic::new(
+            Arc::new(MockHttpClient::new()),
+            provider,
+            "2023-06-01".to_string(),
+            false,
+        );
+
+        let actual = fixture.get_headers(None);
+
+        assert!(
+            actual
+                .iter()
+                .any(|(k, v)| k == "anthropic-client" && v == "2025-04-08/forge"),
+            "Should include provider-level custom header"
         );
     }
 
@@ -850,7 +916,7 @@ mod tests {
                 model_id
             );
             assert!(
-                beta_value.contains("structured-outputs-2025-11-13"),
+                beta_value.contains(STRUCTURED_OUTPUTS_BETA),
                 "structured-outputs flag must still be present for {}",
                 model_id
             );
@@ -901,7 +967,7 @@ mod tests {
                 .find(|(k, _)| k == "anthropic-beta")
                 .expect("anthropic-beta header should be present");
             assert!(
-                beta_value.contains("interleaved-thinking-2025-05-14"),
+                beta_value.contains(INTERLEAVED_THINKING_BETA),
                 "Beta header should include interleaved-thinking flag for pre-4.6 model {}",
                 model_id
             );
