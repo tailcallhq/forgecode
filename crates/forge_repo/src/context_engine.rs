@@ -107,7 +107,7 @@ impl<I> ForgeContextEngineRepository<I> {
     ) -> Result<tonic::Request<T>> {
         request.metadata_mut().insert(
             "authorization",
-            format!("Bearer {}", &**auth_token).parse()?,
+            format!("Bearer {}", **auth_token).parse()?,
         );
         Ok(request)
     }
