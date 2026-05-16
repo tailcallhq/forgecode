@@ -375,6 +375,17 @@ pub struct MessageEntry {
     pub usage: Option<Usage>,
 }
 
+impl MessageEntry {
+    /// Returns true if this is a user message that should be visible in history
+    /// (not droppable).
+    pub fn is_user_message(&self) -> bool {
+        match &self.message {
+            ContextMessage::Text(msg) => msg.role == Role::User && !msg.droppable,
+            _ => false,
+        }
+    }
+}
+
 impl From<ContextMessage> for MessageEntry {
     fn from(value: ContextMessage) -> Self {
         MessageEntry { message: value, usage: Default::default() }
@@ -432,6 +443,8 @@ pub struct Context {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
 }
+
+const REWIND_PREVIEW_MAX_LEN: usize = 100;
 
 impl Context {
     pub fn accumulate_usage(&self) -> Option<Usage> {
@@ -708,19 +721,13 @@ impl Context {
             .messages
             .iter()
             .enumerate()
-            .filter_map(|(i, entry)| match &entry.message {
-                ContextMessage::Text(msg) if msg.role == Role::User && !msg.droppable => Some(i),
-                _ => None,
-            })
+            .filter_map(|(i, entry)| entry.is_user_message().then_some(i))
             .nth(nth_user);
 
-        match cut_at {
-            Some(idx) if idx < self.messages.len() => {
-                self.messages.truncate(idx);
-                self
-            }
-            _ => self,
+        if let Some(idx) = cut_at {
+            self.messages.truncate(idx);
         }
+        self
     }
 
     /// Formats user messages with numbered indices for display during interactive
@@ -730,18 +737,13 @@ impl Context {
         self.messages
             .iter()
             .enumerate()
-            .filter(|(_, entry)| match &entry.message {
-                ContextMessage::Text(msg) => msg.role == Role::User && !msg.droppable,
-                _ => false,
-            })
-            .enumerate()
-            .map(|(_user_idx, (full_idx, entry))| {
+            .filter(|(_, entry)| entry.is_user_message())
+            .map(|(full_idx, entry)| {
                 let content = entry.content().unwrap_or("").trim();
                 let cleaned = clean_user_prompt(content);
                 let preview = strip_xml_tags(&cleaned);
-                let max_len = 100;
-                let preview = if preview.len() > max_len {
-                    format!("{}...", &preview[..max_len])
+                let preview = if preview.len() > REWIND_PREVIEW_MAX_LEN {
+                    format!("{}...", &preview[..REWIND_PREVIEW_MAX_LEN])
                 } else {
                     preview.to_string()
                 };
@@ -754,10 +756,7 @@ impl Context {
     pub fn user_message_count(&self) -> usize {
         self.messages
             .iter()
-            .filter(|msg| match &msg.message {
-                ContextMessage::Text(msg) => msg.role == Role::User && !msg.droppable,
-                _ => false,
-            })
+            .filter(|msg| msg.is_user_message())
             .count()
     }
 
@@ -774,29 +773,7 @@ impl Context {
 
                     // 2. Fallback dynamic extraction for older conversations where modified_files might be empty
                     if let Some(text) = result.output.as_str() {
-                        let mut extracted_paths = Vec::new();
-                        if let Some(tag) = crate::xml::extract_tag(text, "plan_created") {
-                            if let Some(path) = crate::xml::extract_attribute(tag, "path") {
-                                extracted_paths.push(path);
-                            }
-                        } else if let Some(tag) = crate::xml::extract_tag(text, "file_created") {
-                            if let Some(path) = crate::xml::extract_attribute(tag, "path") {
-                                extracted_paths.push(path);
-                            }
-                        } else if let Some(tag) = crate::xml::extract_tag(text, "file_overwritten")
-                        {
-                            if let Some(path) = crate::xml::extract_attribute(tag, "path") {
-                                extracted_paths.push(path);
-                            }
-                        } else if let Some(tag) = crate::xml::extract_tag(text, "file_diff") {
-                            if let Some(path) = crate::xml::extract_attribute(tag, "path") {
-                                extracted_paths.push(path);
-                            }
-                        } else if let Some(tag) = crate::xml::extract_tag(text, "file_removed") {
-                            if let Some(path) = crate::xml::extract_attribute(tag, "path") {
-                                extracted_paths.push(path);
-                            }
-                        }
+                        let extracted_paths = crate::xml::extract_modified_files_from_output(text);
 
                         for p in extracted_paths {
                             if !files.contains(&p) {

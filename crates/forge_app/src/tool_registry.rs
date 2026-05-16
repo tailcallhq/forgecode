@@ -221,35 +221,10 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
         let output = self.call_inner(agent, call.clone(), context).await;
 
         let mut modified_files = Vec::new();
-        match &output {
-            Ok(output) => {
-                if let Some(text) = output.as_str() {
-                    // Extract path from plan_created or file_created tags
-                    // These tags usually contain absolute paths
-                    if let Some(tag) = forge_domain::extract_tag(text, "plan_created") {
-                        if let Some(path) = forge_domain::extract_attribute(tag, "path") {
-                            modified_files.push(path);
-                        }
-                    } else if let Some(tag) = forge_domain::extract_tag(text, "file_created") {
-                        if let Some(path) = forge_domain::extract_attribute(tag, "path") {
-                            modified_files.push(path);
-                        }
-                    } else if let Some(tag) = forge_domain::extract_tag(text, "file_overwritten") {
-                        if let Some(path) = forge_domain::extract_attribute(tag, "path") {
-                            modified_files.push(path);
-                        }
-                    } else if let Some(tag) = forge_domain::extract_tag(text, "file_diff") {
-                        if let Some(path) = forge_domain::extract_attribute(tag, "path") {
-                            modified_files.push(path);
-                        }
-                    } else if let Some(tag) = forge_domain::extract_tag(text, "file_removed") {
-                        if let Some(path) = forge_domain::extract_attribute(tag, "path") {
-                            modified_files.push(path);
-                        }
-                    }
-                }
-            }
-            _ => {}
+        if let Ok(output) = &output
+            && let Some(text) = output.as_str()
+        {
+            modified_files = forge_domain::extract_modified_files_from_output(text);
         }
 
         // Fallback to extraction from arguments if output didn't yield anything

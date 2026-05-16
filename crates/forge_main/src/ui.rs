@@ -118,6 +118,46 @@ pub struct UI<A: ConsoleWriter, F: Fn(ForgeConfig) -> A> {
 }
 
 impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI<A, F> {
+    /// Resolves a conversation ID from an optional string ID, the current
+    /// active conversation, or by showing an interactive picker.
+    async fn resolve_conversation_id(
+        &mut self,
+        id: Option<String>,
+    ) -> anyhow::Result<Option<ConversationId>> {
+        if let Some(id_str) = id {
+            return Ok(Some(
+                ConversationId::parse(&id_str)
+                    .map_err(|_| anyhow::anyhow!("Invalid conversation ID: {id_str}"))?,
+            ));
+        }
+
+        if let Some(cid) = self.state.conversation_id {
+            return Ok(Some(cid));
+        }
+
+        // Show conversation picker
+        let conversations = self
+            .api
+            .get_conversations(Some(self.config.max_conversations))
+            .await?;
+
+        if conversations.is_empty() {
+            self.writeln_title(TitleFormat::error(
+                "No conversations found. Start a conversation first.",
+            ))?;
+            return Ok(None);
+        }
+
+        let selected = ConversationSelector::select_conversation(
+            &conversations,
+            self.state.conversation_id,
+            None,
+        )
+        .await?;
+
+        Ok(selected.map(|conv| conv.id))
+    }
+
     /// Writes a line to the console output
     /// Takes anything that implements ToString trait
     fn writeln<T: ToString>(&mut self, content: T) -> anyhow::Result<()> {
@@ -2574,34 +2614,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     ///   conversation is used; if no active conversation, an interactive picker
     ///   is shown.
     async fn on_slash_clone(&mut self, id: Option<String>) -> anyhow::Result<()> {
-        let target_id = if let Some(id_str) = id {
-            ConversationId::parse(&id_str)
-                .map_err(|_| anyhow::anyhow!("Invalid conversation ID: {id_str}"))?
-        } else {
-            // Show conversation picker
-            let conversations = self
-                .api
-                .get_conversations(Some(self.config.max_conversations))
-                .await?;
-
-            if conversations.is_empty() {
-                self.writeln_title(TitleFormat::error(
-                    "No conversations found. Start a conversation first.",
-                ))?;
-                return Ok(());
-            }
-
-            let selected = ConversationSelector::select_conversation(
-                &conversations,
-                self.state.conversation_id,
-                None,
-            )
-            .await?;
-
-            match selected {
-                Some(conv) => conv.id,
-                None => return Ok(()),
-            }
+        let Some(target_id) = self.resolve_conversation_id(id).await? else {
+            return Ok(());
         };
 
         // Fetch the conversation to clone
@@ -2636,36 +2650,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     /// * `id` - Optional conversation ID. If `None`, an interactive picker is
     ///   shown.
     async fn on_slash_rewind(&mut self, id: Option<String>) -> anyhow::Result<()> {
-        let target_id = if let Some(id_str) = id {
-            ConversationId::parse(&id_str)
-                .map_err(|_| anyhow::anyhow!("Invalid conversation ID: {id_str}"))?
-        } else if let Some(cid) = self.state.conversation_id {
-            cid
-        } else {
-            // Show conversation picker
-            let conversations = self
-                .api
-                .get_conversations(Some(self.config.max_conversations))
-                .await?;
-
-            if conversations.is_empty() {
-                self.writeln_title(TitleFormat::error(
-                    "No conversations found. Start a conversation first.",
-                ))?;
-                return Ok(());
-            }
-
-            let selected = ConversationSelector::select_conversation(
-                &conversations,
-                self.state.conversation_id,
-                None,
-            )
-            .await?;
-
-            match selected {
-                Some(conv) => conv.id,
-                None => return Ok(()),
-            }
+        let Some(target_id) = self.resolve_conversation_id(id).await? else {
+            return Ok(());
         };
 
         // Fetch the conversation
@@ -2707,9 +2693,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
 
         let selected = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<SelectRow>> {
-            Ok(ForgeWidget::select_rows("Rewind to message", rows)
+            ForgeWidget::select_rows("Rewind to message", rows)
                 .initial_raw(last_full_idx)
-                .prompt()?)
+                .prompt()
         })
         .await??;
 
@@ -2740,7 +2726,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // Perform the truncation (keep messages up to but excluding the selected user message)
         let rewound_message_content = context.messages[full_idx]
             .content()
-            .map(|s| clean_user_prompt(s))
+            .map(clean_user_prompt)
             .unwrap_or_default();
 
         let truncated_context = context.clone().truncate_to_user_message(keep_nth_user);
@@ -2802,12 +2788,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 // Also print to stdout as fallback
                 println!("{rewound_message_content}");
             }
-        }
-
-        // If this is the active conversation, update the state
-        if self.state.conversation_id == Some(target_id) {
-            self.spinner.start(Some("Reloading conversation context"))?;
-            self.spinner.stop(None)?;
         }
 
         Ok(())
