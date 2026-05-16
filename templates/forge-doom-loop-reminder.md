@@ -1,6 +1,10 @@
-You appear to be stuck in a repetitive loop, having made {{consecutive_calls}} similar calls.
-This indicates you are not making progress. Please:
+You are stuck in a loop: you have made {{consecutive_calls}} identical or semantically equivalent tool calls without meaningful progress.
 
-1. Reconsider your approach to solving this problem
-2. Try a different tool or different arguments
-3. If you're stuck, explain what you're trying to accomplish and ask for clarification
+For your next step, do NOT repeat the same tool call with the same or semantically equivalent arguments.
+
+You must choose one of these actions:
+1. Use a different tool.
+2. Use the same tool with materially different arguments, and briefly state what new information you expect.
+3. Stop tool use and explain the blocker, including what you already tried and why it did not work.
+
+Do not call the same tool again merely to inspect, verify, retry, or double-check.
