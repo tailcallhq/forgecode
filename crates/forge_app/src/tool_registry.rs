@@ -221,16 +221,16 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
         let output = self.call_inner(agent, call.clone(), context).await;
 
         let mut modified_files = Vec::new();
-        if let Ok(output) = &output
-            && let Some(text) = output.as_str()
-        {
-            modified_files = forge_domain::extract_modified_files_from_output(text);
-        }
+        if let Ok(output) = &output {
+            if let Some(text) = output.as_str() {
+                modified_files = forge_domain::extract_modified_files_from_output(text);
+            }
 
-        // Fallback to extraction from arguments if output didn't yield anything
-        // This is important for relative paths provided in tool arguments
-        if modified_files.is_empty() {
-            modified_files = Self::extract_modified_files(&call);
+            // Fallback to extraction from arguments if output didn't yield anything
+            // This is important for relative paths provided in tool arguments
+            if modified_files.is_empty() {
+                modified_files = Self::extract_modified_files(&call);
+            }
         }
 
         ToolResult::new(tool_name)

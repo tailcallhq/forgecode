@@ -769,18 +769,20 @@ impl Context {
             for msg in &self.messages[from_index..] {
                 if let ContextMessage::Tool(result) = &msg.message {
                     // 1. Use the pre-calculated modified files from the tool execution
-                    files.extend(result.modified_files.iter().cloned());
+                    let mut msg_modified = result.modified_files.clone();
 
                     // 2. Fallback dynamic extraction for older conversations where modified_files might be empty
                     if let Some(text) = result.output.as_str() {
                         let extracted_paths = crate::xml::extract_modified_files_from_output(text);
 
                         for p in extracted_paths {
-                            if !files.contains(&p) {
-                                files.push(p);
+                            if !msg_modified.contains(&p) {
+                                msg_modified.push(p);
                             }
                         }
                     }
+
+                    files.extend(msg_modified);
                 }
             }
         }
@@ -1857,6 +1859,48 @@ mod tests {
             files,
             vec!["file1.txt".to_string(), "file2.txt".to_string()]
         );
+    }
+
+    #[test]
+    fn test_modified_files_from_duplicates() {
+        use crate::{ToolName, ToolOutput, ToolResult};
+        let context = Context::default()
+            .add_message(ContextMessage::Tool(ToolResult {
+                name: ToolName::new("write"),
+                call_id: None,
+                output: ToolOutput::text("ok"),
+                modified_files: vec!["file1.txt".to_string()],
+            }))
+            .add_message(ContextMessage::Tool(ToolResult {
+                name: ToolName::new("patch"),
+                call_id: None,
+                output: ToolOutput::text("ok"),
+                modified_files: vec!["file1.txt".to_string()],
+            }));
+
+        let files = context.modified_files_from(0);
+        // Should contain duplicates as each is a separate modification
+        assert_eq!(
+            files,
+            vec!["file1.txt".to_string(), "file1.txt".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_modified_files_from_fallback_dedup() {
+        use crate::{ToolName, ToolOutput, ToolResult};
+        let context = Context::default().add_message(ContextMessage::Tool(ToolResult {
+            name: ToolName::new("write"),
+            call_id: None,
+            // XML tag suggests file1.txt was modified
+            output: ToolOutput::text("<file_created path=\"file1.txt\" />"),
+            // result.modified_files ALSO has file1.txt
+            modified_files: vec!["file1.txt".to_string()],
+        }));
+
+        let files = context.modified_files_from(0);
+        // Should NOT duplicate within the same tool result
+        assert_eq!(files, vec!["file1.txt".to_string()]);
     }
 
     /// Regression test: when both `reasoning` (raw text) and
