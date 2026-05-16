@@ -18,7 +18,8 @@ use forge_app::{CommitResult, ToolResolver};
 use forge_config::ForgeConfig;
 use forge_display::MarkdownFormat;
 use forge_domain::{
-    AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, Role, TitleFormat, UserCommand,
+    AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, McpTrustStatus, Role, Scope,
+    TitleFormat, UserCommand,
 };
 use forge_fs::ForgeFS;
 use forge_select::{ForgeWidget, SelectRow};
@@ -1726,6 +1727,70 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
 
         Ok(())
+    }
+
+    /// Applies the interactive trust gate for project-local MCP configs.
+    ///
+    /// Checks the persisted trust store first: if the config hash is already
+    /// recorded as trusted or rejected, the prompt is skipped. Otherwise the
+    /// declared servers are rendered as non-selectable header rows above the
+    /// Accept/Reject choices so the user can see exactly what they're being
+    /// asked to trust. The decision is persisted so it is not asked again as
+    /// long as the file content is unchanged. A cancelled prompt is treated
+    /// as a rejection.
+    ///
+    /// Servers are NOT connected here — connections remain lazy and happen on
+    /// first tool use.
+    async fn init_mcp_trust_gate(&mut self) -> anyhow::Result<()> {
+        const ACCEPT: &str = "Accept";
+        const REJECT: &str = "Reject";
+
+        let local_path = self.api.environment().mcp_local_config();
+        if !local_path.exists() {
+            return Ok(());
+        }
+
+        if self.api.get_mcp_trust_status(&local_path).await? != McpTrustStatus::Unknown {
+            return Ok(());
+        }
+
+        let config = self.api.read_mcp_config(Some(&Scope::Local)).await?;
+        if config.mcp_servers.is_empty() {
+            return Ok(());
+        }
+
+        // Render the server list as header rows so it stays visible above the
+        // Accept/Reject options regardless of terminal height.
+        let mut rows = Vec::with_capacity(config.mcp_servers.len() + 2);
+        for (name, server) in &config.mcp_servers {
+            // Show the endpoint (URL for HTTP, command for stdio) so the user
+            // can see exactly what will be executed/contacted if they accept.
+            rows.push(SelectRow::header(format!(
+                "  - {name}: {}\n",
+                format_mcp_server(server),
+            )));
+        }
+        let header_lines = rows.len();
+        rows.push(SelectRow::new(ACCEPT, ACCEPT));
+        rows.push(SelectRow::new(REJECT, REJECT));
+
+        // A missing selection (Esc / cancel) is treated as a rejection so the
+        // user is not silently prompted again on the next run.
+        let decision = match self.select_raw_row(
+            &format!(
+                "Untrusted MCP config at '{}' — do you want to trust the following servers?",
+                local_path.display()
+            ),
+            None,
+            rows,
+            header_lines,
+            None,
+        )? {
+            Some(row) if row.raw == ACCEPT => McpTrustStatus::Trusted,
+            _ => McpTrustStatus::Rejected,
+        };
+
+        self.api.set_mcp_trust(&local_path, decision).await
     }
 
     async fn on_info(
@@ -3804,6 +3869,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         if self.api.get_session_config().await.is_none() && !self.on_provider_selection().await? {
             return Ok(());
         }
+
+        // Initialize MCP trust gate for local project configs
+        self.init_mcp_trust_gate().await?;
 
         let mut operating_model = self.get_agent_model(active_agent.clone()).await;
         if operating_model.is_none() {

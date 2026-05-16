@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -306,6 +306,21 @@ impl<
     async fn reload_mcp(&self) -> Result<()> {
         self.services.mcp_service().reload_mcp().await
     }
+
+    async fn get_mcp_trust_status(&self, path: &Path) -> Result<McpTrustStatus> {
+        self.services
+            .mcp_config_manager()
+            .get_mcp_trust_status(path)
+            .await
+    }
+
+    async fn set_mcp_trust(&self, path: &Path, status: McpTrustStatus) -> Result<()> {
+        self.services
+            .mcp_config_manager()
+            .set_mcp_trust(path, status)
+            .await
+    }
+
     async fn get_commands(&self) -> Result<Vec<Command>> {
         self.services.get_commands().await
     }

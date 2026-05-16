@@ -6,9 +6,9 @@ use derive_setters::Setters;
 use forge_domain::{
     AgentId, AnyProvider, Attachment, AuthContextRequest, AuthContextResponse, AuthMethod,
     ChatCompletionMessage, CommandOutput, Context, Conversation, ConversationId, File, FileInfo,
-    FileStatus, Image, McpConfig, McpServers, Model, ModelId, Node, Provider, ProviderId,
-    ResultStream, Scope, SearchParams, SyncProgress, SyntaxError, Template, ToolCallFull,
-    ToolOutput, WorkspaceAuth, WorkspaceId, WorkspaceInfo,
+    FileStatus, Image, McpConfig, McpServers, McpTrustStatus, Model, ModelId, Node, Provider,
+    ProviderId, ResultStream, Scope, SearchParams, SyncProgress, SyntaxError, Template,
+    ToolCallFull, ToolOutput, WorkspaceAuth, WorkspaceId, WorkspaceInfo,
 };
 use forge_eventsource::EventSource;
 use reqwest::Response;
@@ -214,6 +214,33 @@ pub trait McpConfigManager: Send + Sync {
 
     /// Responsible for writing the McpConfig on disk.
     async fn write_mcp_config(&self, config: &McpConfig, scope: &Scope) -> anyhow::Result<()>;
+
+    /// Queries the trust status of the given MCP config file.
+    ///
+    /// Returns the persisted status (`Trusted`, `Rejected`) for the file's
+    /// current contents, or `Unknown` if no decision has been recorded for
+    /// this file at its current hash.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read or parsed.
+    async fn get_mcp_trust_status(&self, path: &Path) -> anyhow::Result<McpTrustStatus>;
+
+    /// Persists a trust decision for the given MCP config file.
+    ///
+    /// Passing `McpTrustStatus::Unknown` clears any previously recorded
+    /// decision for the path.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read or the trust store cannot
+    /// be persisted.
+    async fn set_mcp_trust(&self, path: &Path, status: McpTrustStatus) -> anyhow::Result<()>;
+
+    /// Drops untrusted servers from `raw`.
+    ///
+    /// User-scope servers are always retained. Project-local servers are
+    /// retained only when the local config has been explicitly trusted at
+    /// its current content hash.
+    async fn filter_trusted(&self, raw: McpConfig) -> anyhow::Result<McpConfig>;
 }
 
 #[async_trait::async_trait]
@@ -679,6 +706,18 @@ impl<I: Services> McpConfigManager for I {
         self.mcp_config_manager()
             .write_mcp_config(config, scope)
             .await
+    }
+
+    async fn get_mcp_trust_status(&self, path: &Path) -> anyhow::Result<McpTrustStatus> {
+        self.mcp_config_manager().get_mcp_trust_status(path).await
+    }
+
+    async fn set_mcp_trust(&self, path: &Path, status: McpTrustStatus) -> anyhow::Result<()> {
+        self.mcp_config_manager().set_mcp_trust(path, status).await
+    }
+
+    async fn filter_trusted(&self, raw: McpConfig) -> anyhow::Result<McpConfig> {
+        self.mcp_config_manager().filter_trusted(raw).await
     }
 }
 

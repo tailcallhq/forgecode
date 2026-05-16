@@ -1,9 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use forge_app::dto::ToolsOverview;
 use forge_app::{User, UserUsage};
-use forge_domain::{AgentId, Effort, ModelId, ProviderModels};
+use forge_domain::{AgentId, Effort, McpTrustStatus, ModelId, ProviderModels};
 use forge_stream::MpscStream;
 use futures::stream::BoxStream;
 use url::Url;
@@ -174,6 +174,12 @@ pub trait API: Sync + Send {
 
     /// Refresh MCP caches by fetching fresh data
     async fn reload_mcp(&self) -> Result<()>;
+
+    /// Queries the trust status of the given MCP config file.
+    async fn get_mcp_trust_status(&self, path: &Path) -> Result<McpTrustStatus>;
+
+    /// Persists a trust decision for the given MCP config file.
+    async fn set_mcp_trust(&self, path: &Path, status: McpTrustStatus) -> Result<()>;
 
     /// List of commands defined in .md file(s)
     async fn get_commands(&self) -> Result<Vec<Command>>;

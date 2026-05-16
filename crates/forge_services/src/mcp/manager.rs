@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use bytes::Bytes;
-use forge_app::domain::{McpConfig, Scope};
+use forge_app::domain::{McpConfig, McpTrustStatus, McpTrustStore, Scope};
 use forge_app::{
     EnvironmentInfra, FileInfoInfra, FileReaderInfra, FileWriterInfra, KVStore, McpConfigManager,
     McpServerInfra,
@@ -14,14 +14,21 @@ pub struct ForgeMcpManager<I> {
     infra: Arc<I>,
 }
 
-impl<I> ForgeMcpManager<I>
-where
-    I: McpServerInfra + FileReaderInfra + FileInfoInfra + EnvironmentInfra + KVStore,
-{
+impl<I> ForgeMcpManager<I> {
     pub fn new(infra: Arc<I>) -> Self {
         Self { infra }
     }
+}
 
+impl<I> ForgeMcpManager<I>
+where
+    I: McpServerInfra
+        + FileReaderInfra
+        + FileInfoInfra
+        + EnvironmentInfra
+        + FileWriterInfra
+        + KVStore,
+{
     async fn read_config(&self, path: &Path) -> anyhow::Result<McpConfig> {
         let config = self.infra.read_utf8(path).await?;
         Ok(serde_json::from_str(&config)?)
@@ -33,6 +40,40 @@ where
             Scope::User => Ok(env.mcp_user_config()),
             Scope::Local => Ok(env.mcp_local_config()),
         }
+    }
+
+    /// Reads the persisted trust store from disk, returning an empty store if
+    /// the file is absent or its contents cannot be parsed.
+    async fn read_trust_store(&self) -> anyhow::Result<McpTrustStore> {
+        let path = self.infra.get_environment().mcp_trust_path();
+        if !self.infra.is_file(&path).await.unwrap_or(false) {
+            return Ok(McpTrustStore::default());
+        }
+        let content = self.infra.read_utf8(&path).await?;
+        Ok(serde_json::from_str(&content).unwrap_or_default())
+    }
+
+    /// Writes the trust store to disk at the environment's `mcp_trust_path`.
+    async fn write_trust_store(&self, store: &McpTrustStore) -> anyhow::Result<()> {
+        let path = self.infra.get_environment().mcp_trust_path();
+        let content = serde_json::to_string_pretty(store)?;
+        self.infra.write(&path, Bytes::from(content)).await
+    }
+
+    /// Returns `true` if the project-local MCP config is either absent or has
+    /// been explicitly trusted at its current content hash.
+    async fn is_local_trusted(&self) -> anyhow::Result<bool> {
+        let local_path = self.infra.get_environment().mcp_local_config();
+        if !self.infra.is_file(&local_path).await.unwrap_or(false) {
+            // No local config => nothing to gate.
+            return Ok(true);
+        }
+        let hash = self.read_config(&local_path).await?.cache_key();
+        let store = self.read_trust_store().await?;
+        Ok(matches!(
+            store.get_status(&local_path, hash),
+            McpTrustStatus::Trusted
+        ))
     }
 }
 
@@ -94,5 +135,39 @@ where
         self.infra.cache_clear().await?;
 
         Ok(())
+    }
+
+    async fn get_mcp_trust_status(&self, path: &Path) -> anyhow::Result<McpTrustStatus> {
+        let hash = self.read_config(path).await?.cache_key();
+        let store = self.read_trust_store().await?;
+        Ok(store.get_status(path, hash))
+    }
+
+    async fn set_mcp_trust(&self, path: &Path, status: McpTrustStatus) -> anyhow::Result<()> {
+        let hash = self.read_config(path).await?.cache_key();
+        let mut store = self.read_trust_store().await?;
+
+        match status {
+            McpTrustStatus::Trusted => store.trust(path, hash),
+            McpTrustStatus::Rejected => store.reject(path, hash),
+            McpTrustStatus::Unknown => store.clear(path),
+        }
+
+        self.write_trust_store(&store).await
+    }
+
+    async fn filter_trusted(&self, raw: McpConfig) -> anyhow::Result<McpConfig> {
+        if self.is_local_trusted().await? {
+            return Ok(raw);
+        }
+
+        // Local is untrusted: drop any servers whose names appear only in the
+        // local config, retaining those defined in the user scope.
+        let user_config = self.read_mcp_config(Some(&Scope::User)).await?;
+        let mut filtered = raw;
+        filtered
+            .mcp_servers
+            .retain(|name, _| user_config.mcp_servers.contains_key(name));
+        Ok(filtered)
     }
 }

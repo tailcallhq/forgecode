@@ -1,8 +1,10 @@
 //!
 //! Follows the design specifications of Claude's [.mcp.json](https://docs.anthropic.com/en/docs/claude-code/tutorials#set-up-model-context-protocol-mcp)
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ops::Deref;
+use std::path::Path;
 
 use derive_more::{Deref, Display, From};
 use derive_setters::Setters;
@@ -288,23 +290,123 @@ impl From<BTreeMap<ServerName, McpServerConfig>> for McpConfig {
 }
 
 impl McpConfig {
-    /// Compute a deterministic u64 identifier for this config
+    /// Compute a deterministic u64 identifier for this config.
     ///
-    /// Uses Rust's built-in `Hash` trait (derived) to compute a stable hash
-    /// and converts it to a hex u64 for use as a cache key.
-    /// BTreeMap ensures consistent ordering regardless of insertion order.
+    /// Uses FNV-64 (a non-cryptographic but stable, seed-free hasher) so the
+    /// same config always produces the same key across process restarts.
+    /// This is required for persisted trust-store lookups: `DefaultHasher`
+    /// uses a random seed per-process and would produce a different value on
+    /// every restart, causing trust decisions to be ignored.
+    /// `BTreeMap` ensures consistent field ordering regardless of insertion
+    /// order.
     pub fn cache_key(&self) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = fnv_rs::Fnv64::default();
         Hash::hash(self, &mut hasher);
         hasher.finish()
     }
 }
 
+/// The trust status of a single MCP config file (identified by path + content
+/// hash).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpTrustStatus {
+    /// The config has been explicitly accepted by the user.
+    Trusted,
+    /// The config has been explicitly rejected by the user.
+    Rejected,
+    /// The config has not yet been decided by the user.
+    Unknown,
+}
+
+/// A persisted trust decision: stores the user's choice together with the
+/// content hash it was made against so that any modification to the file
+/// invalidates the decision.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+struct McpTrustEntry {
+    hash: u64,
+    decision: McpTrustDecision,
+}
+
+/// The two terminal (persisted) states for a trust decision.
+///
+/// Distinct from `McpTrustStatus` so that the on-disk representation cannot
+/// encode the `Unknown` variant (which simply means "no entry").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum McpTrustDecision {
+    Trusted,
+    Rejected,
+}
+
+impl From<McpTrustDecision> for McpTrustStatus {
+    fn from(decision: McpTrustDecision) -> Self {
+        match decision {
+            McpTrustDecision::Trusted => McpTrustStatus::Trusted,
+            McpTrustDecision::Rejected => McpTrustStatus::Rejected,
+        }
+    }
+}
+
+/// Persists accepted and rejected MCP config hashes across restarts. A path
+/// maps to its content hash so that any modification to the file revokes the
+/// stored decision and triggers a new prompt.
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct McpTrustStore {
+    #[serde(default)]
+    entries: BTreeMap<String, McpTrustEntry>,
+}
+
+impl McpTrustStore {
+    /// Derives the JSON-map key for a path. Returns a borrowed `&str` when
+    /// the path is already valid UTF-8, allocating only for paths containing
+    /// non-UTF-8 bytes.
+    fn key(path: &Path) -> Cow<'_, str> {
+        path.to_string_lossy()
+    }
+
+    /// Returns the trust status for the given path+hash pair.
+    ///
+    /// Returns `Unknown` both when no decision has been persisted and when a
+    /// decision exists but was made against a different content hash (i.e.
+    /// the file has been modified since).
+    pub fn get_status(&self, path: &Path, content_hash: u64) -> McpTrustStatus {
+        match self.entries.get(Self::key(path).as_ref()) {
+            Some(entry) if entry.hash == content_hash => entry.decision.into(),
+            _ => McpTrustStatus::Unknown,
+        }
+    }
+
+    /// Records an accepted trust decision for the given path and content hash.
+    pub fn trust(&mut self, path: &Path, content_hash: u64) {
+        self.insert(path, content_hash, McpTrustDecision::Trusted);
+    }
+
+    /// Records a rejected trust decision for the given path and content hash.
+    pub fn reject(&mut self, path: &Path, content_hash: u64) {
+        self.insert(path, content_hash, McpTrustDecision::Rejected);
+    }
+
+    /// Clears any trust decision (accepted or rejected) for the given path.
+    pub fn clear(&mut self, path: &Path) {
+        self.entries.remove(Self::key(path).as_ref());
+    }
+
+    fn insert(&mut self, path: &Path, hash: u64, decision: McpTrustDecision) {
+        self.entries.insert(
+            Self::key(path).into_owned(),
+            McpTrustEntry { hash, decision },
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use pretty_assertions::assert_eq;
+
     use super::*;
 
     #[test]
@@ -591,6 +693,85 @@ mod tests {
             }
             _ => panic!("Expected Stdio variant"),
         }
+    }
+
+    #[test]
+    fn test_trust_store_unknown_when_empty() {
+        let fixture = McpTrustStore::default();
+        let actual = fixture.get_status(&PathBuf::from("/tmp/.mcp.json"), 42);
+        let expected = McpTrustStatus::Unknown;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_trust_store_remembers_trust_decision() {
+        let path = PathBuf::from("/tmp/.mcp.json");
+        let mut fixture = McpTrustStore::default();
+        fixture.trust(&path, 42);
+
+        let actual = fixture.get_status(&path, 42);
+        let expected = McpTrustStatus::Trusted;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_trust_store_remembers_reject_decision() {
+        let path = PathBuf::from("/tmp/.mcp.json");
+        let mut fixture = McpTrustStore::default();
+        fixture.reject(&path, 42);
+
+        let actual = fixture.get_status(&path, 42);
+        let expected = McpTrustStatus::Rejected;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_trust_store_invalidates_on_hash_change() {
+        let path = PathBuf::from("/tmp/.mcp.json");
+        let mut fixture = McpTrustStore::default();
+        fixture.trust(&path, 42);
+
+        let actual = fixture.get_status(&path, 43);
+        let expected = McpTrustStatus::Unknown;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_trust_store_trust_overwrites_prior_rejection() {
+        let path = PathBuf::from("/tmp/.mcp.json");
+        let mut fixture = McpTrustStore::default();
+        fixture.reject(&path, 42);
+        fixture.trust(&path, 42);
+
+        let actual = fixture.get_status(&path, 42);
+        let expected = McpTrustStatus::Trusted;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_trust_store_clear_removes_decision() {
+        let path = PathBuf::from("/tmp/.mcp.json");
+        let mut fixture = McpTrustStore::default();
+        fixture.trust(&path, 42);
+        fixture.clear(&path);
+
+        let actual = fixture.get_status(&path, 42);
+        let expected = McpTrustStatus::Unknown;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_trust_store_roundtrips_through_json() {
+        let path = PathBuf::from("/tmp/.mcp.json");
+        let mut fixture = McpTrustStore::default();
+        fixture.trust(&path, 42);
+
+        let json = serde_json::to_string(&fixture).unwrap();
+        let restored: McpTrustStore = serde_json::from_str(&json).unwrap();
+
+        let actual = restored.get_status(&path, 42);
+        let expected = McpTrustStatus::Trusted;
+        assert_eq!(actual, expected);
     }
 
     #[test]
