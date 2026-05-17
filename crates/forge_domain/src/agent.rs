@@ -475,6 +475,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_compaction_threshold_claude_opus_4_6_with_1m_context_window() {
+        // Simulates the user config: token_threshold = 1_000_000,
+        // token_threshold_percentage = 0.9
+        // with claude-opus-4-6 which has context_length = 1_000_000
+        let fixture = Agent::new(
+            AgentId::new("forge"),
+            ProviderId::OPENAI,
+            ModelId::new("claude-opus-4-6"),
+        )
+        .compact(
+            Compact::new()
+                .token_threshold(1_000_000_usize)
+                .token_threshold_percentage(0.9_f64),
+        );
+
+        let selected_model = model_fixture("claude-opus-4-6", Some(1_000_000));
+
+        let actual = fixture.compaction_threshold(Some(&selected_model));
+        // min(1_000_000, 1_000_000 * 0.9) = 900_000
+        let expected = Some(900_000);
+
+        assert_eq!(actual.compact.token_threshold, expected);
+    }
+
     /// BUG 3: Agent with no compact config and no model info should still work,
     /// but currently compaction_threshold does nothing and context grows
     /// unbounded.
