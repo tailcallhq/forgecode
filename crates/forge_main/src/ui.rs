@@ -501,8 +501,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     ListCommand::Mcp => {
                         self.on_show_mcp_servers(porcelain).await?;
                     }
-                    ListCommand::Conversation => {
-                        self.on_show_conversations(porcelain).await?;
+                    ListCommand::Conversation { all, since } => {
+                        self.on_show_conversations(porcelain, all, since).await?;
                     }
                     ListCommand::Cmd => {
                         self.on_show_custom_commands(porcelain).await?;
@@ -863,8 +863,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         conversation_group: crate::cli::ConversationCommandGroup,
     ) -> anyhow::Result<()> {
         match conversation_group.command {
-            ConversationCommand::List { porcelain } => {
-                self.on_show_conversations(porcelain).await?;
+            ConversationCommand::List { porcelain, all, since } => {
+                self.on_show_conversations(porcelain, all, since).await?;
             }
             ConversationCommand::New => {
                 self.handle_generate_conversation_id().await?;
@@ -2032,19 +2032,41 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
-    async fn on_show_conversations(&mut self, porcelain: bool) -> anyhow::Result<()> {
+    async fn on_show_conversations(
+        &mut self,
+        porcelain: bool,
+        all: bool,
+        since: Option<crate::cli::SinceDuration>,
+    ) -> anyhow::Result<()> {
         let max_conversations = self.config.max_conversations;
-        let conversations = self.api.get_conversations(Some(max_conversations)).await?;
+        let conversations = if all {
+            self.api
+                .get_all_workspaces_conversations(Some(max_conversations))
+                .await?
+        } else {
+            self.api.get_conversations(Some(max_conversations)).await?
+        };
 
         if conversations.is_empty() {
             return Ok(());
         }
+
+        // Compute cutoff for --since filtering
+        let cutoff = since.map(|s| s.cutoff());
 
         let mut info = Info::new();
 
         for conv in conversations.into_iter() {
             if conv.context.is_none() {
                 continue;
+            }
+
+            // Apply --since filter: skip conversations older than the cutoff
+            if let Some(cutoff) = cutoff {
+                let ts = conv.metadata.updated_at.unwrap_or(conv.metadata.created_at);
+                if ts < cutoff {
+                    continue;
+                }
             }
 
             let title = conv
