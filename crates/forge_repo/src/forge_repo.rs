@@ -416,6 +416,10 @@ where
         self.infra.prompt_question(question).await
     }
 
+    async fn confirm(&self, message: &str) -> anyhow::Result<Option<bool>> {
+        self.infra.confirm(message).await
+    }
+
     async fn select_one<T: Clone + std::fmt::Display + Send + 'static>(
         &self,
         message: &str,
