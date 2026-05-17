@@ -260,4 +260,8 @@ pub trait API: Sync + Send {
 
     /// Check the OAuth authentication status of an MCP server
     async fn mcp_auth_status(&self, server_url: &str) -> Result<String>;
+
+    /// Undoes the most recent snapshot for the given file path.
+    /// Used by the rewind command to revert file changes.
+    async fn undo_snapshot(&self, path: &str) -> Result<()>;
 }

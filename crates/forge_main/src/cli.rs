@@ -747,6 +747,12 @@ pub enum ConversationCommand {
         id: ConversationId,
     },
 
+    /// Rewind a conversation to an earlier message.
+    Rewind {
+        /// Conversation ID to rewind.
+        id: Option<ConversationId>,
+    },
+
     /// Show last assistant message.
     Show {
         /// Conversation ID.

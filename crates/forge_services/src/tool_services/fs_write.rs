@@ -95,10 +95,8 @@ impl<
             (None, default_ending)
         };
 
-        // SNAPSHOT COORDINATION: Capture snapshot before writing if file exists
-        if file_exists {
-            self.infra.insert_snapshot(path).await?;
-        }
+        // SNAPSHOT COORDINATION: Capture snapshot before writing
+        self.infra.insert_snapshot(path).await?;
 
         // Normalize line endings to match the target style before writing
         let normalized_content = content

@@ -7,6 +7,7 @@ use forge_app::{
     EnvironmentInfra, FileDirectoryInfra, FileInfoInfra, FileReaderInfra, FileWriterInfra,
     PlanCreateOutput, PlanCreateService,
 };
+use forge_domain::SnapshotRepository;
 
 /// Creates a new plan file with the specified name, version, and content. Use
 /// this tool to create structured project plans, task breakdowns, or
@@ -27,6 +28,7 @@ impl<
         + FileReaderInfra
         + FileWriterInfra
         + EnvironmentInfra
+        + SnapshotRepository
         + Send
         + Sync,
 > PlanCreateService for ForgePlanCreate<F>
@@ -64,6 +66,9 @@ impl<
                 file_path.display()
             ));
         }
+
+        // SNAPSHOT COORDINATION: Capture snapshot before writing
+        self.0.insert_snapshot(&file_path).await?;
 
         // Write the plan file
         self.0

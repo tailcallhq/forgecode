@@ -17,6 +17,7 @@ fn is_false(value: &bool) -> bool {
 use crate::temperature::Temperature;
 use crate::top_k::TopK;
 use crate::top_p::TopP;
+use crate::xml::{clean_user_prompt, strip_xml_tags};
 use crate::{
     Attachment, AttachmentContent, ConversationId, EventValue, Image, MessagePhase, ModelId,
     ReasoningFull, ToolChoice, ToolDefinition, ToolOutput, ToolValue, Usage,
@@ -374,6 +375,17 @@ pub struct MessageEntry {
     pub usage: Option<Usage>,
 }
 
+impl MessageEntry {
+    /// Returns true if this is a user message that should be visible in history
+    /// (not droppable).
+    pub fn is_user_message(&self) -> bool {
+        match &self.message {
+            ContextMessage::Text(msg) => msg.role == Role::User && !msg.droppable,
+            _ => false,
+        }
+    }
+}
+
 impl From<ContextMessage> for MessageEntry {
     fn from(value: ContextMessage) -> Self {
         MessageEntry { message: value, usage: Default::default() }
@@ -431,6 +443,8 @@ pub struct Context {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
 }
+
+const REWIND_PREVIEW_MAX_LEN: usize = 100;
 
 impl Context {
     pub fn accumulate_usage(&self) -> Option<Usage> {
@@ -685,12 +699,107 @@ impl Context {
         self.messages.len()
     }
 
+    /// Truncates the context, keeping messages up to and including the given
+    /// index, and removing all messages after that point.
+    ///
+    /// Also removes tool results that reference tool calls that were
+    /// truncated, and resets usage data to match the remaining messages.
+    ///
+    /// Returns the truncated context.
+    pub fn truncate(mut self, keep_up_to: usize) -> Self {
+        if keep_up_to >= self.messages.len() {
+            return self;
+        }
+        self.messages.truncate(keep_up_to + 1);
+        self
+    }
+
+    /// Truncates the conversation to keep messages up to (but excluding) the
+    /// Nth (0-indexed) user message. All subsequent messages are discarded.
+    pub fn truncate_to_user_message(mut self, nth_user: usize) -> Self {
+        let cut_at = self
+            .messages
+            .iter()
+            .enumerate()
+            .filter_map(|(i, entry)| entry.is_user_message().then_some(i))
+            .nth(nth_user);
+
+        if let Some(idx) = cut_at {
+            self.messages.truncate(idx);
+        }
+        self
+    }
+
+    /// Formats user messages with numbered indices for display during
+    /// interactive rewind. Returns a list of `(full_message_index,
+    /// display_string)` tuples, where the display string shows a 1-indexed
+    /// user message number and preview.
+    pub fn format_messages_for_rewind(&self) -> Vec<(usize, String)> {
+        self.messages
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.is_user_message())
+            .map(|(full_idx, entry)| {
+                let content = entry.content().unwrap_or("").trim();
+                let cleaned = clean_user_prompt(content);
+                let preview = strip_xml_tags(&cleaned);
+                let preview = if preview.len() > REWIND_PREVIEW_MAX_LEN {
+                    format!(
+                        "{}...",
+                        preview
+                            .chars()
+                            .take(REWIND_PREVIEW_MAX_LEN)
+                            .collect::<String>()
+                    )
+                } else {
+                    preview.to_string()
+                };
+                (full_idx, preview)
+            })
+            .collect()
+    }
+
     /// Returns the count of user messages in the context
     pub fn user_message_count(&self) -> usize {
         self.messages
             .iter()
-            .filter(|msg| msg.has_role(Role::User))
+            .filter(|msg| msg.is_user_message())
             .count()
+    }
+
+    /// Returns the file paths modified by tool results in messages
+    /// at or after the given index (inclusive). Used by rewind to know which
+    /// file snapshots to revert.
+    pub fn modified_files_from(&self, from_index: usize) -> Vec<String> {
+        let mut files = Vec::new();
+        for msg in self.messages.iter().skip(from_index) {
+            if let ContextMessage::Tool(result) = &msg.message {
+                // 1. Use the pre-calculated modified files from the tool execution
+                let mut msg_modified = result.modified_files.clone();
+
+                // 2. Fallback dynamic extraction for older conversations where modified_files
+                //    might be empty
+                if let Some(text) = result.output.as_str() {
+                    let extracted_paths = crate::xml::extract_modified_files_from_output(text);
+
+                    for p in extracted_paths {
+                        if !msg_modified.contains(&p) {
+                            msg_modified.push(p);
+                        }
+                    }
+                }
+
+                files.extend(msg_modified);
+            }
+        }
+        files
+    }
+
+    /// Returns the file paths modified by tool results in messages
+    /// after the given index (exclusive). Used by rewind to know which
+    /// file snapshots to revert.
+    pub fn modified_files_after(&self, keep_up_to: usize) -> Vec<String> {
+        self.modified_files_from(keep_up_to + 1)
     }
 
     /// Returns the count of assistant messages in the context
@@ -906,6 +1015,7 @@ mod tests {
                     name: crate::ToolName::new("text_tool"),
                     call_id: Some(crate::ToolCallId::new("call1")),
                     output: crate::ToolOutput::text("Text output".to_string()),
+                    modified_files: vec![],
                 },
                 ToolResult {
                     name: crate::ToolName::new("empty_tool"),
@@ -914,6 +1024,7 @@ mod tests {
                         values: vec![crate::ToolValue::Empty],
                         is_error: false,
                     },
+                    modified_files: vec![],
                 },
             ]);
 
@@ -932,6 +1043,7 @@ mod tests {
                 name: crate::ToolName::new("image_tool"),
                 call_id: Some(crate::ToolCallId::new("call1")),
                 output: crate::ToolOutput::image(image),
+                modified_files: vec![],
             }]);
 
         let mut transformer = crate::transformer::ImageHandling::new();
@@ -956,6 +1068,7 @@ mod tests {
                 ],
                 is_error: false,
             },
+            modified_files: vec![],
         }]);
 
         let mut transformer = crate::transformer::ImageHandling::new();
@@ -975,16 +1088,19 @@ mod tests {
                     name: crate::ToolName::new("text_tool"),
                     call_id: Some(crate::ToolCallId::new("call1")),
                     output: crate::ToolOutput::text("Text output".to_string()),
+                    modified_files: vec![],
                 },
                 ToolResult {
                     name: crate::ToolName::new("image_tool1"),
                     call_id: Some(crate::ToolCallId::new("call2")),
                     output: crate::ToolOutput::image(image1),
+                    modified_files: vec![],
                 },
                 ToolResult {
                     name: crate::ToolName::new("image_tool2"),
                     call_id: Some(crate::ToolCallId::new("call3")),
                     output: crate::ToolOutput::image(image2),
+                    modified_files: vec![],
                 },
             ]);
 
@@ -1018,6 +1134,7 @@ mod tests {
                     ],
                     is_error: false,
                 },
+                modified_files: vec![],
             }]);
 
         let mut transformer = crate::transformer::ImageHandling::new();
@@ -1036,6 +1153,7 @@ mod tests {
                 values: vec![crate::ToolValue::Image(image)],
                 is_error: true,
             },
+            modified_files: vec![],
         }]);
 
         let mut transformer = crate::transformer::ImageHandling::new();
@@ -1381,11 +1499,13 @@ mod tests {
                     name: crate::ToolName::new("tool1"),
                     call_id: Some(crate::ToolCallId::new("call1")),
                     output: crate::ToolOutput::text("Result 1".to_string()),
+                    modified_files: vec![],
                 },
                 ToolResult {
                     name: crate::ToolName::new("tool2"),
                     call_id: Some(crate::ToolCallId::new("call2")),
                     output: crate::ToolOutput::text("Result 2".to_string()),
+                    modified_files: vec![],
                 },
             ]);
 
@@ -1538,6 +1658,7 @@ mod tests {
             name: crate::ToolName::new("fs_search"),
             call_id: Some(crate::ToolCallId::new("call1")),
             output: crate::ToolOutput::text("Search results: Found 3 items".to_string()),
+            modified_files: vec![],
         });
         let actual = fixture.token_count_approx();
         let expected = 8; // 30 chars / 4 = 8 tokens (rounded up)
@@ -1552,6 +1673,7 @@ mod tests {
             name: crate::ToolName::new("screenshot"),
             call_id: Some(crate::ToolCallId::new("call1")),
             output: crate::ToolOutput::image(fixture_image),
+            modified_files: vec![],
         });
         let actual = fixture.token_count_approx();
         let expected = 0; // Images are not counted in token approximation
@@ -1693,6 +1815,98 @@ mod tests {
         let expected = false; // Last assistant used "model2", same as current
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_truncate_to_user_message_exclusive() {
+        let context = Context::default()
+            .add_message(ContextMessage::user("U1", None)) // idx 0
+            .add_message(TextMessage::assistant("A1", None, None)) // idx 1
+            .add_message(ContextMessage::user("U2", None)) // idx 2
+            .add_message(TextMessage::assistant("A2", None, None)); // idx 3
+
+        // Rewind to U2 (nth_user = 1) -> keeps [U1, A1]
+        let rewound = context.clone().truncate_to_user_message(1);
+        assert_eq!(rewound.messages.len(), 2);
+        assert_eq!(rewound.messages[0].content().unwrap(), "U1");
+        assert_eq!(rewound.messages[1].content().unwrap(), "A1");
+
+        // Rewind to U1 (nth_user = 0) -> keeps []
+        let rewound = context.truncate_to_user_message(0);
+        assert_eq!(rewound.messages.len(), 0);
+    }
+
+    #[test]
+    fn test_modified_files_from() {
+        use crate::{ToolName, ToolOutput, ToolResult};
+        let context = Context::default()
+            .add_message(ContextMessage::user("U1", None))
+            .add_message(ContextMessage::Tool(ToolResult {
+                name: ToolName::new("write"),
+                call_id: None,
+                output: ToolOutput::text("ok"),
+                modified_files: vec!["file1.txt".to_string()],
+            }))
+            .add_message(ContextMessage::user("U2", None))
+            .add_message(ContextMessage::Tool(ToolResult {
+                name: ToolName::new("patch"),
+                call_id: None,
+                output: ToolOutput::text("ok"),
+                modified_files: vec!["file2.txt".to_string()],
+            }));
+
+        // From U2 (idx 2)
+        let files = context.modified_files_from(2);
+        assert_eq!(files, vec!["file2.txt".to_string()]);
+
+        // From U1 (idx 0)
+        let files = context.modified_files_from(0);
+        assert_eq!(
+            files,
+            vec!["file1.txt".to_string(), "file2.txt".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_modified_files_from_duplicates() {
+        use crate::{ToolName, ToolOutput, ToolResult};
+        let context = Context::default()
+            .add_message(ContextMessage::Tool(ToolResult {
+                name: ToolName::new("write"),
+                call_id: None,
+                output: ToolOutput::text("ok"),
+                modified_files: vec!["file1.txt".to_string()],
+            }))
+            .add_message(ContextMessage::Tool(ToolResult {
+                name: ToolName::new("patch"),
+                call_id: None,
+                output: ToolOutput::text("ok"),
+                modified_files: vec!["file1.txt".to_string()],
+            }));
+
+        let files = context.modified_files_from(0);
+        // Should contain duplicates as each is a separate modification
+        assert_eq!(
+            files,
+            vec!["file1.txt".to_string(), "file1.txt".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_modified_files_from_fallback_dedup() {
+        use crate::{ToolName, ToolOutput, ToolResult};
+        let context = Context::default().add_message(ContextMessage::Tool(ToolResult {
+            name: ToolName::new("write"),
+            call_id: None,
+            // XML tag suggests file1.txt was modified
+            output: ToolOutput::text("<file_created path=\"file1.txt\" />"),
+            // result.modified_files ALSO has file1.txt
+            modified_files: vec!["file1.txt".to_string()],
+        }));
+
+        let files = context.modified_files_from(0);
+        // Should NOT duplicate within the same tool result
+        assert_eq!(files, vec!["file1.txt".to_string()]);
     }
 
     /// Regression test: when both `reasoning` (raw text) and

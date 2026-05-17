@@ -1,3 +1,14 @@
+/// Extracts a full XML tag (including brackets) by its name
+pub fn extract_tag<'a>(text: &'a str, tag_name: &str) -> Option<&'a str> {
+    let opening_pattern = format!(r"<{tag_name}(?:\s[^>]*?)?>");
+    if let Ok(regex) = regex::Regex::new(&opening_pattern)
+        && let Some(mat) = regex.find(text)
+    {
+        return Some(mat.as_str());
+    }
+    None
+}
+
 /// Extracts content between the specified XML-style tags
 ///
 /// # Arguments
@@ -58,6 +69,76 @@ pub fn remove_tag_with_prefix(text: &str, prefix: &str) -> String {
     result
 }
 
+/// Cleans a user prompt by extracting content from <feedback> tags if present,
+/// or stripping all XML tags and meta-information.
+pub fn clean_user_prompt(text: &str) -> String {
+    // 1. Try to extract content from <feedback> or <task> tags
+    if let Some(content) = extract_tag_content(text, "feedback") {
+        return content.to_string();
+    }
+    if let Some(content) = extract_tag_content(text, "task") {
+        return content.to_string();
+    }
+
+    // 2. Remove known meta tags with their content
+    let mut cleaned = remove_tag_with_prefix(text, "system_");
+    cleaned = remove_tag_with_prefix(&cleaned, "context_");
+    cleaned = remove_tag_with_prefix(&cleaned, "terminal_context");
+
+    // 3. Strip all remaining tags but preserve newlines (unlike strip_xml_tags)
+    let tag_pattern = regex::Regex::new(r"<[^>]*>").unwrap();
+    let result = tag_pattern.replace_all(&cleaned, "").to_string();
+
+    // Trim while preserving internal structure
+    result.trim().to_string()
+}
+
+/// Extracts the value of an attribute from an XML tag
+pub fn extract_attribute(tag: &str, attr_name: &str) -> Option<String> {
+    let pattern = format!(r#"{attr_name}="([^"]*)""#, attr_name = attr_name);
+    if let Ok(regex) = regex::Regex::new(&pattern)
+        && let Some(captures) = regex.captures(tag)
+    {
+        return captures.get(1).map(|m| m.as_str().to_string());
+    }
+    None
+}
+
+/// Removes all XML/HTML tags from the text, keeping only the content between
+/// tags. Multiple whitespace characters are collapsed into a single space.
+pub fn strip_xml_tags(text: &str) -> String {
+    let tag_pattern = regex::Regex::new(r"<[^>]*>").unwrap();
+    let result = tag_pattern.replace_all(text, "").to_string();
+    // Collapse multiple whitespace characters into a single space
+    let re_whitespace = regex::Regex::new(r"\s+").unwrap();
+    re_whitespace.replace_all(&result, " ").trim().to_string()
+}
+
+/// Extracts file paths from XML tags in the given text.
+/// Supports tags: plan_created, file_created, file_overwritten, file_diff,
+/// file_removed.
+pub fn extract_modified_files_from_output(text: &str) -> Vec<String> {
+    let mut modified_files = Vec::new();
+    let tags = [
+        "plan_created",
+        "file_created",
+        "file_overwritten",
+        "file_diff",
+        "file_removed",
+    ];
+
+    for tag_name in tags {
+        if let Some(tag) = extract_tag(text, tag_name)
+            && let Some(path) = extract_attribute(tag, "path")
+        {
+            modified_files.push(path);
+            // Return only the first matching tag to maintain parity with existing logic
+            return modified_files;
+        }
+    }
+    modified_files
+}
+
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
@@ -69,6 +150,14 @@ mod tests {
         let fixture = "Some text <summary>This is the important part</summary> and more text";
         let actual = extract_tag_content(fixture, "summary");
         let expected = Some("This is the important part");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_extract_tag_content_with_duplicate_closing_tags() {
+        let fixture = "Some text <summary>1<summary>2</summary>3</summary> and more text";
+        let actual = extract_tag_content(fixture, "summary");
+        let expected = Some("1<summary>2</summary>3");
         assert_eq!(actual, expected);
     }
 
@@ -159,10 +248,60 @@ mod tests {
     }
 
     #[test]
-    fn test_with_duplicate_closing_tags() {
-        let fixture = "<foo>1<foo>2</foo>3</foo>";
-        let actual = extract_tag_content(fixture, "foo").unwrap();
-        let expected = "1<foo>2</foo>3";
+    fn test_clean_user_prompt_with_tags() {
+        let fixture = "<feedback>add feature to determine recipe from images using vision llm models</feedback>\n::: <system_date>2026-05-16</system_date>\n::: ";
+        let actual = clean_user_prompt(fixture);
+        // Should extract ONLY feedback and trim
+        let expected = "add feature to determine recipe from images using vision llm models";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_clean_user_prompt_without_feedback() {
+        let fixture = "Just plain text <system_date>2026</system_date>";
+        let actual = clean_user_prompt(fixture);
+        // Should strip system_date and its tags
+        let expected = "Just plain text";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_clean_user_prompt_with_terminal_context() {
+        let fixture = "<task>create a plan</task><terminal_context><commands><command>ls</command></commands></terminal_context>";
+        let actual = clean_user_prompt(fixture);
+        let expected = "create a plan";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_clean_user_prompt_with_task_only() {
+        let fixture = "<task>new task</task><system_info>some info</system_info>";
+        let actual = clean_user_prompt(fixture);
+        let expected = "new task";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_extract_modified_files_from_output() {
+        let fixture = r#"Some text <file_created path="/abs/path/to/file.txt" /> more text"#;
+        let actual = extract_modified_files_from_output(fixture);
+        let expected = vec!["/abs/path/to/file.txt".to_string()];
+        assert_eq!(actual, expected);
+
+        let fixture = r#"<plan_created path="plan.md">Plan content</plan_created>"#;
+        let actual = extract_modified_files_from_output(fixture);
+        let expected = vec!["plan.md".to_string()];
+        assert_eq!(actual, expected);
+
+        let fixture = r#"<file_overwritten path="old.txt" /><file_created path="new.txt" />"#;
+        let actual = extract_modified_files_from_output(fixture);
+        // Priority: file_created > file_overwritten
+        let expected = vec!["new.txt".to_string()];
+        assert_eq!(actual, expected);
+
+        let fixture = "No tags here";
+        let actual = extract_modified_files_from_output(fixture);
+        let expected: Vec<String> = vec![];
         assert_eq!(actual, expected);
     }
 }

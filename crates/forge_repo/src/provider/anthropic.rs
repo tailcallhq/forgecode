@@ -576,6 +576,7 @@ mod tests {
                 name: ToolName::new("math"),
                 call_id: Some(ToolCallId::new("math-1")),
                 output: ToolOutput::text(serde_json::json!({"result": 4}).to_string()),
+                modified_files: vec![],
             }])
             .tool_choice(ToolChoice::Call(ToolName::new("math")));
         let request = Request::try_from(context)

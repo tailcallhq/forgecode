@@ -14,6 +14,10 @@ pub struct ToolResult {
     pub call_id: Option<ToolCallId>,
     #[setters(skip)]
     pub output: ToolOutput,
+    /// File paths modified by this tool call (for undo/rewind purposes).
+    /// Populated by file-modifying tools (Write, Patch, Remove).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified_files: Vec<String>,
 }
 
 impl ToolResult {
@@ -22,6 +26,7 @@ impl ToolResult {
             name: name.into(),
             call_id: Default::default(),
             output: Default::default(),
+            modified_files: vec![],
         }
     }
 
@@ -75,6 +80,7 @@ impl From<ToolCallFull> for ToolResult {
             name: value.name,
             call_id: value.call_id,
             output: Default::default(),
+            modified_files: vec![],
         }
     }
 }

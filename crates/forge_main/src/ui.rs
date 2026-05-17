@@ -19,6 +19,7 @@ use forge_config::ForgeConfig;
 use forge_display::MarkdownFormat;
 use forge_domain::{
     AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, Role, TitleFormat, UserCommand,
+    clean_user_prompt,
 };
 use forge_fs::ForgeFS;
 use forge_select::{ForgeWidget, SelectRow};
@@ -117,6 +118,49 @@ pub struct UI<A: ConsoleWriter, F: Fn(ForgeConfig) -> A> {
 }
 
 impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI<A, F> {
+    /// Resolves a conversation ID from an optional string ID, the current
+    /// active conversation, or by showing an interactive picker.
+    async fn resolve_conversation_id(
+        &mut self,
+        id: Option<String>,
+    ) -> anyhow::Result<Option<ConversationId>> {
+        if let Some(id_str) = id {
+            return Ok(Some(ConversationId::parse(&id_str).map_err(|_| {
+                anyhow::anyhow!("Invalid conversation ID: {id_str}")
+            })?));
+        }
+
+        if let Some(cid) = self.state.conversation_id {
+            return Ok(Some(cid));
+        }
+
+        if let Some(cid) = self.cli.conversation_id {
+            return Ok(Some(cid));
+        }
+
+        // Show conversation picker
+        let conversations = self
+            .api
+            .get_conversations(Some(self.config.max_conversations))
+            .await?;
+
+        if conversations.is_empty() {
+            self.writeln_title(TitleFormat::error(
+                "No conversations found. Start a conversation first.",
+            ))?;
+            return Ok(None);
+        }
+
+        let selected = ConversationSelector::select_conversation(
+            &conversations,
+            self.state.conversation_id,
+            None,
+        )
+        .await?;
+
+        Ok(selected.map(|conv| conv.id))
+    }
+
     /// Writes a line to the console output
     /// Takes anything that implements ToString trait
     fn writeln<T: ToString>(&mut self, content: T) -> anyhow::Result<()> {
@@ -916,6 +960,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 self.state.conversation_id = Some(id);
                 self.writeln_title(TitleFormat::info(format!("Resumed conversation: {id}")))?;
                 // Interactive mode will be handled by the main loop
+            }
+            ConversationCommand::Rewind { id } => {
+                self.on_slash_rewind(id.map(|i| i.to_string())).await?;
             }
             ConversationCommand::Show { id, md } => {
                 let conversation = self.validate_conversation_exists(&id).await?;
@@ -2271,6 +2318,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             AppCommand::Clone { id } => {
                 self.on_slash_clone(id).await?;
             }
+            AppCommand::Rewind { id } => {
+                self.on_slash_rewind(id).await?;
+            }
             AppCommand::ConversationRename { name } => {
                 let args = if name.is_empty() {
                     None
@@ -2567,34 +2617,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     ///   conversation is used; if no active conversation, an interactive picker
     ///   is shown.
     async fn on_slash_clone(&mut self, id: Option<String>) -> anyhow::Result<()> {
-        let target_id = if let Some(id_str) = id {
-            ConversationId::parse(&id_str)
-                .map_err(|_| anyhow::anyhow!("Invalid conversation ID: {id_str}"))?
-        } else {
-            // Show conversation picker
-            let conversations = self
-                .api
-                .get_conversations(Some(self.config.max_conversations))
-                .await?;
-
-            if conversations.is_empty() {
-                self.writeln_title(TitleFormat::error(
-                    "No conversations found. Start a conversation first.",
-                ))?;
-                return Ok(());
-            }
-
-            let selected = ConversationSelector::select_conversation(
-                &conversations,
-                self.state.conversation_id,
-                None,
-            )
-            .await?;
-
-            match selected {
-                Some(conv) => conv.id,
-                None => return Ok(()),
-            }
+        let Some(target_id) = self.resolve_conversation_id(id).await? else {
+            return Ok(());
         };
 
         // Fetch the conversation to clone
@@ -2618,6 +2642,160 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.writeln_title(
             TitleFormat::info("Cloned").sub_title(format!("[{original_id} → {new_id}]")),
         )?;
+
+        Ok(())
+    }
+
+    /// Rewinds a conversation to an earlier message, discarding all subsequent
+    /// messages and their associated tool results and usage data.
+    ///
+    /// # Arguments
+    /// * `id` - Optional conversation ID. If `None`, an interactive picker is
+    ///   shown.
+    async fn on_slash_rewind(&mut self, id: Option<String>) -> anyhow::Result<()> {
+        let Some(target_id) = self.resolve_conversation_id(id).await? else {
+            return Ok(());
+        };
+
+        // Fetch the conversation
+        let mut conversation = self
+            .api
+            .conversation(&target_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Conversation '{target_id}' not found"))?;
+
+        let context = conversation
+            .context
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Conversation has no context to rewind"))?;
+
+        if context.messages.is_empty() {
+            self.writeln_title(TitleFormat::error(
+                "Conversation has no messages to rewind.",
+            ))?;
+            return Ok(());
+        }
+
+        // Build and show the interactive TUI message selector
+        let lines = context.format_messages_for_rewind();
+        let user_count = lines.len();
+        if user_count == 0 {
+            self.writeln_title(TitleFormat::error("No user messages to rewind to."))?;
+            return Ok(());
+        }
+
+        let last_full_idx = lines
+            .last()
+            .map(|(fi, _)| fi.to_string())
+            .unwrap_or_default();
+        let mut rows: Vec<SelectRow> = Vec::with_capacity(lines.len());
+        for (full_idx, display) in &lines {
+            rows.push(
+                SelectRow::new(full_idx.to_string(), display.clone()).search(display.clone()),
+            );
+        }
+
+        let selected = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<SelectRow>> {
+            ForgeWidget::select_rows("Rewind to message", rows)
+                .initial_raw(last_full_idx)
+                .prompt()
+        })
+        .await??;
+
+        let full_idx = match selected {
+            Some(row) => row
+                .raw
+                .parse::<usize>()
+                .map_err(|_| anyhow::anyhow!("Invalid message index"))?,
+            None => {
+                self.writeln_title(TitleFormat::info("Rewind cancelled."))?;
+                return Ok(());
+            }
+        };
+
+        // Find the 0-indexed user message position for the existing truncation method
+        let keep_nth_user = lines
+            .iter()
+            .position(|(fi, _)| *fi == full_idx)
+            .ok_or_else(|| anyhow::anyhow!("Selected message index {full_idx} not found"))?;
+
+        let total_before = context.messages.len();
+
+        // Collect file paths that were modified by tool results in messages
+        // that will be removed. These files' snapshots need to be reverted.
+        // We use full_idx because it's the index of the user message we are rewinding
+        // AT.
+        let modified_files = context.modified_files_from(full_idx);
+
+        // Perform the truncation (keep messages up to but excluding the selected user
+        // message)
+        let rewound_message_content = context
+            .messages
+            .get(full_idx)
+            .and_then(|m| m.content())
+            .map(clean_user_prompt)
+            .unwrap_or_default();
+
+        let truncated_context = context.clone().truncate_to_user_message(keep_nth_user);
+        let removed = total_before - truncated_context.messages.len();
+        let num_messages = truncated_context.messages.len();
+
+        conversation.context = Some(truncated_context);
+        conversation.metadata.updated_at = Some(chrono::Utc::now());
+
+        self.api.upsert_conversation(conversation).await?;
+
+        // Revert file modifications from the removed messages (best-effort)
+        if !modified_files.is_empty() {
+            self.writeln_title(TitleFormat::info("Reverting file changes..."))?;
+            let mut failed = 0u32;
+            let total_undos = modified_files.len();
+            for file_path in modified_files.iter().rev() {
+                match self.api.undo_snapshot(file_path).await {
+                    Ok(_) => {
+                        tracing::info!(file = %file_path, "Rewind reverted snapshot");
+                    }
+                    Err(e) => {
+                        tracing::warn!(file = %file_path, error = %e, "Failed to revert snapshot during rewind");
+                        failed += 1;
+                    }
+                }
+            }
+            let status = if failed == 0 {
+                format!("Reverted {total_undos} file change(s).")
+            } else {
+                format!(
+                    "Reverted {} of {total_undos} file change(s). {failed} failed.",
+                    total_undos - failed as usize
+                )
+            };
+            self.writeln(status)?;
+        }
+
+        let summary = if removed > 0 {
+            format!("Removed {removed} messages. Now has {num_messages} messages.")
+        } else {
+            format!("No messages removed. Still {total_before} messages.")
+        };
+
+        self.writeln_title(
+            TitleFormat::info("Rewound")
+                .sub_title(format!("[{}] {summary}", target_id.into_string())),
+        )?;
+
+        // Set the rewound message content in the buffer for review/editing
+        if !rewound_message_content.is_empty() {
+            if self.cli.is_interactive() {
+                self.console.set_buffer(rewound_message_content);
+            } else {
+                // Check if we should write to a temporary file for the shell plugin
+                if let Ok(rewind_file) = std::env::var("FORGE_REWIND_FILE") {
+                    let _ = std::fs::write(rewind_file, &rewound_message_content);
+                }
+                // Also print to stdout as fallback
+                println!("{rewound_message_content}");
+            }
+        }
 
         Ok(())
     }

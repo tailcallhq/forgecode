@@ -467,6 +467,7 @@ pub(super) struct ToolResultRecord {
     name: ToolNameRecord,
     call_id: Option<ToolCallIdRecord>,
     output: ToolOutputRecord,
+    modified_files: Vec<String>,
 }
 
 impl From<&forge_domain::ToolResult> for ToolResultRecord {
@@ -475,6 +476,7 @@ impl From<&forge_domain::ToolResult> for ToolResultRecord {
             name: ToolNameRecord::from(&result.name),
             call_id: result.call_id.as_ref().map(ToolCallIdRecord::from),
             output: ToolOutputRecord::from(&result.output),
+            modified_files: result.modified_files.clone(),
         }
     }
 }
@@ -487,6 +489,7 @@ impl TryFrom<ToolResultRecord> for forge_domain::ToolResult {
             name: record.name.into(),
             call_id: record.call_id.map(Into::into),
             output: record.output.try_into()?,
+            modified_files: record.modified_files,
         })
     }
 }

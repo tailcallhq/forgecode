@@ -451,6 +451,7 @@ mod tests {
             name: ToolName::new(name),
             call_id: Some(ToolCallId::new(call_id)),
             output: ToolOutput::text("result").is_error(is_error),
+            modified_files: vec![],
         })
     }
 
@@ -805,6 +806,7 @@ mod tests {
                 name: ToolName::new("read"),
                 call_id: None,
                 output: ToolOutput::text("result"),
+                modified_files: vec![],
             }),
         ]);
 

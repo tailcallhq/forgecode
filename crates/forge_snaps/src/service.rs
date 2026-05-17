@@ -28,9 +28,14 @@ impl SnapshotService {
             ForgeFS::create_dir_all(parent).await?;
         }
 
-        let content = ForgeFS::read(&snapshot.path).await?;
-        let path = snapshot.snapshot_path(Some(self.snapshots_directory.clone()));
-        ForgeFS::write(path, content).await?;
+        if ForgeFS::exists(&snapshot.path) {
+            let content = ForgeFS::read(&snapshot.path).await?;
+            ForgeFS::write(snapshot_path, content).await?;
+        } else {
+            // Write a special marker for "non-existent file"
+            let marker_path = snapshot_path.with_extension("none");
+            ForgeFS::write(marker_path, b"").await?;
+        }
         Ok(snapshot)
     }
 
@@ -43,7 +48,8 @@ impl SnapshotService {
 
         while let Some(entry) = dir.next_entry().await? {
             let filename = entry.file_name().to_string_lossy().to_string();
-            if filename.ends_with(".snap")
+            // Match both .snap (regular) and .none (file didn't exist)
+            if (filename.ends_with(".snap") || filename.ends_with(".none"))
                 && (latest_filename.is_none() || filename > latest_filename.clone().unwrap())
             {
                 latest_filename = Some(filename);
@@ -70,9 +76,16 @@ impl SnapshotService {
             .await?
             .context(format!("No valid snapshots found for {path:?}"))?;
 
-        // Restore the content
-        let content = ForgeFS::read(&snapshot_path).await?;
-        ForgeFS::write(&path, content).await?;
+        if snapshot_path.extension().and_then(|e| e.to_str()) == Some("none") {
+            // The file didn't exist when snapshot was taken, so delete it if it exists now
+            if ForgeFS::exists(&path) {
+                ForgeFS::remove_file(&path).await?;
+            }
+        } else {
+            // Restore the content
+            let content = ForgeFS::read(&snapshot_path).await?;
+            ForgeFS::write(&path, content).await?;
+        }
 
         // Remove the used snapshot
         ForgeFS::remove_file(&snapshot_path).await?;
@@ -204,6 +217,29 @@ mod tests {
         // Assert - undo should succeed and recreate the file from snapshot
         ctx.undo_snapshot().await?;
         assert_eq!(ctx.read_content().await?, initial_content);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_undo_file_creation() -> Result<()> {
+        // Arrange
+        let ctx = TestContext::new().await?;
+        let content = "New file content";
+
+        // Act
+        // 1. Snapshot non-existent file
+        ctx.service.create_snapshot(ctx.test_file.clone()).await?;
+
+        // 2. Create the file
+        ctx.write_content(content).await?;
+        assert!(ForgeFS::exists(&ctx.test_file));
+
+        // 3. Undo creation
+        ctx.undo_snapshot().await?;
+
+        // Assert
+        assert!(!ForgeFS::exists(&ctx.test_file));
 
         Ok(())
     }

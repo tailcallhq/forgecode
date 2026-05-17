@@ -85,6 +85,7 @@ mod tests {
                 name: ToolName::new("test_tool"),
                 call_id: Some(ToolCallId::new("call_123")),
                 output: ToolOutput::text("Tool result".to_string()),
+                modified_files: vec![],
             }])
     }
 
@@ -172,6 +173,7 @@ mod tests {
                 name: ToolName::new("preserve_tool"),
                 call_id: Some(ToolCallId::new("call_preserve")),
                 output: ToolOutput::text("Tool output".to_string()),
+                modified_files: vec![],
             }]);
 
         let mut transformer = DropReasoningDetails;
