@@ -290,6 +290,11 @@
         }
       ]
     },
+    "show_model_in_prompt": {
+      "description": "Whether to show the model name in the shell prompt (right prompt).\nWhen set to `false`, the model name is hidden from both the ZSH\nrprompt and the interactive REPL prompt. Defaults to `true`.",
+      "type": "boolean",
+      "default": true
+    },
     "subagents": {
       "description": "Enables subagent support via the task tool; when true the forge agent\ngains access to the `task` tool for delegating work to specialised\nsub-agents, and the `sage` research-only agent tool is removed.\nWhen false the `task` tool is disabled and `sage` is available instead.",
       "type": "boolean",

@@ -329,6 +329,16 @@ pub struct ForgeConfig {
     /// user or assistant turns (e.g. vLLM, NVIDIA NIM).
     #[serde(default)]
     pub merge_system_messages: bool,
+
+    /// Whether to show the model name in the shell prompt (right prompt).
+    /// When set to `false`, the model name is hidden from both the ZSH
+    /// rprompt and the interactive REPL prompt. Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub show_model_in_prompt: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl ForgeConfig {

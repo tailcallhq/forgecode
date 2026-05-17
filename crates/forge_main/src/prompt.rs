@@ -42,6 +42,10 @@ pub struct ForgePrompt {
     /// suppressed (see [`ForgePrompt::render_prompt_right`]).
     pub reasoning_effort: Option<Effort>,
     pub git_branch: Option<String>,
+    /// Whether to render the model name in the right prompt. When `false`,
+    /// both the model and reasoning effort segments are suppressed.
+    /// Defaults to `true`.
+    pub show_model: bool,
 }
 
 impl ForgePrompt {
@@ -56,6 +60,7 @@ impl ForgePrompt {
             model: None,
             reasoning_effort: None,
             git_branch,
+            show_model: true,
         }
     }
 
@@ -177,32 +182,34 @@ impl Prompt for ForgePrompt {
         }
 
         // Model with nerd font symbol
-        if let Some(model) = self.model.as_ref() {
-            let model_str = model.to_string();
-            let short_model = model_str.split('/').next_back().unwrap_or(model.as_str());
-            let model_label = format!("{MODEL_SYMBOL} {short_model}");
-            let color = if active {
-                Color::LightMagenta
-            } else {
-                Color::DarkGray
-            };
-            write!(result, " {}", Style::new().fg(color).paint(&model_label)).unwrap();
-        }
+        if self.show_model {
+            if let Some(model) = self.model.as_ref() {
+                let model_str = model.to_string();
+                let short_model = model_str.split('/').next_back().unwrap_or(model.as_str());
+                let model_label = format!("{MODEL_SYMBOL} {short_model}");
+                let color = if active {
+                    Color::LightMagenta
+                } else {
+                    Color::DarkGray
+                };
+                write!(result, " {}", Style::new().fg(color).paint(&model_label)).unwrap();
+            }
 
-        // Reasoning effort — rendered to the right of the model, matching the
-        // ZSH rprompt. `Effort::None` is suppressed (see zsh/rprompt.rs). On
-        // narrow terminals the label collapses to its first three characters
-        // so the prompt stays compact.
-        if let Some(ref effort) = self.reasoning_effort
-            && !matches!(effort, Effort::None)
-        {
-            let effort_label = effort_label(effort, term_width());
-            let color = if active {
-                Color::Yellow
-            } else {
-                Color::DarkGray
-            };
-            write!(result, " {}", Style::new().fg(color).paint(&effort_label)).unwrap();
+            // Reasoning effort — rendered to the right of the model, matching the
+            // ZSH rprompt. `Effort::None` is suppressed (see zsh/rprompt.rs). On
+            // narrow terminals the label collapses to its first three characters
+            // so the prompt stays compact.
+            if let Some(ref effort) = self.reasoning_effort
+                && !matches!(effort, Effort::None)
+            {
+                let effort_label = effort_label(effort, term_width());
+                let color = if active {
+                    Color::Yellow
+                } else {
+                    Color::DarkGray
+                };
+                write!(result, " {}", Style::new().fg(color).paint(&effort_label)).unwrap();
+            }
         }
 
         Cow::Owned(result)
@@ -287,6 +294,7 @@ mod tests {
                 model: None,
                 reasoning_effort: None,
                 git_branch: None,
+                show_model: true,
             }
         }
     }
@@ -465,5 +473,31 @@ mod tests {
             effort_label(&Effort::Medium, WIDE_TERMINAL_THRESHOLD),
             "MEDIUM"
         );
+    }
+
+    #[test]
+    fn test_render_prompt_right_hide_model() {
+        // When show_model is false, model and reasoning effort are hidden
+        let mut prompt = ForgePrompt::default();
+        let _ = prompt.model(ModelId::new("gpt-4"));
+        let _ = prompt.reasoning_effort(Effort::High);
+        prompt.show_model = false;
+
+        let actual = prompt.render_prompt_right();
+        assert!(!actual.contains("gpt-4"));
+        assert!(!actual.contains("HIGH"));
+        assert!(!actual.contains("HIG"));
+        // Agent should still be visible
+        assert!(actual.contains("FORGE"));
+    }
+
+    #[test]
+    fn test_render_prompt_right_show_model_default_true() {
+        // By default show_model is true, so model is visible
+        let mut prompt = ForgePrompt::default();
+        let _ = prompt.model(ModelId::new("gpt-4"));
+
+        let actual = prompt.render_prompt_right();
+        assert!(actual.contains("gpt-4"));
     }
 }

@@ -323,6 +323,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .await;
         let reasoning_effort = self.api.get_reasoning_effort().await.ok().flatten();
         let mut forge_prompt = ForgePrompt::new(self.state.cwd.clone(), agent_id);
+        forge_prompt.show_model(self.config.show_model_in_prompt);
         if let Some(u) = usage {
             forge_prompt.usage(u);
         }
