@@ -46,6 +46,12 @@ pub struct Conversation {
     pub context: Option<Context>,
     pub metrics: Metrics,
     pub metadata: MetaData,
+    /// Optional working directory override for sub-agent conversations.
+    /// When set, the agent uses this path as its CWD instead of the parent
+    /// process's CWD for system information (file listing, extensions,
+    /// env.cwd).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Setters, Serialize, Deserialize, Clone)]
@@ -71,6 +77,7 @@ impl Conversation {
             metadata: MetaData::new(created_at),
             title: None,
             context: None,
+            cwd: None,
         }
     }
     /// Creates a new conversation with a new conversation ID.

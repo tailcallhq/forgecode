@@ -286,6 +286,7 @@ mod tests {
             context: Some(context),
             metrics: Default::default(),
             metadata: forge_domain::MetaData::new(chrono::Utc::now()),
+            cwd: None,
         }
     }
 

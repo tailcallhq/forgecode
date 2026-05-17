@@ -238,6 +238,10 @@ mod tests {
 
             Ok(files)
         }
+
+        async fn list_directory_at(&self, _path: &std::path::Path) -> Result<Vec<File>> {
+            self.list_current_directory().await
+        }
     }
 
     #[async_trait::async_trait]

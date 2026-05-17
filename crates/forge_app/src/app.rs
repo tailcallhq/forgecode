@@ -65,16 +65,26 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
         let services = self.services.clone();
 
         // Get the conversation for the chat request
-        let conversation = services
+        let mut conversation = services
             .find_conversation(&chat.conversation_id)
             .await?
             .ok_or_else(|| forge_domain::Error::ConversationNotFound(chat.conversation_id))?;
 
         // Discover files using the discovery service
         let forge_config = self.services.get_config()?;
-        let environment = services.get_environment();
+        let cwd_override = conversation.cwd.clone();
+        conversation.cwd = cwd_override.clone();
+        let mut environment = services.get_environment();
 
-        let files = services.list_current_directory().await?;
+        // Apply CWD override from conversation (set by sub-agent invocations)
+        if let Some(ref cwd) = cwd_override {
+            environment.cwd = cwd.clone();
+        }
+
+        let files = match cwd_override {
+            Some(ref cwd) => services.list_directory_at(cwd.as_path()).await?,
+            None => services.list_current_directory().await?,
+        };
 
         let custom_instructions = services.get_custom_instructions().await;
 

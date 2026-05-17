@@ -36,7 +36,11 @@ impl<F: EnvironmentInfra + WalkerInfra + DirectoryReaderInfra + Send + Sync> Fil
 
     async fn list_current_directory(&self) -> Result<Vec<File>> {
         let env = self.service.get_environment();
-        let entries = self.service.list_directory_entries(&env.cwd).await?;
+        self.list_directory_at(&env.cwd).await
+    }
+
+    async fn list_directory_at(&self, path: &std::path::Path) -> Result<Vec<File>> {
+        let entries = self.service.list_directory_entries(path).await?;
 
         let mut files: Vec<File> = entries
             .into_iter()
