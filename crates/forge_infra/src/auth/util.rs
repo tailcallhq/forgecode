@@ -46,7 +46,10 @@ pub(crate) fn build_http_client(
 ) -> anyhow::Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
         // Disable redirects to prevent SSRF vulnerabilities
-        .redirect(reqwest::redirect::Policy::none());
+        .redirect(reqwest::redirect::Policy::none())
+        // Use system DNS resolver instead of hickory-dns to work correctly
+        // behind proxies (where direct DNS resolution may not be available)
+        .hickory_dns(false);
 
     if let Some(headers) = custom_headers {
         let mut header_map = reqwest::header::HeaderMap::new();
