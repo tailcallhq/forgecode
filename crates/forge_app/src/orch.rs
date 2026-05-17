@@ -387,6 +387,11 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             self.services.update(self.conversation.clone()).await?;
             request_count += 1;
 
+            // Emit live token usage after context is fully updated (LLM
+            // response + tool results folded in) so the UI shows the
+            // current context size before the next LLM call.
+            self.emit_context_usage(&context).await?;
+
             if !should_yield && let Some(max_request_allowed) = max_requests_per_turn {
                 // Check if agent has reached the maximum request per turn limit
                 if request_count >= max_request_allowed {
@@ -453,5 +458,39 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
 
     fn get_model(&self) -> ModelId {
         self.agent.model.clone()
+    }
+
+    /// Emits a debug-style context usage line to the UI showing current
+    /// token count, cached tokens, and compaction threshold.
+    async fn emit_context_usage(&self, context: &Context) -> anyhow::Result<()> {
+        let token_count = context.token_count();
+        let threshold_info = self
+            .agent
+            .compact
+            .token_threshold
+            .map(|t| format!(" / {}", Self::humanize(t)))
+            .unwrap_or_default();
+        let prefix = match token_count {
+            TokenCount::Approx(_) => "~",
+            TokenCount::Actual(_) => "",
+        };
+        self.send(
+            TitleFormat::debug(format!(
+                "Context {}{}{threshold_info}",
+                prefix,
+                Self::humanize(*token_count),
+            ))
+            .into(),
+        )
+        .await
+    }
+
+    /// Formats a token count into a human-readable string (e.g. 1.5k, 2.3M)
+    fn humanize(n: usize) -> String {
+        match n {
+            n if n >= 1_000_000 => format!("{:.1}M", n as f64 / 1_000_000.0),
+            n if n >= 1_000 => format!("{:.1}k", n as f64 / 1_000.0),
+            _ => n.to_string(),
+        }
     }
 }
