@@ -3,9 +3,20 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use colored::Color;
 use streamdown_ansi::utils::{extract_ansi_codes, parse_sgr_params, visible, visible_length};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+
+/// Returns the raw ANSI escape sequence for setting a foreground color.
+pub(crate) fn fg_code(color: Color) -> String {
+    format!("\x1b[{}m", color.to_fg_str())
+}
+
+/// Returns the raw ANSI escape sequence for setting a background color.
+pub(crate) fn bg_code(color: Color) -> String {
+    format!("\x1b[{}m", color.to_bg_str())
+}
 
 /// Terminal theme mode (dark or light).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

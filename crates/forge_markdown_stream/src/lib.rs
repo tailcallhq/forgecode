@@ -27,6 +27,7 @@ mod code;
 mod heading;
 mod inline;
 mod list;
+mod mermaid;
 mod renderer;
 mod repair;
 mod style;
