@@ -1,4 +1,4 @@
-use forge_domain::{Context, Effort, ReasoningConfig, Transformer};
+use forge_domain::{AnthropicModelFamily, Context, Effort, Model, ReasoningConfig, Transformer};
 use tracing::warn;
 
 /// Default budget applied when converting adaptive-style reasoning into legacy
@@ -6,7 +6,7 @@ use tracing::warn;
 const DEFAULT_LEGACY_BUDGET_TOKENS: usize = 10000;
 
 #[derive(Debug, PartialEq, Eq)]
-enum AnthropicModelFamily {
+enum AnthropicReasoningFamily {
     AdaptiveOnly,
     AdaptiveFriendly,
     LegacyWithEffort,
@@ -17,28 +17,47 @@ enum AnthropicModelFamily {
 /// conversion.
 pub(crate) struct ModelSpecificReasoning {
     model_id: String,
+    catalog_family: Option<AnthropicModelFamily>,
 }
 
 impl ModelSpecificReasoning {
     /// Creates a model-specific reasoning normalizer for the given model id.
-    pub(crate) fn new(model_id: impl Into<String>) -> Self {
-        Self { model_id: model_id.into() }
+    pub(crate) fn new(model_id: impl Into<String>, models: &[Model]) -> Self {
+        let model_id = model_id.into();
+        let catalog_family = models
+            .iter()
+            .find(|model| model.id.as_str() == model_id)
+            .and_then(|model| model.family)
+            .filter(|family| family.is_known());
+
+        Self { model_id, catalog_family }
     }
 
-    fn family(&self) -> AnthropicModelFamily {
-        let id = self.model_id.to_lowercase();
-        if id.contains("opus-4-7") || id.contains("47-opus") {
-            AnthropicModelFamily::AdaptiveOnly
-        } else if id.contains("opus-4-6")
-            || id.contains("46-opus")
-            || id.contains("sonnet-4-6")
-            || id.contains("46-sonnet")
-        {
-            AnthropicModelFamily::AdaptiveFriendly
-        } else if id.contains("opus-4-5") || id.contains("45-opus") {
-            AnthropicModelFamily::LegacyWithEffort
-        } else {
-            AnthropicModelFamily::LegacyNoEffort
+    /// Returns whether this model needs Anthropic-specific reasoning handling.
+    pub(crate) fn applies(&self) -> bool {
+        self.model_id.to_lowercase().contains("claude")
+            // Keep the id-fragment fallback for provider aliases that omit
+            // "claude" but still expose canonical family/version fragments.
+            || AnthropicModelFamily::infer_from_model_id(&self.model_id).is_some()
+            || self.catalog_family.is_some()
+    }
+
+    fn family(&self) -> AnthropicReasoningFamily {
+        let family = self
+            .catalog_family
+            .or_else(|| AnthropicModelFamily::infer_from_model_id(&self.model_id));
+
+        match family {
+            Some(AnthropicModelFamily::Opus47) => AnthropicReasoningFamily::AdaptiveOnly,
+            Some(AnthropicModelFamily::Opus46 | AnthropicModelFamily::Sonnet46) => {
+                AnthropicReasoningFamily::AdaptiveFriendly
+            }
+            Some(AnthropicModelFamily::Opus45) => AnthropicReasoningFamily::LegacyWithEffort,
+            // Unknown catalog values are filtered at construction, and id
+            // inference never creates Unknown. Keep this explicit fallback so
+            // any future construction path remains legacy-safe.
+            Some(AnthropicModelFamily::Unknown) => AnthropicReasoningFamily::LegacyNoEffort,
+            None => AnthropicReasoningFamily::LegacyNoEffort,
         }
     }
 }
@@ -74,7 +93,7 @@ impl Transformer for ModelSpecificReasoning {
         let reasoning_on = context.is_reasoning_supported();
 
         match self.family() {
-            AnthropicModelFamily::AdaptiveOnly => {
+            AnthropicReasoningFamily::AdaptiveOnly => {
                 if reasoning_on
                     && let Some(reasoning) = context.reasoning.as_mut()
                     && let Some(max_tokens) = reasoning.max_tokens.take()
@@ -89,18 +108,18 @@ impl Transformer for ModelSpecificReasoning {
                 context.top_p = None;
                 context.top_k = None;
             }
-            AnthropicModelFamily::AdaptiveFriendly => {
+            AnthropicReasoningFamily::AdaptiveFriendly => {
                 if reasoning_on {
                     replace_xhigh_with_max(&mut context.reasoning);
                 }
             }
-            AnthropicModelFamily::LegacyWithEffort => {
+            AnthropicReasoningFamily::LegacyWithEffort => {
                 if reasoning_on {
                     set_default_legacy_budget(&mut context.reasoning);
                     clamp_effort_to_high(&mut context.reasoning);
                 }
             }
-            AnthropicModelFamily::LegacyNoEffort => {
+            AnthropicReasoningFamily::LegacyNoEffort => {
                 if reasoning_on {
                     set_default_legacy_budget(&mut context.reasoning);
                     if let Some(reasoning) = context.reasoning.as_mut()
@@ -122,7 +141,10 @@ impl Transformer for ModelSpecificReasoning {
 
 #[cfg(test)]
 mod tests {
-    use forge_domain::{Context, Effort, ReasoningConfig, Temperature, TopK, TopP, Transformer};
+    use forge_domain::{
+        AnthropicModelFamily, Context, Effort, Model, ModelId, ReasoningConfig, Temperature, TopK,
+        TopP, Transformer,
+    };
     use pretty_assertions::assert_eq;
 
     use super::*;
@@ -134,6 +156,28 @@ mod tests {
             .top_k(TopK::new(40).unwrap())
     }
 
+    fn fixture_model(id: &str, family: AnthropicModelFamily) -> Model {
+        Model {
+            id: ModelId::new(id),
+            name: None,
+            description: None,
+            context_length: None,
+            tools_supported: None,
+            supports_parallel_tool_calls: None,
+            supports_reasoning: None,
+            input_modalities: vec![],
+            family: Some(family),
+        }
+    }
+
+    fn fixture_unknown_model(id: &str) -> Model {
+        fixture_model(id, AnthropicModelFamily::Unknown)
+    }
+
+    fn applies(model_id: &str, models: &[Model]) -> bool {
+        ModelSpecificReasoning::new(model_id, models).applies()
+    }
+
     #[test]
     fn test_opus_4_7_drops_max_tokens_and_sampling_params() {
         let fixture = fixture_context_with_sampling().reasoning(ReasoningConfig {
@@ -143,7 +187,7 @@ mod tests {
             exclude: Some(true),
         });
 
-        let actual = ModelSpecificReasoning::new("claude-opus-4-7").transform(fixture);
+        let actual = ModelSpecificReasoning::new("claude-opus-4-7", &[]).transform(fixture);
 
         let expected = Context::default().reasoning(ReasoningConfig {
             enabled: Some(true),
@@ -156,10 +200,79 @@ mod tests {
     }
 
     #[test]
+    fn test_catalog_family_takes_precedence_for_reskinned_opus_4_7_id() {
+        let fixture = fixture_context_with_sampling().reasoning(ReasoningConfig {
+            enabled: Some(true),
+            max_tokens: Some(8000),
+            effort: Some(Effort::High),
+            exclude: None,
+        });
+        let models = vec![fixture_model(
+            "google-claude-47-opus",
+            AnthropicModelFamily::Opus47,
+        )];
+
+        let actual =
+            ModelSpecificReasoning::new("google-claude-47-opus", &models).transform(fixture);
+
+        let expected = Context::default().reasoning(ReasoningConfig {
+            enabled: Some(true),
+            max_tokens: None,
+            effort: Some(Effort::High),
+            exclude: None,
+        });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_catalog_family_opts_reskinned_id_into_transformer() {
+        let fixture = vec![fixture_model(
+            "opaque-enterprise-token",
+            AnthropicModelFamily::Opus47,
+        )];
+
+        let actual = applies("opaque-enterprise-token", &fixture);
+
+        let expected = true;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_fallback_family_opts_uncataloged_reskinned_id_into_transformer() {
+        let fixture = Vec::default();
+
+        let actual = applies("google-claude-47-opus", &fixture);
+
+        let expected = true;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_unknown_family_does_not_opt_model_into_transformer() {
+        let fixture = vec![fixture_unknown_model("opaque-enterprise-token")];
+
+        let actual = applies("opaque-enterprise-token", &fixture);
+
+        let expected = false;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_non_anthropic_model_does_not_opt_into_transformer() {
+        let fixture = Vec::default();
+
+        let actual = applies("gpt-5.4", &fixture);
+
+        let expected = false;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_opus_4_7_strips_sampling_even_without_reasoning() {
         let fixture = fixture_context_with_sampling();
 
-        let actual = ModelSpecificReasoning::new("claude-opus-4-7").transform(fixture);
+        let actual = ModelSpecificReasoning::new("claude-opus-4-7", &[]).transform(fixture);
 
         let expected = Context::default();
 
@@ -175,7 +288,7 @@ mod tests {
             exclude: None,
         });
 
-        let actual = ModelSpecificReasoning::new("claude-opus-4-6").transform(fixture);
+        let actual = ModelSpecificReasoning::new("claude-opus-4-6", &[]).transform(fixture);
 
         let expected = Context::default().reasoning(ReasoningConfig {
             enabled: Some(true),
@@ -196,7 +309,8 @@ mod tests {
             exclude: None,
         });
 
-        let actual = ModelSpecificReasoning::new("claude-opus-4-5-20251101").transform(fixture);
+        let actual =
+            ModelSpecificReasoning::new("claude-opus-4-5-20251101", &[]).transform(fixture);
 
         let expected = Context::default().reasoning(ReasoningConfig {
             enabled: Some(true),
@@ -217,7 +331,8 @@ mod tests {
             exclude: None,
         });
 
-        let actual = ModelSpecificReasoning::new("claude-3-7-sonnet-20250219").transform(fixture);
+        let actual =
+            ModelSpecificReasoning::new("claude-3-7-sonnet-20250219", &[]).transform(fixture);
 
         let expected = Context::default().reasoning(ReasoningConfig {
             enabled: Some(true),
@@ -241,7 +356,8 @@ mod tests {
             exclude: None,
         });
 
-        let actual = ModelSpecificReasoning::new("us.anthropic.claude-opus-4-7").transform(fixture);
+        let actual =
+            ModelSpecificReasoning::new("us.anthropic.claude-opus-4-7", &[]).transform(fixture);
 
         let expected = Context::default().reasoning(ReasoningConfig {
             enabled: Some(true),
@@ -264,7 +380,7 @@ mod tests {
             exclude: None,
         });
 
-        let actual = ModelSpecificReasoning::new("claude-opus-4-7").transform(fixture);
+        let actual = ModelSpecificReasoning::new("claude-opus-4-7", &[]).transform(fixture);
 
         let expected = Context::default().reasoning(ReasoningConfig {
             enabled: Some(true),
@@ -285,7 +401,8 @@ mod tests {
             exclude: None,
         });
 
-        let actual = ModelSpecificReasoning::new("claude-opus-4-5-20251101").transform(fixture);
+        let actual =
+            ModelSpecificReasoning::new("claude-opus-4-5-20251101", &[]).transform(fixture);
 
         let expected = Context::default().reasoning(ReasoningConfig {
             enabled: Some(true),
@@ -307,7 +424,8 @@ mod tests {
                 exclude: None,
             });
 
-            let actual = ModelSpecificReasoning::new("claude-opus-4-5-20251101").transform(fixture);
+            let actual =
+                ModelSpecificReasoning::new("claude-opus-4-5-20251101", &[]).transform(fixture);
 
             let expected = Context::default().reasoning(ReasoningConfig {
                 enabled: Some(true),
@@ -339,7 +457,7 @@ mod tests {
                 exclude: None,
             });
 
-            let actual = ModelSpecificReasoning::new(model).transform(fixture);
+            let actual = ModelSpecificReasoning::new(model, &[]).transform(fixture);
 
             let expected = Context::default().reasoning(ReasoningConfig {
                 enabled: Some(true),
@@ -363,7 +481,7 @@ mod tests {
             "claude-3-7-sonnet-20250219",
         ] {
             let fixture = Context::default();
-            let actual = ModelSpecificReasoning::new(model).transform(fixture);
+            let actual = ModelSpecificReasoning::new(model, &[]).transform(fixture);
             let expected = Context::default();
             assert_eq!(actual, expected, "model {}", model);
         }
@@ -379,7 +497,7 @@ mod tests {
                 exclude: None,
             });
 
-            let actual = ModelSpecificReasoning::new("claude-opus-4-6").transform(fixture);
+            let actual = ModelSpecificReasoning::new("claude-opus-4-6", &[]).transform(fixture);
 
             let expected = Context::default().reasoning(ReasoningConfig {
                 enabled: Some(true),

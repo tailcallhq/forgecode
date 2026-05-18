@@ -200,6 +200,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         reasoning_supported: bool,
     ) -> anyhow::Result<ChatCompletionMessageFull> {
         let tool_supported = self.is_tool_supported()?;
+        let model_specific_reasoning = ModelSpecificReasoning::new(model_id.as_str(), &self.models);
+        let should_apply_anthropic_transforms = model_specific_reasoning.applies();
         let mut transformers = DefaultTransformation::default()
             .pipe(SortTools::new(self.agent.tool_order()))
             .pipe(NormalizeToolCallArguments::new())
@@ -211,16 +213,10 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             // model-specific and invalid across models). No-op when model is unchanged.
             .pipe(ReasoningNormalizer::new(model_id.clone()))
             // Normalize Anthropic reasoning knobs per model family before provider conversion.
-            .pipe(
-                ModelSpecificReasoning::new(model_id.as_str())
-                    .when(|_| model_id.as_str().to_lowercase().contains("claude")),
-            )
+            .pipe(model_specific_reasoning.when(|_| should_apply_anthropic_transforms))
             // Drop reasoning-only assistant turns; Anthropic and Bedrock both reject
             // messages whose final content block is `thinking`.
-            .pipe(
-                DropReasoningOnlyMessages
-                    .when(|_| model_id.as_str().to_lowercase().contains("claude")),
-            );
+            .pipe(DropReasoningOnlyMessages.when(|_| should_apply_anthropic_transforms));
         let response = self
             .services
             .chat_agent(
@@ -453,5 +449,74 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
 
     fn get_model(&self) -> ModelId {
         self.agent.model.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use forge_domain::{
+        AnthropicModelFamily, Context, ContextMessage, Model, ModelId, ReasoningFull, Role,
+        TextMessage, Transformer,
+    };
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    fn fixture_model(id: &str, family: AnthropicModelFamily) -> Model {
+        Model {
+            id: ModelId::new(id),
+            name: None,
+            description: None,
+            context_length: None,
+            tools_supported: None,
+            supports_parallel_tool_calls: None,
+            supports_reasoning: None,
+            input_modalities: vec![],
+            family: Some(family),
+        }
+    }
+
+    fn fixture_reasoning_only_context() -> Context {
+        Context::default().add_message(ContextMessage::Text(
+            TextMessage::new(Role::Assistant, "").reasoning_details(vec![ReasoningFull {
+                text: Some("thinking".to_string()),
+                signature: Some("sig_abc".to_string()),
+                ..Default::default()
+            }]),
+        ))
+    }
+
+    #[test]
+    fn test_drop_reasoning_only_messages_uses_catalog_family_gate() {
+        let model_id = ModelId::new("opaque-enterprise-token");
+        let models = vec![fixture_model(
+            model_id.as_str(),
+            AnthropicModelFamily::Opus47,
+        )];
+        let model_specific_reasoning = ModelSpecificReasoning::new(model_id.as_str(), &models);
+        let should_apply_anthropic_transforms = model_specific_reasoning.applies();
+
+        let actual = DropReasoningOnlyMessages
+            .when(|_| should_apply_anthropic_transforms)
+            .transform(fixture_reasoning_only_context());
+
+        let expected = Context::default();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_drop_reasoning_only_messages_skips_non_anthropic_model() {
+        let model_id = ModelId::new("gpt-5.4");
+        let models = Vec::default();
+        let model_specific_reasoning = ModelSpecificReasoning::new(model_id.as_str(), &models);
+        let should_apply_anthropic_transforms = model_specific_reasoning.applies();
+        let fixture = fixture_reasoning_only_context();
+
+        let actual = DropReasoningOnlyMessages
+            .when(|_| should_apply_anthropic_transforms)
+            .transform(fixture.clone());
+
+        let expected = fixture;
+        assert_eq!(actual, expected);
     }
 }

@@ -40,6 +40,7 @@ impl From<Model> for forge_domain::Model {
             supports_parallel_tool_calls: Some(true),
             supports_reasoning: Some(true), // Gemini 2.0+ supports thinking
             input_modalities: vec![],       // Google supports text, images, audio, video
+            family: None,
         }
     }
 }

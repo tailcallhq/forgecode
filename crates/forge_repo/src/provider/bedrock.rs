@@ -1430,6 +1430,7 @@ mod tests {
                 supports_parallel_tool_calls: None,
                 supports_reasoning: None,
                 input_modalities: vec![InputModality::Text],
+                family: None,
             },
             Model {
                 id: ModelId::from("claude-3-sonnet".to_string()),
@@ -1440,6 +1441,7 @@ mod tests {
                 supports_parallel_tool_calls: None,
                 supports_reasoning: None,
                 input_modalities: vec![InputModality::Text],
+                family: None,
             },
         ];
         fixture_provider.models = Some(ModelSource::Hardcoded(fixture_models.clone()));

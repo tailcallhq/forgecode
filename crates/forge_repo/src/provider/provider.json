@@ -642,7 +642,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-7"
       },
       {
         "id": "claude-sonnet-4-6",
@@ -652,7 +653,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "sonnet-4-6"
       },
       {
         "id": "claude-opus-4-6",
@@ -662,7 +664,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-6"
       },
       {
         "id": "claude-opus-4-5-20251101",
@@ -672,7 +675,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-5"
       },
       {
         "id": "claude-haiku-4-5-20251001",
@@ -779,6 +783,90 @@
     "response_type": "Anthropic",
     "url": "{{ANTHROPIC_URL}}/messages",
     "models": "{{ANTHROPIC_URL}}/models",
+    "auth_methods": ["api_key"]
+  },
+  {
+    "id": "asksage",
+    "api_key_vars": "ASKSAGE_API_KEY",
+    "url_param_vars": [],
+    "response_type": "Anthropic",
+    "url": "https://api.asksage.ai/server/anthropic/v1/messages",
+    "models": [
+      {
+        "id": "google-claude-47-opus",
+        "name": "Claude Opus 4.7",
+        "description": "AskSage Claude Opus 4.7 model routed through Google Vertex AI",
+        "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-7"
+      },
+      {
+        "id": "claude-opus-4-7-default",
+        "name": "Claude Opus 4.7",
+        "description": "AskSage Claude Opus 4.7 default model",
+        "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-7"
+      },
+      {
+        "id": "claude-opus-4-6-default",
+        "name": "Claude Opus 4.6",
+        "description": "AskSage Claude Opus 4.6 default model",
+        "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-6"
+      },
+      {
+        "id": "claude-sonnet-4-6-default",
+        "name": "Claude Sonnet 4.6",
+        "description": "AskSage Claude Sonnet 4.6 default model",
+        "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"],
+        "family": "sonnet-4-6"
+      },
+      {
+        "id": "claude-opus-4-5-20251101",
+        "name": "Claude Opus 4.5",
+        "description": "AskSage Claude Opus 4.5 model",
+        "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-5"
+      },
+      {
+        "id": "claude-sonnet-4-5-20250929",
+        "name": "Claude Sonnet 4.5",
+        "description": "AskSage Claude Sonnet 4.5 model",
+        "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "claude-haiku-4-5-20251001",
+        "name": "Claude Haiku 4.5",
+        "description": "AskSage Claude Haiku 4.5 model",
+        "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "input_modalities": ["text", "image"]
+      }
+    ],
     "auth_methods": ["api_key"]
   },
   {
@@ -1351,7 +1439,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "sonnet-4-6"
       },
       {
         "id": "nvidia.nemotron-super-3-120b",
@@ -1539,7 +1628,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-5"
       },
       {
         "id": "nvidia.nemotron-nano-3-30b",
@@ -1569,7 +1659,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "sonnet-4-6"
       },
       {
         "id": "qwen.qwen3-235b-a22b-2507-v1:0",
@@ -1675,7 +1766,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-6"
       },
       {
         "id": "anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -1704,7 +1796,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-6"
       },
       {
         "id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -1820,7 +1913,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-6"
       },
       {
         "id": "anthropic.claude-3-7-sonnet-20250219-v1:0",
@@ -1885,7 +1979,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-6"
       },
       {
         "id": "anthropic.claude-3-5-haiku-20241022-v1:0",
@@ -1997,7 +2092,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-5"
       },
       {
         "id": "meta.llama4-scout-17b-instruct-v1:0",
@@ -2025,7 +2121,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-5"
       },
       {
         "id": "amazon.nova-premier-v1:0",
@@ -2045,7 +2142,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "sonnet-4-6"
       },
       {
         "id": "anthropic.claude-opus-4-20250514-v1:0",
@@ -2102,7 +2200,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-5"
       },
       {
         "id": "us.anthropic.claude-sonnet-4-6",
@@ -2112,7 +2211,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "sonnet-4-6"
       },
       {
         "id": "global.anthropic.claude-sonnet-4-20250514-v1:0",
@@ -2132,7 +2232,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-7"
       },
       {
         "id": "global.anthropic.claude-opus-4-7",
@@ -2142,7 +2243,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-7"
       },
       {
         "id": "eu.anthropic.claude-opus-4-7",
@@ -2152,7 +2254,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-7"
       }
     ],
     "auth_methods": ["api_key", "aws_profile"]
@@ -2172,7 +2275,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "sonnet-4-6"
       },
       {
         "id": "claude-opus-4-7",
@@ -2182,7 +2286,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-7"
       },
       {
         "id": "claude-opus-4-6",
@@ -2192,7 +2297,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-6"
       },
       {
         "id": "claude-opus-4-5@20251101",
@@ -2202,7 +2308,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-5"
       },
       {
         "id": "claude-sonnet-4-5@20250929",
@@ -2634,7 +2741,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-6"
       },
       {
         "id": "claude-opus-4-5",
@@ -2644,7 +2752,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "opus-4-5"
       },
       {
         "id": "claude-opus-4-1",
@@ -2664,7 +2773,8 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image"],
+        "family": "sonnet-4-6"
       },
       {
         "id": "claude-sonnet-4-5",

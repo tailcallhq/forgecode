@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use forge_app::domain::{
-    ChatCompletionMessage, Context, Model, ModelId, ResultStream, Transformer,
+    AnthropicModelFamily, ChatCompletionMessage, Context, Model, ModelId, ModelSource,
+    ResultStream, Transformer,
 };
 use forge_app::dto::anthropic::{
     AuthSystemMessage, CapitalizeToolNames, DropInvalidToolUse, EnforceStrictObjectSchema,
@@ -80,7 +81,7 @@ impl<H: HttpInfra> Anthropic<H> {
             // Opus 4.6, and Sonnet 4.6 — the beta header is redundant there per
             // the Opus 4.7 migration guide. Keep it for older models so manual
             // `extended-thinking` requests still get interleaved turns.
-            if interleaved_thinking_required(model) {
+            if self.interleaved_thinking_required(model) {
                 betas.push("interleaved-thinking-2025-05-14");
             }
             betas.push("structured-outputs-2025-11-13");
@@ -91,14 +92,46 @@ impl<H: HttpInfra> Anthropic<H> {
     }
 }
 
+fn infer_catalog_family(
+    provider: &Provider<Url>,
+    model_id: &ModelId,
+) -> Option<AnthropicModelFamily> {
+    // Header generation runs inside the provider client, so it must consult the
+    // concrete provider model list. The app transformer performs the same
+    // catalog lookup earlier against the orchestrator's selected model list.
+    // URL-backed catalogs, including Anthropic's live /models endpoint, do not
+    // have hardcoded family metadata here and rely on the id fallback below.
+    let Some(ModelSource::Hardcoded(models)) = &provider.models else {
+        return None;
+    };
+
+    models
+        .iter()
+        .find(|model| model.id == *model_id)
+        .and_then(|model| model.family)
+        .filter(|family| family.is_known())
+}
+
 /// Returns false when the model auto-enables interleaved thinking through
 /// adaptive thinking (Opus 4.7, Opus 4.6, Sonnet 4.6). When the model is
 /// unknown (e.g., listing endpoints), the flag is included because it is
 /// harmless on non-chat endpoints and necessary on older chat models.
-fn interleaved_thinking_required(model: Option<&ModelId>) -> bool {
+fn interleaved_thinking_required_with_family(
+    model: Option<&ModelId>,
+    family: Option<AnthropicModelFamily>,
+) -> bool {
     let Some(model) = model else { return true };
-    let id = model.as_str().to_lowercase();
-    !(id.contains("opus-4-7") || id.contains("opus-4-6") || id.contains("sonnet-4-6"))
+    let family = family.or_else(|| AnthropicModelFamily::infer_from_model_id(model.as_str()));
+    family
+        .map(AnthropicModelFamily::requires_interleaved_thinking_header)
+        .unwrap_or(true)
+}
+
+impl<T> Anthropic<T> {
+    fn interleaved_thinking_required(&self, model: Option<&ModelId>) -> bool {
+        let family = model.and_then(|model| infer_catalog_family(&self.provider, model));
+        interleaved_thinking_required_with_family(model, family)
+    }
 }
 
 impl<T: HttpInfra> Anthropic<T> {
@@ -474,6 +507,51 @@ mod tests {
             "2023-06-01".to_string(),
             false,
         ))
+    }
+
+    fn create_anthropic_with_hardcoded_models(
+        models: Vec<Model>,
+    ) -> anyhow::Result<Anthropic<MockHttpClient>> {
+        let chat_url = Url::parse("https://api.anthropic.com/v1/messages")?;
+
+        let provider = Provider {
+            id: forge_app::domain::ProviderId::ANTHROPIC,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(forge_app::domain::ProviderResponse::Anthropic),
+            url: chat_url,
+            credential: Some(forge_domain::AuthCredential {
+                id: forge_app::domain::ProviderId::ANTHROPIC,
+                auth_details: forge_domain::AuthDetails::ApiKey(forge_domain::ApiKey::from(
+                    "sk-test-key".to_string(),
+                )),
+                url_params: std::collections::HashMap::new(),
+            }),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: Some(ModelSource::Hardcoded(models)),
+            custom_headers: None,
+        };
+
+        Ok(Anthropic::new(
+            Arc::new(MockHttpClient::new()),
+            provider,
+            "2023-06-01".to_string(),
+            false,
+        ))
+    }
+
+    fn create_model(id: &str, family: AnthropicModelFamily) -> Model {
+        Model {
+            id: ModelId::new(id),
+            name: None,
+            description: None,
+            context_length: None,
+            tools_supported: None,
+            supports_parallel_tool_calls: None,
+            supports_reasoning: None,
+            input_modalities: vec![],
+            family: Some(family),
+        }
     }
 
     fn create_mock_models_response() -> serde_json::Value {
@@ -855,6 +933,31 @@ mod tests {
                 model_id
             );
         }
+    }
+
+    #[test]
+    fn test_get_headers_uses_catalog_family_for_reskinned_opus_4_7_id() -> anyhow::Result<()> {
+        let fixture = create_anthropic_with_hardcoded_models(vec![create_model(
+            "google-claude-47-opus",
+            AnthropicModelFamily::Opus47,
+        )])?;
+        let model = ModelId::new("google-claude-47-opus");
+
+        let actual = fixture.get_headers(Some(&model));
+
+        let (_, beta_value) = actual
+            .iter()
+            .find(|(key, _)| key == "anthropic-beta")
+            .expect("anthropic-beta header should be present");
+        assert!(
+            !beta_value.contains("interleaved-thinking-2025-05-14"),
+            "Beta header should NOT include interleaved-thinking flag for catalog-backed Opus 4.7 model"
+        );
+        assert!(
+            beta_value.contains("structured-outputs-2025-11-13"),
+            "structured-outputs flag must still be present"
+        );
+        Ok(())
     }
 
     #[test]
