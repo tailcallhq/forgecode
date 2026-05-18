@@ -1292,7 +1292,7 @@
   },
   {
     "id": "bedrock",
-    "url_param_vars": ["AWS_REGION"],
+    "url_param_vars": ["AWS_REGION", {"name": "AWS_USE_FIPS", "options": ["true", "false"], "optional": true}],
     "response_type": "Bedrock",
     "url": "https://bedrock-runtime.{{AWS_REGION}}.amazonaws.com",
     "models": [
