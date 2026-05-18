@@ -11,7 +11,7 @@ use convert_case::{Case, Casing};
 use forge_api::{
     API, AgentId, AnyProvider, ApiKeyRequest, AuthContextRequest, AuthContextResponse, ChatRequest,
     ChatResponse, CodeRequest, ConfigOperation, Conversation, ConversationId, DeviceCodeRequest,
-    Event, InterruptionReason, ModelId, Provider, ProviderId, TextMessage, UserPrompt,
+    Event, InterruptionReason, ModelId, Provider, ProviderId, Scope, TextMessage, UserPrompt,
 };
 use forge_app::utils::{format_display_path, truncate_key};
 use forge_app::{CommitResult, ToolResolver};
@@ -223,6 +223,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.display_banner()?;
         self.trace_user();
         self.hydrate_caches();
+        self.request_local_mcp_permissions().await?;
         Ok(())
     }
 
@@ -367,6 +368,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.trace_user();
         self.hydrate_caches();
         self.init_conversation().await?;
+        self.request_local_mcp_permissions().await?;
 
         // Check for dispatch flag first
         if let Some(dispatch_json) = self.cli.event.clone() {
@@ -443,12 +445,23 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
     }
 
+    /// Reads the local-scope MCP config and asks the user for permission for
+    /// each server that does not yet have a recorded decision. Call this
+    /// synchronously before the REPL takes over stdin so prompts don't race
+    /// with user input.
+    async fn request_local_mcp_permissions(&self) -> Result<()> {
+        let local_cfg = self.api.read_mcp_config(Some(&Scope::Local)).await?;
+        self.api.request_mcp_permissions(local_cfg).await
+    }
+
     // Improve startup time by hydrating caches
     fn hydrate_caches(&self) {
         let api = self.api.clone();
         tokio::spawn(async move { api.get_models().await });
         let api = self.api.clone();
-        tokio::spawn(async move { api.get_tools().await });
+        tokio::spawn(async move {
+            let _ = api.get_tools().await;
+        });
         let api = self.api.clone();
         tokio::spawn(async move { api.get_agent_infos().await });
         let api = self.api.clone();
@@ -568,6 +581,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                     // Write back to the specific scope only
                     self.api.write_mcp_config(&scope, &scope_config).await?;
+
+                    // Importing is an explicit opt-in — persist Allow decisions so
+                    // the user is not prompted on first use.
+                    self.api.allow_mcp_servers(&added_servers).await?;
 
                     // Log each added server after successful write
                     for server_name in added_servers {
@@ -3322,7 +3339,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .collect();
 
         match ForgeWidget::select("Select authentication method:", method_names.clone())
-            .with_help_message("Use arrow keys to navigate and Enter to select")
+            .with_help_message(vec!["Use arrow keys to navigate and Enter to select"])
             .prompt()?
         {
             Some(selected_name) => {

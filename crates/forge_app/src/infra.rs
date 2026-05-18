@@ -164,6 +164,44 @@ pub trait CommandInfra: Send + Sync {
     ) -> anyhow::Result<std::process::ExitStatus>;
 }
 
+/// A prompt shown to the user in a selection widget.
+///
+/// `message` is the question displayed on the prompt line.
+/// `header` contains zero or more lines shown as non-selectable context rows
+/// above the list of options.
+#[derive(Debug, Clone, Default)]
+pub struct SelectPrompt {
+    /// The question shown on the prompt line.
+    pub message: String,
+    /// Optional context lines rendered above the selectable options.
+    pub header: Vec<String>,
+}
+
+impl SelectPrompt {
+    /// Creates a prompt with a message and no header lines.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self { message: message.into(), header: Vec::new() }
+    }
+
+    /// Sets the header lines of the prompt, replacing any previously set lines.
+    pub fn with_header(mut self, lines: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.header = lines.into_iter().map(|l| l.into()).collect();
+        self
+    }
+}
+
+impl From<&str> for SelectPrompt {
+    fn from(s: &str) -> Self {
+        Self::new(s)
+    }
+}
+
+impl From<String> for SelectPrompt {
+    fn from(s: String) -> Self {
+        Self::new(s)
+    }
+}
+
 #[async_trait::async_trait]
 pub trait UserInfra: Send + Sync {
     /// Prompts the user with question
@@ -174,19 +212,22 @@ pub trait UserInfra: Send + Sync {
     /// Returns None if the user interrupts the selection
     async fn select_one<T: Clone + std::fmt::Display + Send + 'static>(
         &self,
-        message: &str,
+        prompt: impl Into<SelectPrompt> + Send,
         options: Vec<T>,
     ) -> anyhow::Result<Option<T>>;
 
     /// Prompts the user to select a single option from an enum that implements
     /// IntoEnumIterator Returns None if the user interrupts the selection
-    async fn select_one_enum<T>(&self, message: &str) -> anyhow::Result<Option<T>>
+    async fn select_one_enum<T>(
+        &self,
+        prompt: impl Into<SelectPrompt> + Send,
+    ) -> anyhow::Result<Option<T>>
     where
         T: Clone + std::fmt::Display + Send + 'static + strum::IntoEnumIterator + std::str::FromStr,
         <T as std::str::FromStr>::Err: std::fmt::Debug,
     {
         let options: Vec<T> = T::iter().collect();
-        let selected = self.select_one(message, options).await?;
+        let selected = self.select_one(prompt, options).await?;
         Ok(selected)
     }
 

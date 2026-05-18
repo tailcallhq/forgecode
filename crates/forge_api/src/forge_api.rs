@@ -7,7 +7,7 @@ use forge_app::dto::ToolsOverview;
 use forge_app::{
     AgentProviderResolver, AgentRegistry, AppConfigService, AuthService, CommandInfra,
     CommandLoaderService, ConversationService, DataGenerationApp, EnvironmentInfra,
-    FileDiscoveryService, ForgeApp, GitApp, GrpcInfra, McpConfigManager, McpService,
+    FileDiscoveryService, ForgeApp, GitApp, GrpcInfra, McpApp, McpConfigManager, McpService,
     ProviderAuthService, ProviderService, Services, User, UserUsage, Walker, WorkspaceService,
 };
 use forge_config::ForgeConfig;
@@ -38,6 +38,16 @@ impl<A, F> ForgeAPI<A, F> {
         F: EnvironmentInfra<Config = forge_config::ForgeConfig>,
     {
         ForgeApp::new(self.services.clone())
+    }
+
+    /// Creates an McpApp instance for MCP permission and connection
+    /// orchestration.
+    fn mcp_app(&self) -> McpApp<A>
+    where
+        A: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>,
+        F: EnvironmentInfra<Config = forge_config::ForgeConfig>,
+    {
+        McpApp::new(self.services.clone())
     }
 }
 
@@ -225,6 +235,14 @@ impl<
             .write_mcp_config(config, scope)
             .await
             .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    async fn allow_mcp_servers(&self, names: &[ServerName]) -> Result<()> {
+        self.mcp_app().allow_mcp_servers(names).await
+    }
+
+    async fn request_mcp_permissions(&self, cfg: McpConfig) -> Result<()> {
+        self.mcp_app().request_mcp_permissions(cfg).await
     }
 
     async fn execute_shell_command_raw(

@@ -88,10 +88,16 @@ impl<'a> PolicyEngine<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::{ExecuteRule, Fetch, Permission, Policy, PolicyConfig, ReadRule, Rule, WriteRule};
+    use crate::mcp::McpServerConfig;
+    use crate::{
+        ExecuteRule, Fetch, McpFilter, McpRule, Permission, Policy, PolicyConfig, ReadRule, Rule,
+        WriteRule,
+    };
 
     fn fixture_workflow_with_read_policy() -> PolicyConfig {
         PolicyConfig::new().add_policy(Policy::Simple {
@@ -200,5 +206,67 @@ mod tests {
         let actual = fixture.can_perform(&operation);
 
         assert_eq!(actual, Permission::Allow);
+    }
+
+    #[test]
+    fn test_policy_engine_mcp_unmatched_command_defaults_to_confirm() {
+        // Rule targets "node" but operation uses "npx" — should not match.
+        let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
+            permission: Permission::Allow,
+            rule: Rule::Mcp(McpRule {
+                mcp: McpFilter { command: Some("node".to_string()), ..McpFilter::default() },
+            }),
+        });
+        let fixture = PolicyEngine::new(&fixture_workflow);
+        let operation = PermissionOperation::Mcp {
+            config: McpServerConfig::new_stdio("npx", vec![], None),
+            cwd: PathBuf::from("/home/user/project"),
+            message: "Connect to MCP server: github".to_string(),
+        };
+
+        let actual = fixture.can_perform(&operation);
+
+        assert_eq!(actual, Permission::Confirm);
+    }
+
+    #[test]
+    fn test_policy_engine_mcp_matching_command_glob_allows() {
+        let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
+            permission: Permission::Allow,
+            rule: Rule::Mcp(McpRule {
+                mcp: McpFilter { command: Some("np*".to_string()), ..McpFilter::default() },
+            }),
+        });
+        let fixture = PolicyEngine::new(&fixture_workflow);
+        let operation = PermissionOperation::Mcp {
+            config: McpServerConfig::new_stdio("npx", vec![], None),
+            cwd: PathBuf::from("/home/user/project"),
+            message: "Connect to MCP server: github".to_string(),
+        };
+
+        let actual = fixture.can_perform(&operation);
+
+        assert_eq!(actual, Permission::Allow);
+    }
+
+    #[test]
+    fn test_policy_engine_mcp_url_rule_does_not_match_stdio() {
+        // A url-only rule must not match a stdio server.
+        let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
+            permission: Permission::Allow,
+            rule: Rule::Mcp(McpRule {
+                mcp: McpFilter { url: Some("*".to_string()), ..McpFilter::default() },
+            }),
+        });
+        let fixture = PolicyEngine::new(&fixture_workflow);
+        let operation = PermissionOperation::Mcp {
+            config: McpServerConfig::new_stdio("npx", vec![], None),
+            cwd: PathBuf::from("/home/user/project"),
+            message: "Connect to MCP server: github".to_string(),
+        };
+
+        let actual = fixture.can_perform(&operation);
+
+        assert_eq!(actual, Permission::Confirm);
     }
 }

@@ -4,12 +4,12 @@ use std::sync::{Arc, LazyLock};
 use anyhow::Context;
 use bytes::Bytes;
 use forge_app::domain::{
-    ExecuteRule, Fetch, Permission, PermissionOperation, Policy, PolicyConfig, PolicyEngine,
-    ReadRule, Rule, WriteRule,
+    ExecuteRule, Fetch, McpFilter, McpRule, Permission, PermissionOperation, Policy, PolicyConfig,
+    PolicyEngine, ReadRule, Rule, WriteRule,
 };
 use forge_app::{
     DirectoryReaderInfra, EnvironmentInfra, FileInfoInfra, FileReaderInfra, FileWriterInfra,
-    PolicyDecision, PolicyService, UserInfra,
+    PolicyDecision, PolicyService, SelectPrompt, UserInfra,
 };
 use strum_macros::{Display, EnumIter};
 
@@ -27,10 +27,24 @@ pub enum PolicyPermission {
     AcceptAndRemember,
 }
 
+/// Two-choice prompt for operations where both Accept and Reject are
+/// persisted so the user is never asked again. Use this instead of
+/// [`PolicyPermission`] when there is no meaningful "one-off allow" path.
+#[derive(Debug, Clone, PartialEq, Eq, Display, EnumIter, strum_macros::EnumString)]
+enum ConfirmPermission {
+    /// Allow the operation and remember this choice
+    #[strum(to_string = "Accept")]
+    Accept,
+    /// Deny the operation and remember this choice
+    #[strum(to_string = "Reject")]
+    Reject,
+}
+
 #[derive(Clone)]
 pub struct ForgePolicyService<I> {
     infra: Arc<I>,
 }
+
 /// Default policies loaded once at startup from the embedded YAML file
 static DEFAULT_POLICIES: LazyLock<PolicyConfig> = LazyLock::new(|| {
     let yaml_content = include_str!("./permissions.default.yaml");
@@ -156,6 +170,23 @@ where
         + DirectoryReaderInfra
         + UserInfra,
 {
+    /// Unconditionally persist an allow policy for the given operation.
+    async fn allow_operation(&self, operation: &PermissionOperation) -> anyhow::Result<()> {
+        self.add_policy_for_operation(operation).await.map(|_| ())
+    }
+
+    /// Check whether an operation is explicitly permitted by the current
+    /// policy without prompting the user. `Confirm` is treated as not
+    /// permitted so callers can handle it themselves (e.g. show a warning).
+    async fn is_operation_permitted(
+        &self,
+        operation: &PermissionOperation,
+    ) -> anyhow::Result<bool> {
+        let (policies, _) = self.get_or_create_policies().await?;
+        let engine = PolicyEngine::new(&policies);
+        Ok(matches!(engine.can_perform(operation), Permission::Allow))
+    }
+
     /// Check if an operation is allowed based on policies and handle user
     /// confirmation
     async fn check_operation_permission(
@@ -172,24 +203,51 @@ where
             Permission::Allow => Ok(PolicyDecision { allowed: true, path }),
             Permission::Confirm => {
                 // Request user confirmation using UserInfra
-                let confirmation_msg = match operation {
+                let prompt = match operation {
                     PermissionOperation::Read { message, .. } => {
-                        format!("{message}. How would you like to proceed?")
+                        SelectPrompt::new(format!("{message}. How would you like to proceed?"))
                     }
                     PermissionOperation::Write { message, .. } => {
-                        format!("{message}. How would you like to proceed?")
+                        SelectPrompt::new(format!("{message}. How would you like to proceed?"))
                     }
                     PermissionOperation::Execute { .. } => {
-                        "How would you like to proceed?".to_string()
+                        SelectPrompt::new("How would you like to proceed?")
                     }
                     PermissionOperation::Fetch { message, .. } => {
-                        format!("{message}. How would you like to proceed?")
+                        SelectPrompt::new(format!("{message}. How would you like to proceed?"))
+                    }
+                    PermissionOperation::Mcp { message, config, cwd } => {
+                        let header = mcp_config_header(config);
+                        let prompt = SelectPrompt::new(message.clone()).with_header(header);
+                        return match self
+                            .infra
+                            .select_one_enum::<ConfirmPermission>(prompt)
+                            .await?
+                        {
+                            Some(ConfirmPermission::Accept) => {
+                                let update_path = self.add_policy_for_operation(operation).await?;
+                                Ok(PolicyDecision { allowed: true, path: update_path.or(path) })
+                            }
+                            Some(ConfirmPermission::Reject) | None => {
+                                let deny_policy = Policy::Simple {
+                                    permission: Permission::Deny,
+                                    rule: Rule::Mcp(McpRule {
+                                        mcp: McpFilter::from_config(config, cwd),
+                                    }),
+                                };
+                                self.modify_policy(deny_policy).await?;
+                                Ok(PolicyDecision {
+                                    allowed: false,
+                                    path: Some(self.permissions_path()),
+                                })
+                            }
+                        };
                     }
                 };
 
                 match self
                     .infra
-                    .select_one_enum::<PolicyPermission>(&confirmation_msg)
+                    .select_one_enum::<PolicyPermission>(prompt)
                     .await?
                 {
                     Some(PolicyPermission::Accept) => Ok(PolicyDecision { allowed: true, path }),
@@ -203,6 +261,21 @@ where
                 }
             }
         }
+    }
+}
+
+/// Builds the header lines describing an MCP server's configuration.
+fn mcp_config_header(config: &forge_app::domain::McpServerConfig) -> Vec<String> {
+    use forge_app::domain::McpServerConfig;
+    match config {
+        McpServerConfig::Stdio(s) => {
+            let mut lines = vec![format!("command: {}", s.command)];
+            if !s.args.is_empty() {
+                lines.push(format!("args: {}", s.args.join(" ")));
+            }
+            lines
+        }
+        McpServerConfig::Http(h) => vec![format!("url: {}", h.url)],
     }
 }
 
@@ -262,6 +335,10 @@ fn create_policy_for_operation(
                 }),
             }
         }
+        PermissionOperation::Mcp { config, cwd, .. } => Some(Policy::Simple {
+            permission: Permission::Allow,
+            rule: Rule::Mcp(McpRule { mcp: McpFilter::from_config(config, cwd) }),
+        }),
     }
 }
 
@@ -439,6 +516,59 @@ mod tests {
         let expected = Some(Policy::Simple {
             permission: Permission::Allow,
             rule: Rule::Execute(ExecuteRule { command: "ls*".to_string(), dir: working_directory }),
+        });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_create_policy_for_mcp_stdio_operation() {
+        let operation = PermissionOperation::Mcp {
+            config: forge_app::domain::McpServerConfig::new_stdio(
+                "npx",
+                vec!["-y".to_string(), "@github/mcp".to_string()],
+                None,
+            ),
+            cwd: PathBuf::from("/home/user/project"),
+            message: "Connect to MCP server: github".to_string(),
+        };
+
+        let actual = create_policy_for_operation(&operation, None);
+
+        let expected = Some(Policy::Simple {
+            permission: Permission::Allow,
+            rule: Rule::Mcp(McpRule {
+                mcp: McpFilter {
+                    command: Some("npx".to_string()),
+                    args: Some(vec!["-y".to_string(), "@github/mcp".to_string()]),
+                    url: None,
+                    dir: Some("/home/user/project".to_string()),
+                },
+            }),
+        });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_create_policy_for_mcp_http_operation() {
+        let operation = PermissionOperation::Mcp {
+            config: forge_app::domain::McpServerConfig::new_http("https://mcp.example.com/sse"),
+            cwd: PathBuf::from("/home/user/project"),
+            message: "Connect to MCP server: example".to_string(),
+        };
+
+        let actual = create_policy_for_operation(&operation, None);
+
+        let expected = Some(Policy::Simple {
+            permission: Permission::Allow,
+            rule: Rule::Mcp(McpRule {
+                mcp: McpFilter {
+                    url: Some("https://mcp.example.com/sse".to_string()),
+                    dir: Some("/home/user/project".to_string()),
+                    ..McpFilter::default()
+                },
+            }),
         });
 
         assert_eq!(actual, expected);

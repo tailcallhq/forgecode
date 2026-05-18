@@ -418,18 +418,21 @@ where
 
     async fn select_one<T: Clone + std::fmt::Display + Send + 'static>(
         &self,
-        message: &str,
+        prompt: impl Into<forge_app::SelectPrompt> + Send,
         options: Vec<T>,
     ) -> anyhow::Result<Option<T>> {
-        self.infra.select_one(message, options).await
+        self.infra.select_one(prompt, options).await
     }
 
-    async fn select_one_enum<T>(&self, message: &str) -> anyhow::Result<Option<T>>
+    async fn select_one_enum<T>(
+        &self,
+        prompt: impl Into<forge_app::SelectPrompt> + Send,
+    ) -> anyhow::Result<Option<T>>
     where
         T: Clone + std::fmt::Display + Send + 'static + strum::IntoEnumIterator + std::str::FromStr,
         <T as std::str::FromStr>::Err: std::fmt::Debug,
     {
-        self.infra.select_one_enum(message).await
+        self.infra.select_one_enum(prompt).await
     }
 
     async fn select_many<T: std::fmt::Display + Clone + Send + 'static>(

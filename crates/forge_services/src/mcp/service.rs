@@ -6,9 +6,7 @@ use forge_app::domain::{
     McpConfig, McpServerConfig, McpServers, ServerName, ToolCallFull, ToolDefinition, ToolName,
     ToolOutput,
 };
-use forge_app::{
-    EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService,
-};
+use forge_app::{EnvironmentInfra, KVStore, McpClientInfra, McpServerInfra, McpService};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::mcp::tool::McpExecutor;
@@ -23,12 +21,11 @@ fn generate_mcp_tool_name(server_name: &ServerName, tool_name: &ToolName) -> Too
 }
 
 #[derive(Clone)]
-pub struct ForgeMcpService<M, I, C> {
+pub struct ForgeMcpService<I, C> {
     tools: Arc<RwLock<HashMap<ToolName, ToolHolder<McpExecutor<C>>>>>,
     failed_servers: Arc<RwLock<HashMap<ServerName, String>>>,
     previous_config_hash: Arc<Mutex<u64>>,
     init_lock: Arc<Mutex<()>>,
-    manager: Arc<M>,
     infra: Arc<I>,
 }
 
@@ -39,20 +36,18 @@ struct ToolHolder<T> {
     server_name: String,
 }
 
-impl<M, I, C> ForgeMcpService<M, I, C>
+impl<I, C> ForgeMcpService<I, C>
 where
-    M: McpConfigManager,
-    I: McpServerInfra + KVStore + EnvironmentInfra,
+    I: McpServerInfra + KVStore + EnvironmentInfra + 'static,
     C: McpClientInfra + Clone,
     C: From<<I as McpServerInfra>::Client>,
 {
-    pub fn new(manager: Arc<M>, infra: Arc<I>) -> Self {
+    pub fn new(infra: Arc<I>) -> Self {
         Self {
             tools: Default::default(),
             failed_servers: Default::default(),
             previous_config_hash: Arc::new(Mutex::new(Default::default())),
             init_lock: Arc::new(Mutex::new(())),
-            manager,
             infra,
         }
     }
@@ -100,12 +95,10 @@ where
         Ok(())
     }
 
-    async fn init_mcp(&self) -> anyhow::Result<()> {
-        let mcp = self.manager.read_mcp_config(None).await?;
-
+    async fn init_mcp(&self, cfg: McpConfig) -> anyhow::Result<()> {
         // Fast path: if config is unchanged, skip reinitialization without acquiring
         // the lock
-        if !self.is_config_modified(&mcp).await {
+        if !self.is_config_modified(&cfg).await {
             return Ok(());
         }
 
@@ -114,33 +107,30 @@ where
         let _guard = self.init_lock.lock().await;
 
         // Double-check under the lock: a concurrent caller may have already updated
-        if !self.is_config_modified(&mcp).await {
+        if !self.is_config_modified(&cfg).await {
             return Ok(());
         }
 
-        self.update_mcp(mcp).await
+        self.update_mcp(cfg).await
     }
 
-    async fn update_mcp(&self, mcp: McpConfig) -> Result<(), anyhow::Error> {
-        // Compute the hash early before mcp is consumed, but write it only after
-        // all connections are established so waiters on init_lock see a consistent
-        // state.
+    async fn update_mcp(&self, mcp: McpConfig) -> anyhow::Result<()> {
+        // Compute the hash early before `mcp` is consumed, but write it only
+        // after all connections are established so waiters on init_lock see a
+        // consistent state.
         let new_hash = mcp.cache_key();
         self.clear_tools().await;
-
-        // Clear failed servers map before attempting new connections
         self.failed_servers.write().await.clear();
 
         let connections: Vec<_> = mcp
             .mcp_servers
             .into_iter()
-            .filter(|v| !v.1.is_disabled())
+            .filter(|(_, server)| !server.is_disabled())
             .map(|(name, server)| async move {
                 let conn = self
                     .connect(&name, server)
                     .await
                     .context(format!("Failed to initiate MCP server: {name}"));
-
                 (name, conn)
             })
             .collect();
@@ -148,17 +138,11 @@ where
         let results = futures::future::join_all(connections).await;
 
         for (server_name, result) in results {
-            match result {
-                Ok(_) => {}
-                Err(error) => {
-                    // Format error with full chain for detailed diagnostics
-                    // Using Debug formatting with alternate flag shows the full error chain
-                    let error_string = format!("{error:?}");
-                    self.failed_servers
-                        .write()
-                        .await
-                        .insert(server_name.clone(), error_string.clone());
-                }
+            if let Err(error) = result {
+                self.failed_servers
+                    .write()
+                    .await
+                    .insert(server_name, format!("{error:?}"));
             }
         }
 
@@ -170,8 +154,8 @@ where
         Ok(())
     }
 
-    async fn list(&self) -> anyhow::Result<McpServers> {
-        self.init_mcp().await?;
+    async fn list(&self, cfg: McpConfig) -> anyhow::Result<McpServers> {
+        self.init_mcp(cfg).await?;
 
         let tools = self.tools.read().await;
         let mut grouped_tools = std::collections::HashMap::new();
@@ -187,13 +171,15 @@ where
 
         Ok(McpServers::new(grouped_tools, failures))
     }
+
     async fn clear_tools(&self) {
         self.tools.write().await.clear()
     }
 
-    async fn call(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput> {
-        // Ensure MCP connections are initialized before calling tools
-        self.init_mcp().await?;
+    async fn call(&self, call: ToolCallFull, cfg: McpConfig) -> anyhow::Result<ToolOutput> {
+        // Use the caller-supplied pre-filtered config so only permitted servers
+        // are (re)connected here.
+        self.init_mcp(cfg).await?;
 
         let tools = self.tools.read().await;
 
@@ -226,32 +212,27 @@ where
 }
 
 #[async_trait::async_trait]
-impl<M: McpConfigManager, I: McpServerInfra + KVStore + EnvironmentInfra, C> McpService
-    for ForgeMcpService<M, I, C>
+impl<I, C> McpService for ForgeMcpService<I, C>
 where
+    I: McpServerInfra + KVStore + EnvironmentInfra + 'static,
     C: McpClientInfra + Clone,
     C: From<<I as McpServerInfra>::Client>,
 {
-    async fn get_mcp_servers(&self) -> anyhow::Result<McpServers> {
-        // Read current configs to compute merged hash
-        let mcp_config = self.manager.read_mcp_config(None).await?;
+    async fn get_mcp_servers(&self, cfg: McpConfig) -> anyhow::Result<McpServers> {
+        let config_hash = cfg.cache_key();
 
-        // Compute unified hash from merged config
-        let config_hash = mcp_config.cache_key();
-
-        // Check if cache is valid (exists and not expired)
-        // Cache is valid, retrieve it
         if let Some(cache) = self.infra.cache_get::<_, McpServers>(&config_hash).await? {
-            return Ok(cache.clone());
+            return Ok(cache);
         }
 
-        let servers = self.list().await?;
+        let servers = self.list(cfg).await?;
         self.infra.cache_set(&config_hash, &servers).await?;
+
         Ok(servers)
     }
 
-    async fn execute_mcp(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput> {
-        self.call(call).await
+    async fn execute_mcp(&self, call: ToolCallFull, cfg: McpConfig) -> anyhow::Result<ToolOutput> {
+        self.call(call, cfg).await
     }
 
     async fn reload_mcp(&self) -> anyhow::Result<()> {
@@ -266,12 +247,10 @@ mod tests {
 
     use fake::{Fake, Faker};
     use forge_app::domain::{
-        ConfigOperation, Environment, McpConfig, McpServerConfig, Scope, ServerName, ToolCallFull,
+        ConfigOperation, Environment, McpConfig, McpServerConfig, ServerName, ToolCallFull,
         ToolDefinition, ToolName, ToolOutput,
     };
-    use forge_app::{
-        EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService,
-    };
+    use forge_app::{EnvironmentInfra, KVStore, McpClientInfra, McpServerInfra, McpService};
     use forge_config::ForgeConfig;
     use pretty_assertions::assert_eq;
     use serde::de::DeserializeOwned;
@@ -295,30 +274,6 @@ mod tests {
             _input: serde_json::Value,
         ) -> anyhow::Result<ToolOutput> {
             Ok(ToolOutput::text("mock result"))
-        }
-    }
-
-    // ── Mock config manager ──────────────────────────────────────────────────
-
-    struct MockMcpManager;
-
-    #[async_trait::async_trait]
-    impl McpConfigManager for MockMcpManager {
-        async fn read_mcp_config(&self, _scope: Option<&Scope>) -> anyhow::Result<McpConfig> {
-            let mut servers = BTreeMap::new();
-            servers.insert(
-                ServerName::from("test-server".to_string()),
-                McpServerConfig::new_stdio("echo", vec![], None),
-            );
-            Ok(McpConfig { mcp_servers: servers })
-        }
-
-        async fn write_mcp_config(
-            &self,
-            _config: &McpConfig,
-            _scope: &Scope,
-        ) -> anyhow::Result<()> {
-            Ok(())
         }
     }
 
@@ -390,8 +345,17 @@ mod tests {
 
     // ── Fixture ──────────────────────────────────────────────────────────────
 
-    fn fixture() -> ForgeMcpService<MockMcpManager, MockInfra, MockMcpClient> {
-        ForgeMcpService::new(Arc::new(MockMcpManager), Arc::new(MockInfra))
+    fn fixture() -> ForgeMcpService<MockInfra, MockMcpClient> {
+        ForgeMcpService::new(Arc::new(MockInfra))
+    }
+
+    fn fixture_cfg() -> McpConfig {
+        let mut servers = BTreeMap::new();
+        servers.insert(
+            ServerName::from("test-server".to_string()),
+            McpServerConfig::new_stdio("echo", vec![], None),
+        );
+        McpConfig { mcp_servers: servers }
     }
 
     #[test]
@@ -445,14 +409,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_concurrent_init_does_not_race() {
         let service = Arc::new(fixture());
+        let cfg = fixture_cfg();
 
         let s1 = service.clone();
         let s2 = service.clone();
-        let (r1, r2) = tokio::join!(s1.get_mcp_servers(), s2.get_mcp_servers());
+        let c1 = cfg.clone();
+        let c2 = cfg.clone();
+        let (r1, r2) = tokio::join!(s1.get_mcp_servers(c1), s2.get_mcp_servers(c2));
         r1.unwrap();
         r2.unwrap();
 
-        let servers = service.get_mcp_servers().await.unwrap();
+        let servers = service.get_mcp_servers(cfg).await.unwrap();
         let tool_name = servers
             .get_servers()
             .values()
@@ -463,7 +430,7 @@ mod tests {
             .clone();
 
         let call = ToolCallFull::new(tool_name);
-        let actual = service.execute_mcp(call).await.unwrap();
+        let actual = service.execute_mcp(call, fixture_cfg()).await.unwrap();
         let expected = ToolOutput::text("mock result");
         assert_eq!(actual, expected);
     }

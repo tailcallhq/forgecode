@@ -21,7 +21,7 @@ use crate::fmt::content::FormatContent;
 use crate::mcp_executor::McpExecutor;
 use crate::tool_executor::ToolExecutor;
 use crate::{
-    AgentRegistry, EnvironmentInfra, McpService, PolicyService, ProviderService, Services,
+    AgentRegistry, EnvironmentInfra, McpApp, PolicyService, ProviderService, Services,
     ToolResolver, WorkspaceService,
 };
 
@@ -241,7 +241,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
     }
 
     pub async fn tools_overview(&self) -> anyhow::Result<ToolsOverview> {
-        let mcp_tools = self.services.get_mcp_servers().await?;
+        let mcp_tools = McpApp::new(self.services.clone()).get_mcp_servers().await?;
         let agent_tools = self.agent_executor.agent_definitions().await?;
 
         // Get agents for template rendering in Task tool description

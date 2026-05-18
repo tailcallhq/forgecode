@@ -218,8 +218,15 @@ pub trait McpConfigManager: Send + Sync {
 
 #[async_trait::async_trait]
 pub trait McpService: Send + Sync {
-    async fn get_mcp_servers(&self) -> anyhow::Result<McpServers>;
-    async fn execute_mcp(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput>;
+    /// Connect to and list tools from the given MCP servers.
+    /// The caller is responsible for filtering `cfg` through any policy
+    /// gating before calling; this method connects every enabled server
+    /// in `cfg` without re-checking permissions.
+    async fn get_mcp_servers(&self, cfg: McpConfig) -> anyhow::Result<McpServers>;
+    /// Execute a tool call against an already-connected server. The caller is
+    /// responsible for supplying a pre-filtered `cfg` (same one used for
+    /// `get_mcp_servers`) so denied servers are never reconnected here.
+    async fn execute_mcp(&self, call: ToolCallFull, cfg: McpConfig) -> anyhow::Result<ToolOutput>;
     /// Refresh the MCP cache by fetching fresh data
     async fn reload_mcp(&self) -> anyhow::Result<()>;
 }
@@ -485,6 +492,24 @@ pub trait PolicyService: Send + Sync {
         &self,
         operation: &forge_domain::PermissionOperation,
     ) -> anyhow::Result<PolicyDecision>;
+
+    /// Check whether an operation is explicitly permitted by the current
+    /// policy without prompting the user. Returns `true` only when the policy
+    /// engine resolves to `Allow`; `Confirm` and `Deny` both return `false`.
+    /// Use this instead of `check_operation_permission` when interactive
+    /// prompting must be avoided (e.g. MCP connection authorisation).
+    async fn is_operation_permitted(
+        &self,
+        operation: &forge_domain::PermissionOperation,
+    ) -> anyhow::Result<bool>;
+
+    /// Unconditionally persist an allow policy for the given operation.
+    /// Used when the user has explicitly opted in (e.g. via `mcp import`) so
+    /// no interactive confirmation is needed.
+    async fn allow_operation(
+        &self,
+        operation: &forge_domain::PermissionOperation,
+    ) -> anyhow::Result<()>;
 }
 
 /// Skill fetch service
@@ -684,12 +709,12 @@ impl<I: Services> McpConfigManager for I {
 
 #[async_trait::async_trait]
 impl<I: Services> McpService for I {
-    async fn get_mcp_servers(&self) -> anyhow::Result<McpServers> {
-        self.mcp_service().get_mcp_servers().await
+    async fn get_mcp_servers(&self, cfg: McpConfig) -> anyhow::Result<McpServers> {
+        self.mcp_service().get_mcp_servers(cfg).await
     }
 
-    async fn execute_mcp(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput> {
-        self.mcp_service().execute_mcp(call).await
+    async fn execute_mcp(&self, call: ToolCallFull, cfg: McpConfig) -> anyhow::Result<ToolOutput> {
+        self.mcp_service().execute_mcp(call, cfg).await
     }
 
     async fn reload_mcp(&self) -> anyhow::Result<()> {
@@ -941,6 +966,22 @@ impl<I: Services> PolicyService for I {
         self.policy_service()
             .check_operation_permission(operation)
             .await
+    }
+
+    async fn is_operation_permitted(
+        &self,
+        operation: &forge_domain::PermissionOperation,
+    ) -> anyhow::Result<bool> {
+        self.policy_service()
+            .is_operation_permitted(operation)
+            .await
+    }
+
+    async fn allow_operation(
+        &self,
+        operation: &forge_domain::PermissionOperation,
+    ) -> anyhow::Result<()> {
+        self.policy_service().allow_operation(operation).await
     }
 }
 

@@ -9,9 +9,8 @@ use crate::{ServerName, ToolDefinition};
 /// Simplified cache structure that stores only the essential data.
 /// Validation and TTL checking are handled by the infrastructure layer
 /// using cacache's built-in metadata capabilities.
-#[derive(Default, Clone, Serialize, Deserialize, Debug, PartialEq, derive_setters::Setters)]
+#[derive(Default, Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
-#[setters(strip_option, into)]
 pub struct McpServers {
     /// Successfully loaded MCP servers with their tools
     servers: HashMap<ServerName, Vec<ToolDefinition>>,

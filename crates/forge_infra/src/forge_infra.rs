@@ -260,10 +260,10 @@ impl UserInfra for ForgeInfra {
 
     async fn select_one<T: Clone + std::fmt::Display + Send + 'static>(
         &self,
-        message: &str,
+        prompt: impl Into<forge_app::SelectPrompt> + Send,
         options: Vec<T>,
     ) -> anyhow::Result<Option<T>> {
-        self.inquire_service.select_one(message, options).await
+        self.inquire_service.select_one(prompt, options).await
     }
 
     async fn select_many<T: std::fmt::Display + Clone + Send + 'static>(

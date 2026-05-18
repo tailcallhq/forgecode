@@ -39,7 +39,7 @@ impl<F: UserInfra> FollowUpService for ForgeFollowup<F> {
                     )
                 }),
             (false, false) => inquire
-                .select_one(&question, options)
+                .select_one(question.as_str(), options)
                 .await?
                 .map(|selected| format!("User selected: {selected}")),
         };
