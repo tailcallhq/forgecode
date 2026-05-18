@@ -831,21 +831,13 @@ impl<
 
         let mut current_content = original_content.clone();
         for plan in &positioned_edits {
-            let operation = if plan.edit.replace_all {
-                PatchOperation::ReplaceAll
+            if plan.edit.replace_all {
+                current_content = current_content.replace(&plan.edit.old_string, &plan.edit.new_string);
             } else {
-                PatchOperation::Replace
-            };
-
-            current_content = apply_replace_operation(
-                &*self.infra,
-                current_content,
-                &plan.edit.old_string,
-                &plan.edit.new_string,
-                &operation,
-                use_text_patch_fallback,
-            )
-            .await?;
+                let before = &current_content[..plan.position];
+                let after = &current_content[plan.position + plan.old_len..];
+                current_content = format!("{}{}{}", before, plan.edit.new_string, after);
+            }
         }
 
         self.infra.insert_snapshot(path).await?;
