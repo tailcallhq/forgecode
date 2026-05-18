@@ -750,6 +750,7 @@ impl<
                                     edit: edit.clone(),
                                 });
                             } else {
+                                let (line, col) = byte_to_line_column(&original_content, 0);
                                 return Err(anyhow::anyhow!(
                                     "Edit #{} failed: old_string not found in file '{}'\n\nSearched for:\n```\n{}\n```\n\nTip: The file may have changed since you started. Try reading the file again.",
                                     index + 1,
@@ -817,10 +818,13 @@ impl<
             let (a, b) = (&window[0], &window[1]);
             let a_end = a.position + a.old_len;
             if a_end > b.position {
+                let (line_a, col_a) = byte_to_line_column(&original_content, a.position);
+                let (line_b, col_b) = byte_to_line_column(&original_content, b.position);
                 return Err(anyhow::anyhow!(
-                    "Overlapping edits: edit #{} (bytes {} to {}) overlaps with edit #{} (bytes {} to {})",
-                    a.index + 1, a.position, a_end,
-                    b.index + 1, b.position, b.position + b.old_len
+                    "Overlapping edits in '{}': edit #{} (line {}, col {} to line {}, col {}) overlaps with edit #{} (line {}, col {} to line {}, col {})",
+                    path.display(),
+                    a.index + 1, line_a, col_a, byte_to_line_column(&original_content, a_end).0, byte_to_line_column(&original_content, a_end).1,
+                    b.index + 1, line_b, col_b, byte_to_line_column(&original_content, b.position + b.old_len).0, byte_to_line_column(&original_content, b.position + b.old_len).1
                 ));
             }
         }
