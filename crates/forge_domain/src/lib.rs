@@ -1,5 +1,6 @@
 mod agent;
 mod attachment;
+mod auto_continue;
 mod auth;
 mod chat_request;
 mod chat_response;
@@ -56,7 +57,9 @@ mod workspace;
 mod xml;
 
 pub use agent::*;
+pub use auto_continue::*;
 pub use attachment::*;
+pub use auth::*;
 pub use chat_request::*;
 pub use chat_response::*;
 pub use command::*;
