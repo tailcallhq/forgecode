@@ -469,6 +469,8 @@ forge workspace query <text>             # Query the semantic index
 forge mcp list                           # List configured MCP servers
 forge mcp import                         # Add a server from JSON
 forge mcp show                           # Show server configuration
+forge mcp enable <name>                  # Enable a disabled server (use --scope for global)
+forge mcp disable <name>                 # Disable a server (use --scope for global)
 forge mcp remove                         # Remove a server
 forge mcp reload                         # Reload all servers and rebuild caches
 
@@ -1041,6 +1043,10 @@ forge mcp import
 
 # Show server configuration details
 forge mcp show
+
+# Enable / disable a server (--scope user for global, defaults to local)
+forge mcp enable <name>
+forge mcp disable <name>
 
 # Remove a server
 forge mcp remove

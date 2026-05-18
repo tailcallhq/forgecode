@@ -540,6 +540,12 @@ pub enum McpCommand {
 
     /// Remove stored OAuth credentials for an MCP server.
     Logout(McpLogoutArgs),
+
+    /// Enable a disabled MCP server.
+    Enable(McpEnableArgs),
+
+    /// Disable an MCP server.
+    Disable(McpDisableArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -580,6 +586,26 @@ pub struct McpLogoutArgs {
     /// Name of the MCP server to remove credentials for, or "all" to
     /// remove all MCP OAuth credentials.
     pub name: String,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct McpEnableArgs {
+    /// Name of the MCP server to enable.
+    pub name: String,
+
+    /// Configuration scope.
+    #[arg(short = 's', long = "scope", default_value = "local")]
+    pub scope: Scope,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct McpDisableArgs {
+    /// Name of the MCP server to disable.
+    pub name: String,
+
+    /// Configuration scope.
+    #[arg(short = 's', long = "scope", default_value = "local")]
+    pub scope: Scope,
 }
 
 /// Configuration scope for settings.

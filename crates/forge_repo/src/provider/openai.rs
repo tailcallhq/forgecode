@@ -38,7 +38,7 @@ fn enhance_error(error: anyhow::Error, provider_id: &ProviderId) -> anyhow::Erro
 }
 
 #[derive(Clone)]
-struct OpenAIProvider<H> {
+pub(crate) struct OpenAIProvider<H> {
     provider: Provider<Url>,
     http: Arc<H>,
 }
