@@ -44,7 +44,9 @@ pub fn generate_zsh_plugin() -> Result<String> {
     output.push_str(&completions_str);
 
     // Set environment variable to indicate plugin is loaded (with timestamp)
-    output.push_str("\n_FORGE_PLUGIN_LOADED=$(date +%s)\n");
+    // Use typeset -g so the variable is global even when eval'd inside a function
+    // (e.g. lazy-loading plugin managers like zinit, zplug, zsh-defer)
+    output.push_str("\ntypeset -g _FORGE_PLUGIN_LOADED=$(date +%s)\n");
 
     Ok(output)
 }
@@ -55,7 +57,9 @@ pub fn generate_zsh_theme() -> Result<String> {
         super::normalize_script(include_str!("../../../../shell-plugin/forge.theme.zsh"));
 
     // Set environment variable to indicate theme is loaded (with timestamp)
-    content.push_str("\n_FORGE_THEME_LOADED=$(date +%s)\n");
+    // Use typeset -g so the variable is global even when eval'd inside a function
+    // (e.g. lazy-loading plugin managers like zinit, zplug, zsh-defer)
+    content.push_str("\ntypeset -g _FORGE_THEME_LOADED=$(date +%s)\n");
 
     Ok(content)
 }
