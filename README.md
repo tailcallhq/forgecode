@@ -60,6 +60,12 @@ To get started with Forge, run the command below:
 curl -fsSL https://forgecode.dev/cli | sh
 ```
 
+If you're using macOS with [Homebrew](https://brew.sh), you can also install Forge as follows:
+
+```bash
+brew install forgecode
+```
+
 On first run, Forge will guide you through setting up your AI provider credentials using the interactive login flow. Alternatively, you can configure providers beforehand:
 
 ```bash
