@@ -11,8 +11,14 @@ use tokio::sync::Notify;
 use tracing::warn;
 
 use crate::agent::AgentService;
-use crate::transformers::{DropReasoningOnlyMessages, ModelSpecificReasoning};
+use crate::transformers::{
+    DropMessageReasoningDetails, DropReasoningOnlyMessages, ModelSpecificReasoning,
+};
 use crate::{EnvironmentInfra, TemplateEngine};
+
+fn is_zai_provider_id(id: &ProviderId) -> bool {
+    id == &ProviderId::ZAI || id == &ProviderId::ZAI_CODING
+}
 
 #[derive(Clone, Setters)]
 #[setters(into)]
@@ -200,13 +206,24 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         reasoning_supported: bool,
     ) -> anyhow::Result<ChatCompletionMessageFull> {
         let tool_supported = self.is_tool_supported()?;
+        let provider_id = &self.agent.provider;
         let mut transformers = DefaultTransformation::default()
             .pipe(SortTools::new(self.agent.tool_order()))
             .pipe(NormalizeToolCallArguments::new())
             .pipe(TransformToolCalls::new().when(|_| !tool_supported))
             .pipe(ImageHandling::new())
-            // Drop ALL reasoning (including config) when reasoning is not supported by the model
-            .pipe(DropReasoningDetails.when(|_| !reasoning_supported))
+            // Drop ALL reasoning (including config) when reasoning is not supported by the model.
+            // For z.ai providers we still want to clear stale per-message reasoning_details so they
+            // don't replay against an opted-out turn, but we keep `context.reasoning` so
+            // `SetZaiThinking` can map it to `thinking: { type: disabled }` downstream.
+            .pipe(
+                DropReasoningDetails
+                    .when(|_| !reasoning_supported && !is_zai_provider_id(provider_id)),
+            )
+            .pipe(
+                DropMessageReasoningDetails
+                    .when(|_| !reasoning_supported && is_zai_provider_id(provider_id)),
+            )
             // Strip all reasoning from messages when the model has changed (signatures are
             // model-specific and invalid across models). No-op when model is unchanged.
             .pipe(ReasoningNormalizer::new(model_id.clone()))
