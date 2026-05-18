@@ -342,7 +342,7 @@ mod tests {
         let skill_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src/fixtures/skills_with_resources");
         let config = ForgeConfig::read().unwrap_or_default();
-        let infra = Arc::new(ForgeInfra::new(std::env::current_dir().unwrap(), config));
+        let infra = Arc::new(ForgeInfra::new(std::env::current_dir().unwrap(), config, false));
         let repo = ForgeSkillRepository::new(infra);
         (repo, skill_dir)
     }

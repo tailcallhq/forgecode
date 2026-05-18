@@ -12,14 +12,15 @@ use merge::Merge;
 
 pub struct ForgeMcpManager<I> {
     infra: Arc<I>,
+    skip_local_mcp: bool,
 }
 
 impl<I> ForgeMcpManager<I>
 where
     I: McpServerInfra + FileReaderInfra + FileInfoInfra + EnvironmentInfra + KVStore,
 {
-    pub fn new(infra: Arc<I>) -> Self {
-        Self { infra }
+    pub fn new(infra: Arc<I>, skip_local_mcp: bool) -> Self {
+        Self { infra, skip_local_mcp }
     }
 
     async fn read_config(&self, path: &Path) -> anyhow::Result<McpConfig> {
@@ -58,15 +59,17 @@ where
                 }
             }
             None => {
-                // Read and merge all configurations (original behavior)
+                // Read and merge all configurations
                 let env = self.infra.get_environment();
                 let paths = vec![
-                    // Configs at lower levels take precedence, so we read them in reverse order.
                     env.mcp_user_config().as_path().to_path_buf(),
                     env.mcp_local_config().as_path().to_path_buf(),
                 ];
                 let mut config = McpConfig::default();
                 for path in paths {
+                    if path == env.mcp_local_config() && self.skip_local_mcp {
+                        continue;
+                    }
                     if self.infra.is_file(&path).await.unwrap_or_default() {
                         let new_config = self.read_config(&path).await.context(format!(
                             "An error occurred while reading config at: {}",

@@ -48,10 +48,10 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
     /// * `cwd` - The working directory path for environment and file resolution
     /// * `config` - Pre-read application configuration (from startup)
     /// * `services_url` - Pre-validated URL for the gRPC workspace server
-    pub fn init(cwd: PathBuf, config: ForgeConfig) -> Self {
+    pub fn init(cwd: PathBuf, config: ForgeConfig, skip_local_mcp: bool) -> Self {
         let infra = Arc::new(ForgeInfra::new(cwd, config));
         let repo = Arc::new(ForgeRepo::new(infra.clone()));
-        let app = Arc::new(ForgeServices::new(repo.clone()));
+        let app = Arc::new(ForgeServices::new(repo.clone(), skip_local_mcp));
         ForgeAPI::new(app, repo)
     }
 
