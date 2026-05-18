@@ -26,6 +26,8 @@ pub struct Orchestrator<S> {
     error_tracker: ToolErrorTracker,
     hook: Arc<Hook>,
     config: forge_config::ForgeConfig,
+    auto_continue_analyzer: AutoContinueAnalyzer,
+    auto_continue_count: usize,
 }
 
 impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orchestrator<S> {
@@ -45,12 +47,42 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             models: Default::default(),
             error_tracker: Default::default(),
             hook: Arc::new(Hook::default()),
+            auto_continue_analyzer: AutoContinueAnalyzer::new(AutoContinueConfig::default()),
+            auto_continue_count: 0,
         }
     }
 
     /// Get a reference to the internal conversation
     pub fn get_conversation(&self) -> &Conversation {
         &self.conversation
+    }
+
+    fn calculate_recent_tool_call_ratio(&self) -> f64 {
+        const LOOKBACK_EVENTS: usize = 10;
+
+        let events = self.conversation.events();
+        let recent_events = events.iter().rev().take(LOOKBACK_EVENTS);
+
+        let mut tool_count = 0usize;
+        let mut total_assistant_messages = 0usize;
+
+        for event in recent_events {
+            match event {
+                Event::AssistantMessage(_) | Event::AssistantChunk(_, _) => {
+                    total_assistant_messages += 1;
+                }
+                Event::ToolResult(_, _) => {
+                    tool_count += 1;
+                }
+                _ => {}
+            }
+        }
+
+        if total_assistant_messages == 0 {
+            return 0.0;
+        }
+
+        tool_count as f64 / total_assistant_messages as f64
     }
 
     // Helper function to get all tool results from a vector of tool calls
@@ -319,10 +351,50 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .handle(&response_event, &mut self.conversation)
                 .await?;
 
-            // Turn is completed, if finish_reason is 'stop'. Gemini models return stop as
-            // finish reason with tool calls.
-            is_complete =
-                message.finish_reason == Some(FinishReason::Stop) && message.tool_calls.is_empty();
+            let last_event_was_tool_result = self
+                .conversation
+                .events()
+                .last()
+                .map(|e| matches!(e, Event::ToolResult(_, _)))
+                .unwrap_or(false);
+
+            let recent_tool_call_ratio = self.calculate_recent_tool_call_ratio();
+
+            let decision = self.auto_continue_analyzer.analyze(
+                &message.content,
+                &message.finish_reason,
+                last_event_was_tool_result,
+                recent_tool_call_ratio,
+            );
+
+            if decision.should_continue && self.auto_continue_count < self.auto_continue_analyzer.config.max_auto_continues {
+                tracing::warn!(
+                    confidence = decision.confidence,
+                    auto_continue_count = self.auto_continue_count,
+                    "Auto-continue triggered: {}",
+                    decision.reason
+                );
+
+                self.auto_continue_count += 1;
+
+                context = context.append_message(
+                    Some("I need to continue with the remaining steps.".into()),
+                    None,
+                    None,
+                    None,
+                    None,
+                    vec![],
+                    None,
+                );
+
+                is_complete = false;
+            } else {
+                is_complete = message.finish_reason == Some(FinishReason::Stop)
+                    && message.tool_calls.is_empty();
+                if is_complete {
+                    self.auto_continue_count = 0;
+                }
+            }
 
             // Should yield if a tool is asking for a follow-up
             should_yield = is_complete
