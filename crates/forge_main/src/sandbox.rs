@@ -69,7 +69,7 @@ impl<'a> Sandbox<'a> {
                     .context("Failed to check if target directory is a git worktree")?;
 
                 if worktree_check.status.success() {
-                    println!(
+                    eprintln!(
                         "{}",
                         TitleFormat::info("Worktree [Reused]")
                             .sub_title(worktree_path.display().to_string())
@@ -125,7 +125,7 @@ impl<'a> Sandbox<'a> {
             bail!("Failed to create git worktree: {stderr}");
         }
 
-        println!(
+        eprintln!(
             "{}",
             TitleFormat::info("Worktree [Created]")
                 .sub_title(worktree_path.display().to_string())

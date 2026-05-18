@@ -180,7 +180,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
         .error_tracker(ToolErrorTracker::new(max_tool_failure_per_turn))
         .tool_definitions(tool_definitions)
         .models(models)
-        .hook(Arc::new(hook));
+        .hook(Arc::new(hook))
+        .tool_silent(chat.tool_silent);
 
         // Create and return the stream
         let stream = MpscStream::spawn(

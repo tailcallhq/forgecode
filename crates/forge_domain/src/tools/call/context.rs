@@ -9,12 +9,21 @@ use crate::{ArcSender, ChatResponse, Metrics, TitleFormat, Todo, TodoItem};
 pub struct ToolCallContext {
     sender: Option<ArcSender>,
     metrics: Arc<Mutex<Metrics>>,
+    /// When set to true, shell tool output is streamed to io::sink() instead
+    /// of io::stdout() to avoid contaminating the ACP JSON-RPC transport
+    /// channel. The field is intentionally NOT in ForgeConfig — it is a
+    /// per-invocation runtime behaviour flag, not persisted state.
+    pub silent: bool,
 }
 
 impl ToolCallContext {
     /// Creates a new ToolCallContext with default values
     pub fn new(metrics: Metrics) -> Self {
-        Self { sender: None, metrics: Arc::new(Mutex::new(metrics)) }
+        Self {
+            sender: None,
+            metrics: Arc::new(Mutex::new(metrics)),
+            silent: false,
+        }
     }
 
     /// Send a message through the sender if available

@@ -277,7 +277,7 @@ impl<
                         input.command.clone(),
                         PathBuf::from(normalized_cwd),
                         input.keep_ansi,
-                        false,
+                        context.silent,
                         input.env.clone(),
                         input.description.clone(),
                     )

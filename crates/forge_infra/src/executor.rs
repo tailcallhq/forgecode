@@ -108,7 +108,8 @@ impl ForgeCommandExecutorService {
         let mut stdout_pipe = child.stdout.take();
         let mut stderr_pipe = child.stderr.take();
 
-        // Stream the output of the command to stdout and stderr concurrently
+        // Suppress stdout in headless mode to avoid contaminating the JSON-RPC
+        // transport.
         let (status, stdout_buffer, stderr_buffer) = if silent {
             tokio::try_join!(
                 child.wait(),

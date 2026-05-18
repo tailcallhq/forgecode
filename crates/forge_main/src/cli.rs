@@ -75,6 +75,15 @@ impl Cli {
     pub fn is_interactive(&self) -> bool {
         self.prompt.is_none() && self.piped_input.is_none() && self.subcommands.is_none()
     }
+
+    /// Checks if the subcommand owns stdin and should skip the piped-input
+    /// pre-read.
+    ///
+    /// Commands like `forge select` interactively read from stdin and would
+    /// hang if the startup pipeline consumed stdin first.
+    pub fn uses_stdin(&self) -> bool {
+        matches!(&self.subcommands, Some(TopLevelCommand::Select(_)))
+    }
 }
 
 #[derive(Subcommand, Debug, Clone)]

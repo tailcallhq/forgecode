@@ -75,12 +75,12 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentEx
                 .await?;
             conversation
         };
-        // Execute the request through the ForgeApp
+        // Execute the request through the ForgeApp, propagating silent mode.
         let app = crate::ForgeApp::new(self.services.clone());
         let mut response_stream = app
             .chat(
                 agent_id.clone(),
-                ChatRequest::new(Event::new(task.clone()), conversation.id),
+                ChatRequest::new(Event::new(task.clone()), conversation.id).tool_silent(ctx.silent),
             )
             .await?;
 
