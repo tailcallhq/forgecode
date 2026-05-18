@@ -148,7 +148,7 @@ impl ToolCallFull {
                         let arguments = if current_arguments.is_empty() {
                             ToolCallArguments::default()
                         } else {
-                            ToolCallArguments::from_json(current_arguments.as_str())
+                            ToolCallArguments::parse_json(current_arguments.as_str())?
                         };
 
                         tool_calls.push(ToolCallFull {
@@ -188,7 +188,7 @@ impl ToolCallFull {
             let arguments = if current_arguments.is_empty() {
                 ToolCallArguments::default()
             } else {
-                ToolCallArguments::from_json(current_arguments.as_str())
+                ToolCallArguments::parse_json(current_arguments.as_str())?
             };
 
             tool_calls.push(ToolCallFull {

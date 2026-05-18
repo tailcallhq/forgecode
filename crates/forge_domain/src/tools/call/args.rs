@@ -109,6 +109,19 @@ impl ToolCallArguments {
         ToolCallArguments::Unparsed(str.to_string())
     }
 
+    pub fn parse_json(str: &str) -> Result<Self, Error> {
+        if str.is_empty() {
+            return Ok(ToolCallArguments::default());
+        }
+
+        serde_json::from_str::<Value>(str)
+            .map(ToolCallArguments::Parsed)
+            .map_err(|error| Error::ToolCallArgument {
+                error: error.to_string(),
+                args: str.to_string(),
+            })
+    }
+
     pub fn from_parameters(object: BTreeMap<String, String>) -> ToolCallArguments {
         let mut map = Map::new();
 
@@ -487,5 +500,43 @@ mod tests {
         let actual = fixture.into_string();
         let expected = r#"{"param":"value"}"#;
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_json_valid_json() {
+        let result = ToolCallArguments::parse_json(r#"{"path": "test.rs", "content": "hello"}"#);
+        assert!(result.is_ok(), "Valid JSON should parse successfully");
+        match result {
+            Ok(ToolCallArguments::Parsed(value)) => {
+                assert_eq!(value["path"], "test.rs");
+                assert_eq!(value["content"], "hello");
+            }
+            _ => panic!("Should be Parsed"),
+        }
+    }
+
+    #[test]
+    fn test_parse_json_empty_string() {
+        let result = ToolCallArguments::parse_json("");
+        assert!(result.is_ok(), "Empty string should return default");
+        match result {
+            Ok(ToolCallArguments::Parsed(value)) => {
+                assert!(value.is_object(), "Empty should be empty object");
+                assert!(value.as_object().unwrap().is_empty());
+            }
+            _ => panic!("Should be Parsed"),
+        }
+    }
+
+    #[test]
+    fn test_parse_json_malformed_json_returns_error() {
+        let result = ToolCallArguments::parse_json(r#"{invalid json here}"#);
+        assert!(result.is_err(), "Malformed JSON should return error");
+    }
+
+    #[test]
+    fn test_parse_json_minimax_example() {
+        let result = ToolCallArguments::parse_json(r#"{"query": "isExternal|internal", "file": "test.rs"}"#);
+        assert!(result.is_ok(), "Valid MiniMax-style JSON should parse");
     }
 }
