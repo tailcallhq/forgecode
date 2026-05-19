@@ -1097,6 +1097,34 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_retry_command() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/retry").unwrap();
+
+        assert_eq!(actual, AppCommand::Retry);
+    }
+
+    #[test]
+    fn test_parse_retry_alias() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/r").unwrap();
+
+        assert_eq!(actual, AppCommand::Retry);
+    }
+
+    #[test]
+    fn test_retry_command_in_default_commands() {
+        let manager = ForgeCommandManager::default();
+        let commands = manager.list();
+        let contains_retry = commands.iter().any(|cmd| cmd.name == "retry");
+
+        assert!(
+            contains_retry,
+            "Retry command should be in default commands"
+        );
+    }
+
+    #[test]
     fn test_sanitize_agent_id_basic() {
         // Test basic sanitization
         let fixture = "test-agent";
