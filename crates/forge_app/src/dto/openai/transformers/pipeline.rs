@@ -79,6 +79,7 @@ impl Transformer for ProviderPipeline<'_> {
 
         let reasoning_content = ReasoningContent.when(move |request: &Request| {
             provider.id == ProviderId::FIREWORKS_AI
+                || provider.id == ProviderId::FIREWORKS_AI_FIREPASS
                 || is_deepseek_compatible(provider, request)
                 || when_model("kimi")(request)
         });
@@ -103,6 +104,7 @@ impl Transformer for ProviderPipeline<'_> {
             .pipe(EnforceStrictResponseFormatSchema)
             .when(move |_| {
                 provider.id == ProviderId::FIREWORKS_AI
+                    || provider.id == ProviderId::FIREWORKS_AI_FIREPASS
                     || provider.id == ProviderId::OPENCODE_ZEN
                     || provider.id == ProviderId::OPENCODE_GO
                     || provider.id == ProviderId::XAI

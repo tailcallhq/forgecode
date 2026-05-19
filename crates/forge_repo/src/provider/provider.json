@@ -3300,26 +3300,6 @@
     "auth_methods": ["api_key"],
     "models": [
       {
-        "id": "accounts/fireworks/routers/kimi-k2p5-turbo",
-        "name": "Kimi K2.5 Turbo (Firepass) ",
-        "description": "Kimi K2.5 Turbo model",
-        "context_length": 256000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "accounts/fireworks/routers/kimi-k2p6-turbo",
-        "name": "Kimi K2.6 Turbo (Fire Pass)",
-        "description": "Kimi K2.6 Turbo model",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "accounts/fireworks/models/kimi-k2p5",
         "name": "Kimi K2.5",
         "description": "Kimi K2.5 model",
@@ -3457,6 +3437,26 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text"]
+      }
+    ]
+  },
+  {
+    "id": "fireworks-ai-firepass",
+    "api_key_vars": "FIREWORKS_AI_FIREPASS_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.fireworks.ai/inference/v1/chat/completions",
+    "auth_methods": ["api_key"],
+    "models": [
+      {
+        "id": "accounts/fireworks/routers/kimi-k2p6-turbo",
+        "name": "Kimi K2.6 Turbo (firepass)",
+        "description": "Kimi K2.6 Turbo model",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       }
     ]
   },

@@ -135,9 +135,15 @@ impl forge_app::KVStore for CacacheStorage {
         if !self.cache_dir.exists() {
             return Ok(());
         }
-        cacache::clear(&self.cache_dir)
+        // Use remove_dir_all + create_dir_all instead of cacache::clear because
+        // cacache::clear calls remove_dir_all on every directory entry, which
+        // fails with ENOTDIR when regular files (e.g. .mcp.json) are present.
+        tokio::fs::remove_dir_all(&self.cache_dir)
             .await
-            .context("Failed to clear cache")?;
+            .with_context(|| format!("Failed to clear cache at {}", self.cache_dir.display()))?;
+        tokio::fs::create_dir_all(&self.cache_dir)
+            .await
+            .with_context(|| format!("Failed to recreate cache at {}", self.cache_dir.display()))?;
         Ok(())
     }
 }
