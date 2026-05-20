@@ -125,7 +125,8 @@ fn reserve_inline_viewport_space(
     let reserved_height = if desired_height == u16::MAX {
         preview_select_viewport_height(full_height)
     } else {
-        select_viewport_height(full_height, desired_height)
+        max_select_viewport_height(full_height)
+            .max(select_viewport_height(full_height, desired_height))
     };
 
     // Reserve space by scrolling the terminal, but leave the cursor on the
