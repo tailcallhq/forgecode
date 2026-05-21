@@ -6,7 +6,7 @@ use derive_setters::Setters;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{Context, Error, Metrics, Result, TokenCount};
+use crate::{Context, Error, Event, Metrics, Result, TokenCount};
 
 #[derive(Debug, Default, Display, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 #[serde(transparent)]
@@ -113,6 +113,24 @@ impl Conversation {
             .unwrap_or_default()
     }
 
+    /// Returns the most recent retryable user event recorded in the
+    /// conversation.
+    ///
+    /// Retry uses the raw event captured before prompt-template rendering, so
+    /// synthetic user messages such as todo reminders or attachment expansions
+    /// are skipped automatically because they do not preserve `raw_content`.
+    pub fn last_retryable_event(&self) -> Option<Event> {
+        self.context
+            .as_ref()
+            .and_then(|ctx| {
+                ctx.messages
+                    .iter()
+                    .rev()
+                    .find_map(|msg| msg.as_value().cloned())
+            })
+            .map(Event::new)
+    }
+
     /// Returns the total token usage across all messages in the conversation.
     ///
     /// This is a convenience method that aggregates usage from the context,
@@ -207,7 +225,9 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::{Context, ContextMessage, ToolOutput, ToolResult, ToolValue};
+    use crate::{
+        Context, ContextMessage, EventValue, Role, TextMessage, ToolOutput, ToolResult, ToolValue,
+    };
 
     #[test]
     fn test_related_conversation_ids_empty() {
@@ -354,5 +374,39 @@ mod tests {
         let expected = Some(0.05);
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_last_retryable_event_returns_latest_raw_user_event() {
+        let context = Context::default()
+            .add_message(
+                TextMessage::new(Role::User, "Rendered first")
+                    .raw_content(EventValue::text("First task")),
+            )
+            .add_message(ContextMessage::assistant("Done", None, None, None))
+            .add_message(
+                TextMessage::new(Role::User, "Rendered second")
+                    .raw_content(EventValue::text("Second task")),
+            );
+
+        let conversation = Conversation::generate().context(context);
+        let actual = conversation.last_retryable_event().unwrap();
+
+        assert_eq!(actual.value, Some(EventValue::text("Second task")));
+    }
+
+    #[test]
+    fn test_last_retryable_event_skips_synthetic_user_messages() {
+        let context = Context::default()
+            .add_message(
+                TextMessage::new(Role::User, "Rendered task")
+                    .raw_content(EventValue::text("Retry me")),
+            )
+            .add_message(TextMessage::new(Role::User, "Attachment expansion").droppable(true));
+
+        let conversation = Conversation::generate().context(context);
+        let actual = conversation.last_retryable_event().unwrap();
+
+        assert_eq!(actual.value, Some(EventValue::text("Retry me")));
     }
 }

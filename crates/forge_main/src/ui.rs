@@ -905,8 +905,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let original_id = self.state.conversation_id;
                 self.state.conversation_id = Some(id);
 
-                self.spinner.start(None)?;
-                self.on_message(None).await?;
+                self.on_retry(id).await?;
 
                 self.state.conversation_id = original_id;
             }
@@ -2191,8 +2190,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 return self.handle_provider_logout(None).await;
             }
             AppCommand::Retry => {
-                self.spinner.start(None)?;
-                self.on_message(None).await?;
+                let conversation_id = self
+                    .state
+                    .conversation_id
+                    .or(self.cli.conversation_id)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("No conversation to retry. Start a conversation first.")
+                    })?;
+                self.on_retry(conversation_id).await?;
             }
             AppCommand::Index => {
                 let working_dir = self.state.cwd.clone();
@@ -3893,6 +3898,37 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let chat = ChatRequest::new(event, conversation_id);
 
         self.on_chat(chat).await
+    }
+
+    async fn on_retry(&mut self, conversation_id: ConversationId) -> Result<()> {
+        self.writeln_title(TitleFormat::debug(format!(
+            "Retry {}",
+            conversation_id.into_string()
+        )))?;
+        self.spinner.start(None)?;
+
+        let mut stream = self.api.retry(&conversation_id).await?;
+
+        // Always use streaming content writer
+        let mut writer = StreamingWriter::new(self.spinner.clone(), self.api.clone());
+
+        while let Some(message) = stream.next().await {
+            match message {
+                Ok(message) => self.handle_chat_response(message, &mut writer).await?,
+                Err(err) => {
+                    writer.finish()?;
+                    self.spinner.stop(None)?;
+                    self.spinner.reset();
+                    return Err(err);
+                }
+            }
+        }
+
+        writer.finish()?;
+        self.spinner.stop(None)?;
+        self.spinner.reset();
+
+        Ok(())
     }
 
     async fn on_chat(&mut self, chat: ChatRequest) -> Result<()> {

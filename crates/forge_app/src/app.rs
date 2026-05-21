@@ -208,6 +208,30 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
         Ok(stream)
     }
 
+    /// Retries the most recent retryable user event in an existing
+    /// conversation.
+    pub async fn retry(
+        &self,
+        agent_id: AgentId,
+        conversation_id: &ConversationId,
+    ) -> Result<MpscStream<Result<ChatResponse, anyhow::Error>>> {
+        let conversation = self
+            .services
+            .find_conversation(conversation_id)
+            .await?
+            .ok_or_else(|| forge_domain::Error::ConversationNotFound(*conversation_id))?;
+
+        let event = conversation.last_retryable_event().ok_or_else(|| {
+            anyhow::anyhow!(
+                "No retryable user event found in conversation {}",
+                conversation_id.into_string()
+            )
+        })?;
+
+        self.chat(agent_id, ChatRequest::new(event, *conversation_id))
+            .await
+    }
+
     /// Compacts the context of the main agent for the given conversation and
     /// persists it. Returns metrics about the compaction (original vs.
     /// compacted tokens and messages).

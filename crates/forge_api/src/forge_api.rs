@@ -147,6 +147,18 @@ impl<
         self.app().chat(agent_id, chat).await
     }
 
+    async fn retry(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> anyhow::Result<MpscStream<Result<ChatResponse, anyhow::Error>>> {
+        let agent_id = self
+            .services
+            .get_active_agent_id()
+            .await?
+            .unwrap_or_default();
+        self.app().retry(agent_id, conversation_id).await
+    }
+
     async fn upsert_conversation(&self, conversation: Conversation) -> anyhow::Result<()> {
         self.services.upsert_conversation(conversation).await
     }
