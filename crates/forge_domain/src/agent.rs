@@ -289,7 +289,8 @@ impl From<Agent> for ToolDefinition {
         ToolDefinition {
             name,
             description,
-            input_schema: schemars::schema_for!(crate::AgentInput),
+            input_schema: crate::tool_schema_generator()
+                .into_root_schema_for::<crate::AgentInput>(),
         }
     }
 }

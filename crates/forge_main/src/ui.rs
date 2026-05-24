@@ -3820,6 +3820,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 .await?;
             // only call on_update if this is the first initialization
             on_update(self.api.clone(), self.config.updates.as_ref()).await;
+            // Apply the MCP trust gate. Servers are NOT connected here —
+            // connections remain lazy and happen on first tool use.
+            self.api.init_mcp().await?;
         }
 
         // Execute independent operations in parallel to improve performance

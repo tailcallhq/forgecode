@@ -3,7 +3,6 @@ source: crates/forge_domain/src/tools/catalog.rs
 expression: tools
 ---
 {
-  "title": "FSRead",
   "type": "object",
   "properties": {
     "file_path": {
@@ -42,7 +41,6 @@ expression: tools
   ]
 }
 {
-  "title": "FSWrite",
   "type": "object",
   "properties": {
     "content": {
@@ -64,7 +62,6 @@ expression: tools
   ]
 }
 {
-  "title": "FSSearch",
   "type": "object",
   "properties": {
     "-A": {
@@ -153,7 +150,6 @@ expression: tools
   ]
 }
 {
-  "title": "SemanticSearch",
   "type": "object",
   "properties": {
     "queries": {
@@ -184,7 +180,6 @@ expression: tools
   ]
 }
 {
-  "title": "FSRemove",
   "type": "object",
   "properties": {
     "path": {
@@ -197,7 +192,6 @@ expression: tools
   ]
 }
 {
-  "title": "FSPatch",
   "type": "object",
   "properties": {
     "file_path": {
@@ -225,7 +219,6 @@ expression: tools
   ]
 }
 {
-  "title": "FSMultiPatch",
   "type": "object",
   "properties": {
     "edits": {
@@ -266,7 +259,6 @@ expression: tools
   ]
 }
 {
-  "title": "FSUndo",
   "type": "object",
   "properties": {
     "path": {
@@ -279,7 +271,6 @@ expression: tools
   ]
 }
 {
-  "title": "Shell",
   "type": "object",
   "properties": {
     "command": {
@@ -314,7 +305,6 @@ expression: tools
   ]
 }
 {
-  "title": "NetFetch",
   "description": "Input type for the net fetch tool",
   "type": "object",
   "properties": {
@@ -333,7 +323,6 @@ expression: tools
   ]
 }
 {
-  "title": "Followup",
   "type": "object",
   "properties": {
     "multiple": {
@@ -376,7 +365,6 @@ expression: tools
   ]
 }
 {
-  "title": "PlanCreate",
   "type": "object",
   "properties": {
     "content": {
@@ -399,7 +387,6 @@ expression: tools
   ]
 }
 {
-  "title": "SkillFetch",
   "type": "object",
   "properties": {
     "name": {
@@ -412,7 +399,6 @@ expression: tools
   ]
 }
 {
-  "title": "TodoWrite",
   "type": "object",
   "properties": {
     "todos": {
@@ -449,11 +435,9 @@ expression: tools
   ]
 }
 {
-  "title": "TodoRead",
   "type": "object"
 }
 {
-  "title": "TaskInput",
   "description": "Input structure for the Task tool - delegates work to specialized agents",
   "type": "object",
   "properties": {
