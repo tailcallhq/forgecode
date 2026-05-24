@@ -175,6 +175,11 @@ pub trait API: Sync + Send {
     /// Refresh MCP caches by fetching fresh data
     async fn reload_mcp(&self) -> Result<()>;
 
+    /// Applies the interactive trust gate for any project-local MCP config.
+    /// Servers are NOT connected here — connections remain lazy and happen on
+    /// first tool use. Must be called once at startup.
+    async fn init_mcp(&self) -> Result<()>;
+
     /// List of commands defined in .md file(s)
     async fn get_commands(&self) -> Result<Vec<Command>>;
 
