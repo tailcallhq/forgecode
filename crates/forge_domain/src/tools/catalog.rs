@@ -235,6 +235,13 @@ pub struct FSWrite {
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub overwrite: bool,
+
+    /// The reason or context for this write operation. Used for permission
+    /// case tracking — explains why this change is being made so the user
+    /// can make an informed decision.
+    /// This field is required in tool call JSON — the LLM must provide
+    /// a justification for every write operation.
+    pub context: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
@@ -553,6 +560,13 @@ pub struct FSPatch {
     #[serde(default)]
     #[schemars(default)]
     pub replace_all: bool,
+
+    /// The reason or context for this patch operation. Used for permission
+    /// case tracking — explains why this change is being made so the user
+    /// can make an informed decision.
+    /// This field is required in tool call JSON — the LLM must provide
+    /// a justification for every patch operation.
+    pub context: String,
 }
 
 /// A single edit operation in a multi-patch
@@ -578,6 +592,13 @@ pub struct FSMultiPatch {
 
     /// Array of edit operations to perform sequentially on the file
     pub edits: Vec<PatchEdit>,
+
+    /// The reason or context for this multi-patch operation. Used for
+    /// permission case tracking — explains why this change is being made
+    /// so the user can make an informed decision.
+    /// This field is required in tool call JSON — the LLM must provide
+    /// a justification for every multi-patch operation.
+    pub context: String,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, ToolDescription, PartialEq)]
@@ -940,14 +961,29 @@ impl ToolCatalog {
                 cwd,
                 message: format!("Read file: {}", display_path_for(&input.file_path)),
             }),
-            ToolCatalog::Write(input) => Some(crate::policies::PermissionOperation::Write {
-                path: std::path::PathBuf::from(&input.file_path),
-                cwd,
-                message: format!(
-                    "Create/overwrite file: {}",
-                    display_path_for(&input.file_path)
-                ),
-            }),
+            ToolCatalog::Write(input) => {
+                let content_preview = if input.content.len() > 500 {
+                    format!("{}…", &input.content[..500])
+                } else {
+                    input.content.clone()
+                };
+                tracing::debug!(
+                    file_path = %input.file_path,
+                    content_length = input.content.len(),
+                    message_preview = %content_preview.chars().take(100).collect::<String>(),
+                    "Write permission operation message"
+                );
+                let msg = format!(
+                    "Create/overwrite file: {}.\n--- Proposed content ---\n{}\n---",
+                    display_path_for(&input.file_path),
+                    content_preview
+                );
+                Some(crate::policies::PermissionOperation::Write {
+                    path: std::path::PathBuf::from(&input.file_path),
+                    cwd,
+                    message: msg,
+                })
+            }
             ToolCatalog::FsSearch(input) => {
                 let path_str = input.path.as_deref().unwrap_or(".");
                 let base_message =
@@ -980,20 +1016,89 @@ impl ToolCatalog {
                 cwd,
                 message: format!("Remove file: {}", display_path_for(&input.path)),
             }),
-            ToolCatalog::Patch(input) => Some(crate::policies::PermissionOperation::Write {
-                path: std::path::PathBuf::from(&input.file_path),
-                cwd,
-                message: format!("Modify file: {}", display_path_for(&input.file_path)),
-            }),
-            ToolCatalog::MultiPatch(input) => Some(crate::policies::PermissionOperation::Write {
-                path: std::path::PathBuf::from(&input.file_path),
-                cwd,
-                message: format!(
-                    "Modify file with {} edits: {}",
-                    input.edits.len(),
-                    display_path_for(&input.file_path)
-                ),
-            }),
+            ToolCatalog::Patch(input) => {
+                let diff_preview = if input.old_string.len() > 300 || input.new_string.len() > 300
+                {
+                    let old_trunc = if input.old_string.len() > 300 {
+                        format!("{}…", &input.old_string[..300])
+                    } else {
+                        input.old_string.clone()
+                    };
+                    let new_trunc = if input.new_string.len() > 300 {
+                        format!("{}…", &input.new_string[..300])
+                    } else {
+                        input.new_string.clone()
+                    };
+                    format!(
+                        "Modify file: {}. Old: {old_trunc}. New: {new_trunc}",
+                        display_path_for(&input.file_path)
+                    )
+                } else {
+                    format!(
+                        "Modify file: {}. Old: {}. New: {}",
+                        display_path_for(&input.file_path),
+                        input.old_string,
+                        input.new_string
+                    )
+                };
+                tracing::debug!(
+                    file_path = %input.file_path,
+                    old_len = input.old_string.len(),
+                    new_len = input.new_string.len(),
+                    message_preview = %diff_preview.chars().take(100).collect::<String>(),
+                    "Patch permission operation message"
+                );
+                Some(crate::policies::PermissionOperation::Write {
+                    path: std::path::PathBuf::from(&input.file_path),
+                    cwd,
+                    message: diff_preview,
+                })
+            }
+            ToolCatalog::MultiPatch(input) => {
+                let edit_preview = input
+                    .edits
+                    .iter()
+                    .take(10)
+                    .map(|e| {
+                        let old_trunc = if e.old_string.len() > 60 {
+                            format!("{}…", &e.old_string[..60])
+                        } else {
+                            e.old_string.clone()
+                        };
+                        let new_trunc = if e.new_string.len() > 60 {
+                            format!("{}…", &e.new_string[..60])
+                        } else {
+                            e.new_string.clone()
+                        };
+                        format!("  - Replace \"{old_trunc}\" → \"{new_trunc}\"")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let edit_summary = if input.edits.len() > 10 {
+                    format!(
+                        "{} (showing first 10 of {})",
+                        edit_preview,
+                        input.edits.len()
+                    )
+                } else {
+                    edit_preview
+                };
+                tracing::debug!(
+                    file_path = %input.file_path,
+                    edit_count = input.edits.len(),
+                    "MultiPatch permission operation"
+                );
+                Some(crate::policies::PermissionOperation::Write {
+                    path: std::path::PathBuf::from(&input.file_path),
+                    cwd,
+                    message: format!(
+                        "Modify file with {} edits: {}.\n--- Proposed edits ---\n{}\n---",
+                        input.edits.len(),
+                        display_path_for(&input.file_path),
+                        edit_summary
+                    ),
+                })
+            }
             ToolCatalog::Shell(input) => Some(crate::policies::PermissionOperation::Execute {
                 command: input.command.clone(),
                 cwd,
@@ -1028,7 +1133,8 @@ impl ToolCatalog {
         ToolCallFull::from(ToolCatalog::Write(FSWrite {
             file_path: path.to_string(),
             content: content.to_string(),
-            ..Default::default()
+            context: String::new(),
+            overwrite: false,
         }))
     }
 
@@ -1043,6 +1149,7 @@ impl ToolCatalog {
             file_path: path.to_string(),
             old_string: search.to_string(),
             new_string: content.to_string(),
+            context: String::new(),
             replace_all,
         }))
     }
@@ -1360,7 +1467,7 @@ mod tests {
             name: ToolName::new("Write"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"path": "/test/path.rs", "content": "test content"}"#,
+                r#"{"path": "/test/path.rs", "content": "test content", "context": "test context"}"#,
             ),
             thought_signature: None,
         };
@@ -1411,7 +1518,7 @@ mod tests {
             name: ToolName::new("write"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"path": "/test/path.rs", "content": "test"}"#,
+                r#"{"path": "/test/path.rs", "content": "test", "context": "test"}"#,
             ),
             thought_signature: None,
         };
@@ -1569,7 +1676,7 @@ mod tests {
             name: ToolName::new("patch"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"path": "/test/file.rs", "operation": "replace", "new_string": "new", "old_string": "old"}"#,
+                r#"{"path": "/test/file.rs", "operation": "replace", "new_string": "new", "old_string": "old", "context": "test"}"#,
             ),
             thought_signature: None,
         };
@@ -1597,7 +1704,7 @@ mod tests {
             name: ToolName::new("patch"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"file_path": "/test/file.rs", "operation": "replace", "new_string": "new", "search": "old text"}"#,
+                r#"{"file_path": "/test/file.rs", "operation": "replace", "new_string": "new", "search": "old text", "context": "test"}"#,
             ),
             thought_signature: None,
         };
@@ -1625,7 +1732,7 @@ mod tests {
             name: ToolName::new("patch"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"file_path": "/test/file.rs", "operation": "replace", "content": "new content", "old_string": "old"}"#,
+                r#"{"file_path": "/test/file.rs", "operation": "replace", "content": "new content", "old_string": "old", "context": "test"}"#,
             ),
             thought_signature: None,
         };
@@ -1653,7 +1760,7 @@ mod tests {
             name: ToolName::new("patch"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"path": "/test/file.rs", "operation": "replace", "content": "new content", "search": "old text"}"#,
+                r#"{"path": "/test/file.rs", "operation": "replace", "content": "new content", "search": "old text", "context": "test"}"#,
             ),
             thought_signature: None,
         };
@@ -1683,7 +1790,7 @@ mod tests {
             name: ToolName::new("patch"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"file_path": "/test/file.rs", "operation": "replace", "new_string": "new content", "old_string": "old text"}"#,
+                r#"{"file_path": "/test/file.rs", "operation": "replace", "new_string": "new content", "old_string": "old text", "context": "test"}"#,
             ),
             thought_signature: None,
         };
@@ -1710,7 +1817,7 @@ mod tests {
             name: ToolName::new("patch"),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"file_path": "/test/file.rs", "new_string": "new", "old_string": "old", "replace_all": true}"#,
+                r#"{"file_path": "/test/file.rs", "new_string": "new", "old_string": "old", "replace_all": true, "context": "test"}"#,
             ),
             thought_signature: None,
         };
@@ -1904,7 +2011,7 @@ mod tests {
             name: ToolName::new("  patch  "),
             call_id: None,
             arguments: ToolCallArguments::from_json(
-                r#"{"file_path": "/test/file.rs", "new_string": "new", "old_string": "old"}"#,
+                r#"{"file_path": "/test/file.rs", "new_string": "new", "old_string": "old", "context": "test"}"#,
             ),
             thought_signature: None,
         };

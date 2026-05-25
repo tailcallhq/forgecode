@@ -49,6 +49,10 @@ expression: tools
       "description": "The content to write to the file",
       "type": "string"
     },
+    "context": {
+      "description": "The reason or context for this write operation. Used for permission\ncase tracking — explains why this change is being made so the user\ncan make an informed decision.\nThis field is required in tool call JSON — the LLM must provide\na justification for every write operation.",
+      "type": "string"
+    },
     "file_path": {
       "description": "The absolute path to the file to write (must be absolute, not relative)",
       "type": "string"
@@ -60,7 +64,8 @@ expression: tools
   },
   "required": [
     "file_path",
-    "content"
+    "content",
+    "context"
   ]
 }
 {
@@ -200,6 +205,10 @@ expression: tools
   "title": "FSPatch",
   "type": "object",
   "properties": {
+    "context": {
+      "description": "The reason or context for this patch operation. Used for permission\ncase tracking — explains why this change is being made so the user\ncan make an informed decision.\nThis field is required in tool call JSON — the LLM must provide\na justification for every patch operation.",
+      "type": "string"
+    },
     "file_path": {
       "description": "The absolute path to the file to modify",
       "type": "string"
@@ -221,13 +230,18 @@ expression: tools
   "required": [
     "file_path",
     "old_string",
-    "new_string"
+    "new_string",
+    "context"
   ]
 }
 {
   "title": "FSMultiPatch",
   "type": "object",
   "properties": {
+    "context": {
+      "description": "The reason or context for this multi-patch operation. Used for\npermission case tracking — explains why this change is being made\nso the user can make an informed decision.\nThis field is required in tool call JSON — the LLM must provide\na justification for every multi-patch operation.",
+      "type": "string"
+    },
     "edits": {
       "description": "Array of edit operations to perform sequentially on the file",
       "type": "array",
@@ -262,7 +276,8 @@ expression: tools
   },
   "required": [
     "file_path",
-    "edits"
+    "edits",
+    "context"
   ]
 }
 {

@@ -34,15 +34,20 @@ impl FormatContent for ToolCatalog {
                 let path = PathBuf::from(&input.file_path);
                 let display_path = display_path_for(&input.file_path);
                 let title = match (path.exists(), input.overwrite) {
-                    (true, true) => "Overwrite",
+                    (true, true) => format!("Overwrite: {display_path}"),
                     (true, false) => {
-                        // Case: file exists but overwrite is false then we throw error from tool,
-                        // so it's good idea to not print anything on CLI.
                         return None;
                     }
-                    (false, _) => "Create",
+                    (false, _) => format!("Create: {display_path}"),
                 };
-                Some(TitleFormat::debug(title).sub_title(display_path).into())
+                // Show the content inline so the user has context about what will be
+                // written before any permission prompt
+                let body = if input.content.is_empty() {
+                    "[empty content]".to_string()
+                } else {
+                    format!("{title}\n\n{}", input.content)
+                };
+                Some(ChatResponseContent::ToolOutput(body))
             }
             ToolCatalog::FsSearch(input) => {
                 let formatted_dir = input.path.as_deref().unwrap_or(".");
@@ -90,19 +95,31 @@ impl FormatContent for ToolCatalog {
                 } else {
                     "Replace"
                 };
-                Some(
-                    TitleFormat::debug(operation_name)
-                        .sub_title(display_path)
-                        .into(),
-                )
+                let body = format!(
+                    "{operation_name}: {display_path}\n\n--- old string ---\n{}\n--- new string ---\n{}",
+                    input.old_string, input.new_string
+                );
+                Some(ChatResponseContent::ToolOutput(body))
             }
             ToolCatalog::MultiPatch(input) => {
                 let display_path = display_path_for(&input.file_path);
-                Some(
-                    TitleFormat::debug("Replace")
-                        .sub_title(format!("{} ({} edits)", display_path, input.edits.len()))
-                        .into(),
-                )
+                let edits: Vec<String> = input
+                    .edits
+                    .iter()
+                    .map(|e| {
+                        format!(
+                            "- Replace \"{}…\" → \"{}…\"{}",
+                            &e.old_string[..e.old_string.len().min(60)],
+                            &e.new_string[..e.new_string.len().min(60)],
+                            if e.replace_all { " (all occurrences)" } else { "" }
+                        )
+                    })
+                    .collect();
+                Some(ChatResponseContent::ToolOutput(format!(
+                    "Replace: {display_path} ({} edit(s))\n\n{}",
+                    input.edits.len(),
+                    edits.join("\n")
+                )))
             }
             ToolCatalog::Undo(input) => {
                 let display_path = display_path_for(&input.path);

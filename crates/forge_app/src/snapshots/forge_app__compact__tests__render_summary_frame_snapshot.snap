@@ -18,15 +18,15 @@ Use the following summary frames as the authoritative reference for all coding s
 ````
 You're right - the call_id should be optional. Let me fix that:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now update the helper methods to accept optional call_id:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now update the `From<&TextMessage>` implementation to handle optional call_id:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now let's run the tests to verify everything works:
 ````
@@ -45,11 +45,11 @@ I see the problem. The tests are still using the old API. Let me read the file f
 ````
 Now I need to fix the HashMap lookup issue on line 129. The problem is that `tool_call_id` is `Option<ToolCallId>` but the HashMap key is `&ToolCallId`. Let me fix that:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now I need to fix the helper functions and tests. Let me update them to work with the new enum-based API:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now let me read the test section and fix the remaining tests:
 ````
@@ -64,7 +64,7 @@ wc -l crates/forge_domain/src/compact/summary.rs
 ````
 Let me remove the old test functions that use the old API and keep only the ones we need:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now let me read more of the test file to see what else needs fixing:
 ````
@@ -76,27 +76,27 @@ I see there are many tests that use the old struct-based API. Let me fix all the
 ````
 I see the issue - all these tests are using the old struct-based API with `.default()` and setters. Since we changed to an enum-based design, these tests need to be completely rewritten. Let me replace all the problematic tests:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now let me fix the remaining tests. Let me continue with the next batch:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now let me fix the tests that use `block_read_with_content` and `block_update_with_content`:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now let me fix the next test with multiple tool results:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now let me fix the next test:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now let me fix the complex conversation test:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now let me remove the last test that uses the old API:
 ````
@@ -104,7 +104,7 @@ Now let me remove the last test that uses the old API:
 ````
 Let me remove the last test that uses the old struct-based API:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now let me run the tests again to see if there are any remaining issues:
 ````
@@ -119,7 +119,7 @@ There are still compilation errors in other files that use the old API. Let me c
 ````
 I see - there are other transformer files that also use the old API. Let me fix this file:
 ````
-**Update:** `crates/forge_domain/src/compact/transformers/drop_role.rs`
+**MCP:** `patch`
 ````
 Good! Now let me check the other files that have compilation errors. Let me search for files that use `SummaryMessageBlock`:
 ````
@@ -131,7 +131,7 @@ Let me check and fix those files:
 ````
 Let me fix this file:
 ````
-**Update:** `crates/forge_domain/src/compact/transformers/keep_first_user_message.rs`
+**MCP:** `patch`
 ````
 Now let me check the trim_context_summary.rs file:
 ````
@@ -151,11 +151,11 @@ This is a complex refactoring. Let me systematically fix the `trim_context_summa
 ````
 This file needs significant refactoring. Let me create a comprehensive fix. I'll need to update the implementation to work with the enum-based API:
 ````
-**Update:** `crates/forge_domain/src/compact/transformers/trim_context_summary.rs`
+**MCP:** `patch`
 ````
 Good! Now let me fix the test helpers:
 ````
-**Update:** `crates/forge_domain/src/compact/transformers/trim_context_summary.rs`
+**MCP:** `patch`
 ````
 Now I need to update all the test cases. Due to the large number of changes needed, let me run the tests first to see the current errors, then I'll provide a summary of what was accomplished:
 ````
@@ -232,12 +232,11 @@ The main `summary.rs` tests should now pass. The transformer tests in other file
 ````
 You're right - `tool_call_success` should not be optional since we always know whether a tool call succeeded or not. Let me fix that:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now let me update the transformer files to use the non-optional `tool_call_success`:
 ````
-**Update:** `crates/forge_domain/src/compact/transformers/keep_first_user_message.rs`
-**Update:** `crates/forge_domain/src/compact/transformers/trim_context_summary.rs`
+**MCP:** `patch`
 ````
 Good! Now let me run the tests to see the current status:
 ````
@@ -248,7 +247,8 @@ cargo test --package forge_domain --lib compact::summary 2>&1 | head -100
 ````
 There are still errors in other transformer files. Let me quickly fix `strip_working_dir.rs`:
 ````
-**Update:** `crates/forge_domain/src/compact/transformers/strip_working_dir.rs`
+**Read:** `crates/forge_domain/src/compact/transformers/strip_working_dir.rs`
+**MCP:** `patch`
 ````
 Now let me search for all other uses of `Block::read`, `Block::update`, and `Block::remove` in that file and fix them:
 ````
@@ -316,7 +316,7 @@ cargo test --package forge_domain --lib compact::summary::tests 2>&1 | tail -30
 ````
 Let me fix those mutable warnings and then run the actual summary tests:
 ````
-**Update:** `crates/forge_domain/src/compact/summary.rs`
+**MCP:** `patch`
 ````
 Now let me run just the summary tests to verify they work:
 ````
@@ -334,7 +334,9 @@ cargo build --package forge_domain --lib 2>&1 | head -50
 ````
 Let me fix the strip_working_dir.rs import and type issues:
 ````
-**Update:** `crates/forge_domain/src/compact/transformers/strip_working_dir.rs`
+**MCP:** `patch`
+**Read:** `crates/forge_domain/src/compact/transformers/strip_working_dir.rs`
+**MCP:** `patch`
 ````
 Now let me try building again:
 ````

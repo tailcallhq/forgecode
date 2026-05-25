@@ -192,7 +192,10 @@ where
                     .select_one_enum::<PolicyPermission>(&confirmation_msg)
                     .await?
                 {
-                    Some(PolicyPermission::Accept) => Ok(PolicyDecision { allowed: true, path }),
+                    Some(PolicyPermission::Accept) => {
+                        tracing::info!("Permission accepted by user");
+                        Ok(PolicyDecision { allowed: true, path })
+                    }
                     Some(PolicyPermission::AcceptAndRemember) => {
                         let update_path = self.add_policy_for_operation(operation).await?;
                         Ok(PolicyDecision { allowed: true, path: update_path.or(path) })

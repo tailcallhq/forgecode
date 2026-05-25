@@ -982,6 +982,7 @@ mod tests {
             input: forge_domain::FSWrite {
                 file_path: "/home/user/new_file.txt".to_string(),
                 content: content.to_string(),
+                context: String::new(),
                 overwrite: false,
             },
             output: FsWriteOutput {
@@ -1013,6 +1014,7 @@ mod tests {
             input: forge_domain::FSWrite {
                 file_path: "/home/user/existing_file.txt".to_string(),
                 content: content.to_string(),
+                context: String::new(),
                 overwrite: true,
             },
             output: FsWriteOutput {
@@ -1518,6 +1520,7 @@ mod tests {
             input: forge_domain::FSWrite {
                 file_path: "/home/user/file_with_warning.txt".to_string(),
                 content: content.to_string(),
+                context: String::new(),
                 overwrite: false,
             },
             output: FsWriteOutput {
@@ -1549,6 +1552,7 @@ mod tests {
             input: forge_domain::FSWrite {
                 file_path: "/home/user/file_with_warning.txt".to_string(),
                 content: content.to_string(),
+                context: String::new(),
                 overwrite: false,
             },
             output: FsWriteOutput {
@@ -2083,6 +2087,7 @@ mod tests {
                 file_path: "/home/user/test.txt".to_string(),
                 old_string: "world".to_string(),
                 new_string: "universe".to_string(),
+                context: String::new(),
                 replace_all: false,
             },
             output: PatchOutput {
@@ -2115,6 +2120,7 @@ mod tests {
                 file_path: "/home/user/large_file.txt".to_string(),
                 old_string: "line1".to_string(),
                 new_string: "\nnew line".to_string(),
+                context: String::new(),
                 replace_all: false,
             },
             output: PatchOutput {
@@ -2147,6 +2153,7 @@ mod tests {
                 file_path: "/home/user/test.zsh".to_string(),
                 old_string: "line1".to_string(),
                 new_string: "\nnew line".to_string(),
+                context: String::new(),
                 replace_all: false,
             },
             output: PatchOutput {

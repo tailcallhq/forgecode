@@ -133,6 +133,7 @@ mod tests {
             input: forge_domain::FSWrite {
                 file_path: "/home/user/project/new_file.txt".to_string(),
                 content: content.to_string(),
+                context: String::new(),
                 overwrite: false,
             },
             output: FsWriteOutput {
@@ -157,6 +158,7 @@ mod tests {
             input: forge_domain::FSWrite {
                 file_path: "/home/user/project/existing_file.txt".to_string(),
                 content: content.to_string(),
+                context: String::new(),
                 overwrite: true,
             },
             output: FsWriteOutput {
@@ -185,6 +187,7 @@ mod tests {
             input: forge_domain::FSWrite {
                 file_path: "/home/user/project/file.txt".to_string(),
                 content: content.to_string(),
+                context: String::new(),
                 overwrite: false,
             },
             output: FsWriteOutput {
@@ -304,6 +307,7 @@ mod tests {
                 file_path: "/home/user/project/test.txt".to_string(),
                 old_string: "Hello world".to_string(),
                 new_string: "Hello universe".to_string(),
+                context: String::new(),
                 replace_all: false,
             },
             output: PatchOutput {
@@ -327,6 +331,7 @@ mod tests {
                 file_path: "/home/user/project/large_file.txt".to_string(),
                 old_string: "line2".to_string(),
                 new_string: "new line\nline2".to_string(),
+                context: String::new(),
                 replace_all: false,
             },
             output: PatchOutput {

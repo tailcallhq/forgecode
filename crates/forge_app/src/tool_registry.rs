@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,6 +25,23 @@ use crate::{
     AgentRegistry, EnvironmentInfra, McpService, PolicyService, ProviderService, Services,
     ToolResolver, WorkspaceService,
 };
+
+/// Truncate text to a maximum length, appending "…" if truncated.
+fn truncate_text(text: &str, max_len: usize) -> String {
+    if text.len() > max_len {
+        format!("{}…", &text[..max_len])
+    } else {
+        text.to_string()
+    }
+}
+
+/// Indent multi-line text with a prefix (e.g. "  │  ").
+fn textwrap_indent(text: &str, prefix: &str) -> String {
+    text.lines()
+        .map(|line| format!("{prefix}{line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 pub struct ToolRegistry<S> {
     tool_executor: ToolExecutor<S>,
@@ -60,16 +78,42 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
             })?
     }
 
-    /// Check if a tool operation is allowed based on the workflow policies
+    /// Check if a tool operation is allowed based on the workflow policies.
+    /// Uses the case brief for structured tracing of the full decision trail.
     async fn check_tool_permission(
         &self,
         tool_input: &ToolCatalog,
         context: &ToolCallContext,
+        case: &forge_domain::PermissionCase,
     ) -> anyhow::Result<bool> {
         let cwd = self.services.get_environment().cwd;
         let operation = tool_input.to_policy_operation(cwd.clone());
         if let Some(operation) = operation {
+            // Create a tracing span for the permission check, attaching all
+            // case evidence as structured fields for observability.
+            let span = tracing::info_span!(
+                "permission_check",
+                case_id = %case.case_id,
+                operation_type = %case.operation_type,
+                file_path = %case.file_path.display(),
+                tool = %case.operation_type,
+                timestamp = %case.timestamp,
+            );
+            let _guard = span.enter();
+
+            tracing::info!(
+                operation_message = %case.changes_description.as_deref().unwrap_or(""),
+                "Evaluating permission"
+            );
             let decision = self.services.check_operation_permission(&operation).await?;
+
+            tracing::info!(
+                allowed = decision.allowed,
+                has_policy_update = decision.path.is_some(),
+                "Permission decision rendered"
+            );
+
+            drop(_guard);
 
             // Send custom policy message to the user when a policy file was created
             if let Some(policy_path) = decision.path {
@@ -90,6 +134,103 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
         Ok(false)
     }
 
+    /// Build a structured case brief for a permission decision.
+    /// Collects all evidence (tool details, proposed changes, operation)
+    /// so the user can inspect everything before making a decision.
+    fn build_case(tool_input: &ToolCatalog, cwd: &Path) -> Option<forge_domain::PermissionCase> {
+        let operation_type = match tool_input {
+            ToolCatalog::Write(_) | ToolCatalog::Patch(_) | ToolCatalog::MultiPatch(_)
+            | ToolCatalog::Remove(_) => "Write",
+            ToolCatalog::Read(_) | ToolCatalog::FsSearch(_) | ToolCatalog::SemSearch(_) => "Read",
+            ToolCatalog::Shell(_) => "Execute",
+            ToolCatalog::Fetch(_) => "Fetch",
+            _ => return None,
+        };
+
+        let (file_path, changes_description, explanation): (PathBuf, Option<String>, String) =
+            match tool_input {
+                ToolCatalog::Write(input) => {
+                    let desc = format!(
+                        "  ├─ Create/overwrite: {} bytes\n  │\n  │  {}\n  │\n",
+                        input.content.len(),
+                        textwrap_indent(&input.content, "  │  ")
+                    );
+                    (PathBuf::from(&input.file_path), Some(desc), input.context.clone())
+                }
+                ToolCatalog::Patch(input) => {
+                    let old_lines: Vec<_> = input.old_string.lines().collect();
+                    let new_lines: Vec<_> = input.new_string.lines().collect();
+                    let desc = format!(
+                        "  ├─ Patch ({} → {} lines{})\n  │\n  │  - {}\n  │  + {}\n  │\n",
+                        old_lines.len(),
+                        new_lines.len(),
+                        if input.replace_all { ", replace_all" } else { "" },
+                        truncate_text(&input.old_string, 120),
+                        truncate_text(&input.new_string, 120),
+                    );
+                    (PathBuf::from(&input.file_path), Some(desc), input.context.clone())
+                }
+                ToolCatalog::MultiPatch(input) => {
+                    let mut desc = format!(
+                        "  ├─ MultiPatch: {} edits\n  │\n",
+                        input.edits.len()
+                    );
+                    for (i, edit) in input.edits.iter().enumerate().take(10) {
+                        desc.push_str(&format!(
+                            "  │  {}. Replace {}\n  │     → {}\n",
+                            i + 1,
+                            truncate_text(&edit.old_string, 60),
+                            truncate_text(&edit.new_string, 60),
+                        ));
+                    }
+                    if input.edits.len() > 10 {
+                        desc.push_str(&format!(
+                            "  │  ... and {} more edits\n",
+                            input.edits.len() - 10
+                        ));
+                    }
+                    desc.push_str("  │\n");
+                    (PathBuf::from(&input.file_path), Some(desc), input.context.clone())
+                }
+                ToolCatalog::Remove(input) => {
+                    (PathBuf::from(&input.path), Some(format!("  ├─ Remove file\n  │\n")), String::new())
+                }
+                ToolCatalog::Shell(input) => {
+                    (cwd.join("shell"), Some(format!(
+                        "  ├─ Command: {}\n  │\n",
+                        truncate_text(&input.command, 200)
+                    )), String::new())
+                }
+                ToolCatalog::Fetch(input) => {
+                    (PathBuf::from("fetch"), Some(format!(
+                        "  ├─ URL: {}\n  │\n",
+                        input.url
+                    )), String::new())
+                }
+                _ => return None,
+            };
+
+        let operation = tool_input.to_policy_operation(cwd.to_path_buf());
+        operation.map(|op| {
+            forge_domain::PermissionCase::new(
+                operation_type,
+                op,
+                file_path,
+                changes_description,
+                explanation,
+            )
+        })
+    }
+
+    /// Format and print the case brief to stdout before the TUI permission
+    /// prompt. The TUI uses stderr and clears it when entering raw mode, but
+    /// stdout scrollback remains visible in the terminal.
+    fn print_case(case: &forge_domain::PermissionCase) {
+        println!("{}", case.format_panel());
+    }
+
+    /// Check if a tool operation is allowed based on the workflow policies.
+    /// Emits structured tracing events for full observability.
     async fn call_inner(
         &self,
         agent: &Agent,
@@ -139,17 +280,27 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
 
             // Check permissions before executing the tool (only in restricted mode)
             // This is done BEFORE the timeout to ensure permissions are never timed out
-            let is_restricted = self.services.get_config()?.restricted;
-            if is_restricted && self.check_tool_permission(&tool_input, context).await? {
-                // Send formatted output message for policy denial
-                context
-                    .send(forge_domain::TitleFormat::error("Permission Denied"))
-                    .await?;
+            // Write proposed changes to stdout before the TUI permission prompt so the
+            // user has context about what will be written/modified. The TUI uses stderr
+            // and clears it, but stdout scrollback remains visible in the terminal.
+            if self.services.get_config()?.restricted {
+                // Build the case brief and print it before the TUI permission prompt
+                let cwd = self.services.get_environment().cwd.clone();
+                if let Some(case) = Self::build_case(&tool_input, &cwd) {
+                    Self::print_case(&case);
 
-                return Ok(ToolOutput::text(
-                    Element::new("permission_denied")
-                        .cdata("User has denied the permission to execute this tool"),
-                ));
+                    if self.check_tool_permission(&tool_input, context, &case).await? {
+                        tracing::info!("Permission denied by user");
+                        context
+                            .send(forge_domain::TitleFormat::error("Permission Denied"))
+                            .await?;
+
+                        return Ok(ToolOutput::text(
+                            Element::new("permission_denied")
+                                .cdata("User has denied the permission to execute this tool"),
+                        ));
+                    }
+                }
             }
 
             // Validate tool modality support before execution
@@ -980,7 +1131,8 @@ fn test_validate_tool_modality_with_non_read_tool() {
     let tool_input = ToolCatalog::Write(forge_domain::FSWrite {
         file_path: "/home/user/test.png".to_string(),
         content: "test".to_string(),
-        ..Default::default()
+        context: String::new(),
+        overwrite: false,
     });
 
     let result = ToolRegistry::<()>::validate_tool_modality(&tool_input, Some(&text_only_model));
