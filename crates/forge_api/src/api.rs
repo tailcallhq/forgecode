@@ -46,6 +46,12 @@ pub trait API: Sync + Send {
     /// Executes a chat request and returns a stream of responses
     async fn chat(&self, chat: ChatRequest) -> Result<MpscStream<Result<ChatResponse>>>;
 
+    /// Retries the last non-droppable user message in the conversation.
+    async fn retry(
+        &self,
+        conversation_id: ConversationId,
+    ) -> Result<MpscStream<Result<ChatResponse>>>;
+
     /// Commits changes with an AI-generated commit message
     async fn commit(
         &self,

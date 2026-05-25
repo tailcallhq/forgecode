@@ -147,6 +147,29 @@ impl<
         self.app().chat(agent_id, chat).await
     }
 
+    async fn retry(
+        &self,
+        conversation_id: ConversationId,
+    ) -> anyhow::Result<MpscStream<Result<ChatResponse, anyhow::Error>>> {
+        let conversation = self
+            .services
+            .find_conversation(&conversation_id)
+            .await?
+            .ok_or_else(|| forge_domain::Error::ConversationNotFound(conversation_id))?;
+
+        let user_message = conversation.last_user_message()
+            .ok_or_else(|| anyhow::anyhow!("No user message found to retry"))?;
+
+        let event = user_message
+            .raw_content
+            .clone()
+            .map(Event::new)
+            .unwrap_or_else(|| Event::new(user_message.content.clone()));
+
+        let chat = ChatRequest::new(event, conversation_id);
+        self.chat(chat).await
+    }
+
     async fn upsert_conversation(&self, conversation: Conversation) -> anyhow::Result<()> {
         self.services.upsert_conversation(conversation).await
     }

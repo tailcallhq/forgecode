@@ -113,6 +113,20 @@ impl Conversation {
             .unwrap_or_default()
     }
 
+    /// Returns the last non-droppable user message in the conversation.
+    pub fn last_user_message(&self) -> Option<&crate::TextMessage> {
+        self.context.as_ref()?.messages.iter().rev().find_map(|message| {
+            match &**message {
+                crate::ContextMessage::Text(text)
+                    if text.role == crate::Role::User && !text.droppable =>
+                {
+                    Some(text)
+                }
+                _ => None,
+            }
+        })
+    }
+
     /// Returns the total token usage across all messages in the conversation.
     ///
     /// This is a convenience method that aggregates usage from the context,
@@ -279,6 +293,21 @@ mod tests {
         let actual = conversation.related_conversation_ids();
 
         assert_eq!(actual, vec![agent_conv_id]);
+    }
+
+    #[test]
+    fn test_last_user_message_returns_latest_non_droppable_message() {
+        let context = Context::default()
+            .add_message(ContextMessage::user("First", None))
+            .add_message(ContextMessage::assistant("Reply", None, None, None))
+            .add_message(ContextMessage::user("Retry me", None))
+            .add_message(crate::TextMessage::new(crate::Role::User, "Ignored").droppable(true));
+
+        let conversation = Conversation::generate().context(context);
+        let actual = conversation.last_user_message().map(|message| message.content.as_str());
+        let expected = Some("Retry me");
+
+        assert_eq!(actual, expected);
     }
 
     #[test]
