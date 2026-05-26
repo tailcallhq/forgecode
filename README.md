@@ -1088,6 +1088,168 @@ MCP tools can be used as part of multi-agent workflows, allowing specialized age
 
 ---
 
+## Permission System
+
+Forge includes a policy-based permission system that lets you control what operations the AI agent can perform. The system evaluates every tool call — reads, writes, command execution, and network fetches — against a set of configurable rules before allowing it.
+
+### Permission Levels
+
+Every operation is classified into one of three permission outcomes:
+
+| Level     | Behavior                                                                 |
+|-----------|--------------------------------------------------------------------------|
+| **Allow** | The operation proceeds without user interaction                          |
+| **Deny**  | The operation is blocked; the agent receives a denial message            |
+| **Confirm** | The user is prompted to Accept, Reject, or Accept and Remember the operation |
+
+### Operation Types
+
+The permission system gates four operation types:
+
+| Operation   | Description                          |
+|-------------|--------------------------------------|
+| **Read**    | Reading file contents and search operations |
+| **Write**   | Writing, patching, and removing files  |
+| **Execute** | Running shell commands                |
+| **Fetch**   | Making network/URL requests           |
+
+### Restricted Mode
+
+By default, Forge operates with open permissions (all operations allowed). To enable the permission system, set `restricted` to `true` in your `forge.toml`:
+
+```toml
+# forge.toml
+restricted = true
+```
+
+When restricted mode is active, every tool call is checked against the policy engine before execution:
+
+1. **Preview**: For operations requiring confirmation, the proposed changes are displayed inline (diff for patches, file content for writes, command text for executions, URL for fetches)
+2. **Decision**: The user is prompted to Accept, Reject, or Accept and Remember
+3. **Policy creation**: "Accept and Remember" dynamically creates a new allow rule for similar operations based on file extension, hostname, or command prefix
+
+### Policy Configuration
+
+Policies are defined in a YAML file located at `~/.forge/permissions.yaml`. Each policy pairs a permission level with a rule that matches specific operations using glob patterns:
+
+```yaml
+# ~/.forge/permissions.yaml
+policies:
+  - permission: allow
+    rule:
+      read: "**/*.rs"              # Allow reading all Rust files
+  - permission: confirm
+    rule:
+      write: "src/**/*"            # Confirm before writing to src/
+  - permission: deny
+    rule:
+      command: "rm -rf /*"         # Deny dangerous commands
+```
+
+**Default configuration** (created automatically on first use):
+
+```yaml
+policies:
+  - permission: allow
+    rule:
+      read: "**/*"                 # Allow reading any file
+  - permission: allow
+    rule:
+      write: "**/*"                # Allow writing any file
+  - permission: allow
+    rule:
+      command: "*"                 # Allow any command
+  - permission: allow
+    rule:
+      url: "*"                     # Allow any URL fetch
+```
+
+### Rule Types
+
+| Rule Type  | Pattern Field | Target         | Example                             |
+|------------|---------------|----------------|-------------------------------------|
+| `read`     | Glob path     | File reads     | `read: "docs/**/*.md"`              |
+| `write`    | Glob path     | File writes    | `write: "src/**/*.rs"`              |
+| `command`  | Glob string   | Shell commands | `command: "cargo *"`                |
+| `url`      | Glob string   | Network fetches| `url: "api.example.com/*"`          |
+
+All rule types support an optional `dir` field to scope the rule to a specific working directory:
+
+```yaml
+- permission: allow
+  rule:
+    command: "git *"
+    dir: "/home/user/projects/*"    # Only applies when in a project directory
+```
+
+### Policy Composition
+
+Policies can be composed using logical operators for more granular control:
+
+```yaml
+policies:
+  # Allow writes to Rust files in the src directory
+  - all:
+      - permission: allow
+        rule:
+          write: "src/**/*"
+      - permission: allow
+        rule:
+          write: "**/*.rs"
+
+  # Allow npm or cargo commands
+  - any:
+      - permission: allow
+        rule:
+          command: "npm *"
+      - permission: allow
+        rule:
+          command: "cargo *"
+
+  # Deny everything except the above
+  - not:
+      permission: allow
+      rule:
+        command: "*"
+```
+
+| Operator | YAML Key | Behavior |
+|----------|----------|----------|
+| **All**  | `all`    | All nested policies must match (most restrictive wins) |
+| **Any**  | `any`    | First matching policy determines the outcome |
+| **Not**  | `not`    | Inverts the permission (Allow → Deny, Deny → Allow) |
+
+### Dynamic Policy Creation
+
+When a user selects "Accept and Remember" during a confirmation prompt, Forge automatically creates a policy rule for similar future operations:
+
+- **File operations**: Creates a rule matching the file extension (e.g., `*.rs`)
+- **Commands**: Creates a rule matching the command and first subcommand (e.g., `git push*`)
+- **URL fetches**: Creates a rule matching the hostname (e.g., `api.example.com/*`)
+
+These dynamically created rules are appended to `~/.forge/permissions.yaml` and take effect immediately.
+
+### Viewing Permissions
+
+Run `forge info` to see the current location of your permissions file:
+
+```
+$ forge info
+  ...
+  Policies     │ ~/.forge/permissions.yaml
+```
+
+### Evaluation Order
+
+Policies are evaluated in order. The first matching rule determines the outcome:
+1. If any policy matches with **Deny** or **Confirm**, that decision is returned immediately
+2. If multiple policies match with **Allow**, the last Allow is used
+3. If no policies match, the operation defaults to **Confirm**
+4. In restricted mode, Confirm triggers an interactive prompt; outside restricted mode,
+   Confirm defaults to Allow
+
+---
+
 ## Documentation
 
 For comprehensive documentation on all features and capabilities, please visit the [documentation site](https://github.com/tailcallhq/forgecode/tree/main/docs).

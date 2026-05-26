@@ -9,6 +9,7 @@ use forge_domain::{
     Model, SystemContext, TemplateConfig, ToolCallContext, ToolCallFull, ToolCatalog,
     ToolDefinition, ToolKind, ToolName, ToolOutput, ToolResult,
 };
+use forge_select::PermissionPagerResult;
 use forge_template::Element;
 use futures::future::join_all;
 use serde_json::{Map, Value, json};
@@ -18,9 +19,12 @@ use tokio::time::timeout;
 use crate::agent_executor::AgentExecutor;
 use crate::dto::ToolsOverview;
 use crate::error::Error;
+use forge_domain::TitleFormat;
+
 use crate::fmt::content::FormatContent;
 use crate::mcp_executor::McpExecutor;
 use crate::tool_executor::ToolExecutor;
+use crate::utils::format_display_path;
 use crate::{
     AgentRegistry, EnvironmentInfra, McpService, PolicyService, ProviderService, Services,
     ToolResolver, WorkspaceService,
@@ -41,6 +45,33 @@ fn textwrap_indent(text: &str, prefix: &str) -> String {
         .map(|line| format!("{prefix}{line}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Truncate multi-line diff text for panel display.
+/// Shows first N lines and last N lines with a truncation indicator
+/// if the text exceeds MAX_LINES total lines.
+fn truncate_diff_text(text: &str, prefix: &str) -> String {
+    const MAX_LINES: usize = 50;
+    const HEAD_LINES: usize = 20;
+    const TAIL_LINES: usize = 20;
+
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= MAX_LINES {
+        return textwrap_indent(text, prefix);
+    }
+
+    let truncated = lines.len() - HEAD_LINES - TAIL_LINES;
+    let mut result = String::new();
+    for line in lines.iter().take(HEAD_LINES) {
+        result.push_str(&format!("{prefix}{line}\n"));
+    }
+    result.push_str(&format!(
+        "{prefix}  [truncated {truncated} lines]\n"
+    ));
+    for line in lines.iter().rev().take(TAIL_LINES).rev() {
+        result.push_str(&format!("{prefix}{line}\n"));
+    }
+    result
 }
 
 pub struct ToolRegistry<S> {
@@ -78,159 +109,6 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
             })?
     }
 
-    /// Check if a tool operation is allowed based on the workflow policies.
-    /// Uses the case brief for structured tracing of the full decision trail.
-    async fn check_tool_permission(
-        &self,
-        tool_input: &ToolCatalog,
-        context: &ToolCallContext,
-        case: &forge_domain::PermissionCase,
-    ) -> anyhow::Result<bool> {
-        let cwd = self.services.get_environment().cwd;
-        let operation = tool_input.to_policy_operation(cwd.clone());
-        if let Some(operation) = operation {
-            // Create a tracing span for the permission check, attaching all
-            // case evidence as structured fields for observability.
-            let span = tracing::info_span!(
-                "permission_check",
-                case_id = %case.case_id,
-                operation_type = %case.operation_type,
-                file_path = %case.file_path.display(),
-                tool = %case.operation_type,
-                timestamp = %case.timestamp,
-            );
-            let _guard = span.enter();
-
-            tracing::info!(
-                operation_message = %case.changes_description.as_deref().unwrap_or(""),
-                "Evaluating permission"
-            );
-            let decision = self.services.check_operation_permission(&operation).await?;
-
-            tracing::info!(
-                allowed = decision.allowed,
-                has_policy_update = decision.path.is_some(),
-                "Permission decision rendered"
-            );
-
-            drop(_guard);
-
-            // Send custom policy message to the user when a policy file was created
-            if let Some(policy_path) = decision.path {
-                use forge_domain::TitleFormat;
-
-                use crate::utils::format_display_path;
-                context
-                    .send_tool_input(
-                        TitleFormat::debug("Permissions Update")
-                            .sub_title(format_display_path(policy_path.as_path(), &cwd)),
-                    )
-                    .await?;
-            }
-            if !decision.allowed {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    /// Build a structured case brief for a permission decision.
-    /// Collects all evidence (tool details, proposed changes, operation)
-    /// so the user can inspect everything before making a decision.
-    fn build_case(tool_input: &ToolCatalog, cwd: &Path) -> Option<forge_domain::PermissionCase> {
-        let operation_type = match tool_input {
-            ToolCatalog::Write(_) | ToolCatalog::Patch(_) | ToolCatalog::MultiPatch(_)
-            | ToolCatalog::Remove(_) => "Write",
-            ToolCatalog::Read(_) | ToolCatalog::FsSearch(_) | ToolCatalog::SemSearch(_) => "Read",
-            ToolCatalog::Shell(_) => "Execute",
-            ToolCatalog::Fetch(_) => "Fetch",
-            _ => return None,
-        };
-
-        let (file_path, changes_description, explanation): (PathBuf, Option<String>, String) =
-            match tool_input {
-                ToolCatalog::Write(input) => {
-                    let desc = format!(
-                        "  ├─ Create/overwrite: {} bytes\n  │\n  │  {}\n  │\n",
-                        input.content.len(),
-                        textwrap_indent(&input.content, "  │  ")
-                    );
-                    (PathBuf::from(&input.file_path), Some(desc), input.context.clone())
-                }
-                ToolCatalog::Patch(input) => {
-                    let old_lines: Vec<_> = input.old_string.lines().collect();
-                    let new_lines: Vec<_> = input.new_string.lines().collect();
-                    let desc = format!(
-                        "  ├─ Patch ({} → {} lines{})\n  │\n  │  - {}\n  │  + {}\n  │\n",
-                        old_lines.len(),
-                        new_lines.len(),
-                        if input.replace_all { ", replace_all" } else { "" },
-                        truncate_text(&input.old_string, 120),
-                        truncate_text(&input.new_string, 120),
-                    );
-                    (PathBuf::from(&input.file_path), Some(desc), input.context.clone())
-                }
-                ToolCatalog::MultiPatch(input) => {
-                    let mut desc = format!(
-                        "  ├─ MultiPatch: {} edits\n  │\n",
-                        input.edits.len()
-                    );
-                    for (i, edit) in input.edits.iter().enumerate().take(10) {
-                        desc.push_str(&format!(
-                            "  │  {}. Replace {}\n  │     → {}\n",
-                            i + 1,
-                            truncate_text(&edit.old_string, 60),
-                            truncate_text(&edit.new_string, 60),
-                        ));
-                    }
-                    if input.edits.len() > 10 {
-                        desc.push_str(&format!(
-                            "  │  ... and {} more edits\n",
-                            input.edits.len() - 10
-                        ));
-                    }
-                    desc.push_str("  │\n");
-                    (PathBuf::from(&input.file_path), Some(desc), input.context.clone())
-                }
-                ToolCatalog::Remove(input) => {
-                    (PathBuf::from(&input.path), Some(format!("  ├─ Remove file\n  │\n")), String::new())
-                }
-                ToolCatalog::Shell(input) => {
-                    (cwd.join("shell"), Some(format!(
-                        "  ├─ Command: {}\n  │\n",
-                        truncate_text(&input.command, 200)
-                    )), String::new())
-                }
-                ToolCatalog::Fetch(input) => {
-                    (PathBuf::from("fetch"), Some(format!(
-                        "  ├─ URL: {}\n  │\n",
-                        input.url
-                    )), String::new())
-                }
-                _ => return None,
-            };
-
-        let operation = tool_input.to_policy_operation(cwd.to_path_buf());
-        operation.map(|op| {
-            forge_domain::PermissionCase::new(
-                operation_type,
-                op,
-                file_path,
-                changes_description,
-                explanation,
-            )
-        })
-    }
-
-    /// Format and print the case brief to stdout before the TUI permission
-    /// prompt. The TUI uses stderr and clears it when entering raw mode, but
-    /// stdout scrollback remains visible in the terminal.
-    fn print_case(case: &forge_domain::PermissionCase) {
-        println!("{}", case.format_panel());
-    }
-
-    /// Check if a tool operation is allowed based on the workflow policies.
-    /// Emits structured tracing events for full observability.
     async fn call_inner(
         &self,
         agent: &Agent,
@@ -280,25 +158,89 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
 
             // Check permissions before executing the tool (only in restricted mode)
             // This is done BEFORE the timeout to ensure permissions are never timed out
-            // Write proposed changes to stdout before the TUI permission prompt so the
-            // user has context about what will be written/modified. The TUI uses stderr
-            // and clears it, but stdout scrollback remains visible in the terminal.
+            // First check what permission type the policy engine assigns.
+            // Only show the command preview when user confirmation is needed
+            // (Permission::Confirm). Allow and Deny skip the preview entirely.
             if self.services.get_config()?.restricted {
-                // Build the case brief and print it before the TUI permission prompt
                 let cwd = self.services.get_environment().cwd.clone();
-                if let Some(case) = Self::build_case(&tool_input, &cwd) {
-                    Self::print_case(&case);
+                if let Some(operation) = tool_input.to_policy_operation(cwd.clone()) {
+                    match self.services.check_permission_type(&operation).await? {
+                        forge_domain::Permission::Deny => {
+                            tracing::info!(
+                                operation_type = ?operation,
+                                "Permission denied by policy"
+                            );
+                            context
+                                .send(forge_domain::TitleFormat::error(
+                                    "Permission Denied"
+                                ))
+                                .await?;
+                            context
+                                .send(forge_domain::TitleFormat::debug(
+                                    "Operation was denied by the active policy."
+                                ))
+                                .await?;
+                            return Ok(ToolOutput::text(
+                                Element::new("permission_denied")
+                                    .cdata("Operation was denied by the active policy"),
+                            ));
+                        }
+                        forge_domain::Permission::Allow => {
+                            // Permission automatically allowed by policy — no preview needed.
+                            // Continue directly to tool execution.
+                        }
+                        forge_domain::Permission::Confirm => {
+                            // Show the interactive permission pager with the full case
+                            if let Some(case) = Self::build_case(&tool_input, &cwd) {
+                                let panel = case.format_panel();
+                                match forge_select::show_permission_pager(&panel)? {
+                                    PermissionPagerResult::Accept => {
+                                        // Proceed with tool execution
+                                    }
+                                    PermissionPagerResult::AcceptAndRemember => {
+                                        let operation =
+                                            tool_input.to_policy_operation(cwd.clone());
+                                        if let Some(op) = operation {
+                                            if let Some(policy_path) = self
+                                                .services
+                                                .remember_operation(&op)
+                                                .await?
+                                            {
+                                                context
+                                                    .send_tool_input(
+                                                        TitleFormat::debug("Permissions Update")
+                                                            .sub_title(format_display_path(
+                                                                policy_path.as_path(),
+                                                                &cwd,
+                                                            )),
+                                                    )
+                                                    .await?;
+                                            }
+                                        }
+                                        // Proceed with tool execution
+                                    }
+                                    PermissionPagerResult::Reject => {
+                                        tracing::info!("Permission denied by user");
+                                        context
+                                            .send(forge_domain::TitleFormat::error(
+                                                "Permission Denied",
+                                            ))
+                                            .await?;
+                                        context
+                                            .send(forge_domain::TitleFormat::debug(
+                                                "User has denied the permission to execute this tool",
+                                            ))
+                                            .await?;
 
-                    if self.check_tool_permission(&tool_input, context, &case).await? {
-                        tracing::info!("Permission denied by user");
-                        context
-                            .send(forge_domain::TitleFormat::error("Permission Denied"))
-                            .await?;
-
-                        return Ok(ToolOutput::text(
-                            Element::new("permission_denied")
-                                .cdata("User has denied the permission to execute this tool"),
-                        ));
+                                        return Ok(ToolOutput::text(
+                                            Element::new("permission_denied").cdata(
+                                                "User has denied the permission to execute this tool",
+                                            ),
+                                        ));
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -310,6 +252,38 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
                 let model = self.get_current_model().await;
                 Self::validate_tool_modality(&tool_input, model.as_ref())?;
             }
+
+            // Send a visual indicator showing what tool is executing
+            let execution_title = match &tool_input {
+                ToolCatalog::Write(w) => {
+                    format!("Writing {}", format_display_path(Path::new(&w.file_path), &env.cwd))
+                }
+                ToolCatalog::Patch(p) => {
+                    format!("Patching {}", format_display_path(Path::new(&p.file_path), &env.cwd))
+                }
+                ToolCatalog::MultiPatch(m) => {
+                    format!("Patching {}", format_display_path(Path::new(&m.file_path), &env.cwd))
+                }
+                ToolCatalog::Remove(r) => {
+                    format!("Removing {}", format_display_path(Path::new(&r.path), &env.cwd))
+                }
+                ToolCatalog::Shell(s) => format!("Running: {}", truncate_text(&s.command, 80)),
+                ToolCatalog::Fetch(f) => format!("Fetching {}", f.url),
+                ToolCatalog::Read(r) => {
+                    format!("Reading {}", format_display_path(Path::new(&r.file_path), &env.cwd))
+                }
+                ToolCatalog::FsSearch(s) => {
+                    format!("Searching for \"{}\"", truncate_text(&s.pattern, 60))
+                }
+                ToolCatalog::SemSearch(s) => {
+                    let q = s.queries.first().map(|q| q.query.as_str()).unwrap_or("?");
+                    format!("Semantic search for \"{}\"", truncate_text(q, 60))
+                }
+                _ => format!("Executing {}", tool_name),
+            };
+            context
+                .send_tool_input(TitleFormat::action(execution_title))
+                .await?;
 
             self.call_with_timeout(&tool_name, || {
                 self.tool_executor.execute(tool_input, context)
@@ -441,6 +415,130 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
 }
 
 impl<S> ToolRegistry<S> {
+    /// Build a structured case brief for a permission decision.
+    /// Collects all evidence (tool details, proposed changes, operation)
+    /// so the user can inspect everything before making a decision.
+    fn build_case(tool_input: &ToolCatalog, cwd: &Path) -> Option<forge_domain::PermissionCase> {
+        let operation_type = match tool_input {
+            ToolCatalog::Write(_) | ToolCatalog::Patch(_) | ToolCatalog::MultiPatch(_)
+            | ToolCatalog::Remove(_) => "Write",
+            ToolCatalog::Read(_) | ToolCatalog::FsSearch(_) | ToolCatalog::SemSearch(_) => "Read",
+            ToolCatalog::Shell(_) => "Execute",
+            ToolCatalog::Fetch(_) => "Fetch",
+            _ => return None,
+        };
+
+        let (file_path, changes_description, explanation): (PathBuf, Option<String>, String) =
+            match tool_input {
+                ToolCatalog::Write(input) => {
+                    let desc = format!(
+                        "  ├─ Create/overwrite: {} bytes\n  │\n  │  {}\n  │\n",
+                        input.content.len(),
+                        truncate_diff_text(&input.content, "  │  ")
+                    );
+                    (PathBuf::from(&input.file_path), Some(desc), input.context.clone())
+                }
+                ToolCatalog::Patch(input) => {
+                    let old_lines = input.old_string.lines().count();
+                    let new_lines = input.new_string.lines().count();
+                    let desc = format!(
+                        "  ├─ Patch ({} → {} lines{})\n  │\n  │  - {}\n  │  + {}\n  │\n",
+                        old_lines,
+                        new_lines,
+                        if input.replace_all { ", replace_all" } else { "" },
+                        truncate_diff_text(&input.old_string, "  │  "),
+                        truncate_diff_text(&input.new_string, "  │  "),
+                    );
+                    (PathBuf::from(&input.file_path), Some(desc), input.context.clone())
+                }
+                ToolCatalog::MultiPatch(input) => {
+                    let edit_count = input.edits.len();
+                    let total_old: usize = input.edits.iter().map(|e| e.old_string.lines().count()).sum();
+                    let total_new: usize = input.edits.iter().map(|e| e.new_string.lines().count()).sum();
+                    let mut desc = format!(
+                        "  ├─ MultiPatch: {} edits ({} → {} lines)\n",
+                        edit_count, total_old, total_new,
+                    );
+                    for (i, edit) in input.edits.iter().enumerate() {
+                        let old_lines = edit.old_string.lines().count();
+                        let new_lines = edit.new_string.lines().count();
+                        let flags = if edit.replace_all { " (replace_all)" } else { "" };
+                        desc.push_str(&format!(
+                            "  │\n  │  {}. {} → {} lines{flags}\n  │\n  │  - {}\n  │  + {}\n",
+                            i + 1,
+                            old_lines,
+                            new_lines,
+                            truncate_diff_text(&edit.old_string, "  │  "),
+                            truncate_diff_text(&edit.new_string, "  │  "),
+                        ));
+                    }
+                    desc.push_str("  │\n");
+                    (PathBuf::from(&input.file_path), Some(desc), input.context.clone())
+                }
+                ToolCatalog::Remove(input) => {
+                    (PathBuf::from(&input.path), Some(format!("  ├─ Remove file\n  │\n")), String::new())
+                }
+                ToolCatalog::Shell(input) => {
+                    let cmd_type = input.classify();
+                    let (classification_label, risk) = match cmd_type {
+                        forge_domain::CommandType::InlineCode => ("⛔ INLINE CODE", "AUTO-DENIED"),
+                        forge_domain::CommandType::FileScript => ("📜 SCRIPT", ""),
+                        forge_domain::CommandType::Utility => ("⚙ utility", ""),
+                    };
+                    let desc = format!(
+                        "  ├─ [{classification_label}] {risk}\n  │\n  ├─ Command: {}\n  │\n",
+                        truncate_text(&input.command, 500)
+                    );
+                    (cwd.join("shell"), Some(desc), input.context.clone())
+                }
+                ToolCatalog::Fetch(input) => {
+                    (PathBuf::from("fetch"), Some(format!(
+                        "  ├─ URL: {}\n  │\n",
+                        input.url
+                    )), String::new())
+                }
+                _ => return None,
+            };
+
+        let operation = tool_input.to_policy_operation(cwd.to_path_buf());
+        operation.map(|op| {
+            forge_domain::PermissionCase::new(
+                operation_type,
+                op,
+                file_path,
+                changes_description,
+                explanation,
+            )
+        })
+    }
+
+    /// Format and print the case brief to stdout and write it to a temp file
+    /// before the TUI permission prompt. Then pipe the full proposed changes
+    /// through `less` (the system pager) so the user can scroll through the
+    /// entire diff before the TUI prompt appears.
+    fn print_case(case: &forge_domain::PermissionCase) -> std::path::PathBuf {
+        let panel = case.format_panel();
+
+        // Write full case brief to a temp file for robust inspection
+        let case_dir = std::path::PathBuf::from("/tmp/forge-cases");
+        let _ = std::fs::create_dir_all(&case_dir);
+        let case_path = case_dir.join(format!("{}.md", case.case_id));
+        if let Err(e) = std::fs::write(&case_path, &panel) {
+            tracing::warn!(path = %case_path.display(), error = %e, "Failed to write case file");
+        } else {
+            tracing::info!(path = %case_path.display(), "Case brief written to file");
+        }
+
+        // Print the full case brief directly to stdout.
+        // No external pager needed — user sees the preview inline before
+        // the TUI permission prompt.
+        println!("{panel}");
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+
+        case_path
+    }
+
     fn get_system_tools(
         sem_search_supported: bool,
         env: &Environment,
@@ -906,6 +1004,138 @@ mod tests {
             .clone();
 
         assert_eq!(actual, expected);
+    }
+
+    // ---------------------------------------------------------------------------
+    // build_case() tests — verifies the case brief contains proposed changes
+    // so the user sees what will be modified BEFORE the TUI permission prompt.
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_build_case_write_contains_content() {
+        let tool = forge_domain::ToolCatalog::Write(forge_domain::FSWrite {
+            file_path: "/project/main.rs".to_string(),
+            content: "fn hello() {\n    println!(\"hi\");\n}".to_string(),
+            context: "Adding hello function".to_string(),
+            overwrite: false,
+        });
+        let case = ToolRegistry::<()>::build_case(&tool, std::path::Path::new("/project"));
+        assert!(case.is_some(), "Write should produce a case");
+        let case = case.unwrap();
+        let panel = case.format_panel();
+        assert!(panel.contains("Create/overwrite"), "panel must show Create/overwrite: {panel}");
+        assert!(panel.contains("fn hello()"), "panel must contain the proposed content: {panel}");
+        assert!(panel.contains(&case.case_id), "panel must contain case ID");
+    }
+
+    #[test]
+    fn test_build_case_patch_contains_diff() {
+        let tool = forge_domain::ToolCatalog::Patch(forge_domain::FSPatch {
+            file_path: "/project/src/lib.rs".to_string(),
+            old_string: "old_version()".to_string(),
+            new_string: "new_version()".to_string(),
+            context: "Bump version".to_string(),
+            replace_all: false,
+        });
+        let case = ToolRegistry::<()>::build_case(&tool, std::path::Path::new("/project"));
+        assert!(case.is_some(), "Patch should produce a case");
+        let case = case.unwrap();
+        let panel = case.format_panel();
+        assert!(panel.contains("Patch"), "panel must show operation type as Patch: {panel}");
+        assert!(panel.contains("old_version()"), "panel must show old_string: {panel}");
+        assert!(panel.contains("new_version()"), "panel must show new_string: {panel}");
+    }
+
+    #[test]
+    fn test_build_case_multipatch_lists_edits() {
+        use forge_domain::PatchEdit;
+
+        let tool = forge_domain::ToolCatalog::MultiPatch(forge_domain::FSMultiPatch {
+            file_path: "/project/src/app.rs".to_string(),
+            context: "Refactoring module".to_string(),
+            edits: vec![
+                PatchEdit { old_string: "fn a()".to_string(), new_string: "fn b()".to_string(), replace_all: false },
+                PatchEdit { old_string: "// old".to_string(), new_string: "// new".to_string(), replace_all: false },
+            ],
+        });
+        let case = ToolRegistry::<()>::build_case(&tool, std::path::Path::new("/project"));
+        assert!(case.is_some(), "MultiPatch should produce a case");
+        let case = case.unwrap();
+        let panel = case.format_panel();
+        assert!(panel.contains("MultiPatch"), "panel must show operation type: {panel}");
+        assert!(panel.contains("2 edits"), "panel must show edit count: {panel}");
+        assert!(panel.contains("fn a()"), "panel must show first old_string: {panel}");
+        assert!(panel.contains("fn b()"), "panel must show first new_string: {panel}");
+    }
+
+    #[test]
+    fn test_build_case_remove_contains_file() {
+        let tool = forge_domain::ToolCatalog::Remove(forge_domain::FSRemove {
+            path: "/project/trash.txt".to_string(),
+        });
+        let case = ToolRegistry::<()>::build_case(&tool, std::path::Path::new("/project"));
+        assert!(case.is_some(), "Remove should produce a case");
+        let case = case.unwrap();
+        let panel = case.format_panel();
+        assert!(panel.contains("Remove file"), "panel must show Remove file: {panel}");
+        assert!(panel.contains("trash.txt"), "panel must show file path: {panel}");
+    }
+
+    #[test]
+    fn test_build_case_shell_contains_command() {
+        let tool = forge_domain::ToolCatalog::Shell(forge_domain::Shell {
+            command: "ls -la /tmp".to_string(),
+            cwd: Some(std::path::PathBuf::from("/project")),
+            context: "List temp files".to_string(),
+            ..Default::default()
+        });
+        let case = ToolRegistry::<()>::build_case(&tool, std::path::Path::new("/project"));
+        assert!(case.is_some(), "Shell should produce a case");
+        let case = case.unwrap();
+        let panel = case.format_panel();
+        assert!(panel.contains("ls -la /tmp"), "panel must contain the shell command: {panel}");
+        assert!(panel.contains("Execute"), "panel must show operation type: {panel}");
+        assert!(panel.contains("utility"), "panel must show classification: {panel}");
+        assert!(panel.contains("List temp files"), "panel must show context: {panel}");
+    }
+
+    #[test]
+    fn test_build_case_fetch_contains_url() {
+        let tool = forge_domain::ToolCatalog::Fetch(forge_domain::NetFetch {
+            url: "https://api.example.com/data".to_string(),
+            ..Default::default()
+        });
+        let case = ToolRegistry::<()>::build_case(&tool, std::path::Path::new("/project"));
+        assert!(case.is_some(), "Fetch should produce a case");
+        let case = case.unwrap();
+        let panel = case.format_panel();
+        assert!(panel.contains("api.example.com"), "panel must contain the URL: {panel}");
+    }
+
+    #[test]
+    fn test_build_case_undo_returns_none() {
+        let tool = forge_domain::ToolCatalog::Undo(forge_domain::FSUndo {
+            path: "/tmp/x".to_string(),
+        });
+        let case = ToolRegistry::<()>::build_case(&tool, std::path::Path::new("/tmp"));
+        assert!(case.is_none(), "Undo should not require permission and return None");
+    }
+
+    #[test]
+    fn test_build_case_returns_explanation_from_context() {
+        let tool = forge_domain::ToolCatalog::Write(forge_domain::FSWrite {
+            file_path: "/project/main.rs".to_string(),
+            content: "fn main() {}".to_string(),
+            context: "Add main entry point for the CLI".to_string(),
+            overwrite: false,
+        });
+        let case = ToolRegistry::<()>::build_case(&tool, std::path::Path::new("/project"));
+        assert!(case.is_some(), "Write should produce a case");
+        let case = case.unwrap();
+        let panel = case.format_panel();
+        // The context from the tool call must appear as the "Why" field
+        assert!(panel.contains("Add main entry point for the CLI"), "panel must contain the explanation from tool context: {panel}");
+        assert!(panel.contains("Why"), "panel must show Why field: {panel}");
     }
 }
 

@@ -301,6 +301,10 @@ expression: tools
       "description": "The shell command to execute.",
       "type": "string"
     },
+    "context": {
+      "description": "A short justification for why this shell command needs to run.\nThe LLM must explain what the command does and why it's necessary.\nExamples: \"Check git status to see uncommitted changes\",\n\"Install the `ripgrep` package via cargo for text searching\".",
+      "type": "string"
+    },
     "cwd": {
       "description": "The working directory where the command should be executed.\nIf not specified, defaults to the current working directory from the\nenvironment.",
       "type": "string",
@@ -325,7 +329,8 @@ expression: tools
     }
   },
   "required": [
-    "command"
+    "command",
+    "context"
   ]
 }
 {

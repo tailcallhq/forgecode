@@ -159,4 +159,99 @@ mod tests {
         let b = PermissionCase::new("Read", op("/b"), PathBuf::from("/b"), None, String::new());
         assert_ne!(a.case_id, b.case_id);
     }
+
+    /// Verifies the format_panel output contains the proposed changes text
+    /// so the user can see what will be written before the TUI permission prompt.
+    #[test]
+    fn test_format_panel_contains_changes_description() {
+        let op = PermissionOperation::Write {
+            path: PathBuf::from("/tmp/test.rs"),
+            cwd: PathBuf::from("/tmp"),
+            message: "Write file: test.rs".to_string(),
+        };
+
+        let case = PermissionCase::new(
+            "Write",
+            op,
+            PathBuf::from("/tmp/test.rs"),
+            Some("├─ Create/overwrite: 42 bytes\n│\n│  fn main() {}\n│\n".to_string()),
+            "Adding main entry point".to_string(),
+        );
+
+        let panel = case.format_panel();
+        // The proposed content MUST appear in the panel so the user sees
+        // what the tool will do BEFORE making a decision.
+        assert!(panel.contains("├─ Create/overwrite: 42 bytes"), "panel must show file size: {panel}");
+        assert!(panel.contains("fn main() {}"), "panel must show proposed content: {panel}");
+    }
+
+    /// Verifies format_panel renders correctly even when there is no
+    /// changes_description (e.g. for Read operations).
+    #[test]
+    fn test_format_panel_without_changes_description() {
+        let op = PermissionOperation::Read {
+            path: PathBuf::from("/tmp/readme.md"),
+            cwd: PathBuf::from("/tmp"),
+            message: "Read file: readme.md".to_string(),
+        };
+
+        let case = PermissionCase::new(
+            "Read",
+            op,
+            PathBuf::from("/tmp/readme.md"),
+            None,
+            String::new(),
+        );
+
+        let panel = case.format_panel();
+        assert!(panel.contains("Permission Request"));
+        assert!(panel.contains("Read"));
+        assert!(panel.contains("readme.md"));
+        // Should render cleanly even without changes_description
+        // and without explanation
+        assert!(panel.lines().count() >= 5, "panel should have at least 5 lines even without details: {panel}");
+    }
+
+    /// Verifies the panel is a complete, displayable text block that starts
+    /// and ends with the divider, making it visually distinct in the terminal.
+    #[test]
+    fn test_format_panel_is_bounded_by_divider() {
+        let op = PermissionOperation::Write {
+            path: PathBuf::from("/tmp/x.rs"),
+            cwd: PathBuf::from("/tmp"),
+            message: "x".to_string(),
+        };
+
+        let case = PermissionCase::new("Write", op, PathBuf::from("/tmp/x.rs"), None, String::new());
+        let panel = case.format_panel();
+
+        let lines: Vec<&str> = panel.lines().filter(|l| !l.is_empty()).collect();
+        assert!(!lines.is_empty(), "panel should have at least one non-empty line: {panel}");
+        assert!(lines.first().unwrap_or(&"").starts_with('═'), "first non-empty line should be divider: {panel:?}");
+        assert!(lines.last().unwrap_or(&"").starts_with('═'), "last line should be divider: {panel}");
+    }
+
+    /// Verifies that a Patch changes_description renders old → new diff
+    /// inside the panel so the user can see what text will be replaced.
+    #[test]
+    fn test_format_panel_shows_patch_diff() {
+        let op = PermissionOperation::Write {
+            path: PathBuf::from("/tmp/config.yaml"),
+            cwd: PathBuf::from("/tmp"),
+            message: "Modify file: config.yaml".to_string(),
+        };
+
+        let case = PermissionCase::new(
+            "Patch",
+            op,
+            PathBuf::from("/tmp/config.yaml"),
+            Some("├─ Patch (1 → 1 lines)\n│\n│  - debug: false\n│  + debug: true\n│\n".to_string()),
+            "Enable debug mode".to_string(),
+        );
+
+        let panel = case.format_panel();
+        assert!(panel.contains("debug: false"), "panel must show old text: {panel}");
+        assert!(panel.contains("debug: true"), "panel must show new text: {panel}");
+        assert!(panel.contains("Patch"), "panel must show operation type: {panel}");
+    }
 }

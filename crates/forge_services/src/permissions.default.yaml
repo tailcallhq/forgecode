@@ -1,13 +1,13 @@
 policies:
-  - permission: allow
+  - permission: confirm
     rule:
       read: "**/*"
-  - permission: allow
+  - permission: confirm
     rule:
       write: "**/*"
-  - permission: allow
+  - permission: confirm
     rule:
       command: "*"
-  - permission: allow
+  - permission: confirm
     rule:
       url: "*"

@@ -30,10 +30,7 @@ Now update the `From<&TextMessage>` implementation to handle optional call_id:
 ````
 Now let's run the tests to verify everything works:
 ````
-**Execute:** 
-```
-cargo test --package forge_domain --lib compact::summary
-```
+**MCP:** `shell`
 ````
 There are compilation errors from the previous changes. I need to read the file to see the current state and fix all issues:
 ````
@@ -57,10 +54,7 @@ Now let me read the test section and fix the remaining tests:
 ````
 Now I need to remove the old tests and update the ones that need fixing. Let me first check how many lines the file has:
 ````
-**Execute:** 
-```
-wc -l crates/forge_domain/src/compact/summary.rs
-```
+**MCP:** `shell`
 ````
 Let me remove the old test functions that use the old API and keep only the ones we need:
 ````
@@ -108,10 +102,7 @@ Let me remove the last test that uses the old struct-based API:
 ````
 Now let me run the tests again to see if there are any remaining issues:
 ````
-**Execute:** 
-```
-cargo test --package forge_domain --lib compact::summary 2>&1 | head -100
-```
+**MCP:** `shell`
 ````
 There are still compilation errors in other files that use the old API. Let me check and fix those files:
 ````
@@ -159,10 +150,7 @@ Good! Now let me fix the test helpers:
 ````
 Now I need to update all the test cases. Due to the large number of changes needed, let me run the tests first to see the current errors, then I'll provide a summary of what was accomplished:
 ````
-**Execute:** 
-```
-cargo test --package forge_domain --lib compact::summary 2>&1 | head -50
-```
+**MCP:** `shell`
 ````
 There are still more files to fix. Let me quickly fix the `strip_working_dir.rs` file and then the remaining test issues in `trim_context_summary.rs`. Let me check the remaining errors by looking at that one struct initialization in trim_context_summary.rs:
 ````
@@ -240,10 +228,7 @@ Now let me update the transformer files to use the non-optional `tool_call_succe
 ````
 Good! Now let me run the tests to see the current status:
 ````
-**Execute:** 
-```
-cargo test --package forge_domain --lib compact::summary 2>&1 | head -100
-```
+**MCP:** `shell`
 ````
 There are still errors in other transformer files. Let me quickly fix `strip_working_dir.rs`:
 ````
@@ -256,18 +241,7 @@ Now let me search for all other uses of `Block::read`, `Block::update`, and `Blo
 ````
 There are many more uses. Let me use a more efficient approach and fix them all at once with a replace_all operation:
 ````
-**Execute:** 
-```
-sed -i '' 's/Block::read("/Block::read(None, "/g' crates/forge_domain/src/compact/transformers/strip_working_dir.rs
-```
-**Execute:** 
-```
-sed -i '' 's/Block::update("/Block::update(None, "/g' crates/forge_domain/src/compact/transformers/strip_working_dir.rs
-```
-**Execute:** 
-```
-sed -i '' 's/Block::remove("/Block::remove(None, "/g' crates/forge_domain/src/compact/transformers/strip_working_dir.rs
-```
+**MCP:** `shell`
 ````
 Good! Now let me check the remaining issue in trim_context_summary.rs - that struct initialization:
 ````
@@ -309,10 +283,7 @@ I've successfully added comprehensive tests for `crates/forge_domain/src/compact
 
 Let me run the tests to see the current status:
 ````
-**Execute:** 
-```
-cargo test --package forge_domain --lib compact::summary::tests 2>&1 | tail -30
-```
+**MCP:** `shell`
 ````
 Let me fix those mutable warnings and then run the actual summary tests:
 ````
@@ -320,17 +291,11 @@ Let me fix those mutable warnings and then run the actual summary tests:
 ````
 Now let me run just the summary tests to verify they work:
 ````
-**Execute:** 
-```
-cargo test --package forge_domain --lib summary::tests -- --nocapture 2>&1 | grep -A 5 "test result"
-```
+**MCP:** `shell`
 ````
 Let me check if there are still compilation errors:
 ````
-**Execute:** 
-```
-cargo build --package forge_domain --lib 2>&1 | head -50
-```
+**MCP:** `shell`
 ````
 Let me fix the strip_working_dir.rs import and type issues:
 ````
@@ -340,17 +305,11 @@ Let me fix the strip_working_dir.rs import and type issues:
 ````
 Now let me try building again:
 ````
-**Execute:** 
-```
-cargo test --package forge_domain --lib compact::summary::tests 2>&1 | tail -20
-```
+**MCP:** `shell`
 ````
 The remaining errors are all in the `trim_context_summary.rs` tests which use the old API extensively. Let me format and lint what we have so far:
 ````
-**Execute:** 
-```
-cargo +nightly fmt --all && cargo +nightly clippy --fix --allow-staged --allow-dirty --package forge_domain 2>&1 | tail -30
-```
+**MCP:** `shell`
 ````
 Perfect! Now let me provide a final summary of what was accomplished:
 

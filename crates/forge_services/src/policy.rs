@@ -179,8 +179,8 @@ where
                     PermissionOperation::Write { message, .. } => {
                         format!("{message}. How would you like to proceed?")
                     }
-                    PermissionOperation::Execute { .. } => {
-                        "How would you like to proceed?".to_string()
+                    PermissionOperation::Execute { message, .. } => {
+                        format!("{message}. How would you like to proceed?")
                     }
                     PermissionOperation::Fetch { message, .. } => {
                         format!("{message}. How would you like to proceed?")
@@ -206,6 +206,26 @@ where
                 }
             }
         }
+    }
+
+    /// Check what type of permission an operation would receive without
+    /// requesting user confirmation
+    async fn check_permission_type(
+        &self,
+        operation: &PermissionOperation,
+    ) -> anyhow::Result<Permission> {
+        let (policies, _path) = self.get_or_create_policies().await?;
+        let engine = PolicyEngine::new(&policies);
+        Ok(engine.can_perform(operation))
+    }
+
+    /// Persist a policy rule for the given operation so the user's choice is
+    /// remembered for future similar operations without re-prompting.
+    async fn remember_operation(
+        &self,
+        operation: &PermissionOperation,
+    ) -> anyhow::Result<Option<PathBuf>> {
+        self.add_policy_for_operation(operation).await
     }
 }
 
@@ -251,7 +271,7 @@ fn create_policy_for_operation(
                 })
             }
         }
-        PermissionOperation::Execute { command, cwd: _ } => {
+        PermissionOperation::Execute { command, cwd: _, .. } => {
             let parts: Vec<&str> = command.split_whitespace().collect();
             match parts.as_slice() {
                 [] => None,
@@ -353,8 +373,9 @@ mod tests {
     #[test]
     fn test_create_policy_for_execute_operation_with_subcommand() {
         let command = "git push origin main".to_string();
+        let message = "⚙ utility: `git push origin main`".to_string();
         let operation =
-            PermissionOperation::Execute { command, cwd: std::path::PathBuf::from("/test/cwd") };
+            PermissionOperation::Execute { command, cwd: std::path::PathBuf::from("/test/cwd"), message };
 
         let actual = create_policy_for_operation(&operation, None);
 
@@ -369,8 +390,9 @@ mod tests {
     #[test]
     fn test_create_policy_for_execute_operation_single_command() {
         let command = "ls".to_string();
+        let message = "⚙ utility: `ls`".to_string();
         let operation =
-            PermissionOperation::Execute { command, cwd: std::path::PathBuf::from("/test/cwd") };
+            PermissionOperation::Execute { command, cwd: std::path::PathBuf::from("/test/cwd"), message };
 
         let actual = create_policy_for_operation(&operation, None);
 
@@ -420,8 +442,9 @@ mod tests {
     #[test]
     fn test_create_policy_for_empty_execute_command() {
         let command = "".to_string();
+        let message = String::new();
         let operation =
-            PermissionOperation::Execute { command, cwd: std::path::PathBuf::from("/test/cwd") };
+            PermissionOperation::Execute { command, cwd: std::path::PathBuf::from("/test/cwd"), message };
 
         let actual = create_policy_for_operation(&operation, None);
 
@@ -433,8 +456,9 @@ mod tests {
     #[test]
     fn test_create_policy_for_execute_operation_with_working_directory() {
         let command = "ls".to_string();
+        let message = "⚙ utility: `ls`".to_string();
         let operation =
-            PermissionOperation::Execute { command, cwd: std::path::PathBuf::from("/test/cwd") };
+            PermissionOperation::Execute { command, cwd: std::path::PathBuf::from("/test/cwd"), message };
         let working_directory = Some("/home/user/project".to_string());
 
         let actual = create_policy_for_operation(&operation, working_directory.clone());

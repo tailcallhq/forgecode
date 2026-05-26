@@ -2204,6 +2204,7 @@ dependencies = [
  "forge_embed",
  "forge_eventsource",
  "forge_json_repair",
+ "forge_select",
  "forge_stream",
  "forge_template",
  "forge_test_kit",

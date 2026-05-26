@@ -643,6 +643,79 @@ pub struct Shell {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+
+    /// A short justification for why this shell command needs to run.
+    /// The LLM must explain what the command does and why it's necessary.
+    /// Examples: "Check git status to see uncommitted changes",
+    /// "Install the `ripgrep` package via cargo for text searching".
+    pub context: String,
+}
+
+/// Classification of a shell command based on its content and risk profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandType {
+    /// Inline code execution: here-docs, embedded scripts (bash -c, python -c,
+    /// eval), command substitution. These are the most dangerous because they
+    /// embed arbitrary code inline that could be malicious or unexpected.
+    InlineCode,
+    /// Running a script file (e.g. `./deploy.sh`, `python script.py`).
+    FileScript,
+    /// Standard utility commands: git, cargo, ls, grep, etc.
+    Utility,
+}
+
+impl Shell {
+    /// Classify the shell command by analyzing its structure for dangerous
+    /// patterns.
+    pub fn classify(&self) -> CommandType {
+        let cmd = self.command.trim();
+
+        // Detect inline-code execution patterns
+        // Here-docs: <<EOF, <<-, <<'EOF', <<"EOF"
+        if cmd.contains("<<") && (cmd.contains("EOF") || cmd.contains("END")) {
+            return CommandType::InlineCode;
+        }
+        // Inline scripting via interpreter -c/-e flags
+        let inline_script_re = regex::Regex::new(
+            r"(?m)^\s*(bash|sh|zsh|python|python3|node|deno|perl|ruby|lua|php)\s+(-[ce]|--eval)\s+"
+        );
+        if let Ok(re) = inline_script_re {
+            if re.is_match(cmd) {
+                return CommandType::InlineCode;
+            }
+        }
+        // eval command
+        if cmd.starts_with("eval") && cmd.len() > 5 {
+            return CommandType::InlineCode;
+        }
+
+        // Check if it's running a script file (./path or interpreter + file)
+        let first_word = cmd.split_whitespace().next().unwrap_or("");
+        if first_word.starts_with("./") || first_word.starts_with("/") {
+            return CommandType::FileScript;
+        }
+        // Interpreter running a script file (not -c)
+        if let Some((interp, rest)) = cmd.split_once(char::is_whitespace) {
+            let interp_trimmed = interp.trim();
+            if matches!(
+                interp_trimmed,
+                "bash" | "sh" | "zsh" | "python" | "python3" | "node" | "deno"
+                    | "perl" | "ruby" | "lua" | "php"
+            ) {
+                let rest_trimmed = rest.trim();
+                if !rest_trimmed.starts_with('-') && !rest_trimmed.starts_with("--") {
+                    return CommandType::FileScript;
+                }
+            }
+        }
+
+        CommandType::Utility
+    }
+
+    /// Returns true if the command is classified as inline code (dangerous).
+    pub fn is_inline_code(&self) -> bool {
+        self.classify() == CommandType::InlineCode
+    }
 }
 
 /// Input type for the net fetch tool
@@ -962,21 +1035,14 @@ impl ToolCatalog {
                 message: format!("Read file: {}", display_path_for(&input.file_path)),
             }),
             ToolCatalog::Write(input) => {
-                let content_preview = if input.content.len() > 500 {
-                    format!("{}…", &input.content[..500])
-                } else {
-                    input.content.clone()
-                };
-                tracing::debug!(
-                    file_path = %input.file_path,
-                    content_length = input.content.len(),
-                    message_preview = %content_preview.chars().take(100).collect::<String>(),
-                    "Write permission operation message"
-                );
+                let preview_len = input.content.len();
+                let first_line: String = input.content.lines().next().unwrap_or("").chars().take(80).collect();
                 let msg = format!(
-                    "Create/overwrite file: {}.\n--- Proposed content ---\n{}\n---",
+                    "Create/overwrite file: {} ({} bytes, first line: {}{})",
                     display_path_for(&input.file_path),
-                    content_preview
+                    preview_len,
+                    first_line,
+                    if input.content.len() > 80 { "…" } else { "" }
                 );
                 Some(crate::policies::PermissionOperation::Write {
                     path: std::path::PathBuf::from(&input.file_path),
@@ -1017,92 +1083,58 @@ impl ToolCatalog {
                 message: format!("Remove file: {}", display_path_for(&input.path)),
             }),
             ToolCatalog::Patch(input) => {
-                let diff_preview = if input.old_string.len() > 300 || input.new_string.len() > 300
-                {
-                    let old_trunc = if input.old_string.len() > 300 {
-                        format!("{}…", &input.old_string[..300])
-                    } else {
-                        input.old_string.clone()
-                    };
-                    let new_trunc = if input.new_string.len() > 300 {
-                        format!("{}…", &input.new_string[..300])
-                    } else {
-                        input.new_string.clone()
-                    };
-                    format!(
-                        "Modify file: {}. Old: {old_trunc}. New: {new_trunc}",
-                        display_path_for(&input.file_path)
-                    )
-                } else {
-                    format!(
-                        "Modify file: {}. Old: {}. New: {}",
-                        display_path_for(&input.file_path),
-                        input.old_string,
-                        input.new_string
-                    )
-                };
-                tracing::debug!(
-                    file_path = %input.file_path,
-                    old_len = input.old_string.len(),
-                    new_len = input.new_string.len(),
-                    message_preview = %diff_preview.chars().take(100).collect::<String>(),
-                    "Patch permission operation message"
+                let old_trunc: String = input.old_string.chars().take(60).collect();
+                let new_trunc: String = input.new_string.chars().take(60).collect();
+                let old_suffix = if input.old_string.chars().count() > 60 { "…" } else { "" };
+                let new_suffix = if input.new_string.chars().count() > 60 { "…" } else { "" };
+                let flags = if input.replace_all { " (replace_all)" } else { "" };
+                let msg = format!(
+                    "Modify file: {}. Replace \"{old_trunc}{old_suffix}\" → \"{new_trunc}{new_suffix}\"{flags}",
+                    display_path_for(&input.file_path)
                 );
                 Some(crate::policies::PermissionOperation::Write {
                     path: std::path::PathBuf::from(&input.file_path),
                     cwd,
-                    message: diff_preview,
+                    message: msg,
                 })
             }
             ToolCatalog::MultiPatch(input) => {
-                let edit_preview = input
-                    .edits
-                    .iter()
-                    .take(10)
-                    .map(|e| {
-                        let old_trunc = if e.old_string.len() > 60 {
-                            format!("{}…", &e.old_string[..60])
-                        } else {
-                            e.old_string.clone()
-                        };
-                        let new_trunc = if e.new_string.len() > 60 {
-                            format!("{}…", &e.new_string[..60])
-                        } else {
-                            e.new_string.clone()
-                        };
-                        format!("  - Replace \"{old_trunc}\" → \"{new_trunc}\"")
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let edit_summary = if input.edits.len() > 10 {
-                    format!(
-                        "{} (showing first 10 of {})",
-                        edit_preview,
-                        input.edits.len()
-                    )
+                let first_edit_summary = input.edits.first().map(|e| {
+                    let old_t: String = e.old_string.chars().take(40).collect();
+                    let new_t: String = e.new_string.chars().take(40).collect();
+                    let old_s = if e.old_string.chars().count() > 40 { "…" } else { "" };
+                    let new_s = if e.new_string.chars().count() > 40 { "…" } else { "" };
+                    format!("\"{old_t}{old_s}\" → \"{new_t}{new_s}\"")
+                }).unwrap_or_default();
+                let more = if input.edits.len() > 1 {
+                    format!(" +{} more", input.edits.len() - 1)
                 } else {
-                    edit_preview
+                    String::new()
                 };
-                tracing::debug!(
-                    file_path = %input.file_path,
-                    edit_count = input.edits.len(),
-                    "MultiPatch permission operation"
+                let msg = format!(
+                    "Modify file: {} ({} edits: {first_edit_summary}{more})",
+                    display_path_for(&input.file_path),
+                    input.edits.len(),
                 );
                 Some(crate::policies::PermissionOperation::Write {
                     path: std::path::PathBuf::from(&input.file_path),
                     cwd,
-                    message: format!(
-                        "Modify file with {} edits: {}.\n--- Proposed edits ---\n{}\n---",
-                        input.edits.len(),
-                        display_path_for(&input.file_path),
-                        edit_summary
-                    ),
+                    message: msg,
                 })
             }
-            ToolCatalog::Shell(input) => Some(crate::policies::PermissionOperation::Execute {
-                command: input.command.clone(),
-                cwd,
-            }),
+            ToolCatalog::Shell(input) => {
+                let cmd_type = input.classify();
+                let type_label = match cmd_type {
+                    CommandType::InlineCode => "⛔ INLINE CODE",
+                    CommandType::FileScript => "📜 SCRIPT",
+                    CommandType::Utility => "⚙ utility",
+                };
+                Some(crate::policies::PermissionOperation::Execute {
+                    command: input.command.clone(),
+                    cwd,
+                    message: format!("{type_label}: `{}`", input.command),
+                })
+            }
             ToolCatalog::Fetch(input) => Some(crate::policies::PermissionOperation::Fetch {
                 url: input.url.clone(),
                 cwd,
@@ -1165,6 +1197,7 @@ impl ToolCatalog {
         ToolCallFull::from(ToolCatalog::Shell(Shell {
             command: command.to_string(),
             cwd: Some(cwd.into()),
+            context: String::new(),
             ..Default::default()
         }))
     }
@@ -1332,6 +1365,9 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::Shell;
+    use super::{
+        FSPatch, FSRead, FSWrite, FSUndo, FSMultiPatch, NetFetch, PatchEdit, TaskInput,
+    };
     use crate::{ToolCatalog, ToolKind, ToolName};
 
     #[test]
@@ -1881,6 +1917,7 @@ mod tests {
             keep_ansi: false,
             env: None,
             description: Some("Shows working tree status".to_string()),
+            context: String::new(),
         };
 
         let actual = serde_json::to_value(&fixture).unwrap();
@@ -1888,7 +1925,8 @@ mod tests {
         let expected = serde_json::json!({
             "command": "git status",
             "cwd": "/test",
-            "description": "Shows working tree status"
+            "description": "Shows working tree status",
+            "context": ""
         });
 
         assert_eq!(actual, expected);
@@ -1904,13 +1942,15 @@ mod tests {
             keep_ansi: false,
             env: None,
             description: None,
+            context: String::new(),
         };
 
         let actual = serde_json::to_value(&fixture).unwrap();
 
         let expected = serde_json::json!({
             "command": "ls -la",
-            "cwd": "/home"
+            "cwd": "/home",
+            "context": ""
         });
 
         assert_eq!(actual, expected);
@@ -1926,12 +1966,14 @@ mod tests {
             keep_ansi: false,
             env: None,
             description: None,
+            context: String::new(),
         };
 
         let actual = serde_json::to_value(&fixture).unwrap();
 
         let expected = serde_json::json!({
-            "command": "pwd"
+            "command": "pwd",
+            "context": ""
         });
 
         assert_eq!(actual, expected);
@@ -1993,7 +2035,7 @@ mod tests {
         let tool_call = ToolCallFull {
             name: ToolName::new("SHELL"),
             call_id: None,
-            arguments: ToolCallArguments::from_json(r#"{"command": "ls"}"#),
+            arguments: ToolCallArguments::from_json(r#"{"command": "ls", "context": "checking files"}"#),
             thought_signature: None,
         };
 
@@ -2023,5 +2065,288 @@ mod tests {
             "Should parse whitespace-padded 'patch' tool name"
         );
         assert!(matches!(actual.unwrap(), ToolCatalog::Patch(_)));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Permission operation message tests
+    // ---------------------------------------------------------------------------
+
+    /// Verifies that `to_policy_operation()` for a Write call produces a
+    /// single-line message containing the file path, byte count, and the first
+    /// line of content. The TUI widget only renders the first line, so this
+    /// is a direct assertion on what the user sees at the decision point.
+    #[test]
+    fn test_permission_message_write_contains_content_info() {
+        use std::path::PathBuf;
+
+        let tool = ToolCatalog::Write(FSWrite {
+            file_path: "/project/src/main.rs".to_string(),
+            content: "fn main() {\n    println!(\"hello\");\n}\n".to_string(),
+            context: "Adding main function".to_string(),
+            overwrite: false,
+        });
+        let op = tool.to_policy_operation(PathBuf::from("/project")).unwrap();
+
+        // The TUI message must contain: file reference, byte count, first line
+        let msg = match &op {
+            crate::policies::PermissionOperation::Write { message, .. } => message,
+            _ => panic!("expected Write operation"),
+        };
+        assert!(msg.contains("src/main.rs"), "message should contain relative file path: {msg}");
+        assert!(msg.contains("37"), "message should contain byte count: {msg}");
+        assert!(msg.contains("fn main()"), "message should contain first line preview: {msg}");
+    }
+
+    /// Verifies that `to_policy_operation()` for a Patch call produces a
+    /// single-line message containing both old_string and new_string so the
+    /// user sees what text will be replaced and what it will become.
+    #[test]
+    fn test_permission_message_patch_contains_diff() {
+        use std::path::PathBuf;
+
+        let tool = ToolCatalog::Patch(FSPatch {
+            file_path: "/project/src/lib.rs".to_string(),
+            old_string: "old_implementation".to_string(),
+            new_string: "new_implementation".to_string(),
+            context: String::new(),
+            replace_all: false,
+        });
+        let op = tool.to_policy_operation(PathBuf::from("/project")).unwrap();
+
+        let msg = match &op {
+            crate::policies::PermissionOperation::Write { message, .. } => message,
+            _ => panic!("expected Write operation"),
+        };
+        assert!(msg.contains("src/lib.rs"), "message should contain relative file path: {msg}");
+        assert!(msg.contains("old_implementation"), "message should contain old_string: {msg}");
+        assert!(msg.contains("new_implementation"), "message should contain new_string: {msg}");
+    }
+
+    /// Verifies that `to_policy_operation()` for a Patch with replace_all
+    /// includes the replace_all indicator in the message.
+    #[test]
+    fn test_permission_message_patch_replace_all_flag() {
+        use std::path::PathBuf;
+
+        let tool = ToolCatalog::Patch(FSPatch {
+            file_path: "/project/src/main.rs".to_string(),
+            old_string: "foo".to_string(),
+            new_string: "bar".to_string(),
+            context: String::new(),
+            replace_all: true,
+        });
+        let op = tool.to_policy_operation(PathBuf::from("/project")).unwrap();
+
+        let msg = match &op {
+            crate::policies::PermissionOperation::Write { message, .. } => message,
+            _ => panic!("expected Write operation"),
+        };
+        assert!(
+            msg.contains("replace_all"),
+            "message should indicate replace_all is enabled: {msg}"
+        );
+    }
+
+    /// Verifies that `to_policy_operation()` for a MultiPatch call produces a
+    /// message containing the total edit count and a summary of the first edit.
+    #[test]
+    fn test_permission_message_multipatch_summarizes_edits() {
+        use std::path::PathBuf;
+
+        let tool = ToolCatalog::MultiPatch(FSMultiPatch {
+            file_path: "/project/src/app.rs".to_string(),
+            context: String::new(),
+            edits: vec![
+                PatchEdit {
+                    old_string: "fn old_func()".to_string(),
+                    new_string: "fn new_func()".to_string(),
+                    replace_all: false,
+                },
+                PatchEdit {
+                    old_string: "// TODO".to_string(),
+                    new_string: "// FIXME".to_string(),
+                    replace_all: false,
+                },
+            ],
+        });
+        let op = tool.to_policy_operation(PathBuf::from("/project")).unwrap();
+
+        let msg = match &op {
+            crate::policies::PermissionOperation::Write { message, .. } => message,
+            _ => panic!("expected Write operation"),
+        };
+        assert!(msg.contains("src/app.rs"), "message should contain relative file path: {msg}");
+        assert!(msg.contains("2 edits"), "message should show edit count: {msg}");
+        assert!(msg.contains("old_func"), "message should mention first old_string: {msg}");
+        assert!(msg.contains("new_func"), "message should mention first new_string: {msg}");
+        assert!(msg.contains("+1 more"), "message should indicate 1 remaining edit: {msg}");
+    }
+
+    /// Verifies that `to_policy_operation()` for a Read call contains the file
+    /// path so the user knows what file is being read.
+    #[test]
+    fn test_permission_message_read_contains_file() {
+        use std::path::PathBuf;
+
+        let tool = ToolCatalog::Read(FSRead {
+            file_path: "/project/secret.txt".to_string(),
+            ..Default::default()
+        });
+        let op = tool.to_policy_operation(PathBuf::from("/project")).unwrap();
+
+        let msg = match &op {
+            crate::policies::PermissionOperation::Read { message, .. } => message,
+            _ => panic!("expected Read operation"),
+        };
+        assert!(msg.contains("secret.txt"), "message should contain file path: {msg}");
+    }
+
+    /// Verifies that `to_policy_operation()` for a Shell call returns an
+    /// Execute variant containing the command string and the TUI-friendly
+    /// message with classification label so the user can inspect and
+    /// understand what command will be run and its risk level.
+    #[test]
+    fn test_permission_message_shell_contains_command() {
+        use std::path::PathBuf;
+
+        let tool = ToolCatalog::Shell(Shell {
+            command: "rm -rf /tmp/test".to_string(),
+            cwd: Some(PathBuf::from("/project")),
+            context: String::new(),
+            ..Default::default()
+        });
+        let op = tool.to_policy_operation(PathBuf::from("/project")).unwrap();
+
+        let (cmd, msg) = match &op {
+            crate::policies::PermissionOperation::Execute { command, message, .. } => {
+                (command, message)
+            }
+            _ => panic!("expected Execute operation"),
+        };
+        assert!(
+            cmd.contains("rm -rf /tmp/test"),
+            "command should contain the full shell command: {cmd}"
+        );
+        assert!(
+            msg.contains("utility"),
+            "message should contain classification label: {msg}"
+        );
+        assert!(
+            msg.contains("rm -rf"),
+            "message should contain the command: {msg}"
+        );
+    }
+
+    /// Verifies that inline-code shell commands are classified correctly.
+    #[test]
+    fn test_shell_classify_inline_code() {
+        let inline_cmds = vec![
+            Shell { command: "python -c \"print('hello')\"".to_string(), ..Default::default() },
+            Shell { command: "bash -c 'echo hi'".to_string(), ..Default::default() },
+            Shell { command: "cat <<EOF\nhello\nEOF".to_string(), ..Default::default() },
+            Shell { command: "eval \"echo $PATH\"".to_string(), ..Default::default() },
+            Shell { command: "node -e \"console.log('test')\"".to_string(), ..Default::default() },
+        ];
+        for s in &inline_cmds {
+            assert!(s.is_inline_code(), "should be inline code: {}", s.command);
+        }
+
+        let safe_cmds = vec![
+            Shell { command: "git status".to_string(), ..Default::default() },
+            Shell { command: "cargo build --release".to_string(), ..Default::default() },
+            Shell { command: "ls -la /tmp".to_string(), ..Default::default() },
+            Shell { command: "./deploy.sh".to_string(), ..Default::default() },
+            Shell { command: "python script.py".to_string(), ..Default::default() },
+        ];
+        for s in &safe_cmds {
+            assert!(!s.is_inline_code(), "should NOT be inline code: {}", s.command);
+        }
+    }
+
+    /// Verifies that `to_policy_operation()` for a Fetch call contains the URL
+    /// so the user knows what external resource will be accessed.
+    #[test]
+    fn test_permission_message_fetch_contains_url() {
+        use std::path::PathBuf;
+
+        let tool = ToolCatalog::Fetch(NetFetch {
+            url: "https://api.example.com/data".to_string(),
+            ..Default::default()
+        });
+        let op = tool.to_policy_operation(PathBuf::from("/project")).unwrap();
+
+        let msg = match &op {
+            crate::policies::PermissionOperation::Fetch { message, .. } => message,
+            _ => panic!("expected Fetch operation"),
+        };
+        assert!(msg.contains("api.example.com"), "message should contain URL: {msg}");
+    }
+
+    /// Verifies that tools which don't require permission checks (Undo, Task)
+    /// return None from to_policy_operation.
+    #[test]
+    fn test_permission_message_no_policy_for_meta_tools() {
+        use std::path::PathBuf;
+
+        let undo = ToolCatalog::Undo(FSUndo { path: "/tmp/x".to_string() });
+        let task = ToolCatalog::Task(TaskInput { agent_id: "x".to_string(), tasks: vec![], session_id: None });
+
+        assert!(undo.to_policy_operation(PathBuf::from("/")).is_none(), "Undo should not require permission");
+        assert!(task.to_policy_operation(PathBuf::from("/")).is_none(), "Task should not require permission");
+    }
+
+    /// Round-trip: Full end-to-end test verifying the message that reaches the
+    /// TUI (the first line) contains all critical info needed for decision.
+    /// This is the highest-fidelity test for "what the user sees at decision
+    /// point" — no line-break hiding possible.
+    #[test]
+    fn test_permission_message_write_single_line_for_tui() {
+        use std::path::PathBuf;
+
+        let content = "fn first_line() {\n    second_line();\n}";
+        let tool = ToolCatalog::Write(FSWrite {
+            file_path: "/project/main.rs".to_string(),
+            content: content.to_string(),
+            context: "test single line".to_string(),
+            overwrite: false,
+        });
+        let op = tool.to_policy_operation(PathBuf::from("/project")).unwrap();
+
+        let msg = match &op {
+            crate::policies::PermissionOperation::Write { message, .. } => message,
+            _ => panic!("expected Write operation"),
+        };
+
+        // Critical: TUI only shows the first line of the message
+        let first_line = msg.lines().next().unwrap_or("");
+        assert!(!first_line.contains('\n'), "first line must be single-line for TUI display");
+        assert!(first_line.contains("main.rs"), "first line must contain file path");
+        assert!(first_line.contains("fn first_line()"), "first line must contain content preview");
+    }
+
+    /// Verify that the permission message for a Patch is single-line (TUI-safe)
+    #[test]
+    fn test_permission_message_patch_single_line_for_tui() {
+        use std::path::PathBuf;
+
+        let tool = ToolCatalog::Patch(FSPatch {
+            file_path: "/project/config.yaml".to_string(),
+            old_string: "debug: false".to_string(),
+            new_string: "debug: true".to_string(),
+            context: "enable debug".to_string(),
+            replace_all: false,
+        });
+        let op = tool.to_policy_operation(PathBuf::from("/project")).unwrap();
+
+        let msg = match &op {
+            crate::policies::PermissionOperation::Write { message, .. } => message,
+            _ => panic!("expected Write operation"),
+        };
+
+        let first_line = msg.lines().next().unwrap_or("");
+        assert!(!first_line.contains('\n'), "first line must be single-line for TUI display");
+        assert!(first_line.contains("config.yaml"), "first line must contain file path");
+        assert!(first_line.contains("debug: false"), "first line must contain old_string");
+        assert!(first_line.contains("debug: true"), "first line must contain new_string");
     }
 }

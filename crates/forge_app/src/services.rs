@@ -485,6 +485,25 @@ pub trait PolicyService: Send + Sync {
         &self,
         operation: &forge_domain::PermissionOperation,
     ) -> anyhow::Result<PolicyDecision>;
+
+    /// Check the permission type for an operation without user interaction.
+    /// Returns the Permission enum (Allow/Deny/Confirm) so callers can decide
+    /// whether to show additional preview information before prompting.
+    async fn check_permission_type(
+        &self,
+        operation: &forge_domain::PermissionOperation,
+    ) -> anyhow::Result<forge_domain::Permission>;
+
+    /// Persist a policy rule for the given operation so the user's choice is
+    /// remembered for future similar operations without re-prompting.
+    ///
+    /// Returns `Some(path)` pointing to the updated policy file when a rule
+    /// could be created, or `None` when no rule could be inferred (e.g. a file
+    /// without an extension).
+    async fn remember_operation(
+        &self,
+        operation: &forge_domain::PermissionOperation,
+    ) -> anyhow::Result<Option<PathBuf>>;
 }
 
 /// Skill fetch service
@@ -941,6 +960,22 @@ impl<I: Services> PolicyService for I {
         self.policy_service()
             .check_operation_permission(operation)
             .await
+    }
+
+    async fn check_permission_type(
+        &self,
+        operation: &forge_domain::PermissionOperation,
+    ) -> anyhow::Result<forge_domain::Permission> {
+        self.policy_service()
+            .check_permission_type(operation)
+            .await
+    }
+
+    async fn remember_operation(
+        &self,
+        operation: &forge_domain::PermissionOperation,
+    ) -> anyhow::Result<Option<std::path::PathBuf>> {
+        self.policy_service().remember_operation(operation).await
     }
 }
 
