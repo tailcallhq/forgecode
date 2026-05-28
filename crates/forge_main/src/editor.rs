@@ -66,11 +66,11 @@ impl ForgeEditor {
         );
         editor.bind_sequence(
             KeyEvent(KeyCode::Char('k'), Modifiers::CTRL),
-            EventHandler::Simple(Cmd::Kill(Movement::EndOfLine)),
+            EventHandler::Simple(Cmd::Kill(Movement::WholeBuffer)),
         );
         editor.bind_sequence(
             KeyEvent(KeyCode::Char('K'), Modifiers::CTRL),
-            EventHandler::Simple(Cmd::Kill(Movement::EndOfLine)),
+            EventHandler::Simple(Cmd::Kill(Movement::WholeBuffer)),
         );
         editor.set_helper(Some(helper));
         let _ = editor.load_history(&history_file);
