@@ -43,6 +43,20 @@ pub(super) enum ResponsesStreamEvent {
         cost: f64,
     },
 
+    /// Codex backend `response.completed` event. The Codex backend omits
+    /// required `oai::Response` fields (e.g. `output`) on this event, so it
+    /// cannot be parsed via the generic `oai::ResponseStreamEvent`. We
+    /// deserialize only `end_turn` (backend-only continue-turn signal); other
+    /// data (output items, usage) arrives via earlier streaming events.
+    #[serde(rename = "response.completed")]
+    ResponseCompleted { response: ResponseCompletedPayload },
+
+    /// Codex backend `response.incomplete` event. Mapped to a hard error so
+    /// the orchestrator stops the turn instead of looping on a truncated
+    /// assistant message.
+    #[serde(rename = "response.incomplete")]
+    ResponseIncomplete { response: ResponseIncompletePayload },
+
     /// Any standard OpenAI Responses API streaming event.
     #[serde(untagged)]
     Response(Box<oai::ResponseStreamEvent>),
@@ -88,54 +102,23 @@ pub(super) enum StreamItem {
     Message(Box<ChatCompletionMessage>),
 }
 
-/// Minimal Codex `response.completed` / `response.incomplete` payload. The
-/// Codex backend omits required `oai::Response` fields (e.g. `output`) on
-/// completion events, so we deserialize only what the downstream pipeline
-/// needs:
-/// - `end_turn` to honor the backend-only continue-turn signal,
-/// - `incomplete_details.reason` to produce a useful error message.
-///
-/// All other fields (output items, usage, etc.) arrive via separate streaming
-/// events earlier in the turn and are already accumulated by the scan loop.
+/// Payload of the Codex `response.completed` event. The Codex backend omits
+/// required `oai::Response` fields (e.g. `output`), so we deserialize only
+/// `end_turn` (backend-only continue-turn signal).
 #[derive(Debug, Deserialize)]
-pub(super) struct CodexResponse {
-    #[serde(default)]
-    pub incomplete_details: Option<oai::IncompleteDetails>,
+pub(super) struct ResponseCompletedPayload {
     #[serde(default)]
     pub end_turn: Option<bool>,
+    #[serde(default)]
+    pub usage: Option<oai::ResponseUsage>,
 }
 
-/// Strongly-typed envelope for the two Codex SSE events that carry data
-/// async-openai cannot fully model. Tried before the generic
-/// `ResponsesStreamEvent` parser so that `end_turn` and
-/// `incomplete_details.reason` are captured concretely.
+/// Payload of the Codex `response.incomplete` event. Carries the
+/// `incomplete_details.reason` used to produce a useful error message.
 #[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-pub(super) enum CodexStreamEvent {
-    #[serde(rename = "response.completed")]
-    Completed { response: CodexResponse },
-    #[serde(rename = "response.incomplete")]
-    Incomplete { response: CodexResponse },
-}
-
-impl CodexStreamEvent {
-    /// Resolves a parsed Codex envelope into the terminal pipeline item:
-    /// - `response.completed` becomes a `ChatCompletionMessage` (with the
-    ///   implicit `FinishReason::Stop` suppressed when `end_turn == Some(false)`).
-    /// - `response.incomplete` becomes a hard error so the turn loop does not
-    ///   re-fire on a truncated assistant message.
-    pub(super) fn into_stream_item(self) -> anyhow::Result<StreamItem> {
-        match self {
-            CodexStreamEvent::Completed { response } => {
-                let message = into_response_completed_message(response.end_turn);
-                Ok(StreamItem::Message(Box::new(message)))
-            }
-            CodexStreamEvent::Incomplete { response } => {
-                let reason = response.incomplete_details.map(|d| d.reason);
-                Err(into_response_incomplete_error(reason))
-            }
-        }
-    }
+pub(super) struct ResponseIncompletePayload {
+    #[serde(default)]
+    pub incomplete_details: Option<oai::IncompleteDetails>,
 }
 
 /// Converts OpenAI Responses API usage into the domain Usage type.
@@ -324,9 +307,14 @@ fn retain_encrypted_reasoning_details(
 /// Builds the terminal `ChatCompletionMessage` for a `response.completed`
 /// event. Deduplicates content/reasoning/tool_calls that were already streamed
 /// via deltas and applies the Codex `end_turn` override when present.
-fn into_response_completed_message(end_turn: Option<bool>) -> ChatCompletionMessage {
-    let message = ChatCompletionMessage::default();
-    if end_turn == Some(false) {
+pub(super) fn into_response_completed_message(
+    payload: ResponseCompletedPayload,
+) -> ChatCompletionMessage {
+    let mut message = ChatCompletionMessage::default();
+    if let Some(usage) = payload.usage {
+        message = message.usage(usage.into_domain());
+    }
+    if payload.end_turn == Some(false) {
         // Server explicitly asks to continue the turn; leave finish_reason
         // unset so the orchestrator loop does not terminate.
         message
@@ -337,7 +325,7 @@ fn into_response_completed_message(end_turn: Option<bool>) -> ChatCompletionMess
 
 /// Maps a `response.incomplete` event into a hard error so the orchestrator
 /// stops the turn instead of looping on a truncated assistant message.
-fn into_response_incomplete_error(reason: Option<String>) -> anyhow::Error {
+pub(super) fn into_response_incomplete_error(reason: Option<String>) -> anyhow::Error {
     let reason = reason.unwrap_or_else(|| "unknown".to_string());
     anyhow::anyhow!("Upstream response incomplete: {reason}")
 }
