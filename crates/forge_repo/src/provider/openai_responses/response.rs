@@ -539,6 +539,7 @@ impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
 #[cfg(test)]
 mod tests {
     use async_openai::types::responses as oai;
+    use pretty_assertions::assert_eq;
 
     // Type alias for ResponseStream in tests since it's not provided by
     // response-types
@@ -1771,6 +1772,44 @@ mod tests {
                 assert!((cost - 0.123).abs() < f64::EPSILON);
             }
             other => panic!("Expected Ping, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_responses_stream_event_deserializes_codex_response_completed_without_output() {
+        let fixture = serde_json::json!({
+            "type": "response.completed",
+            "response": {
+                "id": "resp_1",
+                "created_at": 1773422509,
+                "model": "gpt-5.3-codex-spark",
+                "object": "response",
+                "status": "completed",
+                "end_turn": false,
+                "usage": {
+                    "input_tokens": 14900,
+                    "output_tokens": 381,
+                    "total_tokens": 15281,
+                    "input_tokens_details": { "cached_tokens": 14720 },
+                    "output_tokens_details": { "reasoning_tokens": 317 }
+                }
+            }
+        });
+        let actual: ResponsesStreamEvent = serde_json::from_value(fixture).unwrap();
+        let expected = Usage {
+            prompt_tokens: TokenCount::Actual(14900),
+            completion_tokens: TokenCount::Actual(381),
+            total_tokens: TokenCount::Actual(15281),
+            cached_tokens: TokenCount::Actual(14720),
+            cost: None,
+        };
+
+        match actual {
+            ResponsesStreamEvent::ResponseCompleted { response } => {
+                assert_eq!(response.end_turn, Some(false));
+                assert_eq!(response.usage.unwrap().into_domain(), expected);
+            }
+            other => panic!("Expected ResponseCompleted, got {:?}", other),
         }
     }
 
