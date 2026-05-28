@@ -294,6 +294,17 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                 match event_result {
                     Ok(event) if ["[DONE]", ""].contains(&event.data.as_str()) => None,
                     Ok(event) => {
+                        // Try the strongly-typed Codex envelope first so that
+                        // `end_turn` and `incomplete_details.reason` are
+                        // captured. Falls through to the generic parser on a
+                        // tag mismatch.
+                        if let Ok(codex_event) = serde_json::from_str::<
+                            super::response::CodexStreamEvent,
+                        >(&event.data)
+                        {
+                            return Some(codex_event.into_stream_item());
+                        }
+
                         let result = serde_json::from_str::<super::response::ResponsesStreamEvent>(
                             &event.data,
                         )
