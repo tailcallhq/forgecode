@@ -40,18 +40,6 @@ pub struct ForgePrompt {
     pub git_branch: Option<String>,
 }
 
-#[cfg(test)]
-pub enum PromptHistorySearchStatus {
-    Passing,
-    Failing,
-}
-
-#[cfg(test)]
-pub struct PromptHistorySearch {
-    pub status: PromptHistorySearchStatus,
-    pub term: String,
-}
-
 impl ForgePrompt {
     /// Creates a new `ForgePrompt`, resolving the git branch once at
     /// construction time.
@@ -217,33 +205,6 @@ impl ForgePrompt {
     pub fn render_prompt_indicator(&self) -> Cow<'_, str> {
         Cow::Borrowed("")
     }
-
-    #[cfg(test)]
-    pub fn render_prompt_history_search_indicator(
-        &self,
-        history_search: PromptHistorySearch,
-    ) -> Cow<'_, str> {
-        let prefix = match history_search.status {
-            PromptHistorySearchStatus::Passing => "",
-            PromptHistorySearchStatus::Failing => "failing ",
-        };
-
-        let mut result = String::with_capacity(32);
-
-        // Handle empty search term more elegantly
-        if history_search.term.is_empty() {
-            write!(result, "({prefix}reverse-search) ").unwrap();
-        } else {
-            write!(
-                result,
-                "({}reverse-search: {}) ",
-                prefix, history_search.term
-            )
-            .unwrap();
-        }
-
-        Cow::Owned(Style::new().fg(Color::White).paint(&result).to_string())
-    }
 }
 
 /// Gets the current git branch name if available
@@ -292,6 +253,39 @@ mod tests {
                 git_branch: None,
             }
         }
+    }
+
+    enum PromptHistorySearchStatus {
+        Passing,
+        Failing,
+    }
+
+    struct PromptHistorySearch {
+        status: PromptHistorySearchStatus,
+        term: String,
+    }
+
+    fn render_prompt_history_search_indicator(
+        history_search: PromptHistorySearch,
+    ) -> Cow<'static, str> {
+        let prefix = match history_search.status {
+            PromptHistorySearchStatus::Passing => "",
+            PromptHistorySearchStatus::Failing => "failing ",
+        };
+
+        let mut result = String::with_capacity(32);
+        if history_search.term.is_empty() {
+            write!(result, "({prefix}reverse-search) ").unwrap();
+        } else {
+            write!(
+                result,
+                "({}reverse-search: {}) ",
+                prefix, history_search.term
+            )
+            .unwrap();
+        }
+
+        Cow::Owned(Style::new().fg(Color::White).paint(&result).to_string())
     }
 
     #[test]
@@ -352,12 +346,11 @@ mod tests {
 
     #[test]
     fn test_render_prompt_history_search_indicator_passing() {
-        let prompt = ForgePrompt::default();
         let history_search = PromptHistorySearch {
             status: PromptHistorySearchStatus::Passing,
             term: "test".to_string(),
         };
-        let actual = prompt.render_prompt_history_search_indicator(history_search);
+        let actual = render_prompt_history_search_indicator(history_search);
         let expected = Style::new()
             .fg(Color::White)
             .paint("(reverse-search: test) ")
@@ -367,12 +360,11 @@ mod tests {
 
     #[test]
     fn test_render_prompt_history_search_indicator_failing() {
-        let prompt = ForgePrompt::default();
         let history_search = PromptHistorySearch {
             status: PromptHistorySearchStatus::Failing,
             term: "test".to_string(),
         };
-        let actual = prompt.render_prompt_history_search_indicator(history_search);
+        let actual = render_prompt_history_search_indicator(history_search);
         let expected = Style::new()
             .fg(Color::White)
             .paint("(failing reverse-search: test) ")
@@ -382,12 +374,11 @@ mod tests {
 
     #[test]
     fn test_render_prompt_history_search_indicator_empty_term() {
-        let prompt = ForgePrompt::default();
         let history_search = PromptHistorySearch {
             status: PromptHistorySearchStatus::Passing,
             term: "".to_string(),
         };
-        let actual = prompt.render_prompt_history_search_indicator(history_search);
+        let actual = render_prompt_history_search_indicator(history_search);
         let expected = Style::new()
             .fg(Color::White)
             .paint("(reverse-search) ")

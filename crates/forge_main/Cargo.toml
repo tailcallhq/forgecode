@@ -40,7 +40,6 @@ anyhow.workspace = true
 derive_setters.workspace = true
 lazy_static.workspace = true
 rustyline.workspace = true
-crossterm = "0.29.0"
 nu-ansi-term.workspace = true
 tracing.workspace = true
 chrono.workspace = true

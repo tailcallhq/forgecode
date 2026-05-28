@@ -11,10 +11,10 @@ use rustyline::error::ReadlineError as RustyReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::{Hinter, HistoryHinter};
 use rustyline::history::DefaultHistory;
-use rustyline::validate::{ValidationContext, ValidationResult, Validator};
+use rustyline::validate::Validator;
 use rustyline::{
     Cmd, Context as RustylineContext, Editor, EventHandler, Helper, KeyCode, KeyEvent, Modifiers,
-    Movement, Prompt as RustylinePrompt,
+    Prompt as RustylinePrompt,
 };
 
 use super::completer::InputCompleter;
@@ -33,6 +33,7 @@ pub struct ForgeEditor {
 }
 
 /// Result of reading one prompt interaction from the terminal.
+#[derive(Debug, PartialEq, Eq)]
 pub enum ReadResult {
     Success(String),
     Empty,
@@ -66,15 +67,24 @@ impl ForgeEditor {
         );
         editor.bind_sequence(
             KeyEvent(KeyCode::Char('k'), Modifiers::CTRL),
-            EventHandler::Simple(Cmd::Kill(Movement::WholeBuffer)),
+            EventHandler::Simple(Cmd::ClearScreen),
         );
         editor.bind_sequence(
             KeyEvent(KeyCode::Char('K'), Modifiers::CTRL),
-            EventHandler::Simple(Cmd::Kill(Movement::WholeBuffer)),
+            EventHandler::Simple(Cmd::ClearScreen),
         );
         editor.set_helper(Some(helper));
         let _ = editor.load_history(&history_file);
         Self { editor, history_file, pending_buffer: None }
+    }
+
+    fn normalize_result(&mut self, buffer: String) -> ReadResult {
+        let result = normalize_result_text(buffer);
+        if let ReadResult::Success(text) = &result {
+            let _ = self.editor.add_history_entry(text.as_str());
+            let _ = self.editor.save_history(&self.history_file);
+        }
+        result
     }
 
     /// Reads one logical input from the terminal.
@@ -90,16 +100,7 @@ impl ForgeEditor {
         prompt.refresh();
 
         match readline {
-            Ok(buffer) => {
-                let buffer = normalize_input(buffer);
-                let trimmed = buffer.trim();
-                if trimmed.is_empty() {
-                    return Ok(ReadResult::Empty);
-                }
-                let _ = self.editor.add_history_entry(trimmed);
-                let _ = self.editor.save_history(&self.history_file);
-                Ok(ReadResult::Success(trimmed.to_string()))
-            }
+            Ok(buffer) => Ok(self.normalize_result(buffer)),
             Err(RustyReadlineError::Interrupted) => Ok(ReadResult::Continue),
             Err(RustyReadlineError::Eof) => Ok(ReadResult::Exit),
             Err(error) => Err(anyhow::anyhow!(ReadLineError(error))),
@@ -115,6 +116,14 @@ impl ForgeEditor {
 #[derive(Debug, thiserror::Error)]
 #[error("failed to read line from terminal: {0}")]
 pub struct ReadLineError(RustyReadlineError);
+
+fn normalize_result_text(buffer: String) -> ReadResult {
+    let trimmed = buffer.trim();
+    if trimmed.is_empty() {
+        return ReadResult::Empty;
+    }
+    ReadResult::Success(wrap_pasted_text(trimmed))
+}
 
 fn render_prompt(prompt: &ForgePrompt) -> ResponsivePrompt {
     let left = prompt.render_prompt_left();
@@ -160,11 +169,6 @@ impl RustylinePrompt for ResponsivePrompt {
     fn styled(&self) -> &str {
         &self.styled
     }
-}
-
-fn normalize_input(input: String) -> String {
-    let stripped = input.replace("\x1b[200~", "").replace("\x1b[201~", "");
-    wrap_pasted_text(&stripped)
 }
 
 struct ForgeHelper {
@@ -234,9 +238,10 @@ impl Highlighter for ForgeHelper {
             return Cow::Borrowed(line);
         }
 
+        let default_style = Style::new();
         let mut rendered = String::with_capacity(line.len());
         for (style, text) in styled.buffer {
-            if style == Style::new() {
+            if style == default_style {
                 rendered.push_str(&text);
             } else {
                 rendered.push_str(&style.paint(text).to_string());
@@ -250,8 +255,22 @@ impl Highlighter for ForgeHelper {
     }
 }
 
-impl Validator for ForgeHelper {
-    fn validate(&self, _ctx: &mut ValidationContext<'_>) -> rustyline::Result<ValidationResult> {
-        Ok(ValidationResult::Valid(None))
+impl Validator for ForgeHelper {}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn test_normalize_result_wraps_existing_pasted_path() {
+        let fixture = "/usr/bin/env".to_string();
+
+        let actual = normalize_result_text(fixture);
+
+        let expected = ReadResult::Success("@[/usr/bin/env]".to_string());
+        assert_eq!(actual, expected);
     }
 }
+

@@ -2468,7 +2468,6 @@ dependencies = [
  "colored",
  "console",
  "convert_case 0.11.0",
- "crossterm 0.29.0",
  "derive_setters",
  "dirs",
  "enable-ansi-support",
