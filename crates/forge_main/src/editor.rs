@@ -14,7 +14,7 @@ use rustyline::history::DefaultHistory;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{
     Cmd, Context as RustylineContext, Editor, EventHandler, Helper, KeyCode, KeyEvent, Modifiers,
-    Prompt as RustylinePrompt,
+    Movement, Prompt as RustylinePrompt,
 };
 
 use super::completer::InputCompleter;
@@ -63,6 +63,14 @@ impl ForgeEditor {
         editor.bind_sequence(
             KeyEvent(KeyCode::Enter, Modifiers::ALT),
             EventHandler::Simple(Cmd::Newline),
+        );
+        editor.bind_sequence(
+            KeyEvent(KeyCode::Char('k'), Modifiers::CTRL),
+            EventHandler::Simple(Cmd::Kill(Movement::EndOfLine)),
+        );
+        editor.bind_sequence(
+            KeyEvent(KeyCode::Char('K'), Modifiers::CTRL),
+            EventHandler::Simple(Cmd::Kill(Movement::EndOfLine)),
         );
         editor.set_helper(Some(helper));
         let _ = editor.load_history(&history_file);
@@ -235,6 +243,10 @@ impl Highlighter for ForgeHelper {
             }
         }
         Cow::Owned(rendered)
+    }
+
+    fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
+        Cow::Owned(Style::new().dimmed().paint(hint).to_string())
     }
 }
 
