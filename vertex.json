@@ -1,5 +1,15 @@
 [
   {
+    "id": "google/gemini-3.5-flash",
+    "name": "Gemini 3.5 Flash",
+    "description": "",
+    "context_length": 1048576,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": true,
+    "supports_reasoning": true,
+    "input_modalities": ["text", "image"]
+  },
+  {
     "id": "mistral/mistral-large-2411",
     "name": "Mistral Large 2411",
     "description": "Mistral's powerful large language model",
