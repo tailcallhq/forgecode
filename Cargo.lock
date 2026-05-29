@@ -104,7 +104,7 @@ dependencies = [
  "objc2-foundation",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
  "x11rb",
 ]
 
@@ -1363,7 +1363,6 @@ dependencies = [
  "mio",
  "parking_lot",
  "rustix 1.1.4",
- "serde",
  "signal-hook 0.3.18",
  "signal-hook-mio",
  "winapi",
@@ -1965,7 +1964,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2055,17 +2054,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "fd-lock"
-version = "4.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
-dependencies = [
- "cfg-if",
- "rustix 1.1.4",
- "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2237,9 +2225,9 @@ dependencies = [
  "schemars 1.2.1",
  "serde",
  "serde_json",
- "serde_yml",
+ "serde_yml 0.0.13",
  "sha2 0.11.0",
- "strum 0.28.0",
+ "strum",
  "strum_macros 0.28.0",
  "tempfile",
  "thiserror 2.0.18",
@@ -2280,7 +2268,7 @@ dependencies = [
  "strum_macros 0.28.0",
  "thiserror 2.0.18",
  "tokio",
- "toml_edit 0.25.11+spec-1.1.0",
+ "toml_edit 0.25.12+spec-1.1.0",
  "tracing",
  "url",
 ]
@@ -2333,8 +2321,8 @@ dependencies = [
  "schemars 1.2.1",
  "serde",
  "serde_json",
- "serde_yml",
- "strum 0.28.0",
+ "serde_yml 0.0.13",
+ "strum",
  "strum_macros 0.28.0",
  "thiserror 2.0.18",
  "tokio",
@@ -2480,7 +2468,6 @@ dependencies = [
  "colored",
  "console",
  "convert_case 0.11.0",
- "crossterm 0.29.0",
  "derive_setters",
  "dirs",
  "enable-ansi-support",
@@ -2512,14 +2499,14 @@ dependencies = [
  "num-format",
  "open",
  "pretty_assertions",
- "reedline",
  "regex",
  "rustls 0.23.40",
+ "rustyline",
  "serde",
  "serde_json",
  "serial_test",
  "strip-ansi-escapes",
- "strum 0.28.0",
+ "strum",
  "strum_macros 0.28.0",
  "tempfile",
  "terminal_size",
@@ -2527,7 +2514,7 @@ dependencies = [
  "tiny_http",
  "tokio",
  "tokio-stream",
- "toml_edit 0.25.11+spec-1.1.0",
+ "toml_edit 0.25.12+spec-1.1.0",
  "tracing",
  "update-informer",
  "url",
@@ -2604,7 +2591,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
- "strum 0.28.0",
+ "strum",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -2678,9 +2665,9 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "serde_yml",
+ "serde_yml 0.0.13",
  "strip-ansi-escapes",
- "strum 0.28.0",
+ "strum",
  "strum_macros 0.28.0",
  "tempfile",
  "thiserror 2.0.18",
@@ -3018,7 +3005,7 @@ dependencies = [
  "merge",
  "serde",
  "serde_json",
- "serde_yml",
+ "serde_yml 0.0.12",
  "strum_macros 0.27.2",
 ]
 
@@ -3442,7 +3429,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19753d40da53d0ec41604750eeb969097a90fb2d7f7992730d904541c04e2c19"
 dependencies = [
  "bstr",
- "hashbrown 0.17.0",
+ "hashbrown 0.16.1",
 ]
 
 [[package]]
@@ -4878,7 +4865,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5590,6 +5577,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9737e026353e5cd0736f98eddae28665118eb6f6600902a7f50db585621fecb6"
 
 [[package]]
+name = "noyalib"
+version = "0.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e493c05128df7a83b9676b709d590e0ebc285c7ed3152bc679668e8c1e506af5"
+dependencies = [
+ "indexmap 2.14.0",
+ "memchr",
+ "rustc-hash",
+ "serde",
+ "smallvec",
+]
+
+[[package]]
 name = "ntapi"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5707,7 +5707,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.21.7",
  "chrono",
  "getrandom 0.2.17",
  "http 1.4.1",
@@ -6177,9 +6177,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.7.1"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb400667902066c26d87df6c8573755c28f182b48a27d946ef585f39cb0e5c9d"
+checksum = "37fe987ce1bbf655e4a753d5a72d4729fe69fbfbf8d9ca6d1afd452d7117ea54"
 dependencies = [
  "chrono",
  "derive_builder",
@@ -6460,7 +6460,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.3",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6639,26 +6639,6 @@ dependencies = [
  "getrandom 0.2.17",
  "libredox",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "reedline"
-version = "0.48.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "201e8e0160cbe7bb5eb2caccf281e178e77fac95115ab31a2c29edc5593603c8"
-dependencies = [
- "chrono",
- "crossterm 0.29.0",
- "fd-lock",
- "itertools",
- "nu-ansi-term",
- "serde",
- "strip-ansi-escapes",
- "strum 0.27.2",
- "thiserror 2.0.18",
- "unicase",
- "unicode-segmentation",
- "unicode-width 0.2.2",
 ]
 
 [[package]]
@@ -7057,7 +7037,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7070,7 +7050,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7150,7 +7130,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7507,6 +7487,16 @@ dependencies = [
  "ryu",
  "serde",
  "version_check",
+]
+
+[[package]]
+name = "serde_yml"
+version = "0.0.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "909764a65f86829ccdb5eea9ab355843aa02c019a7bfd47465092953565caa05"
+dependencies = [
+ "noyalib",
+ "serde",
 ]
 
 [[package]]
@@ -7919,15 +7909,6 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "strum"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
-dependencies = [
- "strum_macros 0.27.2",
-]
-
-[[package]]
-name = "strum"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9628de9b8791db39ceda2b119bbe13134770b56c138ec1d3af810d045c04f9bd"
@@ -8103,7 +8084,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8472,9 +8453,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.25.11+spec-1.1.0"
+version = "0.25.12+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b59c4d22ed448339746c59b905d24568fcbb3ab65a500494f7b8c3e97739f2b"
+checksum = "d2153edc6955a6c354fad8f5efd38b6a8769bdccf9fe50f8e1329f81b0baa5d7"
 dependencies = [
  "indexmap 2.14.0",
  "serde_core",
