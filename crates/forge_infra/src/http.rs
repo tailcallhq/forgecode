@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context;
@@ -19,7 +19,8 @@ const VERSION: &str = match option_env!("APP_VERSION") {
 };
 
 pub struct ForgeHttpInfra<F> {
-    client: Client,
+    client: OnceLock<Client>,
+    config: ForgeConfig,
     debug_requests: Option<PathBuf>,
     file: Arc<F>,
 }
@@ -37,23 +38,40 @@ fn to_reqwest_tls(tls: TlsVersion) -> reqwest::tls::Version {
 impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
     /// Creates a new [`ForgeHttpInfra`] from a resolved [`ForgeConfig`].
     pub fn new(config: ForgeConfig, file_writer: Arc<F>) -> Self {
-        let http = config.http.unwrap_or(forge_config::HttpConfig {
-            connect_timeout_secs: 30,
-            read_timeout_secs: 900,
-            pool_idle_timeout_secs: 90,
-            pool_max_idle_per_host: 5,
-            max_redirects: 10,
-            hickory: false,
-            tls_backend: TlsBackend::Default,
-            min_tls_version: None,
-            max_tls_version: None,
-            adaptive_window: true,
-            keep_alive_interval_secs: Some(60),
-            keep_alive_timeout_secs: 10,
-            keep_alive_while_idle: true,
-            accept_invalid_certs: false,
-            root_cert_paths: None,
-        });
+        Self {
+            client: OnceLock::new(),
+            debug_requests: config.debug_requests.clone(),
+            config,
+            file: file_writer,
+        }
+    }
+
+    fn client(&self) -> &Client {
+        self.client.get_or_init(|| self.build_client())
+    }
+
+    fn build_client(&self) -> Client {
+        let http = self
+            .config
+            .http
+            .clone()
+            .unwrap_or(forge_config::HttpConfig {
+                connect_timeout_secs: 30,
+                read_timeout_secs: 900,
+                pool_idle_timeout_secs: 90,
+                pool_max_idle_per_host: 5,
+                max_redirects: 10,
+                hickory: false,
+                tls_backend: TlsBackend::Default,
+                min_tls_version: None,
+                max_tls_version: None,
+                adaptive_window: true,
+                keep_alive_interval_secs: Some(60),
+                keep_alive_timeout_secs: 10,
+                keep_alive_while_idle: true,
+                accept_invalid_certs: false,
+                root_cert_paths: None,
+            });
 
         let mut client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(http.connect_timeout_secs))
@@ -113,11 +131,7 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
             TlsBackend::Default => {}
         }
 
-        Self {
-            debug_requests: config.debug_requests,
-            client: client.build().unwrap(),
-            file: file_writer,
-        }
+        client.build().unwrap()
     }
 
     async fn get(&self, url: &Url, headers: Option<HeaderMap>) -> anyhow::Result<Response> {
@@ -162,7 +176,7 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
     where
         B: FnOnce(&Client) -> reqwest::RequestBuilder,
     {
-        let response = request_builder(&self.client)
+        let response = request_builder(self.client())
             .send()
             .await
             .with_context(|| format_http_context(None, method, url))?;
@@ -256,7 +270,7 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
 
         self.write_debug_request(&body);
 
-        self.client
+        self.client()
             .post(url.clone())
             .headers(request_headers)
             .body(body)
