@@ -12,11 +12,10 @@ use forge_domain::{
 };
 use reqwest::Client;
 use reqwest::header::{HeaderName, HeaderValue};
-use rmcp::model::{CallToolRequestParam, ClientInfo, Implementation, InitializeRequestParam};
+use rmcp::model::{CallToolRequestParams, ClientInfo, Implementation, InitializeRequestParams};
 use rmcp::service::RunningService;
-use rmcp::transport::sse_client::SseClientConfig;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
-use rmcp::transport::{SseClientTransport, StreamableHttpClientTransport, TokioChildProcess};
+use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
 use rmcp::{RoleClient, ServiceExt};
 use schemars::Schema;
 use serde_json::Value;
@@ -30,7 +29,7 @@ const VERSION: &str = match option_env!("APP_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
 };
 
-type RmcpClient = RunningService<RoleClient, InitializeRequestParam>;
+type RmcpClient = RunningService<RoleClient, InitializeRequestParams>;
 
 #[derive(Clone)]
 pub struct ForgeMcpClient {
@@ -107,17 +106,9 @@ impl ForgeMcpClient {
     }
 
     fn client_info(&self) -> ClientInfo {
-        ClientInfo {
-            protocol_version: Default::default(),
-            capabilities: Default::default(),
-            client_info: Implementation {
-                name: "Forge".to_string(),
-                version: VERSION.to_string(),
-                icons: None,
-                title: None,
-                website_url: None,
-            },
-        }
+        let mut info = ClientInfo::default();
+        info.client_info = Implementation::new("Forge", VERSION);
+        info
     }
 
     /// Connects to the MCP server. If `force` is true, it will reconnect even
@@ -225,17 +216,7 @@ impl ForgeMcpClient {
             client.as_ref().clone(),
             StreamableHttpClientTransportConfig::with_uri(http.url.clone()),
         );
-        match self.client_info().serve(transport).await {
-            Ok(client) => Ok(client),
-            Err(_e) => {
-                let transport = SseClientTransport::start_with_client(
-                    client.as_ref().clone(),
-                    SseClientConfig { sse_endpoint: http.url.clone().into(), ..Default::default() },
-                )
-                .await?;
-                Ok(self.client_info().serve(transport).await?)
-            }
-        }
+        Ok(self.client_info().serve(transport).await?)
     }
 
     /// Create an OAuth-enabled connection using rmcp's OAuth support.
@@ -368,10 +349,12 @@ impl ForgeMcpClient {
         {
             use rmcp::transport::auth::CredentialStore;
             let save_store = McpTokenStorage::new(http.url.clone(), self.environment.clone());
-            let stored = rmcp::transport::auth::StoredCredentials {
-                client_id: credentials.0,
-                token_response: credentials.1,
-            };
+            let stored = rmcp::transport::auth::StoredCredentials::new(
+                credentials.0,
+                credentials.1,
+                oauth_config.scopes.clone(),
+                Some(current_epoch_secs()),
+            );
             save_store
                 .save(stored)
                 .await
@@ -527,14 +510,15 @@ impl ForgeMcpClient {
     async fn call(&self, tool_name: &ToolName, input: &Value) -> anyhow::Result<ToolOutput> {
         let client = self.connect().await?;
         let result = client
-            .call_tool(CallToolRequestParam {
-                name: Cow::Owned(tool_name.to_string()),
-                arguments: if let Value::Object(args) = input {
-                    Some(args.clone())
-                } else {
-                    None
-                },
-            })
+            .call_tool(
+                CallToolRequestParams::new(Cow::Owned(tool_name.to_string())).with_arguments(
+                    if let Value::Object(args) = input {
+                        args.clone()
+                    } else {
+                        Default::default()
+                    },
+                ),
+            )
             .await?;
 
         let tool_contents: Vec<ToolOutput> = result
@@ -603,6 +587,13 @@ impl McpClientInfra for ForgeMcpClient {
         self.attempt_with_retry(|| self.call(tool_name, &input))
             .await
     }
+}
+
+fn current_epoch_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 /// Resolves mustache templates in McpHttpServer headers using Handlebars
@@ -734,10 +725,12 @@ pub async fn mcp_auth(server_url: &str, env: &Environment) -> anyhow::Result<()>
         .map_err(|e| anyhow::anyhow!("Failed to get credentials: {}", e))?;
 
     let save_store = McpTokenStorage::new(server_url.to_string(), env.clone());
-    let stored = rmcp::transport::auth::StoredCredentials {
-        client_id: credentials.0,
-        token_response: credentials.1,
-    };
+    let stored = rmcp::transport::auth::StoredCredentials::new(
+        credentials.0,
+        credentials.1,
+        Vec::new(),
+        Some(current_epoch_secs()),
+    );
     save_store
         .save(stored)
         .await

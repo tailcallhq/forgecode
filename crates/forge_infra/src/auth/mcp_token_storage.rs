@@ -98,11 +98,11 @@ impl CredentialStore for McpTokenStorage {
         if let Some(entry) = store.get(&self.server_url) {
             use oauth2::basic::BasicTokenType;
             use oauth2::{AccessToken, RefreshToken};
-            use rmcp::transport::auth::OAuthTokenResponse;
+            use rmcp::transport::auth::{OAuthTokenResponse, VendorExtraTokenFields};
 
             let access_token = AccessToken::new(entry.tokens.access_token.clone());
             let token_type = BasicTokenType::Bearer;
-            let extra_fields = oauth2::EmptyExtraTokenFields {};
+            let extra_fields = VendorExtraTokenFields::default();
 
             let mut token_response =
                 OAuthTokenResponse::new(access_token, token_type, extra_fields);
@@ -127,14 +127,23 @@ impl CredentialStore for McpTokenStorage {
                 }
             }
 
-            Ok(Some(StoredCredentials {
-                client_id: entry
+            let granted_scopes = entry
+                .tokens
+                .scope
+                .as_deref()
+                .map(|scope| scope.split_whitespace().map(ToString::to_string).collect())
+                .unwrap_or_default();
+
+            Ok(Some(StoredCredentials::new(
+                entry
                     .client_registration
                     .as_ref()
                     .map(|r| r.client_id.clone())
                     .unwrap_or_default(),
-                token_response: Some(token_response),
-            }))
+                Some(token_response),
+                granted_scopes,
+                entry.tokens.token_received_at,
+            )))
         } else {
             Ok(None)
         }
@@ -168,6 +177,8 @@ impl CredentialStore for McpTokenStorage {
                     .unwrap_or_default()
                     .as_secs()
             });
+            let granted_scope = (!credentials.granted_scopes.is_empty())
+                .then(|| credentials.granted_scopes.join(" "));
             let scope = response.scopes().map(|scopes| {
                 scopes
                     .iter()
@@ -184,7 +195,8 @@ impl CredentialStore for McpTokenStorage {
                         .and_then(|e| e.tokens.refresh_token.clone())
                 }),
                 expires_at,
-                scope,
+                scope: scope.or(granted_scope),
+                token_received_at: credentials.token_received_at,
             }
         } else {
             McpOAuthTokens {
@@ -192,6 +204,7 @@ impl CredentialStore for McpTokenStorage {
                 refresh_token: None,
                 expires_at: None,
                 scope: None,
+                token_received_at: credentials.token_received_at,
             }
         };
 

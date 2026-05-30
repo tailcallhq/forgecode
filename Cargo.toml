@@ -65,9 +65,9 @@ proc-macro2 = "1.0"
 quote = "1.0"
 rustyline = "18.0.0"
 regex = "1.12.3"
-reqwest = { version = "0.12.23", features = [
+reqwest = { version = "0.13.3", features = [
     "json",
-    "rustls-tls",
+    "rustls",
     "hickory-dns",
     "http2",
 ], default-features = false }
@@ -120,9 +120,8 @@ whoami = "2.1.0"
 fnv_rs = "0.4.3"
 merge = { version = "0.2", features = ["derive"] }
 hex = "0.4.3"
-rmcp = { version = "0.10.0", features = [
+rmcp = { version = "1.7.0", features = [
     "client",
-    "transport-sse-client-reqwest",
     "transport-child-process",
     "transport-streamable-http-client-reqwest",
     "auth",

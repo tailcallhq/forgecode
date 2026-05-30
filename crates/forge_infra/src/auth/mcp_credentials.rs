@@ -17,6 +17,8 @@ pub struct McpOAuthTokens {
     pub refresh_token: Option<String>,
     pub expires_at: Option<u64>,
     pub scope: Option<String>,
+    #[serde(default)]
+    pub token_received_at: Option<u64>,
 }
 
 /// Client registration info (for dynamic registration)
@@ -150,6 +152,7 @@ mod tests {
                 refresh_token: Some("test-refresh-token".to_string()),
                 expires_at: Some(1234567890),
                 scope: Some("read write".to_string()),
+                token_received_at: Some(1234567000),
             },
             client_registration: None,
         };
@@ -180,6 +183,7 @@ mod tests {
                 refresh_token: None,
                 expires_at: None,
                 scope: None,
+                token_received_at: None,
             },
             client_registration: None,
         });
