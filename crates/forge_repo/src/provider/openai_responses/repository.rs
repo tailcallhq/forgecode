@@ -231,6 +231,16 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                                         .usage(usage),
                                     ))))
                                 }
+                                Ok(super::response::ResponsesStreamEvent::ResponseCompleted {
+                                    response,
+                                }) => Some(Ok(super::response::StreamItem::Message(Box::new(
+                                    super::response::into_response_completed_message(response),
+                                )))),
+                                Ok(super::response::ResponsesStreamEvent::ResponseIncomplete {
+                                    response,
+                                }) => Some(Err(super::response::into_response_incomplete_error(
+                                    response.incomplete_details.map(|d| d.reason),
+                                ))),
                                 Ok(super::response::ResponsesStreamEvent::Unknown(_)) => None,
                                 Ok(super::response::ResponsesStreamEvent::Response(inner)) => {
                                     Some(Ok(super::response::StreamItem::Event(inner)))
@@ -310,6 +320,16 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                                     .usage(usage),
                                 ))))
                             }
+                            Ok(super::response::ResponsesStreamEvent::ResponseCompleted {
+                                response,
+                            }) => Some(Ok(super::response::StreamItem::Message(Box::new(
+                                super::response::into_response_completed_message(response),
+                            )))),
+                            Ok(super::response::ResponsesStreamEvent::ResponseIncomplete {
+                                response,
+                            }) => Some(Err(super::response::into_response_incomplete_error(
+                                response.incomplete_details.map(|d| d.reason),
+                            ))),
                             Ok(super::response::ResponsesStreamEvent::Unknown(_)) => None,
                             Ok(super::response::ResponsesStreamEvent::Response(inner)) => {
                                 Some(Ok(super::response::StreamItem::Event(inner)))

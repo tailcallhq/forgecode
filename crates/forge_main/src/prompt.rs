@@ -6,13 +6,9 @@ use convert_case::{Case, Casing};
 use derive_setters::Setters;
 use forge_api::{AgentId, Effort, ModelId, Usage};
 use nu_ansi_term::{Color, Style};
-use reedline::{Prompt, PromptHistorySearchStatus};
 
 use crate::display_constants::markers;
 use crate::utils::humanize_number;
-
-// Constants
-const MULTILINE_INDICATOR: &str = "::: ";
 
 // Nerd font symbols — left prompt
 const DIR_SYMBOL: &str = "\u{ea83}"; // 󪃃  folder icon
@@ -64,10 +60,8 @@ impl ForgePrompt {
         self.git_branch = git_branch;
         self
     }
-}
 
-impl Prompt for ForgePrompt {
-    fn render_prompt_left(&self) -> Cow<'_, str> {
+    pub fn render_prompt_left(&self) -> Cow<'_, str> {
         // Left prompt layout:
         //
         //   AGENT_NAME  󪃃 dir   branch
@@ -119,7 +113,7 @@ impl Prompt for ForgePrompt {
         Cow::Owned(result)
     }
 
-    fn render_prompt_right(&self) -> Cow<'_, str> {
+    pub fn render_prompt_right(&self) -> Cow<'_, str> {
         // Right prompt layout: agent · tokens · cost · model
         // Active (tokens > 0): bright white for agent/tokens, green for cost
         // Inactive (no tokens): all segments dimmed
@@ -208,38 +202,8 @@ impl Prompt for ForgePrompt {
         Cow::Owned(result)
     }
 
-    fn render_prompt_indicator(&self, _prompt_mode: reedline::PromptEditMode) -> Cow<'_, str> {
+    pub fn render_prompt_indicator(&self) -> Cow<'_, str> {
         Cow::Borrowed("")
-    }
-
-    fn render_prompt_multiline_indicator(&self) -> Cow<'_, str> {
-        Cow::Borrowed(MULTILINE_INDICATOR)
-    }
-
-    fn render_prompt_history_search_indicator(
-        &self,
-        history_search: reedline::PromptHistorySearch,
-    ) -> Cow<'_, str> {
-        let prefix = match history_search.status {
-            PromptHistorySearchStatus::Passing => "",
-            PromptHistorySearchStatus::Failing => "failing ",
-        };
-
-        let mut result = String::with_capacity(32);
-
-        // Handle empty search term more elegantly
-        if history_search.term.is_empty() {
-            write!(result, "({prefix}reverse-search) ").unwrap();
-        } else {
-            write!(
-                result,
-                "({}reverse-search: {}) ",
-                prefix, history_search.term
-            )
-            .unwrap();
-        }
-
-        Cow::Owned(Style::new().fg(Color::White).paint(&result).to_string())
     }
 }
 
@@ -289,6 +253,39 @@ mod tests {
                 git_branch: None,
             }
         }
+    }
+
+    enum PromptHistorySearchStatus {
+        Passing,
+        Failing,
+    }
+
+    struct PromptHistorySearch {
+        status: PromptHistorySearchStatus,
+        term: String,
+    }
+
+    fn render_prompt_history_search_indicator(
+        history_search: PromptHistorySearch,
+    ) -> Cow<'static, str> {
+        let prefix = match history_search.status {
+            PromptHistorySearchStatus::Passing => "",
+            PromptHistorySearchStatus::Failing => "failing ",
+        };
+
+        let mut result = String::with_capacity(32);
+        if history_search.term.is_empty() {
+            write!(result, "({prefix}reverse-search) ").unwrap();
+        } else {
+            write!(
+                result,
+                "({}reverse-search: {}) ",
+                prefix, history_search.term
+            )
+            .unwrap();
+        }
+
+        Cow::Owned(Style::new().fg(Color::White).paint(&result).to_string())
     }
 
     #[test]
@@ -348,21 +345,12 @@ mod tests {
     }
 
     #[test]
-    fn test_render_prompt_multiline_indicator() {
-        let prompt = ForgePrompt::default();
-        let actual = prompt.render_prompt_multiline_indicator();
-        let expected = MULTILINE_INDICATOR;
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
     fn test_render_prompt_history_search_indicator_passing() {
-        let prompt = ForgePrompt::default();
-        let history_search = reedline::PromptHistorySearch {
+        let history_search = PromptHistorySearch {
             status: PromptHistorySearchStatus::Passing,
             term: "test".to_string(),
         };
-        let actual = prompt.render_prompt_history_search_indicator(history_search);
+        let actual = render_prompt_history_search_indicator(history_search);
         let expected = Style::new()
             .fg(Color::White)
             .paint("(reverse-search: test) ")
@@ -372,12 +360,11 @@ mod tests {
 
     #[test]
     fn test_render_prompt_history_search_indicator_failing() {
-        let prompt = ForgePrompt::default();
-        let history_search = reedline::PromptHistorySearch {
+        let history_search = PromptHistorySearch {
             status: PromptHistorySearchStatus::Failing,
             term: "test".to_string(),
         };
-        let actual = prompt.render_prompt_history_search_indicator(history_search);
+        let actual = render_prompt_history_search_indicator(history_search);
         let expected = Style::new()
             .fg(Color::White)
             .paint("(failing reverse-search: test) ")
@@ -387,12 +374,11 @@ mod tests {
 
     #[test]
     fn test_render_prompt_history_search_indicator_empty_term() {
-        let prompt = ForgePrompt::default();
-        let history_search = reedline::PromptHistorySearch {
+        let history_search = PromptHistorySearch {
             status: PromptHistorySearchStatus::Passing,
             term: "".to_string(),
         };
-        let actual = prompt.render_prompt_history_search_indicator(history_search);
+        let actual = render_prompt_history_search_indicator(history_search);
         let expected = Style::new()
             .fg(Color::White)
             .paint("(reverse-search) ")

@@ -214,6 +214,11 @@ pub trait McpConfigManager: Send + Sync {
 
     /// Responsible for writing the McpConfig on disk.
     async fn write_mcp_config(&self, config: &McpConfig, scope: &Scope) -> anyhow::Result<()>;
+
+    /// Returns the trusted subset of MCP servers, prompting interactively for
+    /// any project-local config file not yet approved. Must be called once at
+    /// the startup boundary, never on pure config-read paths.
+    async fn filter_trusted(&self, raw: McpConfig) -> anyhow::Result<McpConfig>;
 }
 
 #[async_trait::async_trait]
@@ -222,6 +227,10 @@ pub trait McpService: Send + Sync {
     async fn execute_mcp(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput>;
     /// Refresh the MCP cache by fetching fresh data
     async fn reload_mcp(&self) -> anyhow::Result<()>;
+    /// Applies the interactive trust gate for any project-local MCP config.
+    /// Servers are NOT connected here — connections remain lazy and happen on
+    /// first tool use. Must be called once at startup.
+    async fn init_mcp(&self) -> anyhow::Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -680,6 +689,10 @@ impl<I: Services> McpConfigManager for I {
             .write_mcp_config(config, scope)
             .await
     }
+
+    async fn filter_trusted(&self, raw: McpConfig) -> anyhow::Result<McpConfig> {
+        self.mcp_config_manager().filter_trusted(raw).await
+    }
 }
 
 #[async_trait::async_trait]
@@ -694,6 +707,10 @@ impl<I: Services> McpService for I {
 
     async fn reload_mcp(&self) -> anyhow::Result<()> {
         self.mcp_service().reload_mcp().await
+    }
+
+    async fn init_mcp(&self) -> anyhow::Result<()> {
+        self.mcp_service().init_mcp().await
     }
 }
 

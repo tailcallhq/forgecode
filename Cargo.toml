@@ -63,7 +63,6 @@ posthog-rs = "0.7.0"
 pretty_assertions = "1.4.1"
 proc-macro2 = "1.0"
 quote = "1.0"
-reedline = "0.47.0"
 rustyline = "18.0.0"
 regex = "1.12.3"
 reqwest = { version = "0.12.23", features = [
@@ -77,7 +76,7 @@ include_dir = "0.7.4"
 schemars = "1.2"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.143"
-serde_yml = "0.0.12"
+serde_yml = "0.0.13"
 sha2 = "0.11"
 similar = { version = "3.0", features = ["inline"] }
 strip-ansi-escapes = "0.2.1"
@@ -136,7 +135,7 @@ num-format = "0.4"
 humantime = "2.1.0"
 dashmap = "7.0.0-rc2"
 async-openai = { version = "0.34.0", default-features = false, features = ["response-types"] } # Using only types, not the API client - reduces dependencies
-gix = "0.83"
+gix = "0.84"
 google-cloud-auth = "1.8.0" # Google Cloud authentication with automatic token refresh
 
 # Internal crates

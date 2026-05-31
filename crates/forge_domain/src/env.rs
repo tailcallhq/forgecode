@@ -82,6 +82,11 @@ impl Environment {
         self.base_path.join(".mcp.json")
     }
 
+    /// Returns the path where the MCP trust store is persisted across restarts.
+    pub fn mcp_trust_path(&self) -> PathBuf {
+        self.base_path.join(".mcp_trust.json")
+    }
+
     pub fn agent_path(&self) -> PathBuf {
         self.base_path.join("agents")
     }
