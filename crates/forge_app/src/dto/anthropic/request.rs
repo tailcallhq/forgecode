@@ -1,5 +1,5 @@
 use derive_setters::Setters;
-use forge_domain::{ContextMessage, Image};
+use forge_domain::{ContextMessage, Document, Image};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Default, Setters)]
@@ -22,7 +22,7 @@ pub struct Request {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<ToolChoice>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub tools: Vec<ToolDefinition>,
+    pub tools: Vec<ToolEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_k: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -170,15 +170,27 @@ impl TryFrom<forge_domain::Context> for Request {
                 .filter(|message| !message.has_role(forge_domain::Role::System))
                 .map(|msg| Message::try_from(msg.message))
                 .collect::<std::result::Result<Vec<_>, _>>()?,
-            tools: request
-                .tools
-                .into_iter()
-                .map(ToolDefinition::try_from)
-                .collect::<std::result::Result<Vec<_>, _>>()?,
+            tools: {
+                let tools: Vec<ToolEntry> = request
+                    .tools
+                    .into_iter()
+                    .map(ToolDefinition::try_from)
+                    .collect::<std::result::Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .map(ToolEntry::Function)
+                    .collect();
+                // Add server-executed web search tool
+                // tools.push(ToolEntry::WebSearch(WebSearchTool {
+                //     r#type: "web_search_20250305".to_string(),
+                //     name: "web_search".to_string(),
+                //     max_uses: None,
+                // }));
+                tools
+            },
             system: Some(system_messages),
             temperature: request.temperature.map(|t| t.value()),
-            top_p: request.top_p.map(|t| t.value()),
-            top_k: request.top_k.map(|t| t.value() as u64),
+            // top_p: request.top_p.map(|t| t.value()),
+            // top_k: request.top_k.map(|t| t.value() as u64),
             tool_choice: request.tool_choice.map(ToolChoice::from),
             stream: Some(request.stream.unwrap_or(true)),
             thinking,
@@ -274,6 +286,9 @@ impl TryFrom<ContextMessage> for Message {
             ContextMessage::Image(img) => {
                 Message { content: vec![Content::from(img)], role: Role::User }
             }
+            ContextMessage::Document(doc) => {
+                Message { content: vec![Content::from(doc)], role: Role::User }
+            }
         })
     }
 }
@@ -295,6 +310,7 @@ impl Message {
                     .find_map(|(idx, content)| match content {
                         Content::Text { .. }
                         | Content::Image { .. }
+                        | Content::Document { .. }
                         | Content::ToolUse { .. }
                         | Content::ToolResult { .. } => Some(idx),
                         _ => None,
@@ -332,6 +348,19 @@ impl From<Image> for Content {
     }
 }
 
+impl From<Document> for Content {
+    fn from(value: Document) -> Self {
+        Content::Document {
+            source: DocumentSource {
+                type_: "base64".to_string(),
+                media_type: value.mime_type().to_string(),
+                data: value.base64_data().to_string(),
+            },
+            cache_control: None,
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct ImageSource {
     #[serde(rename = "type")]
@@ -345,10 +374,23 @@ pub struct ImageSource {
 }
 
 #[derive(Serialize)]
+pub struct DocumentSource {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub media_type: String,
+    pub data: String,
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum Content {
     Image {
         source: ImageSource,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    Document {
+        source: DocumentSource,
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
@@ -400,6 +442,7 @@ impl Content {
                 Content::ToolResult { tool_use_id, content, is_error, cache_control }
             }
             Content::Image { source, .. } => Content::Image { source, cache_control },
+            Content::Document { source, .. } => Content::Document { source, cache_control },
             // TODO: verify this Thinking variants don't support cache control
             Content::Thinking { signature, thinking } => Content::Thinking { signature, thinking },
         }
@@ -411,6 +454,7 @@ impl Content {
             Content::ToolUse { cache_control, .. } => cache_control.is_some(),
             Content::ToolResult { cache_control, .. } => cache_control.is_some(),
             Content::Image { cache_control, .. } => cache_control.is_some(),
+            Content::Document { cache_control, .. } => cache_control.is_some(),
             Content::Thinking { .. } => false,
         }
     }
@@ -499,6 +543,26 @@ impl From<forge_domain::ToolChoice> for ToolChoice {
             forge_domain::ToolChoice::None => ToolChoice::Auto { disable_parallel_tool_use: None },
         }
     }
+}
+
+/// A tool entry in the Anthropic tools array. Supports both function tools and
+/// server-executed built-in tools like web search.
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum ToolEntry {
+    /// Standard function tool definition.
+    Function(ToolDefinition),
+    /// Server-executed web search tool (Anthropic handles execution).
+    WebSearch(WebSearchTool),
+}
+
+/// Anthropic's server-executed web search tool definition.
+#[derive(Serialize)]
+pub struct WebSearchTool {
+    pub r#type: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_uses: Option<u32>,
 }
 
 #[derive(Serialize)]

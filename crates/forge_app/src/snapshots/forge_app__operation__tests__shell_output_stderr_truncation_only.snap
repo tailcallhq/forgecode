@@ -6,6 +6,7 @@ expression: to_value(actual)
   command="error_command"
   shell="/bin/bash"
   exit_code="1"
+  wall_time_secs="0.45"
 >
 <stderr
   total_lines="25"

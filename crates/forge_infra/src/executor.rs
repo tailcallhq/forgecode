@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 
 use bstr::ByteSlice;
 use forge_app::CommandInfra;
@@ -17,7 +18,9 @@ pub struct ForgeCommandExecutorService {
     env: Environment,
     output_printer: Arc<StdConsoleWriter>,
 
-    // Mutex to ensure that only one command is executed at a time
+    // Mutex to ensure that only one command streams output to the console at a
+    // time in interactive mode.  Skipped when silent=true (background mode) so
+    // that parallel tool calls do not deadlock waiting for each other.
     ready: Arc<Mutex<()>>,
 }
 
@@ -98,9 +101,19 @@ impl ForgeCommandExecutorService {
         silent: bool,
         env_vars: Option<Vec<String>>,
     ) -> anyhow::Result<CommandOutput> {
-        let ready = self.ready.lock().await;
+        // In interactive mode (silent=false) acquire the mutex so that only one
+        // command streams output to the console at a time, preventing interleaved
+        // output.  In background mode (silent=true) we skip the lock entirely so
+        // parallel tool calls can run concurrently without blocking each other.
+        let _ready = if silent {
+            None
+        } else {
+            Some(self.ready.lock().await)
+        };
 
         let mut prepared_command = self.prepare_command(&command, working_dir, env_vars);
+
+        let start_time = Instant::now();
 
         // Spawn the command
         let mut child = prepared_command.spawn()?;
@@ -138,13 +151,16 @@ impl ForgeCommandExecutorService {
         // Drop happens after `try_join` due to <https://github.com/tokio-rs/tokio/issues/4309>
         drop(stdout_pipe);
         drop(stderr_pipe);
-        drop(ready);
+        drop(_ready);
+
+        let wall_time_secs = start_time.elapsed().as_secs_f64();
 
         Ok(CommandOutput {
             stdout: stdout_buffer.to_str_lossy().into_owned(),
             stderr: stderr_buffer.to_str_lossy().into_owned(),
             exit_code: status.code(),
             command,
+            wall_time_secs: Some(wall_time_secs),
         })
     }
 }
@@ -309,6 +325,7 @@ mod tests {
             stderr: "".to_string(),
             command: "echo \"hello world\"".into(),
             exit_code: Some(0),
+            wall_time_secs: None,
         };
 
         if cfg!(target_os = "windows") {
@@ -451,6 +468,7 @@ mod tests {
             stderr: "".to_string(),
             command: "echo \"silent test\"".into(),
             exit_code: Some(0),
+            wall_time_secs: None,
         };
 
         if cfg!(target_os = "windows") {
@@ -534,5 +552,80 @@ mod tests {
             assert_eq!(out, "quote: \u{FFFD}hi\u{FFFD}".as_bytes());
             assert!(pending.is_empty());
         }
+    }
+
+    #[tokio::test]
+    async fn test_background_command_wrapper_pattern() {
+        // Test the nohup wrapper pattern that tool_executor uses for
+        // background: true. This verifies the shell command template
+        // that starts a process in the background, waits briefly, and
+        // checks it is still alive.
+        let fixture = ForgeCommandExecutorService::new(test_env(), test_printer());
+        let log_file = "/tmp/forge_bg_test_integration.log";
+
+        // Use sleep as a simple background process that stays alive
+        let cmd = format!(
+            "nohup sh -c 'sleep 30' > {log_file} 2>&1 & \
+             BG_PID=$!; \
+             sleep 1; \
+             if kill -0 $BG_PID 2>/dev/null; then \
+               echo \"Process $BG_PID started in background (log: {log_file})\"; \
+               kill $BG_PID 2>/dev/null; \
+             else \
+               echo \"ERROR: Process $BG_PID exited early. Log output:\"; \
+               cat {log_file}; \
+               exit 1; \
+             fi"
+        );
+
+        let actual = fixture
+            .execute_command(cmd, PathBuf::from("."), false, None)
+            .await
+            .unwrap();
+
+        assert!(
+            actual.stdout.contains("started in background"),
+            "Expected 'started in background' in stdout, got: {}",
+            actual.stdout
+        );
+        assert!(
+            actual.stdout.contains("log:"),
+            "Expected log file path in stdout, got: {}",
+            actual.stdout
+        );
+        assert_eq!(actual.exit_code, Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_background_command_detects_early_exit() {
+        // Verify that the wrapper detects when the background process
+        // exits immediately (e.g., bad command).
+        let fixture = ForgeCommandExecutorService::new(test_env(), test_printer());
+        let log_file = "/tmp/forge_bg_test_earlyexit.log";
+
+        let cmd = format!(
+            "nohup sh -c 'exit 1' > {log_file} 2>&1 & \
+             BG_PID=$!; \
+             sleep 1; \
+             if kill -0 $BG_PID 2>/dev/null; then \
+               echo \"Process $BG_PID started in background (log: {log_file})\"; \
+             else \
+               echo \"ERROR: Process $BG_PID exited early. Log output:\"; \
+               cat {log_file}; \
+               exit 1; \
+             fi"
+        );
+
+        let actual = fixture
+            .execute_command(cmd, PathBuf::from("."), false, None)
+            .await
+            .unwrap();
+
+        assert!(
+            actual.stdout.contains("ERROR") || actual.stdout.contains("exited early"),
+            "Expected error message for early exit, got: {}",
+            actual.stdout
+        );
+        assert_eq!(actual.exit_code, Some(1));
     }
 }

@@ -14,6 +14,7 @@ pub struct UserPromptGenerator<S> {
     agent: Agent,
     event: Event,
     current_time: chrono::DateTime<chrono::Local>,
+    _env: Environment,
 }
 
 impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>>
@@ -25,8 +26,9 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
         agent: Agent,
         event: Event,
         current_time: chrono::DateTime<chrono::Local>,
+        env: Environment,
     ) -> Self {
-        Self { services: service, agent, event, current_time }
+        Self { services: service, agent, event, current_time, _env: env }
     }
 
     /// Sets the user prompt in the context based on agent configuration and
@@ -255,6 +257,7 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
 
 #[cfg(test)]
 mod tests {
+    use fake::{Fake, Faker};
     use forge_domain::{
         AgentId, AttachmentContent, Context, ContextMessage, ConversationId, FileInfo, ModelId,
         ProviderId, ToolKind,
@@ -312,8 +315,18 @@ mod tests {
         Conversation::new(ConversationId::default()).context(Context::default())
     }
 
+    fn fixture_env() -> Environment {
+        Faker.fake()
+    }
+
     fn fixture_generator(agent: Agent, event: Event) -> UserPromptGenerator<MockService> {
-        UserPromptGenerator::new(Arc::new(MockService), agent, event, chrono::Local::now())
+        UserPromptGenerator::new(
+            Arc::new(MockService),
+            agent,
+            event,
+            chrono::Local::now(),
+            fixture_env(),
+        )
     }
 
     #[tokio::test]
@@ -479,6 +492,7 @@ mod tests {
             agent.clone(),
             event,
             chrono::Local::now(),
+            fixture_env(),
         );
 
         // Execute
@@ -582,6 +596,7 @@ mod tests {
             agent.clone(),
             event,
             chrono::Local::now(),
+            fixture_env(),
         );
 
         // Execute
@@ -671,6 +686,7 @@ mod tests {
             agent.clone(),
             event,
             chrono::Local::now(),
+            fixture_env(),
         );
 
         // Execute

@@ -40,5 +40,8 @@ expression: actual.tools
     },
     "strict": true,
     "description": "Run a shell command"
+  },
+  {
+    "type": "web_search"
   }
 ]

@@ -167,6 +167,7 @@ mod tests {
                 home: None,
                 shell: "bash".to_string(),
                 base_path: PathBuf::new(),
+                background: false,
             }
         }
 

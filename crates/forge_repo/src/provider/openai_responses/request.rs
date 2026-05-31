@@ -308,6 +308,24 @@ impl FromDomain<ChatContext> for oai::CreateResponse {
                         phase: None,
                     }));
                 }
+                ContextMessage::Document(doc) => {
+                    let data_uri = format!("data:{};base64,{}", doc.mime_type(), doc.base64_data());
+                    let mut file_content = oai::InputFileArgs::default();
+                    file_content.file_data(data_uri);
+                    if let Some(name) = doc.filename() {
+                        file_content.filename(name.clone());
+                    }
+                    items.push(oai::InputItem::EasyMessage(oai::EasyInputMessage {
+                        r#type: oai::MessageType::Message,
+                        role: oai::Role::User,
+                        content: oai::EasyInputContent::ContentList(vec![
+                            oai::InputContent::InputFile(
+                                file_content.build().map_err(anyhow::Error::from)?,
+                            ),
+                        ]),
+                        phase: None,
+                    }));
+                }
             }
         }
 
@@ -336,6 +354,19 @@ impl FromDomain<ChatContext> for oai::CreateResponse {
             })
             .transpose()?;
 
+        // Add LLM-provided (server-executed) built-in tools. These are executed
+        // by the API server, not by the client, providing the model with web
+        // search and sandboxed Python execution capabilities at zero client cost.
+        let tools = tools.map(|mut t| {
+            t.push(oai::Tool::WebSearch(oai::WebSearchTool::default()));
+            // t.push(oai::Tool::CodeInterpreter(oai::CodeInterpreterTool {
+            //     container: oai::CodeInterpreterToolContainer::Auto(
+            //         oai::CodeInterpreterContainerAuto::default(),
+            //     ),
+            // }));
+            t
+        });
+
         let tool_choice = context
             .tool_choice
             .map(oai::ToolChoiceParam::from_domain)
@@ -362,6 +393,14 @@ impl FromDomain<ChatContext> for oai::CreateResponse {
 
         if let Some(tools) = tools {
             builder.tools(tools);
+
+            // // Request server-executed tool outputs so the model receives the
+            // // results of its web_search and code_interpreter calls.
+            // let includes = vec![
+            //     oai::IncludeEnum::WebSearchCallActionSources,
+            //     oai::IncludeEnum::CodeInterpreterCallOutputs,
+            // ];
+            // builder.include(includes);
         }
 
         if let Some(tool_choice) = tool_choice {

@@ -330,9 +330,29 @@ impl DirectoryReaderInfra for ForgeInfra {
         &self,
         directory: &Path,
     ) -> anyhow::Result<Vec<(PathBuf, bool)>> {
-        self.directory_reader_service
-            .list_directory_entries(directory)
-            .await
+        // Use walker to respect .gitignore and .ignore files
+        let walker = forge_app::Walker {
+            cwd: directory.to_path_buf(),
+            max_depth: Some(1),
+            max_breadth: None,
+            max_file_size: None,
+            max_files: None,
+            max_total_size: None,
+            skip_binary: false,
+        };
+
+        let entries = self
+            .walker_service
+            .walk(walker)
+            .await?
+            .into_iter()
+            .map(|walked_file| {
+                let is_dir = walked_file.is_dir();
+                let path = directory.join(&walked_file.path);
+                (path, is_dir)
+            })
+            .collect();
+        Ok(entries)
     }
 
     async fn read_directory_files(

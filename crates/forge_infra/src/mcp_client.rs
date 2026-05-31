@@ -616,13 +616,23 @@ fn resolve_http_templates(
     // Create template data with env variables nested under "env"
     let template_data = serde_json::json!({"env": env_vars});
 
-    // Resolve templates in headers
-    for value in http.headers.values_mut() {
-        // Try to render the template, but keep original value if it fails
-        if let Ok(resolved) = handlebars.render_template(value, &template_data) {
-            *value = resolved;
+    // Resolve templates in headers, dropping any that fail to resolve
+    // (e.g., env var not set). This prevents sending malformed auth headers
+    // from builtin configs when the user hasn't set the required env var.
+    let mut resolved_headers = BTreeMap::new();
+    for (key, value) in http.headers.iter() {
+        match handlebars.render_template(value, &template_data) {
+            Ok(resolved) => {
+                resolved_headers.insert(key.clone(), resolved);
+            }
+            Err(_) => {
+                // Template has unresolved variables — skip this header
+                // entirely. This is expected for builtin configs where the env
+                // var (e.g., CONTEXT7_API_KEY) is optional.
+            }
         }
     }
+    http.headers = resolved_headers;
 
     Ok(http)
 }
@@ -866,11 +876,10 @@ mod tests {
 
         let resolved = resolve_http_templates(http, &env_vars).unwrap();
 
-        // Should keep original value if template rendering fails
-        assert_eq!(
-            resolved.headers.get("Authorization"),
-            Some(&"Bearer {{env.MISSING_VAR}}".to_string())
-        );
+        // Header with unresolved template should be dropped entirely
+        // to avoid sending malformed auth headers
+        assert_eq!(resolved.headers.get("Authorization"), None);
+        assert!(resolved.headers.is_empty());
     }
 
     #[test]

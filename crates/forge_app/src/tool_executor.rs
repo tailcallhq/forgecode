@@ -11,7 +11,7 @@ use crate::{
     AgentRegistry, ConversationService, EnvironmentInfra, FollowUpService, FsPatchService,
     FsReadService, FsRemoveService, FsSearchService, FsUndoService, FsWriteService,
     ImageReadService, NetFetchService, PlanCreateService, ProviderService, SkillFetchService,
-    WorkspaceService,
+    TodoService, WorkspaceService,
 };
 
 pub struct ToolExecutor<S> {
@@ -34,6 +34,7 @@ impl<
         + EnvironmentInfra<Config = forge_config::ForgeConfig>
         + PlanCreateService
         + SkillFetchService
+        + TodoService
         + AgentRegistry
         + ProviderService
         + Services,
@@ -48,8 +49,9 @@ impl<
         context: &ToolCallContext,
         raw_path: &str,
         action: &str,
+        cwd: &std::path::Path,
     ) -> anyhow::Result<()> {
-        let target_path = self.normalize_path(raw_path.to_string());
+        let target_path = self.normalize_path(raw_path.to_string(), cwd);
         let has_read = context.with_metrics(|metrics| {
             metrics.files_accessed.contains(&target_path)
                 || metrics.files_accessed.contains(raw_path)
@@ -65,7 +67,12 @@ impl<
         }
     }
 
-    async fn dump_operation(&self, operation: &ToolOperation) -> anyhow::Result<TempContentFiles> {
+    async fn dump_operation(
+        &self,
+        operation: &ToolOperation,
+        environment: &forge_domain::Environment,
+    ) -> anyhow::Result<TempContentFiles> {
+        let search_dir = &environment.cwd;
         match operation {
             ToolOperation::NetFetch { input: _, output } => {
                 let config = self.services.get_config()?;
@@ -76,6 +83,35 @@ impl<
                 if is_truncated {
                     files = files.stdout(
                         self.create_temp_file("forge_fetch_", ".txt", &output.content)
+                            .await?,
+                    );
+                }
+
+                Ok(files)
+            }
+            ToolOperation::FsSearch { output, .. } => {
+                let config = self.services.get_config()?;
+                let output = output
+                    .as_ref()
+                    .map(|result| {
+                        result
+                            .matches
+                            .iter()
+                            .map(|matched| crate::utils::format_match(matched, search_dir))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+                    .unwrap_or_default();
+
+                let output_lines = output.lines().count();
+                let output_truncated = output_lines > config.max_search_lines
+                    || output.len() > config.max_search_result_bytes;
+
+                let mut files = TempContentFiles::default();
+
+                if output_truncated {
+                    files = files.search(
+                        self.create_temp_file("forge_fs_search_", ".txt", &output)
                             .await?,
                     );
                 }
@@ -114,14 +150,13 @@ impl<
 
     /// Converts a path to absolute by joining it with the current working
     /// directory if it's relative
-    fn normalize_path(&self, path: String) -> String {
-        let env = self.services.get_environment();
+    fn normalize_path(&self, path: String, cwd: &std::path::Path) -> String {
         let path_buf = PathBuf::from(&path);
 
         if path_buf.is_absolute() {
             path
         } else {
-            PathBuf::from(&env.cwd).join(path_buf).display().to_string()
+            cwd.join(path_buf).display().to_string()
         }
     }
 
@@ -152,10 +187,12 @@ impl<
         &self,
         input: ToolCatalog,
         context: &ToolCallContext,
+        env: &forge_domain::Environment,
     ) -> anyhow::Result<ToolOperation> {
+        let cwd = &env.cwd;
         Ok(match input {
             ToolCatalog::Read(input) => {
-                let normalized_path = self.normalize_path(input.file_path.clone());
+                let normalized_path = self.normalize_path(input.file_path.clone(), cwd);
                 let output = self
                     .services
                     .read(
@@ -176,27 +213,32 @@ impl<
                 (input, output).into()
             }
             ToolCatalog::Write(input) => {
-                let normalized_path = self.normalize_path(input.file_path.clone());
+                let normalized_path = self.normalize_path(input.file_path.clone(), cwd);
                 let output = self
                     .services
                     .write(normalized_path, input.content.clone(), input.overwrite)
                     .await?;
+
+                // Enforce read-before-write check if file was overwritten
+                if input.overwrite && output.before.is_some() {
+                    self.require_prior_read(context, &input.file_path, "overwrite it", cwd)?;
+                }
+
                 (input, output).into()
             }
             ToolCatalog::FsSearch(input) => {
                 let mut params = input.clone();
                 // Normalize path if provided
                 if let Some(ref path) = params.path {
-                    params.path = Some(self.normalize_path(path.clone()));
+                    params.path = Some(self.normalize_path(path.clone(), cwd));
                 }
                 let output = self.services.search(params).await?;
                 (input, output).into()
             }
             ToolCatalog::SemSearch(input) => {
                 let config = self.services.get_config()?;
-                let env = self.services.get_environment();
                 let services = self.services.clone();
-                let cwd = env.cwd.clone();
+                let cwd_clone = cwd.clone();
                 let limit = config.max_sem_search_results;
                 let top_k = config.sem_search_top_k as u32;
                 let params: Vec<_> = input
@@ -212,7 +254,7 @@ impl<
                 // Execute all queries in parallel
                 let futures: Vec<_> = params
                     .into_iter()
-                    .map(|param| services.query_workspace(cwd.clone(), param))
+                    .map(|param| services.query_workspace(cwd_clone.clone(), param))
                     .collect();
 
                 let mut results = futures::future::try_join_all(futures).await?;
@@ -235,12 +277,12 @@ impl<
                 ToolOperation::CodebaseSearch { output }
             }
             ToolCatalog::Remove(input) => {
-                let normalized_path = self.normalize_path(input.path.clone());
+                let normalized_path = self.normalize_path(input.path.clone(), cwd);
                 let output = self.services.remove(normalized_path).await?;
                 (input, output).into()
             }
             ToolCatalog::Patch(input) => {
-                let normalized_path = self.normalize_path(input.file_path.clone());
+                let normalized_path = self.normalize_path(input.file_path.clone(), cwd);
                 let output = self
                     .services
                     .patch(
@@ -253,7 +295,7 @@ impl<
                 (input, output).into()
             }
             ToolCatalog::MultiPatch(input) => {
-                let normalized_path = self.normalize_path(input.file_path.clone());
+                let normalized_path = self.normalize_path(input.file_path.clone(), cwd);
                 let output = self
                     .services
                     .multi_patch(normalized_path, input.edits.clone())
@@ -261,23 +303,50 @@ impl<
                 (input, output).into()
             }
             ToolCatalog::Undo(input) => {
-                let normalized_path = self.normalize_path(input.path.clone());
+                let normalized_path = self.normalize_path(input.path.clone(), cwd);
                 let output = self.services.undo(normalized_path).await?;
                 (input, output).into()
             }
             ToolCatalog::Shell(input) => {
-                let cwd = input
-                    .cwd
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| self.services.get_environment().cwd.display().to_string());
-                let normalized_cwd = self.normalize_path(cwd);
+                let cwd_path = input.cwd.clone().unwrap_or_else(|| cwd.clone());
+                let normalized_cwd = self.normalize_path(cwd_path.display().to_string(), cwd);
+
+                let command = if input.background {
+                    // Wrap the command to run in the background via nohup.
+                    // Stdout/stderr are redirected to a log file so the agent
+                    // can inspect them later.  The wrapper script sleeps
+                    // briefly, then checks whether the process is still alive.
+                    let log_file = format!(
+                        "/tmp/forge_bg_{}.log",
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis()
+                    );
+                    let escaped_cmd = input.command.replace('\'', "'\\''");
+                    format!(
+                        "nohup sh -c '{escaped_cmd}' > {log_file} 2>&1 & \
+                         BG_PID=$!; \
+                         sleep 2; \
+                         if kill -0 $BG_PID 2>/dev/null; then \
+                           echo \"Process $BG_PID started in background (log: {log_file})\"; \
+                         else \
+                           echo \"ERROR: Process $BG_PID exited early. Log output:\"; \
+                           cat {log_file}; \
+                           exit 1; \
+                         fi"
+                    )
+                } else {
+                    input.command.clone()
+                };
+
                 let output = self
                     .services
                     .execute(
-                        input.command.clone(),
+                        command,
                         PathBuf::from(normalized_cwd),
                         input.keep_ansi,
-                        false,
+                        env.background,
                         input.env.clone(),
                         input.description.clone(),
                     )
@@ -322,6 +391,10 @@ impl<
                 let skill = self.services.fetch_skill(input.name.clone()).await?;
                 ToolOperation::Skill { output: skill }
             }
+            ToolCatalog::Task(_) => {
+                // Task tools are handled in ToolRegistry before reaching here
+                unreachable!("Task tool should be handled in ToolRegistry")
+            }
             ToolCatalog::TodoWrite(input) => {
                 let before = context.get_todos()?;
                 context.update_todos(input.todos.clone())?;
@@ -331,10 +404,6 @@ impl<
             ToolCatalog::TodoRead(_input) => {
                 let todos = context.get_todos()?;
                 ToolOperation::TodoRead { output: todos }
-            }
-            ToolCatalog::Task(_) => {
-                // Task tools are handled in ToolRegistry before reaching here
-                unreachable!("Task tool should be handled in ToolRegistry")
             }
         })
     }
@@ -356,17 +425,10 @@ impl<
         };
 
         if let Some(path) = file_path {
-            self.require_prior_read(context, path, "edit it")?;
+            self.require_prior_read(context, path, "edit it", &env.cwd)?;
         }
 
-        // Enforce read-before-edit for overwrite writes
-        if let ToolCatalog::Write(input) = &tool_input
-            && input.overwrite
-        {
-            self.require_prior_read(context, &input.file_path, "overwrite it")?;
-        }
-
-        let execution_result = self.call_internal(tool_input.clone(), context).await;
+        let execution_result = self.call_internal(tool_input.clone(), context, &env).await;
 
         if let Err(ref error) = execution_result {
             tracing::error!(error = ?error, "Tool execution failed");
@@ -379,7 +441,7 @@ impl<
             context.send(output).await?;
         }
 
-        let truncation_path = self.dump_operation(&operation).await?;
+        let truncation_path = self.dump_operation(&operation, &env).await?;
 
         context.with_metrics(|metrics| {
             operation.into_tool_output(tool_kind, truncation_path, &env, &config, metrics)

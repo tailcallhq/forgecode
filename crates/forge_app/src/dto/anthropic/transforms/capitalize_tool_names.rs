@@ -1,6 +1,7 @@
 use forge_domain::Transformer;
 
 use crate::dto::anthropic::Request;
+use crate::dto::anthropic::request::ToolEntry;
 
 /// Transformer that capitalizes specific tool names for Anthropic
 /// compatibility.
@@ -18,12 +19,14 @@ impl Transformer for CapitalizeToolNames {
 
     fn transform(&mut self, mut request: Self::Value) -> Self::Value {
         for tool in &mut request.tools {
-            tool.name = match tool.name.as_str() {
-                "read" => "Read".to_string(),
-                "write" => "Write".to_string(),
-                "task" => "Task".to_string(),
-                _ => tool.name.clone(),
-            };
+            if let ToolEntry::Function(tool) = tool {
+                tool.name = match tool.name.as_str() {
+                    "read" => "Read".to_string(),
+                    "write" => "Write".to_string(),
+                    "task" => "Task".to_string(),
+                    _ => tool.name.clone(),
+                };
+            }
         }
         request
     }
@@ -34,6 +37,15 @@ mod tests {
     use forge_domain::{Context, ContextMessage, ModelId, ToolDefinition, Transformer};
 
     use super::*;
+    use crate::dto::anthropic::request::ToolEntry;
+
+    /// Helper to extract the name from a ToolEntry::Function variant.
+    fn tool_name(entry: &ToolEntry) -> &str {
+        match entry {
+            ToolEntry::Function(def) => &def.name,
+            ToolEntry::WebSearch(ws) => &ws.name,
+        }
+    }
 
     #[test]
     fn test_capitalizes_read_tool() {
@@ -47,7 +59,7 @@ mod tests {
         let mut request = Request::try_from(fixture).unwrap();
         request = CapitalizeToolNames.transform(request);
 
-        assert_eq!(request.tools[0].name, "Read");
+        assert_eq!(tool_name(&request.tools[0]), "Read");
     }
 
     #[test]
@@ -62,7 +74,7 @@ mod tests {
         let mut request = Request::try_from(fixture).unwrap();
         request = CapitalizeToolNames.transform(request);
 
-        assert_eq!(request.tools[0].name, "Write");
+        assert_eq!(tool_name(&request.tools[0]), "Write");
     }
 
     #[test]
@@ -78,8 +90,8 @@ mod tests {
         let mut request = Request::try_from(fixture).unwrap();
         request = CapitalizeToolNames.transform(request);
 
-        assert_eq!(request.tools[0].name, "shell");
-        assert_eq!(request.tools[1].name, "fs_search");
+        assert_eq!(tool_name(&request.tools[0]), "shell");
+        assert_eq!(tool_name(&request.tools[1]), "fs_search");
     }
 
     #[test]
@@ -96,9 +108,9 @@ mod tests {
         let mut request = Request::try_from(fixture).unwrap();
         request = CapitalizeToolNames.transform(request);
 
-        assert_eq!(request.tools[0].name, "Read");
-        assert_eq!(request.tools[1].name, "Write");
-        assert_eq!(request.tools[2].name, "shell");
+        assert_eq!(tool_name(&request.tools[0]), "Read");
+        assert_eq!(tool_name(&request.tools[1]), "Write");
+        assert_eq!(tool_name(&request.tools[2]), "shell");
     }
 
     #[test]
@@ -111,6 +123,7 @@ mod tests {
         let mut request = Request::try_from(fixture).unwrap();
         request = CapitalizeToolNames.transform(request);
 
-        assert!(request.tools.is_empty());
+        // No tools should be present
+        assert_eq!(request.tools.len(), 0);
     }
 }

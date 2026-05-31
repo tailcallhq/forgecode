@@ -1,5 +1,5 @@
 use anyhow::{Context, anyhow};
-use forge_app::{HttpResponse, NetFetchService, ResponseContext, is_binary_content_type};
+use forge_app::{HttpResponse, NetFetchService, ResponseContext};
 use reqwest::{Client, Url};
 
 /// Retrieves content from URLs as markdown or raw text. Enables access to
@@ -134,6 +134,30 @@ impl ForgeFetch {
             })
         }
     }
+}
+
+/// Returns true if the Content-Type header indicates binary (non-text) content.
+fn is_binary_content_type(content_type: &str) -> bool {
+    let ct = content_type.to_lowercase();
+    // Allow text/* and common text-based types
+    if ct.starts_with("text/")
+        || ct.contains("json")
+        || ct.contains("xml")
+        || ct.contains("javascript")
+        || ct.contains("ecmascript")
+        || ct.contains("yaml")
+        || ct.contains("toml")
+        || ct.contains("csv")
+        || ct.contains("html")
+        || ct.contains("svg")
+        || ct.contains("markdown")
+        || ct.is_empty()
+    {
+        return false;
+    }
+    // Everything else (application/gzip, application/octet-stream, image/*,
+    // audio/*, video/*, etc.)
+    true
 }
 
 #[async_trait::async_trait]

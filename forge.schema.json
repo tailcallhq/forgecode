@@ -20,6 +20,11 @@
       "type": "boolean",
       "default": false
     },
+    "background": {
+      "description": "Whether to enable background mode for CI/CD and automated workflows\nwhere user interaction is limited.",
+      "type": "boolean",
+      "default": false
+    },
     "commit": {
       "description": "Model and provider configuration used for commit message generation.",
       "anyOf": [
@@ -305,6 +310,15 @@
           "type": "null"
         }
       ]
+    },
+    "task_timeout_secs": {
+      "description": "Maximum task execution time in seconds. When set, the remaining time\nbudget is injected into every tool result so agents can make\ntime-aware decisions. Maps to the `FORGE_TASK_TIMEOUT_SECS` environment\nvariable.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
     },
     "temperature": {
       "description": "Output randomness for all agents; lower values are deterministic, higher\nvalues are creative (0.0–2.0).",
@@ -632,6 +646,11 @@
           "description": "Image input (vision-capable models)",
           "type": "string",
           "const": "image"
+        },
+        {
+          "description": "PDF/document input (document-capable models)",
+          "type": "string",
+          "const": "pdf"
         }
       ]
     },

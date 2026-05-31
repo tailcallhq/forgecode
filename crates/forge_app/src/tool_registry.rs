@@ -4,9 +4,9 @@ use std::time::Duration;
 use anyhow::Context;
 use console::style;
 use forge_domain::{
-    Agent, AgentId, AgentInput, ChatResponse, ChatResponseContent, Environment, InputModality,
-    Model, SystemContext, TemplateConfig, ToolCallContext, ToolCallFull, ToolCatalog,
-    ToolDefinition, ToolKind, ToolName, ToolOutput, ToolResult,
+    Agent, AgentId, AgentInput, ChatResponse, ChatResponseContent, ConversationId, Environment,
+    InputModality, Model, SystemContext, TemplateConfig, ToolCallContext, ToolCallFull,
+    ToolCatalog, ToolDefinition, ToolKind, ToolName, ToolOutput, ToolResult,
 };
 use forge_template::Element;
 use futures::future::join_all;
@@ -108,21 +108,19 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
             // Special handling for Task tool - delegate to AgentExecutor
             if let ToolCatalog::Task(task_input) = tool_input {
                 let executor = self.agent_executor.clone();
-                let session_id = task_input.session_id.clone();
+                let session_id = task_input
+                    .session_id
+                    .clone()
+                    .map(ConversationId::parse)
+                    .transpose()?;
                 let agent_id = task_input.agent_id.clone();
-                // Parse session_id into ConversationId if present
-                let conversation_id = session_id
-                    .map(|id| forge_domain::ConversationId::parse(&id))
-                    .transpose()
-                    .ok()
-                    .flatten();
                 // NOTE: Agents should not timeout
                 let outputs = join_all(task_input.tasks.into_iter().map(|task| {
                     let agent_id = agent_id.clone();
                     let executor = executor.clone();
                     async move {
                         executor
-                            .execute(AgentId::new(&agent_id), task, context, conversation_id)
+                            .execute(AgentId::new(&agent_id), task, context, session_id)
                             .await
                     }
                 }))
@@ -282,7 +280,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
                 &environment,
                 model,
                 agents,
-                &template_config,
+                Some(template_config),
             ))
             .agents(agent_tools)
             .mcp(mcp_tools))
@@ -295,13 +293,13 @@ impl<S> ToolRegistry<S> {
         env: &Environment,
         model: Option<Model>,
         agents: Vec<forge_domain::Agent>,
-        template_config: &TemplateConfig,
+        config: Option<TemplateConfig>,
     ) -> Vec<ToolDefinition> {
         use crate::TemplateEngine;
 
         let handlebars = TemplateEngine::handlebar_instance();
         let mut agents = agents;
-        agents.sort_by(|left, right| left.id.as_str().cmp(right.id.as_str()));
+        agents.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
 
         // Build tool_names map from all available tools
         let tool_names: Map<String, Value> = ToolCatalog::iter()
@@ -325,7 +323,7 @@ impl<S> ToolRegistry<S> {
             model,
             tool_names,
             agents,
-            config: Some(template_config.clone()),
+            config,
             ..Default::default()
         };
 
@@ -381,34 +379,39 @@ impl<S> ToolRegistry<S> {
         IMAGE_EXTENSIONS.iter().any(|ext| path_lower.ends_with(ext))
     }
 
+    /// Checks if a file path has a PDF extension.
+    /// This is a lightweight check that doesn't require reading the file.
+    fn has_pdf_extension(path: &str) -> bool {
+        path.to_lowercase().ends_with(".pdf")
+    }
+
     /// Validates if a tool's modality requirements are supported by the current
     /// model.
     ///
     /// # Validation Process
-    /// Checks if the tool requires image input support and if the model
+    /// Checks if the tool requires image or PDF input support and if the model
     /// supports it. Currently, only the `read` tool can potentially require
-    /// image modality.
+    /// multimodal input.
     fn validate_tool_modality(
         tool_input: &ToolCatalog,
         model: Option<&Model>,
     ) -> Result<(), Error> {
-        // Check if this tool might require image support
-        // Currently, only the read tool can return image content
         if let ToolCatalog::Read(input) = tool_input {
-            // Check if the file extension suggests it's an image
-            if Self::has_image_extension(&input.file_path) {
-                // Check if the model supports image input
-                let supports_image = model
-                    .and_then(|m| {
-                        m.input_modalities
-                            .iter()
-                            .find(|im| matches!(im, InputModality::Image))
-                    })
+            let required_modality = if Self::has_pdf_extension(&input.file_path) {
+                Some((InputModality::Pdf, "pdf"))
+            } else if Self::has_image_extension(&input.file_path) {
+                Some((InputModality::Image, "image"))
+            } else {
+                None
+            };
+
+            if let Some((required, required_str)) = required_modality {
+                let supports_modality = model
+                    .and_then(|m| m.input_modalities.iter().find(|im| **im == required))
                     .is_some();
 
-                if !supports_image {
+                if !supports_modality {
                     let tool_name = ToolKind::Read.name();
-                    let required_modality = "image".to_string();
                     let supported_modalities = model
                         .map(|m| {
                             m.input_modalities
@@ -416,6 +419,7 @@ impl<S> ToolRegistry<S> {
                                 .map(|im| match im {
                                     InputModality::Text => "text".to_string(),
                                     InputModality::Image => "image".to_string(),
+                                    InputModality::Pdf => "pdf".to_string(),
                                 })
                                 .collect::<Vec<_>>()
                                 .join(", ")
@@ -424,7 +428,7 @@ impl<S> ToolRegistry<S> {
 
                     return Err(Error::UnsupportedModality {
                         tool_name,
-                        required_modality,
+                        required_modality: required_str.to_string(),
                         supported_modalities,
                     });
                 }
@@ -696,13 +700,13 @@ mod tests {
     fn test_sem_search_included_when_supported() {
         use fake::{Fake, Faker};
         let env: Environment = Faker.fake();
-        let template_config = TemplateConfig::default();
+        let config = TemplateConfig { max_line_length: 2000, ..Default::default() };
         let actual = ToolRegistry::<()>::get_system_tools(
             true,
             &env,
             None,
             create_test_agents(),
-            &template_config,
+            Some(config),
         );
         assert!(actual.iter().any(|t| t.name.as_str() == "sem_search"));
     }
@@ -711,13 +715,14 @@ mod tests {
     fn test_sem_search_filtered_when_not_supported() {
         use fake::{Fake, Faker};
         let env: Environment = Faker.fake();
-        let template_config = TemplateConfig::default();
+        let config = TemplateConfig { max_line_length: 2000, ..Default::default() };
+
         let actual = ToolRegistry::<()>::get_system_tools(
             false,
             &env,
             None,
             create_test_agents(),
-            &template_config,
+            Some(config),
         );
         assert!(actual.iter().all(|t| t.name.as_str() != "sem_search"));
     }
@@ -731,14 +736,19 @@ mod tests {
         let mut reversed_agents = agents.clone();
         reversed_agents.reverse();
 
-        let fixture =
-            ToolRegistry::<()>::get_system_tools(true, &env, None, agents, &template_config);
+        let fixture = ToolRegistry::<()>::get_system_tools(
+            true,
+            &env,
+            None,
+            agents,
+            Some(template_config.clone()),
+        );
         let actual = ToolRegistry::<()>::get_system_tools(
             true,
             &env,
             None,
             reversed_agents,
-            &template_config,
+            Some(template_config),
         );
 
         let expected = fixture
@@ -819,15 +829,10 @@ fn test_template_rendering_in_tool_descriptions() {
     use fake::{Fake, Faker};
 
     let env: Environment = Faker.fake();
-    let template_config = TemplateConfig { max_line_length: 2000, ..Default::default() };
+    let config = TemplateConfig { max_line_length: 2000, ..Default::default() };
 
-    let actual = ToolRegistry::<()>::get_system_tools(
-        true,
-        &env,
-        None,
-        create_test_agents(),
-        &template_config,
-    );
+    let actual =
+        ToolRegistry::<()>::get_system_tools(true, &env, None, create_test_agents(), Some(config));
     let fs_search_tool = actual
         .iter()
         .find(|t| t.name.as_str() == "fs_search")
@@ -854,7 +859,7 @@ fn test_dynamic_tool_description_with_vision_model() {
     use forge_domain::InputModality;
 
     let env: Environment = Faker.fake();
-    let template_config = TemplateConfig {
+    let config = TemplateConfig {
         max_read_size: 2000,
         max_line_length: 2000,
         max_image_size: 5000,
@@ -867,7 +872,7 @@ fn test_dynamic_tool_description_with_vision_model() {
         &env,
         Some(vision_model),
         create_test_agents(),
-        &template_config,
+        Some(config),
     );
     let read_tool = tools_with_vision
         .iter()
@@ -882,7 +887,7 @@ fn test_dynamic_tool_description_with_text_only_model() {
     use forge_domain::InputModality;
 
     let env: Environment = Faker.fake();
-    let template_config = TemplateConfig {
+    let config = TemplateConfig {
         max_read_size: 2000,
         max_line_length: 2000,
         max_image_size: 5000,
@@ -895,7 +900,7 @@ fn test_dynamic_tool_description_with_text_only_model() {
         &env,
         Some(text_only_model),
         create_test_agents(),
-        &template_config,
+        Some(config),
     );
     let read_tool = tools_text_only
         .iter()
@@ -1033,11 +1038,22 @@ fn test_has_image_extension() {
 }
 
 #[test]
+fn test_has_pdf_extension() {
+    // Test document extensions (case-insensitive)
+    assert!(ToolRegistry::<()>::has_pdf_extension("/path/to/file.pdf"));
+    assert!(ToolRegistry::<()>::has_pdf_extension("/path/to/file.PDF"));
+
+    // Test non-document files
+    assert!(!ToolRegistry::<()>::has_pdf_extension("/path/to/file.png"));
+    assert!(!ToolRegistry::<()>::has_pdf_extension("/path/to/file.txt"));
+}
+
+#[test]
 fn test_dynamic_tool_description_without_model() {
     use fake::{Fake, Faker};
 
     let env: Environment = Faker.fake();
-    let template_config = TemplateConfig {
+    let config = TemplateConfig {
         max_read_size: 2000,
         max_image_size: 5000,
         max_line_length: 2000,
@@ -1045,13 +1061,8 @@ fn test_dynamic_tool_description_without_model() {
     };
 
     // When no model is provided, should default to showing minimal capabilities
-    let tools_no_model = ToolRegistry::<()>::get_system_tools(
-        true,
-        &env,
-        None,
-        create_test_agents(),
-        &template_config,
-    );
+    let tools_no_model =
+        ToolRegistry::<()>::get_system_tools(true, &env, None, create_test_agents(), Some(config));
     let read_tool = tools_no_model
         .iter()
         .find(|t| t.name.as_str() == "read")
@@ -1068,7 +1079,7 @@ fn test_all_rendered_tool_descriptions() {
     let mut env: Environment = Faker.fake();
     env.cwd = "/home/user/project".into();
 
-    let template_config = TemplateConfig {
+    let config = TemplateConfig {
         max_read_size: 2000,
         max_line_length: 2000,
         max_image_size: 5000,
@@ -1077,13 +1088,8 @@ fn test_all_rendered_tool_descriptions() {
         stdout_max_line_length: 2000,
     };
 
-    let tools = ToolRegistry::<()>::get_system_tools(
-        true,
-        &env,
-        None,
-        create_test_agents(),
-        &template_config,
-    );
+    let tools =
+        ToolRegistry::<()>::get_system_tools(true, &env, None, create_test_agents(), Some(config));
 
     // Verify all tools have rendered descriptions (no template syntax left)
     for tool in &tools {

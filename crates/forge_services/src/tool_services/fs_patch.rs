@@ -79,18 +79,17 @@ impl Range {
         // Add 1 to make it exclusive: line 0 to line 0 means [0..1], one line
         let end_idx = ((search_match.end_line as usize) + 1).min(lines.len());
 
-        // Find the byte position of the start line.
-        // Split on '\n' so each segment retains its '\r' (if any), giving the
-        // correct per-line byte length regardless of mixed line endings.
+        // Calculate start position by summing complete source lines, preserving
+        // the actual newline byte width (LF or CRLF).
         let start_pos = source
-            .split('\n')
+            .split_inclusive('\n')
             .take(start_idx)
-            .map(|l| l.len() + 1)
+            .map(str::len)
             .sum::<usize>()
             .min(source.len());
 
         // Calculate the length
-        let length = if start_idx == end_idx {
+        let length = if start_idx + 1 == end_idx {
             // Single line match: just the line content, no trailing newline
             if start_idx >= lines.len() {
                 0 // Out of bounds match
@@ -107,13 +106,13 @@ impl Range {
                     .get(start_idx..end_idx)
                     .map_or(0, |slice| slice.iter().map(|l| l.len()).sum())
             };
-            let newlines_between = end_idx - start_idx - 1;
+            let newlines_between = end_idx.saturating_sub(start_idx + 1);
             // Count actual newline bytes (\r\n = 2, \n = 1) to handle mixed endings
             let newline_bytes: usize = source
-                .split('\n')
+                .split_inclusive('\n')
                 .skip(start_idx)
                 .take(newlines_between)
-                .map(|l| if l.ends_with('\r') { 2 } else { 1 })
+                .map(|l| if l.ends_with("\r\n") { 2 } else { 1 })
                 .sum();
             content_len + newline_bytes
         };

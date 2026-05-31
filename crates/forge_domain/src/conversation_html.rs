@@ -429,6 +429,13 @@ fn create_conversation_context_section(conversation: &Conversation) -> Element {
                                         crate::ToolValue::Image(image) => {
                                             Some(Element::new("img").attr("src", image.url()))
                                         }
+                                        crate::ToolValue::Document(document) => {
+                                            let filename = document.filename().as_deref().unwrap_or("Document");
+                                            Some(Element::new("div")
+                                                .append(Element::new("strong").text("Document: "))
+                                                .append(Element::new("span").text(format!("{} ({})", filename, document.mime_type())))
+                                            )
+                                        }
                                         crate::ToolValue::Empty => None,
                                         crate::ToolValue::AI { value, conversation_id } => {
                                             // Use anchor link to navigate within the same HTML
@@ -457,6 +464,13 @@ fn create_conversation_context_section(conversation: &Conversation) -> Element {
                         Element::new("div.message-card.message-user")
                             .append(Element::new("strong").text("Image Attachment"))
                             .append(Element::new("img").attr("src", image.url()))
+                    }
+                    ContextMessage::Document(document) => {
+                        // Document message
+                        let filename = document.filename().as_deref().unwrap_or("Document");
+                        Element::new("div.message-card.message-user")
+                            .append(Element::new("strong").text("Document Attachment"))
+                            .append(Element::new("p").text(format!("{} ({})", filename, document.mime_type())))
                     }
                 }
             }),

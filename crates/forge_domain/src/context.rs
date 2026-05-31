@@ -18,8 +18,8 @@ use crate::temperature::Temperature;
 use crate::top_k::TopK;
 use crate::top_p::TopP;
 use crate::{
-    Attachment, AttachmentContent, ConversationId, EventValue, Image, MessagePhase, ModelId,
-    ReasoningFull, ToolChoice, ToolDefinition, ToolOutput, ToolValue, Usage,
+    Attachment, AttachmentContent, ConversationId, Document, EventValue, Image, MessagePhase,
+    ModelId, ReasoningFull, ToolChoice, ToolDefinition, ToolOutput, ToolValue, Usage,
 };
 
 /// Response format for structured output
@@ -42,6 +42,7 @@ pub enum ContextMessage {
     Text(TextMessage),
     Tool(ToolResult),
     Image(Image),
+    Document(Document),
 }
 
 /// Creates a filtered version of ToolOutput that excludes base64 images to
@@ -59,6 +60,9 @@ fn filter_base64_images_from_tool_output(output: &ToolOutput) -> ToolOutput {
                     value.clone()
                 }
             }
+            ToolValue::Document(doc) => {
+                ToolValue::Text(format!("[base64 document: {}]", doc.mime_type()))
+            }
             _ => value.clone(),
         })
         .collect();
@@ -72,6 +76,7 @@ impl ContextMessage {
             ContextMessage::Text(text_message) => Some(&text_message.content),
             ContextMessage::Tool(_) => None,
             ContextMessage::Image(_) => None,
+            ContextMessage::Document(_) => None,
         }
     }
 
@@ -82,6 +87,7 @@ impl ContextMessage {
             ContextMessage::Text(text_message) => text_message.raw_content.as_ref(),
             ContextMessage::Tool(_) => None,
             ContextMessage::Image(_) => None,
+            ContextMessage::Document(_) => None,
         }
     }
 
@@ -156,6 +162,10 @@ impl ContextMessage {
                     .render()
             }
             ContextMessage::Image(_) => Element::new("image").attr("path", "[base64 URL]").render(),
+            ContextMessage::Document(doc) => Element::new("document")
+                .attr("mime_type", doc.mime_type())
+                .attr("data", "[base64 data]")
+                .render(),
         }
     }
 
@@ -219,6 +229,7 @@ impl ContextMessage {
             ContextMessage::Text(message) => message.role == role,
             ContextMessage::Tool(_) => false,
             ContextMessage::Image(_) => Role::User == role,
+            ContextMessage::Document(_) => Role::User == role,
         }
     }
 
@@ -227,6 +238,7 @@ impl ContextMessage {
             ContextMessage::Text(message) => message.droppable,
             ContextMessage::Tool(_) => false,
             ContextMessage::Image(_) => false,
+            ContextMessage::Document(_) => false,
         }
     }
 
@@ -235,6 +247,7 @@ impl ContextMessage {
             ContextMessage::Text(_) => false,
             ContextMessage::Tool(_) => true,
             ContextMessage::Image(_) => false,
+            ContextMessage::Document(_) => false,
         }
     }
 
@@ -243,6 +256,7 @@ impl ContextMessage {
             ContextMessage::Text(message) => message.tool_calls.is_some(),
             ContextMessage::Tool(_) => false,
             ContextMessage::Image(_) => false,
+            ContextMessage::Document(_) => false,
         }
     }
 
@@ -251,6 +265,7 @@ impl ContextMessage {
             ContextMessage::Text(message) => message.reasoning_details.is_some(),
             ContextMessage::Tool(_) => false,
             ContextMessage::Image(_) => false,
+            ContextMessage::Document(_) => false,
         }
     }
 
@@ -474,6 +489,7 @@ impl Context {
         attachments.into_iter().fold(self, |ctx, attachment| {
             ctx.add_message(match attachment.content {
                 AttachmentContent::Image(image) => ContextMessage::Image(image),
+                AttachmentContent::Document(document) => ContextMessage::Document(document),
                 AttachmentContent::FileContent { content, info } => {
                     let elm = Element::new("file_content")
                         .attr("path", attachment.path)

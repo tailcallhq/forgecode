@@ -139,4 +139,9 @@ pub struct SystemContext {
     /// Template configuration for tool descriptions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<TemplateConfig>,
+
+    /// Maximum task execution time in seconds; used by background-mode
+    /// templates to communicate the time budget to the agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_timeout_secs: Option<u64>,
 }

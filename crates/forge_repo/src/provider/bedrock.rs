@@ -753,8 +753,9 @@ impl FromDomain<forge_domain::ContextMessage> for aws_sdk_bedrockruntime::types:
         use anyhow::Context as _;
         use aws_sdk_bedrockruntime::primitives::Blob;
         use aws_sdk_bedrockruntime::types::{
-            ContentBlock, ConversationRole, ImageBlock, ImageSource, Message, ToolResultBlock,
-            ToolResultContentBlock, ToolResultStatus, ToolUseBlock,
+            ContentBlock, ConversationRole, DocumentBlock, DocumentFormat, DocumentSource,
+            ImageBlock, ImageSource, Message, ToolResultBlock, ToolResultContentBlock,
+            ToolResultStatus, ToolUseBlock,
         };
 
         match msg {
@@ -889,6 +890,43 @@ impl FromDomain<forge_domain::ContextMessage> for aws_sdk_bedrockruntime::types:
                     .content(ContentBlock::Image(image_block))
                     .build()
                     .map_err(|e| anyhow::anyhow!("Failed to build image message: {}", e))
+            }
+            forge_domain::ContextMessage::Document(doc) => {
+                let format = match doc.mime_type().as_str() {
+                    "application/pdf" => DocumentFormat::Pdf,
+                    "text/csv" => DocumentFormat::Csv,
+                    "application/msword" => DocumentFormat::Doc,
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
+                        DocumentFormat::Docx
+                    }
+                    "application/vnd.ms-excel" => DocumentFormat::Xls,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => {
+                        DocumentFormat::Xlsx
+                    }
+                    "text/html" => DocumentFormat::Html,
+                    "text/plain" => DocumentFormat::Txt,
+                    "text/markdown" => DocumentFormat::Md,
+                    _ => anyhow::bail!("Unsupported document format: {}", doc.mime_type()),
+                };
+
+                let doc_block = DocumentBlock::builder()
+                    .name("document") // Required field, generic name
+                    .format(format)
+                    .source(DocumentSource::Bytes(Blob::new(
+                        base64::Engine::decode(
+                            &base64::engine::general_purpose::STANDARD,
+                            doc.data(),
+                        )
+                        .with_context(|| "Failed to decode base64 document data")?,
+                    )))
+                    .build()
+                    .map_err(|e| anyhow::anyhow!("Failed to build document block: {}", e))?;
+
+                Message::builder()
+                    .role(ConversationRole::User)
+                    .content(ContentBlock::Document(doc_block))
+                    .build()
+                    .map_err(|e| anyhow::anyhow!("Failed to build document message: {}", e))
             }
         }
     }

@@ -7,12 +7,26 @@ use derive_setters::Setters;
 use forge_domain::{Agent, *};
 use forge_template::Element;
 use futures::future::join_all;
+use serde_json::json;
 use tokio::sync::Notify;
 use tracing::warn;
 
+use crate::TemplateEngine;
 use crate::agent::AgentService;
+use crate::hooks::verification_reminder::{
+    VERIFICATION_MATRIX_AGENT_NAME, background_refusal_reminder,
+    background_refusal_reminder_was_sent, extract_verification_matrix_message,
+    fallback_verification_matrix, has_any_tool_call, looks_like_refusal,
+    verification_command_reminder, verification_command_reminder_was_sent,
+    verification_command_was_run_after_skill, verification_gate_applies, verification_matrix_task,
+    verification_matrix_was_sent, verification_reminder, verification_reminder_was_sent,
+    verification_skill_was_called,
+};
 use crate::transformers::{DropReasoningOnlyMessages, ModelSpecificReasoning};
-use crate::{EnvironmentInfra, TemplateEngine};
+
+const MID_TIME_BUDGET_WARNING_FRACTION: f64 = 0.50;
+const LOW_TIME_BUDGET_WARNING_FRACTION: f64 = 0.30;
+const CRITICAL_TIME_BUDGET_WARNING_FRACTION: f64 = 0.20;
 
 #[derive(Clone, Setters)]
 #[setters(into)]
@@ -20,74 +34,159 @@ pub struct Orchestrator<S> {
     services: Arc<S>,
     sender: Option<ArcSender>,
     conversation: Conversation,
+    environment: Environment,
     tool_definitions: Vec<ToolDefinition>,
     models: Vec<Model>,
     agent: Agent,
     error_tracker: ToolErrorTracker,
     hook: Arc<Hook>,
-    config: forge_config::ForgeConfig,
+    retry_config: forge_config::RetryConfig,
+    /// Optional task timeout in seconds, used for low-time budget warnings.
+    task_timeout_secs: Option<u64>,
 }
 
-impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orchestrator<S> {
+impl<S: AgentService> Orchestrator<S> {
     pub fn new(
         services: Arc<S>,
+        environment: Environment,
         conversation: Conversation,
         agent: Agent,
-        config: forge_config::ForgeConfig,
+        retry_config: forge_config::RetryConfig,
     ) -> Self {
         Self {
-            conversation,
+            task_timeout_secs: None,
             services,
-            agent,
-            config,
             sender: Default::default(),
+            conversation,
+            environment,
             tool_definitions: Default::default(),
             models: Default::default(),
+            agent,
             error_tracker: Default::default(),
-            hook: Arc::new(Hook::default()),
+            hook: Arc::new(crate::hooks::default()),
+            retry_config,
         }
     }
 
-    /// Get a reference to the internal conversation
+    fn remaining_budget_fraction(&self, tool_context: &ToolCallContext) -> Option<f64> {
+        let timeout = self.task_timeout_secs?;
+        if timeout == 0 {
+            return Some(0.0);
+        }
+
+        let fraction = tool_context
+            .with_metrics(|m| {
+                m.duration(chrono::Utc::now())
+                    .map(|elapsed| {
+                        let remaining = timeout as f64 - elapsed.as_secs_f64();
+                        remaining / timeout as f64
+                    })
+                    .unwrap_or(1.0)
+            })
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+
+        Some(fraction)
+    }
+
+    fn remaining_budget_secs(&self, remaining_fraction: f64) -> Option<u64> {
+        self.task_timeout_secs
+            .map(|timeout| (remaining_fraction * timeout as f64).max(0.0) as u64)
+    }
+
+    async fn generate_verification_matrix(
+        &self,
+        tool_context: &ToolCallContext,
+        context: &Context,
+    ) -> Option<String> {
+        let task = verification_matrix_task(context)?;
+        let gate_agent = self
+            .agent
+            .clone()
+            .tools(vec![ToolName::new(VERIFICATION_MATRIX_AGENT_NAME)]);
+        let call = ToolCallFull::new(VERIFICATION_MATRIX_AGENT_NAME)
+            .arguments(ToolCallArguments::from(json!({ "tasks": [task] })));
+        let result = self.services.call(&gate_agent, tool_context, call).await;
+        if result.is_error() {
+            return fallback_verification_matrix(context);
+        }
+
+        let Some(raw_output) = result.output.as_str() else {
+            return fallback_verification_matrix(context);
+        };
+        if looks_like_refusal(raw_output) {
+            return fallback_verification_matrix(context);
+        }
+
+        extract_verification_matrix_message(raw_output)
+            .or_else(|| fallback_verification_matrix(context))
+    }
+
     pub fn get_conversation(&self) -> &Conversation {
         &self.conversation
     }
 
     // Helper function to get all tool results from a vector of tool calls
     #[async_recursion]
-    async fn execute_tool_calls(
+    async fn execute_tool_calls<'a>(
         &mut self,
         tool_calls: &[ToolCallFull],
         tool_context: &ToolCallContext,
     ) -> anyhow::Result<Vec<(ToolCallFull, ToolResult)>> {
-        let task_tool_name = ToolKind::Task.name();
-
-        // Use a case-insensitive comparison since the model may send "Task" or "task".
-        let is_task = |tc: &ToolCallFull| {
-            tc.name
-                .as_str()
-                .eq_ignore_ascii_case(task_tool_name.as_str())
-        };
-
-        // Partition into task tool calls (run in parallel) and all others (run
-        // sequentially). Use a case-insensitive comparison since the model may
-        // send "Task" or "task".
-        let is_task_call =
-            |tc: &&ToolCallFull| tc.name.as_str().to_lowercase() == task_tool_name.as_str();
-        let (task_calls, other_calls): (Vec<_>, Vec<_>) = tool_calls.iter().partition(is_task_call);
-
-        // Execute task tool calls in parallel — mirrors how direct agent-as-tool calls
-        // work.
-        let task_results: Vec<(ToolCallFull, ToolResult)> = join_all(
-            task_calls
+        if self.environment.background {
+            // In background mode: execute all tool calls concurrently, suppress
+            // ToolCallStart/ToolCallEnd events and skip the UI notifier handshake
+            // (there is no UI consumer in background mode, so awaiting the notifier
+            // would deadlock).
+            let futures: Vec<_> = tool_calls
                 .iter()
-                .map(|tc| self.services.call(&self.agent, tool_context, (*tc).clone())),
-        )
-        .await
-        .into_iter()
-        .zip(task_calls.iter())
-        .map(|(result, tc)| ((*tc).clone(), result))
-        .collect();
+                .map(|tool_call| {
+                    let services = self.services.clone();
+                    let agent = self.agent.clone();
+                    let tool_context = tool_context.clone();
+                    let tool_call = tool_call.clone();
+                    async move {
+                        let tool_result = services
+                            .call(&agent, &tool_context, tool_call.clone())
+                            .await;
+                        (tool_call, tool_result)
+                    }
+                })
+                .collect();
+
+            let results = join_all(futures).await;
+
+            // Fire lifecycle hooks sequentially after all parallel calls complete
+            // (hooks mutate self.conversation so they cannot run in parallel).
+            let mut tool_call_records = Vec::with_capacity(results.len());
+            for (tool_call, tool_result) in results {
+                let toolcall_start_event = LifecycleEvent::ToolcallStart(EventData::new(
+                    self.agent.clone(),
+                    self.agent.model.clone(),
+                    ToolcallStartPayload::new(tool_call.clone()),
+                ));
+                self.hook
+                    .handle(&toolcall_start_event, &mut self.conversation)
+                    .await?;
+
+                let toolcall_end_event = LifecycleEvent::ToolcallEnd(EventData::new(
+                    self.agent.clone(),
+                    self.agent.model.clone(),
+                    ToolcallEndPayload::new(tool_call.clone(), tool_result.clone()),
+                ));
+                self.hook
+                    .handle(&toolcall_end_event, &mut self.conversation)
+                    .await?;
+
+                tool_call_records.push((tool_call, tool_result));
+            }
+
+            return Ok(tool_call_records);
+        }
+
+        // Interactive mode: execute tool calls sequentially so the UI can render
+        // each tool header before execution begins, and receive ordered events.
+        let mut tool_call_records = Vec::with_capacity(tool_calls.len());
 
         let system_tools = self
             .tool_definitions
@@ -95,17 +194,12 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             .map(|tool| &tool.name)
             .collect::<HashSet<_>>();
 
-        // Process non-task tool calls sequentially (preserving UI notifier handshake
-        // and hooks).
-        let mut other_results: Vec<(ToolCallFull, ToolResult)> =
-            Vec::with_capacity(other_calls.len());
-        for tool_call in &other_calls {
-            // Send the start notification for system tools and not agent as a tool
+        for tool_call in tool_calls {
             let is_system_tool = system_tools.contains(&tool_call.name);
             if is_system_tool {
                 let notifier = Arc::new(Notify::new());
                 self.send(ChatResponse::ToolCallStart {
-                    tool_call: (*tool_call).clone(),
+                    tool_call: tool_call.clone(),
                     notifier: notifier.clone(),
                 })
                 .await?;
@@ -115,11 +209,10 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 notifier.notified().await;
             }
 
-            // Fire the ToolcallStart lifecycle event
             let toolcall_start_event = LifecycleEvent::ToolcallStart(EventData::new(
                 self.agent.clone(),
                 self.agent.model.clone(),
-                ToolcallStartPayload::new((*tool_call).clone()),
+                ToolcallStartPayload::new(tool_call.clone()),
             ));
             self.hook
                 .handle(&toolcall_start_event, &mut self.conversation)
@@ -128,40 +221,27 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             // Execute the tool
             let tool_result = self
                 .services
-                .call(&self.agent, tool_context, (*tool_call).clone())
+                .call(&self.agent, tool_context, tool_call.clone())
                 .await;
 
             // Fire the ToolcallEnd lifecycle event (fires on both success and failure)
             let toolcall_end_event = LifecycleEvent::ToolcallEnd(EventData::new(
                 self.agent.clone(),
                 self.agent.model.clone(),
-                ToolcallEndPayload::new((*tool_call).clone(), tool_result.clone()),
+                ToolcallEndPayload::new(tool_call.clone(), tool_result.clone()),
             ));
             self.hook
                 .handle(&toolcall_end_event, &mut self.conversation)
                 .await?;
 
-            // Send the end notification for system tools and not agent as a tool
+            let is_system_tool = system_tools.contains(&tool_call.name);
             if is_system_tool {
                 self.send(ChatResponse::ToolCallEnd(tool_result.clone()))
                     .await?;
             }
-            other_results.push(((*tool_call).clone(), tool_result));
-        }
 
-        // Reconstruct results in the original order of tool_calls.
-        let mut task_iter = task_results.into_iter();
-        let mut other_iter = other_results.into_iter();
-        let tool_call_records = tool_calls
-            .iter()
-            .map(|tc| {
-                if is_task(tc) {
-                    task_iter.next().expect("task result count mismatch")
-                } else {
-                    other_iter.next().expect("other result count mismatch")
-                }
-            })
-            .collect();
+            tool_call_records.push((tool_call.clone(), tool_result));
+        }
 
         Ok(tool_call_records)
     }
@@ -202,10 +282,9 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         let tool_supported = self.is_tool_supported()?;
         let mut transformers = DefaultTransformation::default()
             .pipe(SortTools::new(self.agent.tool_order()))
-            .pipe(NormalizeToolCallArguments::new())
             .pipe(TransformToolCalls::new().when(|_| !tool_supported))
             .pipe(ImageHandling::new())
-            // Drop ALL reasoning (including config) when reasoning is not supported by the model
+            .pipe(DocumentHandling::new())
             .pipe(DropReasoningDetails.when(|_| !reasoning_supported))
             // Strip all reasoning from messages when the model has changed (signatures are
             // model-specific and invalid across models). No-op when model is unchanged.
@@ -259,17 +338,23 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         let mut is_complete = false;
 
         let mut request_count = 0;
+        let mut mid_time_warning_sent = false;
+        let mut low_time_warning_sent = false;
+        let mut critical_time_warning_sent = false;
 
         // Retrieve the number of requests allowed per tick.
         let max_requests_per_turn = self.agent.max_requests_per_turn;
-        let tool_context =
-            ToolCallContext::new(self.conversation.metrics.clone()).sender(self.sender.clone());
+
+        let tool_context = ToolCallContext::new(self.conversation.metrics.clone())
+            .sender(self.sender.clone())
+            .conversation_id(self.conversation.id);
 
         while !should_yield {
             // Set context for the current loop iteration
             self.conversation.context = Some(context.clone());
             self.services.update(self.conversation.clone()).await?;
 
+            // Fire the Request lifecycle event
             let request_event = LifecycleEvent::Request(EventData::new(
                 self.agent.clone(),
                 model_id.clone(),
@@ -280,7 +365,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .await?;
 
             let message = crate::retry::retry_with_config(
-                &self.config.clone().retry.unwrap_or_default(),
+                &self.retry_config,
                 || {
                     self.execute_chat_turn(
                         &model_id,
@@ -336,7 +421,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .execute_tool_calls(&message.tool_calls, &tool_context)
                 .await?;
 
-            // Update context from conversation after response / tool-call hooks run
+            // Update context from conversation after tool-call hooks run
             if let Some(updated_context) = &self.conversation.context {
                 context = updated_context.clone();
             }
@@ -359,6 +444,107 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 }
             }
 
+            // Proactively generate the verification-matrix when the agent calls
+            // verification-specialist for the first time, and attach it to the
+            // skill's tool result so the agent sees it immediately.
+            if self.environment.background
+                && verification_gate_applies(&self.agent, &self.tool_definitions)
+                && !verification_matrix_was_sent(&context)
+            {
+                let vs_called_this_turn = tool_call_records.iter().any(|(call, _)| {
+                    ToolCatalog::try_from(call.clone())
+                        .ok()
+                        .is_some_and(|tool| matches!(tool, ToolCatalog::Skill(ref s) if s.name == "verification-specialist"))
+                });
+                if vs_called_this_turn
+                    && let Some(matrix) = self
+                        .generate_verification_matrix(&tool_context, &context)
+                        .await
+                {
+                    // Append the matrix to the first verification-specialist
+                    // tool result so the agent receives it inline.
+                    for (call, result) in tool_call_records.iter_mut() {
+                        let is_vs = ToolCatalog::try_from(call.clone())
+                            .ok()
+                            .is_some_and(|tool| matches!(tool, ToolCatalog::Skill(ref s) if s.name == "verification-specialist"));
+                        if is_vs {
+                            result
+                                .output
+                                .combine_mut(ToolOutput::text(format!("\n\n{matrix}")));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Time-budget reminders: progressively shift behavior toward
+            // artifact-first completion as budget gets tighter.
+            if !is_complete
+                && let Some(remaining_fraction) = self.remaining_budget_fraction(&tool_context)
+                && let Some(timeout) = self.task_timeout_secs
+            {
+                if remaining_fraction <= CRITICAL_TIME_BUDGET_WARNING_FRACTION
+                    && !critical_time_warning_sent
+                {
+                    critical_time_warning_sent = true;
+                    let remaining_secs = self
+                        .remaining_budget_secs(remaining_fraction)
+                        .unwrap_or_default();
+                    let warning = Element::new("system-warning")
+                        .attr("type", "critical-time-budget")
+                        .text(format!(
+                            "URGENT: Only ~{remaining_secs}s remaining out of {timeout}s budget. \
+                             Save your deliverables NOW, then call verification-specialist. \
+                             Do not start new implementation work."
+                        ));
+                    context = context.add_message(ContextMessage::user(warning.to_string(), None));
+                    should_yield = false;
+                    is_complete = false;
+                } else if remaining_fraction <= LOW_TIME_BUDGET_WARNING_FRACTION
+                    && !low_time_warning_sent
+                {
+                    low_time_warning_sent = true;
+                    let remaining_secs = self
+                        .remaining_budget_secs(remaining_fraction)
+                        .unwrap_or_default();
+                    let warning = Element::new("system-warning")
+                        .attr("type", "low-time-budget")
+                        .text(format!(
+                            "Low time budget: ~{remaining_secs}s remaining out of {timeout}s. \
+                             Stop exploratory loops and new dependency bootstrapping. \
+                             Finalize required artifacts now and run one direct smoke verification."
+                        ));
+                    context = context.add_message(ContextMessage::user(warning.to_string(), None));
+                    should_yield = false;
+                    is_complete = false;
+                } else if remaining_fraction <= MID_TIME_BUDGET_WARNING_FRACTION
+                    && !mid_time_warning_sent
+                {
+                    mid_time_warning_sent = true;
+                    let remaining_secs = self
+                        .remaining_budget_secs(remaining_fraction)
+                        .unwrap_or_default();
+                    let warning = Element::new("system-warning")
+                        .attr("type", "time-budget-checkpoint")
+                        .text(format!(
+                            "Budget checkpoint: ~{remaining_secs}s remaining out of {timeout}s. \
+                             Prefer the shortest path to the required deliverables. \
+                             Avoid broad exploration or repeated setup work unless strictly required."
+                        ));
+                    context = context.add_message(ContextMessage::user(warning.to_string(), None));
+                    should_yield = false;
+                    is_complete = false;
+                }
+            }
+
+            let looks_like_refusal_message = looks_like_refusal(&message.content);
+            let refusal_recovery_needed = self.environment.background
+                && is_complete
+                && message.tool_calls.is_empty()
+                && !background_refusal_reminder_was_sent(&context)
+                && !has_any_tool_call(&context)
+                && looks_like_refusal_message;
+
             context = context.append_message(
                 message.content.clone(),
                 message.thought_signature.clone(),
@@ -368,6 +554,80 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 tool_call_records,
                 message.phase,
             );
+
+            if is_complete
+                && !context.messages.iter().any(|msg| {
+                    msg.content()
+                        .is_some_and(|content| content.contains("pending todo items"))
+                })
+            {
+                let pending_todos = self
+                    .services
+                    .get_pending_todos(&self.conversation.id)
+                    .await?;
+                if !pending_todos.is_empty() {
+                    let reminder = format!(
+                        "You have {} pending todo items. Please complete them before finishing the task.",
+                        pending_todos.len()
+                    );
+                    context = context.add_message(ContextMessage::user(reminder, None));
+                    should_yield = false;
+                    is_complete = false;
+                }
+            }
+
+            if refusal_recovery_needed {
+                context =
+                    context.add_message(ContextMessage::user(background_refusal_reminder(), None));
+                should_yield = false;
+                is_complete = false;
+            }
+
+            let verification_gate_enabled = self.environment.background
+                && verification_gate_applies(&self.agent, &self.tool_definitions);
+            let verification_reminder_already_sent = verification_reminder_was_sent(&context);
+            let verification_command_reminder_already_sent =
+                verification_command_reminder_was_sent(&context);
+            let verification_matrix_already_sent = verification_matrix_was_sent(&context);
+
+            if verification_gate_enabled
+                && is_complete
+                && !verification_reminder_already_sent
+                && !verification_skill_was_called(&context)
+            {
+                let matrix = if !verification_matrix_already_sent {
+                    self.generate_verification_matrix(&tool_context, &context)
+                        .await
+                } else {
+                    None
+                };
+                context = context.add_message(ContextMessage::user(
+                    verification_reminder(matrix.as_deref()),
+                    None,
+                ));
+                should_yield = false;
+                is_complete = false;
+            }
+
+            if verification_gate_enabled
+                && is_complete
+                && verification_skill_was_called(&context)
+                && !verification_command_reminder_already_sent
+                && !verification_command_was_run_after_skill(&context)
+            {
+                let matrix = if !verification_matrix_already_sent {
+                    self.generate_verification_matrix(&tool_context, &context)
+                        .await
+                } else {
+                    None
+                };
+                context = context.add_message(ContextMessage::user(
+                    verification_command_reminder(matrix.as_deref()),
+                    None,
+                ));
+                should_yield = false;
+                is_complete = false;
+            }
 
             if self.error_tracker.limit_reached() {
                 self.send(ChatResponse::Interrupt {
@@ -414,32 +674,19 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             tool_context.with_metrics(|metrics| {
                 self.conversation.metrics = metrics.clone();
             })?;
-
-            // If completing (should_yield is due), fire End hook and check if
-            // it adds messages
-            if should_yield {
-                let end_count_before = self.conversation.len();
-                self.hook
-                    .handle(
-                        &LifecycleEvent::End(EventData::new(
-                            self.agent.clone(),
-                            model_id.clone(),
-                            EndPayload,
-                        )),
-                        &mut self.conversation,
-                    )
-                    .await?;
-                self.services.update(self.conversation.clone()).await?;
-                // Check if End hook added messages - if so, continue the loop
-                if self.conversation.len() > end_count_before {
-                    // End hook added messages, sync context and continue
-                    if let Some(updated_context) = &self.conversation.context {
-                        context = updated_context.clone();
-                    }
-                    should_yield = false;
-                }
-            }
         }
+
+        // Fire the End lifecycle event (title will be set here by the hook)
+        self.hook
+            .handle(
+                &LifecycleEvent::End(EventData::new(
+                    self.agent.clone(),
+                    model_id.clone(),
+                    EndPayload,
+                )),
+                &mut self.conversation,
+            )
+            .await?;
 
         self.services.update(self.conversation.clone()).await?;
 

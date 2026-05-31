@@ -26,8 +26,15 @@ impl ToolsOverview {
         let mut tools = Vec::new();
         tools.extend(&self.system);
         tools.extend(&self.agents);
-        for server_tools in self.mcp.get_servers().values() {
-            tools.extend(server_tools);
+
+        // Sort MCP servers by name for stable tool order (implicit caching)
+        let mut server_names: Vec<_> = self.mcp.get_servers().keys().collect();
+        server_names.sort();
+
+        for server_name in server_names {
+            if let Some(server_tools) = self.mcp.get_servers().get(server_name) {
+                tools.extend(server_tools);
+            }
         }
         tools
     }

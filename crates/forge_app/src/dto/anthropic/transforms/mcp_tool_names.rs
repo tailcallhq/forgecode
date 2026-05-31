@@ -1,6 +1,7 @@
 use forge_domain::Transformer;
 
 use crate::dto::anthropic::Request;
+use crate::dto::anthropic::request::ToolEntry;
 
 /// Converts MCP tool names from Forge's internal format
 /// (`mcp_{server}_tool_{tool}`) to the Claude Code compatible format
@@ -17,7 +18,9 @@ impl Transformer for McpToolNames {
 
     fn transform(&mut self, mut request: Self::Value) -> Self::Value {
         for tool in &mut request.tools {
-            tool.name = to_claude_code_format(&tool.name);
+            if let ToolEntry::Function(tool) = tool {
+                tool.name = to_claude_code_format(&tool.name);
+            }
         }
         request
     }
@@ -50,6 +53,14 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+    use crate::dto::anthropic::request::ToolEntry;
+
+    fn tool_name(entry: &ToolEntry) -> &str {
+        match entry {
+            ToolEntry::Function(def) => &def.name,
+            ToolEntry::WebSearch(ws) => &ws.name,
+        }
+    }
 
     #[test]
     fn test_converts_simple_mcp_tool_name() {
@@ -109,8 +120,8 @@ mod tests {
         let mut request = Request::try_from(fixture).unwrap();
         request = McpToolNames.transform(request);
 
-        assert_eq!(request.tools[0].name, "mcp__github__create_issue");
-        assert_eq!(request.tools[1].name, "read");
-        assert_eq!(request.tools[2].name, "mcp__slack__send_message");
+        assert_eq!(tool_name(&request.tools[0]), "mcp__github__create_issue");
+        assert_eq!(tool_name(&request.tools[1]), "read");
+        assert_eq!(tool_name(&request.tools[2]), "mcp__slack__send_message");
     }
 }

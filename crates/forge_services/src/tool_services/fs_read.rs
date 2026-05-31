@@ -6,7 +6,7 @@ use forge_app::{
     Content, EnvironmentInfra, FileInfoInfra, FileReaderInfra as InfraFsReadService, FsReadService,
     ReadOutput, compute_hash,
 };
-use forge_domain::{FileInfo, Image};
+use forge_domain::{Document, FileInfo, Image};
 
 use crate::range::resolve_range;
 use crate::utils::assert_absolute_path;
@@ -49,6 +49,7 @@ fn detect_mime_type(path: &Path, content: &[u8]) -> String {
             "png" => "image/png",
             "gif" => "image/gif",
             "webp" => "image/webp",
+            "bmp" => "image/bmp",
             _ => "text/plain", // Default to text
         })
         .unwrap_or("text/plain")
@@ -57,7 +58,41 @@ fn detect_mime_type(path: &Path, content: &[u8]) -> String {
 
 /// Checks if a MIME type represents visual content (images or PDFs)
 fn is_visual_content(mime_type: &str) -> bool {
-    mime_type.starts_with("image/") || mime_type == "application/pdf"
+    is_image_content(mime_type) || is_document_content(mime_type)
+}
+
+/// Checks if a MIME type represents an image
+fn is_image_content(mime_type: &str) -> bool {
+    mime_type.starts_with("image/")
+}
+
+fn is_supported_image_content(mime_type: &str) -> bool {
+    matches!(
+        mime_type,
+        "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+    )
+}
+
+fn supported_image_formats() -> &'static str {
+    "JPEG, PNG, GIF, WebP"
+}
+
+fn unsupported_image_format_error(path: &Path, mime_type: &str) -> anyhow::Error {
+    let format = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_uppercase())
+        .unwrap_or_else(|| mime_type.to_string());
+
+    anyhow::anyhow!(
+        "Unsupported image format: {format}. Supported formats: {}. Convert the file to a supported format, then try read again.",
+        supported_image_formats()
+    )
+}
+
+/// Checks if a MIME type represents a document (e.g., PDF)
+fn is_document_content(mime_type: &str) -> bool {
+    mime_type == "application/pdf"
 }
 
 /// Validates that file size does not exceed the maximum allowed file size.
@@ -87,10 +122,11 @@ pub async fn assert_file_size<F: FileInfoInfra>(
 /// Reads file contents from the specified absolute path. Ideal for analyzing
 /// code, configuration files, documentation, or textual data. Returns the
 /// content as a string. For files larger than 2,000 lines, the tool
-/// automatically returns only the first 2,000 lines. You should always rely
-/// on this default behavior and avoid specifying custom ranges unless
-/// absolutely necessary. If needed, specify a range with the start_line and
-/// end_line parameters, ensuring the total range does not exceed 2,000 lines.
+/// automatically returns only the first 2,000 lines. Start with this default
+/// chunk, then use targeted follow-up ranges when you need more context from a
+/// specific part of the file. If needed, specify a range with the start_line
+/// and end_line parameters, ensuring the total range does not exceed 2,000
+/// lines.
 /// Specifying a range exceeding this limit will result in an error. Binary
 /// files are automatically detected and rejected.
 pub struct ForgeFsRead<F> {
@@ -134,19 +170,41 @@ impl<F: FileInfoInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + I
 
         // Handle visual content (PDFs and images)
         if is_visual_content(&mime_type) {
+            if is_image_content(&mime_type) && !is_supported_image_content(&mime_type) {
+                return Err(unsupported_image_format_error(path, &mime_type));
+            }
+
             // Validate against image-specific size limit (may be different from
             // max_file_size)
-            assert_file_size(&*self.infra, path, config.max_image_size_bytes)
-                .await
-                .with_context(|| {
-                    if mime_type == "application/pdf" {
-                        "PDF exceeds size limit. Use a smaller PDF or increase FORGE_MAX_IMAGE_SIZE."
-                    } else {
-                        "Image exceeds size limit. Compress the image or increase FORGE_MAX_IMAGE_SIZE."
-                    }
-                })?;
+            assert_file_size(&*self.infra, path, config.max_image_size_bytes).await.with_context(|| {
+                if is_document_content(&mime_type) {
+                    "PDF exceeds size limit. Use a smaller PDF or increase FORGE_MAX_IMAGE_SIZE."
+                } else {
+                    "Image exceeds size limit. Compress the image or increase FORGE_MAX_IMAGE_SIZE."
+                }
+            })?;
 
-            // Convert to base64 image
+            if is_document_content(&mime_type) {
+                // Return as Document for PDFs
+                let filename = path
+                    .file_name()
+                    .and_then(|f| f.to_str())
+                    .map(|f| f.to_string());
+                let document = Document::new_bytes(raw_content, mime_type.clone());
+                let document = if let Some(name) = filename {
+                    document.with_filename(name)
+                } else {
+                    document
+                };
+                let hash = compute_hash(document.base64_data());
+
+                return Ok(ReadOutput {
+                    content: Content::document(document),
+                    info: FileInfo::new(0, 0, 0, hash),
+                });
+            }
+
+            // Return as Image for images
             let image = Image::new_bytes(raw_content, mime_type.clone());
             let hash = compute_hash(image.url());
 
@@ -211,12 +269,16 @@ impl<F: FileInfoInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + I
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use forge_app::FsReadService;
     use pretty_assertions::assert_eq;
     use tempfile::NamedTempFile;
     use tokio::fs;
 
     use super::*;
-    use crate::attachment::tests::MockFileService;
+    use crate::attachment::tests::{MockCompositeService, MockFileService};
 
     // Helper to create a temporary file with specific content size
     async fn create_test_file_with_size(size: usize) -> anyhow::Result<NamedTempFile> {
@@ -366,11 +428,26 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_mime_type_for_bmp_extension() {
+        let path = Path::new("thumbnail.bmp");
+        let content = b"not-a-real-bmp";
+        let actual = detect_mime_type(path, content);
+        assert_eq!(actual, "image/bmp");
+    }
+
+    #[test]
     fn test_is_visual_content_for_images() {
         assert!(is_visual_content("image/png"));
         assert!(is_visual_content("image/jpeg"));
         assert!(is_visual_content("image/gif"));
         assert!(is_visual_content("image/webp"));
+    }
+
+    #[test]
+    fn test_is_supported_image_content() {
+        assert!(is_supported_image_content("image/png"));
+        assert!(is_supported_image_content("image/jpeg"));
+        assert!(!is_supported_image_content("image/bmp"));
     }
 
     #[test]
@@ -383,6 +460,30 @@ mod tests {
         assert!(!is_visual_content("text/plain"));
         assert!(!is_visual_content("application/json"));
         assert!(!is_visual_content("text/html"));
+    }
+
+    #[tokio::test]
+    async fn test_read_rejects_unsupported_image_formats() {
+        let infra = Arc::new(MockCompositeService::new());
+        infra.add_bytes(
+            Path::new("/tmp/thumbnail.bmp").to_path_buf(),
+            b"not-a-real-bmp".to_vec(),
+        );
+
+        let service = ForgeFsRead::new(infra);
+        let error = <ForgeFsRead<MockCompositeService> as FsReadService>::read(
+            &service,
+            "/tmp/thumbnail.bmp".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "Unsupported image format: BMP. Supported formats: JPEG, PNG, GIF, WebP. Convert the file to a supported format, then try read again."
+        );
     }
 
     #[test]

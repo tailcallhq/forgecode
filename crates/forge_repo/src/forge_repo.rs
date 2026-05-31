@@ -14,7 +14,7 @@ use forge_domain::{
     Conversation, ConversationId, ConversationRepository, Environment, FileInfo,
     FuzzySearchRepository, McpServerConfig, MigrationResult, Model, ModelId, Provider, ProviderId,
     ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository, Snapshot,
-    SnapshotRepository, TextPatchBlock, TextPatchRepository,
+    SnapshotRepository, TextPatchBlock, TextPatchRepository, Todo, TodoRepository,
 };
 use forge_eventsource::EventSource;
 // Re-export CacacheStorage from forge_infra
@@ -144,6 +144,39 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
         self.conversation_repository
             .delete_conversation(conversation_id)
             .await
+    }
+}
+
+#[async_trait::async_trait]
+impl<F: Send + Sync> TodoRepository for ForgeRepo<F> {
+    async fn save_todos(
+        &self,
+        conversation_id: &ConversationId,
+        todos: Vec<Todo>,
+    ) -> anyhow::Result<()> {
+        let conversation = self
+            .conversation_repository
+            .get_conversation(conversation_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Conversation not found: {}", conversation_id))?;
+
+        let updated_metrics = conversation.metrics.clone().todos(todos);
+        let updated_conversation = conversation.metrics(updated_metrics);
+        self.conversation_repository
+            .upsert_conversation(updated_conversation)
+            .await
+    }
+
+    async fn get_todos(&self, conversation_id: &ConversationId) -> anyhow::Result<Vec<Todo>> {
+        let Some(conversation) = self
+            .conversation_repository
+            .get_conversation(conversation_id)
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
+
+        Ok(conversation.metrics.todos)
     }
 }
 

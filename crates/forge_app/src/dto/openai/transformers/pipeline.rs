@@ -6,6 +6,7 @@ use url::Url;
 use super::default_reasoning_content::DefaultReasoningContent;
 use super::drop_tool_call::DropToolCalls;
 use super::ensure_system_first::MergeSystemMessages;
+use super::gemini_openrouter_provider::SetGeminiOpenRouterProvider;
 use super::github_copilot_reasoning::GitHubCopilotReasoning;
 use super::make_cerebras_compat::MakeCerebrasCompat;
 use super::make_openai_compat::MakeOpenAiCompat;
@@ -58,7 +59,8 @@ impl Transformer for ProviderPipeline<'_> {
             .pipe(SetMinimaxParams.when(when_model("minimax")))
             .pipe(DropToolCalls.when(when_model("mistral")))
             .pipe(SetToolChoice::new(ToolChoice::Auto).when(when_model("gemini")))
-            .pipe(SetCache.when(when_model("gemini|anthropic|minimax")))
+            .pipe(SetGeminiOpenRouterProvider.when(when_model("gemini")))
+            .pipe(SetCache.when(when_model("gemini|anthropic|minimax|minimax")))
             .when(move |_| supports_open_router_params(provider));
 
         // Strip thought signatures for all models except gemini-3
@@ -82,12 +84,10 @@ impl Transformer for ProviderPipeline<'_> {
                 || provider.id == ProviderId::FIREWORKS_AI_FIREPASS
                 || is_deepseek_compatible(provider, request)
                 || when_model("kimi")(request)
-                || is_xiaomi_mimo_provider(provider)
         });
 
-        let default_reasoning_content = DefaultReasoningContent.when(move |request: &Request| {
-            is_deepseek_compatible(provider, request) || is_xiaomi_mimo_provider(provider)
-        });
+        let default_reasoning_content = DefaultReasoningContent
+            .when(move |request: &Request| is_deepseek_compatible(provider, request));
 
         let cerebras_compat = MakeCerebrasCompat.when(move |_| provider.id == ProviderId::CEREBRAS);
 
@@ -158,12 +158,6 @@ fn is_deepseek_compatible(provider: &Provider<Url>, request: &Request) -> bool {
             .is_some_and(|m| m.as_str().contains("deepseek"));
     }
     false
-}
-
-/// Checks if provider is Xiaomi MiMo, which requires reasoning to be replayed
-/// as a flat reasoning_content field in follow-up requests.
-fn is_xiaomi_mimo_provider(provider: &Provider<Url>) -> bool {
-    provider.id == ProviderId::XIAOMI_MIMO
 }
 
 /// Checks if the request model is a gemini-3 model (which supports thought
@@ -388,22 +382,6 @@ mod tests {
             custom_headers: None,
             models: Some(ModelSource::Url(
                 Url::parse("https://api.deepseek.com/models").unwrap(),
-            )),
-        }
-    }
-
-    fn xiaomi_mimo(key: &str) -> Provider<Url> {
-        Provider {
-            id: ProviderId::XIAOMI_MIMO,
-            provider_type: Default::default(),
-            response: Some(ProviderResponse::OpenAI),
-            url: Url::parse("https://token-plan-sgp.xiaomimimo.com/v1/chat/completions").unwrap(),
-            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
-            url_params: vec![],
-            credential: make_credential(ProviderId::XIAOMI_MIMO, key),
-            custom_headers: None,
-            models: Some(ModelSource::Url(
-                Url::parse("https://token-plan-sgp.xiaomimimo.com/v1/models").unwrap(),
             )),
         }
     }
@@ -1236,61 +1214,6 @@ mod tests {
         // DeepSeek transforms; reasoning_details should remain as-is.
         assert_eq!(message.reasoning_content, None);
         assert!(message.reasoning_details.is_some());
-    }
-
-    #[test]
-    fn test_xiaomi_mimo_provider_converts_reasoning_details_to_reasoning_content() {
-        let provider = xiaomi_mimo("xiaomi-mimo");
-        let fixture = Request::default().messages(vec![crate::dto::openai::Message {
-            role: crate::dto::openai::Role::Assistant,
-            content: Some(crate::dto::openai::MessageContent::Text("test".to_string())),
-            name: None,
-            tool_call_id: None,
-            tool_calls: None,
-            reasoning_details: Some(vec![crate::dto::openai::ReasoningDetail {
-                r#type: "reasoning.text".to_string(),
-                text: Some("thinking...".to_string()),
-                signature: None,
-                data: None,
-                id: None,
-                format: None,
-                index: None,
-            }]),
-            reasoning_text: None,
-            reasoning_opaque: None,
-            reasoning_content: None,
-            extra_content: None,
-        }]);
-
-        let mut pipeline = ProviderPipeline::new(&provider, false);
-        let actual = pipeline.transform(fixture);
-
-        let message = actual.messages.unwrap().into_iter().next().unwrap();
-        assert_eq!(message.reasoning_content, Some("thinking...".to_string()));
-        assert!(message.reasoning_details.is_none());
-    }
-
-    #[test]
-    fn test_xiaomi_mimo_provider_falls_back_to_empty_reasoning_content_when_none() {
-        let provider = xiaomi_mimo("xiaomi-mimo");
-        let fixture = Request::default().messages(vec![crate::dto::openai::Message {
-            role: crate::dto::openai::Role::Assistant,
-            content: Some(crate::dto::openai::MessageContent::Text("test".to_string())),
-            name: None,
-            tool_call_id: None,
-            tool_calls: None,
-            reasoning_details: None,
-            reasoning_text: None,
-            reasoning_opaque: None,
-            reasoning_content: None,
-            extra_content: None,
-        }]);
-
-        let mut pipeline = ProviderPipeline::new(&provider, false);
-        let actual = pipeline.transform(fixture);
-
-        let message = actual.messages.unwrap().into_iter().next().unwrap();
-        assert_eq!(message.reasoning_content, Some(String::new()));
     }
 
     #[test]

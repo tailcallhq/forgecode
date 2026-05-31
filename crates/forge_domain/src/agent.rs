@@ -103,7 +103,7 @@ pub fn estimate_token_count(count: usize) -> usize {
 }
 
 /// Runtime agent representation with required model and provider
-#[derive(Debug, Clone, PartialEq, Setters, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Setters, Deserialize, Serialize, JsonSchema)]
 #[setters(strip_option, into)]
 pub struct Agent {
     /// Unique identifier for the agent
@@ -289,8 +289,7 @@ impl From<Agent> for ToolDefinition {
         ToolDefinition {
             name,
             description,
-            input_schema: crate::tool_schema_generator()
-                .into_root_schema_for::<crate::AgentInput>(),
+            input_schema: schemars::schema_for!(crate::AgentInput),
         }
     }
 }

@@ -622,6 +622,17 @@ pub struct Shell {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+
+    /// Run the command in the background as a daemon process using nohup.
+    /// When true, the command is started in the background, and the tool
+    /// returns immediately with the process PID and a status check after a
+    /// brief delay. Use this for starting long-running services (web servers,
+    /// database daemons, VMs) that must remain running after the tool call
+    /// returns. Stdout/stderr of the background process are redirected to a
+    /// log file whose path is included in the output.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
+    pub background: bool,
 }
 
 /// Input type for the net fetch tool
@@ -866,7 +877,6 @@ impl ToolCatalog {
             .with(|s| {
                 s.meta_schema = None;
                 s.inline_subschemas = true;
-                s.transforms.push(Box::new(crate::RemoveSchemaTitles));
             })
             .into_generator();
 
@@ -1775,6 +1785,7 @@ mod tests {
             keep_ansi: false,
             env: None,
             description: Some("Shows working tree status".to_string()),
+            background: false,
         };
 
         let actual = serde_json::to_value(&fixture).unwrap();
@@ -1798,6 +1809,7 @@ mod tests {
             keep_ansi: false,
             env: None,
             description: None,
+            background: false,
         };
 
         let actual = serde_json::to_value(&fixture).unwrap();
@@ -1820,6 +1832,7 @@ mod tests {
             keep_ansi: false,
             env: None,
             description: None,
+            background: false,
         };
 
         let actual = serde_json::to_value(&fixture).unwrap();
@@ -1917,5 +1930,69 @@ mod tests {
             "Should parse whitespace-padded 'patch' tool name"
         );
         assert!(matches!(actual.unwrap(), ToolCatalog::Patch(_)));
+    }
+
+    #[test]
+    fn test_shell_with_background_serialization() {
+        use pretty_assertions::assert_eq;
+
+        let fixture = Shell {
+            command: "python3 -m http.server 8080".to_string(),
+            cwd: Some(PathBuf::from("/var/www")),
+            keep_ansi: false,
+            env: None,
+            description: Some("Start web server".to_string()),
+            background: true,
+        };
+
+        let actual = serde_json::to_value(&fixture).unwrap();
+
+        let expected = serde_json::json!({
+            "command": "python3 -m http.server 8080",
+            "cwd": "/var/www",
+            "description": "Start web server",
+            "background": true
+        });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_shell_background_false_not_serialized() {
+        use pretty_assertions::assert_eq;
+
+        let fixture = Shell {
+            command: "echo hello".to_string(),
+            cwd: None,
+            keep_ansi: false,
+            env: None,
+            description: None,
+            background: false,
+        };
+
+        let actual = serde_json::to_value(&fixture).unwrap();
+
+        // background=false should be skipped (not present in output)
+        assert!(!actual.as_object().unwrap().contains_key("background"));
+        assert_eq!(actual, serde_json::json!({ "command": "echo hello" }));
+    }
+
+    #[test]
+    fn test_shell_background_deserialization() {
+        // Verify background: true round-trips through deserialization
+        let json = serde_json::json!({
+            "command": "python3 -m http.server 8080",
+            "background": true
+        });
+        let shell: Shell = serde_json::from_value(json).unwrap();
+        assert!(shell.background);
+        assert_eq!(shell.command, "python3 -m http.server 8080");
+
+        // Verify missing background field defaults to false
+        let json_no_bg = serde_json::json!({
+            "command": "echo hello"
+        });
+        let shell_no_bg: Shell = serde_json::from_value(json_no_bg).unwrap();
+        assert!(!shell_no_bg.background);
     }
 }

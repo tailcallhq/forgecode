@@ -104,7 +104,7 @@ dependencies = [
  "objc2-foundation",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
  "x11rb",
 ]
 
@@ -1363,6 +1363,7 @@ dependencies = [
  "mio",
  "parking_lot",
  "rustix 1.1.4",
+ "serde",
  "signal-hook 0.3.18",
  "signal-hook-mio",
  "winapi",
@@ -1964,7 +1965,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2054,6 +2055,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "fd-lock"
+version = "4.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
+dependencies = [
+ "cfg-if",
+ "rustix 1.1.4",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2227,7 +2239,7 @@ dependencies = [
  "serde_json",
  "serde_yml 0.0.13",
  "sha2 0.11.0",
- "strum",
+ "strum 0.28.0",
  "strum_macros 0.28.0",
  "tempfile",
  "thiserror 2.0.18",
@@ -2322,7 +2334,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yml 0.0.13",
- "strum",
+ "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.18",
  "tokio",
@@ -2468,6 +2480,7 @@ dependencies = [
  "colored",
  "console",
  "convert_case 0.11.0",
+ "crossterm 0.29.0",
  "derive_setters",
  "dirs",
  "enable-ansi-support",
@@ -2499,14 +2512,14 @@ dependencies = [
  "num-format",
  "open",
  "pretty_assertions",
+ "reedline",
  "regex",
  "rustls 0.23.40",
- "rustyline",
  "serde",
  "serde_json",
  "serial_test",
  "strip-ansi-escapes",
- "strum",
+ "strum 0.28.0",
  "strum_macros 0.28.0",
  "tempfile",
  "terminal_size",
@@ -2591,7 +2604,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
- "strum",
+ "strum 0.28.0",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -2657,6 +2670,7 @@ dependencies = [
  "ignore",
  "infer",
  "lazy_static",
+ "lsp-types",
  "merge",
  "oauth2",
  "pretty_assertions",
@@ -2667,7 +2681,7 @@ dependencies = [
  "serde_urlencoded",
  "serde_yml 0.0.13",
  "strip-ansi-escapes",
- "strum",
+ "strum 0.28.0",
  "strum_macros 0.28.0",
  "tempfile",
  "thiserror 2.0.18",
@@ -3429,7 +3443,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19753d40da53d0ec41604750eeb969097a90fb2d7f7992730d904541c04e2c19"
 dependencies = [
  "bstr",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.0",
 ]
 
 [[package]]
@@ -4865,7 +4879,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5200,6 +5214,19 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
+name = "lsp-types"
+version = "0.95.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e34d33a8e9b006cd3fc4fe69a921affa097bae4bb65f76271f4644f9a334365"
+dependencies = [
+ "bitflags 1.3.2",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "url",
+]
 
 [[package]]
 name = "mac"
@@ -5707,7 +5734,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom 0.2.17",
  "http 1.4.1",
@@ -6460,7 +6487,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.3",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6639,6 +6666,26 @@ dependencies = [
  "getrandom 0.2.17",
  "libredox",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "reedline"
+version = "0.47.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2066729dce9fecd28d1c6850a159ee68719130f149b22467c362353e16994e90"
+dependencies = [
+ "chrono",
+ "crossterm 0.29.0",
+ "fd-lock",
+ "itertools",
+ "nu-ansi-term",
+ "serde",
+ "strip-ansi-escapes",
+ "strum 0.27.2",
+ "thiserror 2.0.18",
+ "unicase",
+ "unicode-segmentation",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]
@@ -7037,7 +7084,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7050,7 +7097,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7130,7 +7177,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7411,6 +7458,17 @@ dependencies = [
  "itoa",
  "serde",
  "serde_core",
+]
+
+[[package]]
+name = "serde_repr"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "175ee3e80ae9982737ca543e96133087cbd9a485eecc3bc4de9c1a37b47ea59c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -7909,6 +7967,15 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "strum"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
+dependencies = [
+ "strum_macros 0.27.2",
+]
+
+[[package]]
+name = "strum"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9628de9b8791db39ceda2b119bbe13134770b56c138ec1d3af810d045c04f9bd"
@@ -8084,7 +8151,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

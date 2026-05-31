@@ -27,6 +27,7 @@ use crate::{
 pub struct TempContentFiles {
     stdout: Option<PathBuf>,
     stderr: Option<PathBuf>,
+    search: Option<PathBuf>,
 }
 
 #[derive(Debug, derive_more::From)]
@@ -241,7 +242,7 @@ impl ToolOperation {
         metrics: &mut Metrics,
     ) -> forge_domain::ToolOutput {
         let tool_name = tool_kind.name();
-        match self {
+        let mut result = match self {
             ToolOperation::FsRead { input, output } => {
                 // Check if content is an image (visual content)
                 if let Some(image) = output.content.as_image() {
@@ -249,7 +250,7 @@ impl ToolOperation {
                     tracing::info!(
                         path = %input.file_path,
                         tool = %tool_name,
-                        "Visual content read (image/PDF)"
+                        "Visual content read (image)"
                     );
                     *metrics = metrics.clone().insert(
                         input.file_path.clone(),
@@ -258,6 +259,22 @@ impl ToolOperation {
                     );
 
                     return forge_domain::ToolOutput::image(image.clone());
+                }
+
+                // Check if content is a document (PDF)
+                if let Some(document) = output.content.as_document() {
+                    tracing::info!(
+                        path = %input.file_path,
+                        tool = %tool_name,
+                        "Document content read (PDF)"
+                    );
+                    *metrics = metrics.clone().insert(
+                        input.file_path.clone(),
+                        FileOperation::new(tool_kind)
+                            .content_hash(Some(output.info.content_hash.clone())),
+                    );
+
+                    return forge_domain::ToolOutput::document(document.clone());
                 }
 
                 // Handle text content
@@ -376,21 +393,41 @@ impl ToolOperation {
                     elm = elm.attr_if_some("file_type", input.file_type.as_ref());
 
                     match truncated_output.strategy {
-                        TruncationMode::Byte => {
-                            let reason = format!(
-                                "Results truncated due to exceeding the {} bytes size limit. Please use a more specific search pattern",
-                                config.max_search_result_bytes
-                            );
-                            elm = elm.attr("reason", reason);
-                        }
-                        TruncationMode::Line => {
-                            let reason = format!(
-                                "Results truncated due to exceeding the {max_lines} lines limit. Please use a more specific search pattern"
-                            );
+                        TruncationMode::Byte | TruncationMode::Line => {
+                            let shown = truncated_output.data.len();
+                            let total = truncated_output.total;
+                            let limit_desc = match truncated_output.strategy {
+                                TruncationMode::Byte => {
+                                    format!("{} bytes size limit", config.max_search_result_bytes)
+                                }
+                                TruncationMode::Line => format!("{max_lines} lines limit"),
+                                _ => unreachable!(),
+                            };
+                            let count_info = format!("Showing {shown} of {total} total matches.");
+                            let reason = if let Some(path) = &content_files.search {
+                                format!(
+                                    "WARNING: Search results are INCOMPLETE — output exceeded the {limit_desc} and was truncated. \
+                                    {count_info} The displayed results do NOT represent all matches. \
+                                    The complete untruncated output has been written to: {}. \
+                                    You MUST read this file or use a more specific search pattern to ensure full coverage.",
+                                    path.display()
+                                )
+                            } else {
+                                format!(
+                                    "WARNING: Search results are INCOMPLETE — output exceeded the {limit_desc} and was truncated. \
+                                    {count_info} The displayed results do NOT represent all matches. \
+                                    Please use a more specific search pattern to ensure full coverage.",
+                                )
+                            };
                             elm = elm.attr("reason", reason);
                         }
                         TruncationMode::Full => {}
                     };
+
+                    if let Some(path) = &content_files.search {
+                        elm = elm.attr("full_output", path.display());
+                    }
+
                     elm = elm.cdata(truncated_output.data.join("\n"));
 
                     forge_domain::ToolOutput::text(elm)
@@ -597,6 +634,10 @@ impl ToolOperation {
                     parent_elem = parent_elem.attr("exit_code", exit_code);
                 }
 
+                if let Some(wall_time) = output.output.wall_time_secs {
+                    parent_elem = parent_elem.attr("wall_time_secs", format!("{:.2}", wall_time));
+                }
+
                 let truncated_output = truncate_shell_output(
                     &output.output.stdout,
                     &output.output.stderr,
@@ -732,7 +773,28 @@ impl ToolOperation {
 
                 forge_domain::ToolOutput::text(elm)
             }
+        };
+
+        // Append session elapsed time to the tool output if tracking has started
+        if let Some(elapsed) = metrics.duration(chrono::Utc::now()) {
+            let elapsed_secs = elapsed.as_secs_f64();
+            let mut session_info = Element::new("session_info")
+                .attr("session_elapsed_secs", format!("{:.1}", elapsed_secs));
+
+            // Add total budget and remaining time if timeout is configured
+            if let Some(timeout_secs) = config.task_timeout_secs {
+                let remaining = timeout_secs as f64 - elapsed_secs;
+                session_info = session_info
+                    .attr("task_timeout_secs", timeout_secs)
+                    .attr("remaining_secs", format!("{:.1}", remaining.max(0.0)));
+            }
+
+            result
+                .values
+                .push(forge_domain::ToolValue::Text(session_info.to_string()));
         }
+
+        result
     }
 }
 
@@ -777,6 +839,9 @@ mod tests {
             }
             ToolValue::Image(image) => {
                 writeln!(result, "Image with mime type: {}", image.mime_type()).unwrap();
+            }
+            ToolValue::Document(doc) => {
+                writeln!(result, "Document with mime type: {}", doc.mime_type()).unwrap();
             }
             ToolValue::Empty => {
                 writeln!(result, "Empty value").unwrap();
@@ -1045,6 +1110,7 @@ mod tests {
                     stdout: "hello\nworld".to_string(),
                     stderr: "".to_string(),
                     exit_code: Some(0),
+                    wall_time_secs: Some(1.23),
                 },
                 shell: "/bin/bash".to_string(),
                 description: None,
@@ -1080,6 +1146,7 @@ mod tests {
                     stdout,
                     stderr: "".to_string(),
                     exit_code: Some(0),
+                    wall_time_secs: Some(2.50),
                 },
                 shell: "/bin/bash".to_string(),
                 description: None,
@@ -1117,6 +1184,7 @@ mod tests {
                     stdout: "".to_string(),
                     stderr,
                     exit_code: Some(1),
+                    wall_time_secs: Some(0.45),
                 },
                 shell: "/bin/bash".to_string(),
                 description: None,
@@ -1160,6 +1228,7 @@ mod tests {
                     stdout,
                     stderr,
                     exit_code: Some(0),
+                    wall_time_secs: Some(3.10),
                 },
                 shell: "/bin/bash".to_string(),
                 description: None,
@@ -1198,6 +1267,7 @@ mod tests {
                     stdout,
                     stderr: "".to_string(),
                     exit_code: Some(0),
+                    wall_time_secs: Some(0.80),
                 },
                 shell: "/bin/bash".to_string(),
                 description: None,
@@ -1226,6 +1296,7 @@ mod tests {
                     stdout: "single stdout line".to_string(),
                     stderr: "single stderr line".to_string(),
                     exit_code: Some(0),
+                    wall_time_secs: Some(0.10),
                 },
                 shell: "/bin/bash".to_string(),
                 description: None,
@@ -1254,6 +1325,7 @@ mod tests {
                     stdout: "".to_string(),
                     stderr: "".to_string(),
                     exit_code: Some(0),
+                    wall_time_secs: Some(0.05),
                 },
                 shell: "/bin/bash".to_string(),
                 description: None,
@@ -1295,6 +1367,7 @@ mod tests {
                     stdout,
                     stderr,
                     exit_code: Some(0),
+                    wall_time_secs: Some(1.75),
                 },
                 shell: "/bin/bash".to_string(),
                 description: None,
@@ -2383,6 +2456,7 @@ mod tests {
                     stdout: "total 8\ndrwxr-xr-x  2 user user 4096 Jan  1 12:00 .\ndrwxr-xr-x 10 user user 4096 Jan  1 12:00 ..".to_string(),
                     stderr: "".to_string(),
                     exit_code: Some(0),
+                    wall_time_secs: Some(0.02),
                 },
                 shell: "/bin/bash".to_string(),
                 description: None,
@@ -2412,6 +2486,7 @@ mod tests {
                     stdout: "On branch main\nnothing to commit, working tree clean".to_string(),
                     stderr: "".to_string(),
                     exit_code: Some(0),
+                    wall_time_secs: Some(0.15),
                 },
                 shell: "/bin/bash".to_string(),
                 description: Some("Shows working tree status".to_string()),

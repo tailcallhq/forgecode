@@ -3,9 +3,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for retry mechanism.
-#[derive(
-    Default, Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, fake::Dummy, Setters,
-)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, fake::Dummy, Setters)]
 #[serde(rename_all = "snake_case")]
 #[setters(into)]
 pub struct RetryConfig {
@@ -23,6 +21,20 @@ pub struct RetryConfig {
     pub max_delay_secs: Option<u64>,
     /// Whether to suppress retry error logging and events
     pub suppress_errors: bool,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            initial_backoff_ms: 200,
+            min_delay_ms: 1000,
+            backoff_factor: 2,
+            max_attempts: 8,
+            status_codes: vec![429, 500, 502, 503, 504, 408, 522, 520, 529, 499],
+            max_delay_secs: None,
+            suppress_errors: false,
+        }
+    }
 }
 
 #[cfg(test)]

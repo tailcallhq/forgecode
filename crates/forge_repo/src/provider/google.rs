@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use forge_app::domain::{ChatCompletionMessage, Context, Model, ModelId, ResultStream};
-use forge_app::dto::google::{EventData, Request};
+use forge_app::dto::google::{EventData, ProviderPipeline, Request};
 use forge_app::{EnvironmentInfra, HttpInfra};
-use forge_domain::{ChatRepository, Provider};
+use forge_domain::{ChatRepository, Provider, Transformer};
 use reqwest::Url;
 use tokio_stream::StreamExt;
 use tracing::debug;
@@ -34,7 +34,20 @@ impl<H: HttpInfra> Google<H> {
     }
 
     fn get_headers(&self) -> Vec<(String, String)> {
-        let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+        let mut headers = vec![
+            (
+                "Content-Type".to_string(),
+                "application/json; charset=utf-8".to_string(),
+            ),
+            (
+                "X-Vertex-AI-LLM-Request-Type".to_string(),
+                "shared".to_string(),
+            ),
+            (
+                "X-Vertex-AI-LLM-Shared-Request-Type".to_string(),
+                "priority".to_string(),
+            ),
+        ];
 
         if self.use_api_key_header {
             headers.push(("x-goog-api-key".to_string(), self.api_key.clone()));
@@ -54,8 +67,11 @@ impl<T: HttpInfra> Google<T> {
         &self,
         model: &ModelId,
         context: Context,
+        provider: &Provider<Url>,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
         let request = Request::from(context);
+        let mut pipeline = ProviderPipeline::new(provider, model.as_str());
+        let request = pipeline.transform(request);
 
         // Google models are specified in the URL path, not the request body
         // URL format: {base_url}/models/{model}:streamGenerateContent?alt=sse
@@ -163,7 +179,6 @@ impl<F: HttpInfra> GoogleResponseRepository<F> {
             .clone();
 
         // For Vertex AI, the Google ADC token is stored as ApiKey
-        // For Vertex AI, the Google ADC token is stored as ApiKey
         // For OAuth, extract the access token
         let (token, use_api_key_header) = match creds {
             forge_domain::AuthDetails::ApiKey(api_key) => (api_key.as_str().to_string(), true),
@@ -202,7 +217,7 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + 'stat
         let provider_client = self.create_client(&provider)?;
 
         let stream = provider_client
-            .chat(model_id, context)
+            .chat(model_id, context, &provider)
             .await
             .map_err(|e| into_retry(e, &retry_config))?;
 
@@ -304,6 +319,22 @@ mod tests {
             forge_domain::ModelSource::Url(model_url),
             true,
         ))
+    }
+
+    fn create_provider(base_url: &str) -> anyhow::Result<Provider<Url>> {
+        Ok(Provider {
+            id: forge_domain::ProviderId::from("google".to_string()),
+            provider_type: forge_domain::ProviderType::Llm,
+            response: None,
+            url: Url::parse(base_url)?,
+            credential: None,
+            auth_methods: vec![],
+            url_params: vec![],
+            models: Some(forge_domain::ModelSource::Url(
+                Url::parse(base_url)?.join("models")?,
+            )),
+            custom_headers: None,
+        })
     }
 
     fn create_mock_models_response() -> serde_json::Value {
@@ -524,6 +555,7 @@ mod tests {
             .await;
 
         let google = create_google(&fixture.url())?;
+        let provider = create_provider(&fixture.url())?;
 
         let context = Context::default().add_message(ContextMessage::user(
             "Hi",
@@ -531,7 +563,11 @@ mod tests {
         ));
 
         let mut stream = google
-            .chat(&ModelId::new(format!("models/{}", model_id)), context)
+            .chat(
+                &ModelId::new(format!("models/{}", model_id)),
+                context,
+                &provider,
+            )
             .await?;
 
         let mut content = String::new();

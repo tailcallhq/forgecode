@@ -64,6 +64,7 @@ impl Default for TestContext {
                 home: Some(PathBuf::from("/Users/tushar")),
                 shell: "bash".to_string(),
                 base_path: PathBuf::from("/Users/tushar/projects"),
+                background: false,
             },
             config: ForgeConfig::default()
                 .tool_supported(true)
@@ -76,7 +77,12 @@ impl Default for TestContext {
             )
             .system_prompt(Template::new("You are Forge"))
             .user_prompt(Template::new(USER_PROMPT))
-            .tools(vec![("fs_read").into(), ("fs_write").into()]),
+            .tools(vec![
+                ("fs_read").into(),
+                ("fs_write").into(),
+                ("skill").into(),
+                ("shell").into(),
+            ]),
             tools: vec![
                 ToolDefinition::new("fs_read"),
                 ToolDefinition::new("fs_write"),

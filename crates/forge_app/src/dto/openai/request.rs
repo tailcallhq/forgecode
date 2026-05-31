@@ -21,6 +21,17 @@ pub struct ImageUrl {
     pub detail: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct VideoUrl {
+    pub url: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct FileContent {
+    pub filename: String,
+    pub file_data: String,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Message {
     pub role: Role,
@@ -109,6 +120,9 @@ pub enum ContentPart {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    File {
+        file: FileContent,
+    },
 }
 
 impl ContentPart {
@@ -120,6 +134,7 @@ impl ContentPart {
             ContentPart::ImageUrl { cache_control, .. } => {
                 *cache_control = None;
             }
+            ContentPart::File { .. } => {}
         }
     }
 
@@ -133,6 +148,7 @@ impl ContentPart {
             ContentPart::ImageUrl { cache_control, .. } => {
                 *cache_control = src_cache_control;
             }
+            ContentPart::File { .. } => {}
         }
     }
 }
@@ -182,9 +198,15 @@ pub struct Prediction {
     pub content: String,
 }
 
+/// OpenRouter provider routing preferences.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct ProviderPreferences {
-    // Define fields as necessary
+    /// Ordered list of provider backends to prioritize.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<Vec<String>>,
+    /// Provider backends to exclude from routing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore: Option<Vec<String>>,
 }
 
 /// Z.ai-specific thinking type
@@ -504,6 +526,29 @@ impl From<ContextMessage> for Message {
                     extra_content: None,
                 }
             }
+            ContextMessage::Document(doc) => {
+                let data_uri = format!("data:{};base64,{}", doc.mime_type(), doc.base64_data());
+                Message {
+                    role: Role::User,
+                    content: Some(MessageContent::Parts(vec![ContentPart::File {
+                        file: FileContent {
+                            filename: doc
+                                .filename()
+                                .clone()
+                                .unwrap_or_else(|| "document".to_string()),
+                            file_data: data_uri,
+                        },
+                    }])),
+                    name: None,
+                    tool_call_id: None,
+                    tool_calls: None,
+                    reasoning_details: None,
+                    reasoning_text: None,
+                    reasoning_opaque: None,
+                    reasoning_content: None,
+                    extra_content: None,
+                }
+            }
         }
     }
 }
@@ -533,6 +578,18 @@ impl From<ToolResult> for MessageContent {
                 }
                 ToolValue::AI { value, .. } => {
                     parts.push(ContentPart::Text { text: value, cache_control: None })
+                }
+                ToolValue::Document(doc) => {
+                    let data_uri = format!("data:{};base64,{}", doc.mime_type(), doc.base64_data());
+                    parts.push(ContentPart::File {
+                        file: FileContent {
+                            file_data: data_uri,
+                            filename: doc
+                                .filename()
+                                .clone()
+                                .unwrap_or_else(|| "document".to_string()),
+                        },
+                    });
                 }
             }
         }
@@ -781,8 +838,8 @@ mod tests {
                 "id": "123",
                 "type": "function",
                 "function": {
-                    "arguments": "{\"file_path\":\"/tmp/file.txt\",\"new_string\":\"new text\",\"old_string\":\"old text\",\"replace_all\":false}",
-                    "name": "patch"
+                    "name": "patch",
+                    "arguments": "{\"file_path\":\"/tmp/file.txt\",\"new_string\":\"new text\",\"old_string\":\"old text\",\"replace_all\":false}"
                 }
             }
         ]);

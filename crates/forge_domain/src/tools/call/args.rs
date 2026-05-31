@@ -265,8 +265,15 @@ mod tests {
             "enabled": true
         }));
         let actual = serde_json::to_string(&fixture).unwrap();
-        let expected = r#"{"enabled":true,"name":"test","value":42}"#;
-        assert_eq!(actual, expected);
+        // The order of keys in JSON object serialization is not guaranteed unless using
+        // indexmap, so we should parse back and compare the objects.
+        let actual_json: serde_json::Value = serde_json::from_str(&actual).unwrap();
+        let expected_json = json!({
+            "name": "test",
+            "value": 42,
+            "enabled": true
+        });
+        assert_eq!(actual_json, expected_json);
     }
 
     #[test]

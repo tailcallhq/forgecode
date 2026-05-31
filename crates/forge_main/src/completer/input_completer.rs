@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use forge_select::{ForgeWidget, PreviewLayout, PreviewPlacement, SelectRow};
 use forge_walker::Walker;
+use reedline::{Completer, Span, Suggestion};
 
 use crate::completer::CommandCompleter;
-use crate::completer::search_term::{SearchTerm, Span};
+use crate::completer::search_term::SearchTerm;
 use crate::model::ForgeCommandManager;
 
 pub fn select_workspace_file(cwd: &Path, query: Option<String>) -> anyhow::Result<Option<String>> {
@@ -59,18 +60,14 @@ pub struct InputCompleter {
     command: CommandCompleter,
 }
 
-pub struct InputSuggestion {
-    pub value: String,
-    pub span: Span,
-    pub append_whitespace: bool,
-}
-
 impl InputCompleter {
     pub fn new(cwd: PathBuf, command_manager: Arc<ForgeCommandManager>) -> Self {
         Self { cwd, command: CommandCompleter::new(command_manager) }
     }
+}
 
-    pub fn complete(&mut self, line: &str, pos: usize) -> Vec<InputSuggestion> {
+impl Completer for InputCompleter {
+    fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
         if line.starts_with('/') || line.starts_with(':') {
             // if the line starts with '/' or ':' it's probably a command, so we delegate to
             // the command completer.
@@ -89,10 +86,15 @@ impl InputCompleter {
 
             if let Ok(Some(selected)) = select_workspace_file(&self.cwd, initial_text) {
                 let value = format!("[{}]", selected);
-                return vec![InputSuggestion {
+                return vec![Suggestion {
+                    description: None,
                     value,
+                    style: None,
+                    extra: None,
                     span: Span::new(query.span.start, query.span.end),
                     append_whitespace: true,
+                    match_indices: None,
+                    display_override: None,
                 }];
             }
         }

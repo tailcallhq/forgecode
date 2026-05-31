@@ -98,6 +98,7 @@ mod tests {
                 stderr: "".to_string(),
                 command,
                 exit_code: Some(0),
+                wall_time_secs: None,
             })
         }
 

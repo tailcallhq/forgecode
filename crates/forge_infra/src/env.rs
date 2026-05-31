@@ -23,6 +23,7 @@ pub fn to_environment(cwd: PathBuf) -> Environment {
             std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
         },
         base_path: ConfigReader::base_path(),
+        background: false,
     }
 }
 
@@ -125,7 +126,14 @@ impl EnvironmentInfra for ForgeEnvironmentInfra {
     }
 
     fn get_environment(&self) -> Environment {
-        to_environment(self.cwd.clone())
+        let mut env = to_environment(self.cwd.clone());
+        // Propagate background mode from ForgeConfig (which reads the
+        // FORGE_BACKGROUND env var) into the Environment so that templates
+        // like `{{#if env.background}}` render correctly.
+        if let Ok(config) = self.cached_config() {
+            env.background = config.background;
+        }
+        env
     }
 
     fn get_config(&self) -> anyhow::Result<ForgeConfig> {

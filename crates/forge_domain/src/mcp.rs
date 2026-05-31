@@ -8,7 +8,6 @@ use derive_more::{Deref, Display, From};
 use derive_setters::Setters;
 use merge::Merge;
 use serde::{Deserialize, Serialize};
-use strum_macros::{Display as StrumDisplay, EnumIter, EnumString};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Scope {
@@ -44,6 +43,20 @@ impl McpServerConfig {
         Self::Http(McpHttpServer {
             url: url.into(),
             headers: BTreeMap::new(),
+            timeout: None,
+            disable: false,
+            oauth: McpOAuthSetting::AutoDetect,
+        })
+    }
+
+    /// Create a new HTTP-based MCP server with headers
+    pub fn new_http_with_headers(
+        url: impl Into<String>,
+        headers: BTreeMap<String, String>,
+    ) -> Self {
+        Self::Http(McpHttpServer {
+            url: url.into(),
+            headers,
             timeout: None,
             disable: false,
             oauth: McpOAuthSetting::AutoDetect,
@@ -289,78 +302,44 @@ impl From<BTreeMap<ServerName, McpServerConfig>> for McpConfig {
 }
 
 impl McpConfig {
-    /// Compute a deterministic u64 identifier for this config.
+    /// Returns the builtin MCP server configurations that are always available.
     ///
-    /// Uses FNV-64 (a non-cryptographic but stable, seed-free hasher) so the
-    /// same config always produces the same key across process restarts.
-    /// This is required for persisted trust-store lookups: `DefaultHasher`
-    /// uses a random seed per-process and would produce a different value on
-    /// every restart, causing "Trust and remember" to be ignored.
-    /// `BTreeMap` ensures consistent field ordering regardless of insertion
-    /// order.
+    /// These serve as the lowest-priority defaults. User-level and local
+    /// configs can override or disable them by defining servers with the
+    /// same names.
+    pub fn builtin() -> Self {
+        Self {
+            mcp_servers: BTreeMap::from([
+                (
+                    ServerName::from("context7".to_string()),
+                    McpServerConfig::new_http_with_headers(
+                        "https://mcp.context7.com/mcp",
+                        BTreeMap::from([(
+                            "Authorization".to_string(),
+                            "Bearer ctx7sk-062a6510-b7f6-4321-aa78-afc736bba9e3".to_string(),
+                        )]),
+                    ),
+                ),
+                (
+                    ServerName::from("deepwiki".to_string()),
+                    McpServerConfig::new_http("https://mcp.deepwiki.com/mcp"),
+                ),
+            ]),
+        }
+    }
+
+    /// Compute a deterministic u64 identifier for this config
+    ///
+    /// Uses Rust's built-in `Hash` trait (derived) to compute a stable hash
+    /// and converts it to a hex u64 for use as a cache key.
+    /// BTreeMap ensures consistent ordering regardless of insertion order.
     pub fn cache_key(&self) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        let mut hasher = fnv_rs::Fnv64::default();
+        let mut hasher = DefaultHasher::new();
         Hash::hash(self, &mut hasher);
         hasher.finish()
-    }
-}
-
-/// The two choices presented to the user when an untrusted project-local
-/// `.mcp.json` is detected at startup.
-#[derive(Debug, Clone, PartialEq, Eq, StrumDisplay, EnumIter, EnumString)]
-pub enum McpTrustResponse {
-    /// Allow the servers and remember this decision across future sessions.
-    /// The config hash is persisted so the prompt is skipped on next startup
-    /// as long as the file has not changed.
-    #[strum(to_string = "Accept")]
-    Accept,
-    /// Reject all servers from this config file.
-    #[strum(to_string = "Reject")]
-    Reject,
-}
-
-/// Persists accepted and rejected MCP config hashes across restarts. A path
-/// maps to its content hash so that any modification to the file revokes the
-/// stored decision and triggers a new prompt.
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct McpTrustStore {
-    #[serde(default)]
-    trusted: std::collections::HashMap<String, u64>,
-    #[serde(default)]
-    rejected: std::collections::HashMap<String, u64>,
-}
-
-impl McpTrustStore {
-    /// Returns true if the given path+hash pair has been previously accepted.
-    pub fn is_trusted(&self, path: &std::path::Path, content_hash: u64) -> bool {
-        self.trusted
-            .get(&path.to_string_lossy().into_owned())
-            .is_some_and(|&stored| stored == content_hash)
-    }
-
-    /// Returns true if the given path+hash pair has been previously rejected.
-    pub fn is_rejected(&self, path: &std::path::Path, content_hash: u64) -> bool {
-        self.rejected
-            .get(&path.to_string_lossy().into_owned())
-            .is_some_and(|&stored| stored == content_hash)
-    }
-
-    /// Records an accepted trust decision for the given path and content hash.
-    /// Clears any prior rejection for the same path.
-    pub fn remember(&mut self, path: std::path::PathBuf, content_hash: u64) {
-        let key = path.to_string_lossy().into_owned();
-        self.rejected.remove(&key);
-        self.trusted.insert(key, content_hash);
-    }
-
-    /// Records a rejected trust decision for the given path and content hash.
-    /// Clears any prior acceptance for the same path.
-    pub fn reject(&mut self, path: std::path::PathBuf, content_hash: u64) {
-        let key = path.to_string_lossy().into_owned();
-        self.trusted.remove(&key);
-        self.rejected.insert(key, content_hash);
     }
 }
 
@@ -679,5 +658,111 @@ mod tests {
             }
             _ => panic!("Expected Stdio variant"),
         }
+    }
+
+    #[test]
+    fn test_builtin_config_has_context7_and_deepwiki() {
+        let config = McpConfig::builtin();
+        assert_eq!(config.mcp_servers.len(), 2);
+
+        let context7 = config
+            .mcp_servers
+            .get(&ServerName::from("context7".to_string()))
+            .expect("context7 should be present");
+        match context7 {
+            McpServerConfig::Http(server) => {
+                assert_eq!(server.url, "https://mcp.context7.com/mcp");
+                assert!(!server.disable);
+                assert!(server.headers.contains_key("Authorization"));
+            }
+            _ => panic!("context7 should be HTTP"),
+        }
+
+        let deepwiki = config
+            .mcp_servers
+            .get(&ServerName::from("deepwiki".to_string()))
+            .expect("deepwiki should be present");
+        match deepwiki {
+            McpServerConfig::Http(server) => {
+                assert_eq!(server.url, "https://mcp.deepwiki.com/mcp");
+                assert!(!server.disable);
+            }
+            _ => panic!("deepwiki should be HTTP"),
+        }
+    }
+
+    #[test]
+    fn test_builtin_config_can_be_overridden_by_user_config() {
+        use pretty_assertions::assert_eq;
+
+        let mut config = McpConfig::builtin();
+
+        // User config overrides deepwiki with a different URL
+        let user_config = McpConfig {
+            mcp_servers: BTreeMap::from([(
+                ServerName::from("deepwiki".to_string()),
+                McpServerConfig::new_http("https://custom.deepwiki.com/mcp"),
+            )]),
+        };
+
+        config.merge(user_config);
+
+        // context7 should still be from builtin
+        let context7 = config
+            .mcp_servers
+            .get(&ServerName::from("context7".to_string()))
+            .expect("context7 should be present");
+        match context7 {
+            McpServerConfig::Http(server) => {
+                assert_eq!(server.url, "https://mcp.context7.com/mcp");
+            }
+            _ => panic!("context7 should be HTTP"),
+        }
+
+        // deepwiki should be overridden by user config
+        let deepwiki = config
+            .mcp_servers
+            .get(&ServerName::from("deepwiki".to_string()))
+            .expect("deepwiki should be present");
+        match deepwiki {
+            McpServerConfig::Http(server) => {
+                assert_eq!(server.url, "https://custom.deepwiki.com/mcp");
+            }
+            _ => panic!("deepwiki should be HTTP"),
+        }
+    }
+
+    #[test]
+    fn test_builtin_config_can_be_disabled_by_user() {
+        let mut config = McpConfig::builtin();
+
+        // User disables deepwiki
+        let user_config = McpConfig {
+            mcp_servers: BTreeMap::from([(
+                ServerName::from("deepwiki".to_string()),
+                McpServerConfig::Http(McpHttpServer {
+                    url: "https://mcp.deepwiki.com/mcp".to_string(),
+                    headers: BTreeMap::new(),
+                    timeout: None,
+                    disable: true,
+                    oauth: McpOAuthSetting::AutoDetect,
+                }),
+            )]),
+        };
+
+        config.merge(user_config);
+
+        let deepwiki = config
+            .mcp_servers
+            .get(&ServerName::from("deepwiki".to_string()))
+            .expect("deepwiki should be present");
+        assert!(deepwiki.is_disabled());
+
+        // context7 remains enabled
+        let context7 = config
+            .mcp_servers
+            .get(&ServerName::from("context7".to_string()))
+            .expect("context7 should be present");
+        assert!(!context7.is_disabled());
     }
 }

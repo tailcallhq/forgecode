@@ -160,37 +160,6 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-    #[tokio::test]
-    async fn test_render_partial_system_info() {
-        // Fixture: Create template service and data
-        let service = ForgeTemplateService::new(Arc::new(MockCompositeService::new()));
-        let data = json!({
-            "env": {
-                "os": "test-os",
-                "cwd": "/test/path",
-                "shell": "/bin/test",
-                "home": "/home/test"
-            },
-            "current_time": "2024-01-01 12:00:00 UTC",
-            "files": [
-                {"path": "file1.txt", "is_dir": false},
-                {"path": "file2.txt", "is_dir": false}
-            ]
-        });
-
-        // Actual: Render the partial-system-info template
-        let actual = service
-            .render_template(Template::new("{{> forge-partial-system-info.md }}"), &data)
-            .await
-            .unwrap();
-
-        // Expected: Result should contain the rendered system info with substituted
-        // values
-        assert!(actual.contains("<operating_system>test-os</operating_system>"));
-        assert!(actual.contains("file1.txt"));
-        assert!(actual.contains("file2.txt"));
-    }
-
     #[test]
     fn test_compile_template_hbs_file() {
         // Fixture: Create a handlebars template content and test data

@@ -84,6 +84,7 @@ impl<H: HttpInfra> Anthropic<H> {
                 betas.push("interleaved-thinking-2025-05-14");
             }
             betas.push("structured-outputs-2025-11-13");
+            betas.push("pdfs-2024-09-25");
             headers.push(("anthropic-beta".to_string(), betas.join(",")));
         }
 

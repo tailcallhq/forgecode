@@ -573,7 +573,7 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
+        "input_modalities": ["text", "image", "pdf"]
       },
       {
         "id": "gpt-5.5-pro-2026-04-23",
@@ -634,16 +634,6 @@
     "response_type": "Anthropic",
     "url": "https://api.anthropic.com/v1/messages",
     "models": [
-      {
-        "id": "claude-opus-4-8",
-        "name": "Claude Opus 4.8",
-        "description": "",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
       {
         "id": "claude-opus-4-7",
         "name": "Claude Opus 4.7",
@@ -1107,16 +1097,6 @@
     "url": "https://{{#if (eq LOCATION \"global\")}}aiplatform.googleapis.com{{else}}{{LOCATION}}-aiplatform.googleapis.com{{/if}}/v1beta1/projects/{{PROJECT_ID}}/locations/{{LOCATION}}/publishers/google",
     "models": [
       {
-        "id": "gemini-3.5-flash",
-        "name": "Gemini 3.5 Flash",
-        "description": "",
-        "context_length": 1048576,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "gemini-3.1-flash-lite-preview",
         "name": "Gemini 3.1 Flash Lite Preview",
         "description": "Google's most cost-efficient Gemini model, optimized for low latency use cases for high-volume, cost-sensitive LLM traffic.",
@@ -1316,66 +1296,6 @@
     "response_type": "Bedrock",
     "url": "https://bedrock-runtime.{{AWS_REGION}}.amazonaws.com",
     "models": [
-      {
-        "id": "jp.anthropic.claude-opus-4-8",
-        "name": "Claude Opus 4.8 (JP)",
-        "description": "",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "au.anthropic.claude-opus-4-8",
-        "name": "Claude Opus 4.8 (AU)",
-        "description": "",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "global.anthropic.claude-opus-4-8",
-        "name": "Claude Opus 4.8 (Global)",
-        "description": "",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "eu.anthropic.claude-opus-4-8",
-        "name": "Claude Opus 4.8 (EU)",
-        "description": "",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "us.anthropic.claude-opus-4-8",
-        "name": "Claude Opus 4.8 (US)",
-        "description": "",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "anthropic.claude-opus-4-8",
-        "name": "Claude Opus 4.8",
-        "description": "",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
       {
         "id": "google.gemma-3-27b-it",
         "name": "Google Gemma 3 27B Instruct",
@@ -1797,9 +1717,9 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "anthropic.claude-sonnet-4-20250514-v1:0",
-        "name": "Claude Sonnet 4",
-        "description": "",
+        "id": "us.anthropic.claude-3-sonnet-20240229-v1:0",
+        "name": "Claude 3 Sonnet (US)",
+        "description": "US regional variant of Claude 3 Sonnet",
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
@@ -1807,28 +1727,28 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "mistral.ministral-3-3b-instruct",
-        "name": "Ministral 3 3B",
-        "description": "",
-        "context_length": 256000,
+        "id": "us.anthropic.claude-3-opus-20240229-v1:0",
+        "name": "Claude 3 Opus (US)",
+        "description": "US regional variant of Claude 3 Opus",
+        "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "meta.llama4-maverick-17b-instruct-v1:0",
-        "name": "Llama 4 Maverick 17B Instruct",
-        "description": "",
-        "context_length": 1000000,
+        "id": "us.anthropic.claude-3-haiku-20240307-v1:0",
+        "name": "Claude 3 Haiku (US)",
+        "description": "US regional variant of Claude 3 Haiku",
+        "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "moonshot.kimi-k2-thinking",
-        "name": "Kimi K2 Thinking",
-        "description": "",
-        "context_length": 256000,
+        "id": "us.anthropic.claude-3-5-sonnet-20240620-v1:0",
+        "name": "Claude 3.5 Sonnet v1 (US)",
+        "description": "US regional variant of Claude 3.5 Sonnet v1",
+        "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -1874,9 +1794,9 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "zai.glm-4.7-flash",
-        "name": "GLM-4.7-Flash",
-        "description": "",
+        "id": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        "name": "Claude 4 Sonnet (US)",
+        "description": "US regional variant of Claude 4 Sonnet",
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
@@ -1893,19 +1813,19 @@
         "input_modalities": ["text"]
       },
       {
-        "id": "eu.anthropic.claude-opus-4-6-v1",
-        "name": "Claude Opus 4.6 (EU)",
-        "description": "",
-        "context_length": 1000000,
+        "id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "name": "Claude 4.5 Sonnet (US)",
+        "description": "US regional variant of Claude 4.5 Sonnet",
+        "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "anthropic.claude-3-7-sonnet-20250219-v1:0",
-        "name": "Claude Sonnet 3.7",
-        "description": "",
+        "id": "us.anthropic.claude-opus-4-20250514-v1:0",
+        "name": "Claude 4 Opus (US)",
+        "description": "US regional variant of Claude 4 Opus",
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
@@ -1939,9 +1859,9 @@
         "input_modalities": ["text"]
       },
       {
-        "id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
-        "name": "Claude Haiku 4.5 (EU)",
-        "description": "",
+        "id": "us.anthropic.claude-opus-4-1-20250805-v1:0",
+        "name": "Claude 4.1 Opus (US)",
+        "description": "US regional variant of Claude 4.1 Opus",
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
@@ -1949,19 +1869,19 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "meta.llama3-2-90b-instruct-v1:0",
-        "name": "Llama 3.2 90B Instruct",
-        "description": "",
+        "id": "us.meta.llama3-2-11b-instruct-v1:0",
+        "name": "Llama 3.2 11B Instruct (US)",
+        "description": "US regional variant of Llama 3.2 11B",
         "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "anthropic.claude-opus-4-6-v1",
-        "name": "Claude Opus 4.6",
-        "description": "",
-        "context_length": 1000000,
+        "id": "us.meta.llama3-2-3b-instruct-v1:0",
+        "name": "Llama 3.2 3B Instruct (US)",
+        "description": "US regional variant of Llama 3.2 3B",
+        "context_length": 128000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -2245,16 +2165,6 @@
     "url": "{{#if (eq LOCATION \"global\")}}https://aiplatform.googleapis.com/v1/projects/{{PROJECT_ID}}/locations/{{LOCATION}}/publishers/anthropic/models/{{else}}https://{{LOCATION}}-aiplatform.googleapis.com/v1/projects/{{PROJECT_ID}}/locations/{{LOCATION}}/publishers/anthropic/models/{{/if}}",
     "models": [
       {
-        "id": "claude-opus-4-8",
-        "name": "Claude Opus 4.8",
-        "description": "",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "claude-sonnet-4-6",
         "name": "Claude Sonnet 4.6",
         "description": "Most balanced Claude model with excellent performance and speed",
@@ -2414,16 +2324,6 @@
     "response_type": "Google",
     "url": "https://generativelanguage.googleapis.com/v1beta",
     "models": [
-      {
-        "id": "gemini-3.5-flash",
-        "name": "Gemini 3.5 Flash",
-        "description": "",
-        "context_length": 1048576,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
       {
         "id": "gemini-3.1-pro-preview",
         "name": "Gemini 3.1 Pro Preview",
@@ -2726,46 +2626,6 @@
     "response_type": "OpenCode",
     "url": "https://opencode.ai/zen",
     "models": [
-      {
-        "id": "grok-build-0.1",
-        "name": "Grok Build 0.1",
-        "description": "",
-        "context_length": 256000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gemini-3.5-flash",
-        "name": "Gemini 3.5 Flash",
-        "description": "",
-        "context_length": 1048576,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "grok-code",
-        "name": "Grok Code Fast 1",
-        "description": "",
-        "context_length": 256000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "claude-opus-4-8",
-        "name": "Claude Opus 4.8",
-        "description": "",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
       {
         "id": "claude-opus-4-6",
         "name": "Claude Opus 4.6",
@@ -3140,16 +3000,6 @@
     "url": "https://opencode.ai/zen/go",
     "models": [
       {
-        "id": "qwen3.7-max",
-        "name": "Qwen3.7 Max",
-        "description": "",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
         "id": "mimo-v2.5-pro",
         "name": "MiMo V2.5 Pro",
         "description": "MiMo V2.5 Pro model",
@@ -3355,16 +3205,6 @@
         "name": "Qwen 3 Coder Plus",
         "description": "Qwen3-Coder Plus is Alibaba's dedicated agentic coding model, based on the Qwen3-Coder-480B-A35B architecture (480B total, 35B active parameters). Pre-trained on 7.5T tokens with 70% code ratio and fine-tuned with long-horizon reinforcement learning on 20,000 parallel environments. Natively supports 256K context (extendable to 1M via YaRN). Comparable to Claude Sonnet 4 on agentic coding benchmarks.",
         "context_length": 256000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "qwen3.7-max",
-        "name": "Qwen3.7 Max",
-        "description": "",
-        "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,

@@ -6,7 +6,7 @@ use url::Url;
 use crate::{
     AnyProvider, AuthCredential, ChatCompletionMessage, Context, Conversation, ConversationId,
     MigrationResult, Model, ModelId, Provider, ProviderId, ProviderTemplate, ResultStream,
-    SearchMatch, Skill, Snapshot, WorkspaceAuth, WorkspaceId,
+    SearchMatch, Skill, Snapshot, Todo, WorkspaceAuth, WorkspaceId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +93,35 @@ pub trait ConversationRepository: Send + Sync {
     /// # Errors
     /// Returns an error if the operation fails
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> Result<()>;
+}
+
+/// Repository for managing todo items
+///
+/// This repository provides CRUD operations for todo items associated with
+/// conversations.
+#[async_trait::async_trait]
+pub trait TodoRepository: Send + Sync {
+    /// Saves todos for a conversation
+    ///
+    /// # Arguments
+    /// * `conversation_id` - The conversation to save todos for
+    /// * `todos` - The list of todos to save (replaces existing todos)
+    ///
+    /// # Errors
+    /// Returns an error if the save operation fails
+    async fn save_todos(&self, conversation_id: &ConversationId, todos: Vec<Todo>) -> Result<()>;
+
+    /// Retrieves all todos for a conversation
+    ///
+    /// # Arguments
+    /// * `conversation_id` - The conversation to retrieve todos for
+    ///
+    /// # Returns
+    /// A vector of todos (empty if no todos exist)
+    ///
+    /// # Errors
+    /// Returns an error if the retrieval operation fails
+    async fn get_todos(&self, conversation_id: &ConversationId) -> Result<Vec<Todo>>;
 }
 
 #[async_trait::async_trait]

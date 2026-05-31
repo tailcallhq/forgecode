@@ -5,6 +5,8 @@ pub struct CommandOutput {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: Option<i32>,
+    /// Wall-clock time in seconds the command took to execute
+    pub wall_time_secs: Option<f64>,
 }
 
 impl CommandOutput {

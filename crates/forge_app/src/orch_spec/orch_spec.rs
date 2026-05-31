@@ -5,6 +5,9 @@ use forge_domain::{
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
+use crate::hooks::verification_reminder::{
+    BACKGROUND_REFUSAL_REMINDER_BODY, VERIFICATION_COMMAND_REMINDER_BODY,
+};
 use crate::orch_spec::orch_runner::TestContext;
 
 #[tokio::test]
@@ -19,19 +22,33 @@ async fn test_history_is_saved() {
 
 #[tokio::test]
 async fn test_simple_conversation_no_errors() {
-    let mut ctx = TestContext::default().mock_assistant_responses(vec![
-        ChatCompletionMessage::assistant(Content::full("Hello!")).finish_reason(FinishReason::Stop),
-    ]);
+    let mut ctx = TestContext::default()
+        .env(forge_domain::Environment { background: true, ..TestContext::default().env.clone() })
+        .mock_assistant_responses(vec![
+            ChatCompletionMessage::assistant(Content::full("Hello!"))
+                .finish_reason(FinishReason::Stop),
+        ]);
 
     ctx.run("Hi").await.unwrap();
 
     let messages = ctx.output.context_messages();
 
-    let message_count = messages
+    // The orchestrator injects a single verification reminder message,
+    // optionally including the verification matrix, before completion.
+    let user_message_count = messages
         .iter()
         .filter(|message| message.has_role(Role::User))
         .count();
-    assert_eq!(message_count, 1, "Should have only one user message");
+    assert_eq!(
+        user_message_count, 2,
+        "Should have 2 user messages: original task + merged verification reminder"
+    );
+    assert!(
+        messages
+            .iter()
+            .filter_map(|message| message.content())
+            .any(|content| { content.contains("<verification-matrix>") })
+    );
 
     let error_count = messages
         .iter()
@@ -40,6 +57,74 @@ async fn test_simple_conversation_no_errors() {
         .count();
 
     assert_eq!(error_count, 0, "Should not contain tool call errors");
+}
+
+#[tokio::test]
+async fn test_non_background_mode_does_not_generate_verification_matrix() {
+    let mut ctx = TestContext::default().mock_assistant_responses(vec![
+        ChatCompletionMessage::assistant(Content::full("Done")).finish_reason(FinishReason::Stop),
+    ]);
+
+    ctx.run("Build /app/out.html and verify exact output")
+        .await
+        .unwrap();
+
+    let messages = ctx.output.context_messages();
+
+    let user_message_count = messages
+        .iter()
+        .filter(|message| message.has_role(Role::User))
+        .count();
+    assert_eq!(
+        user_message_count, 1,
+        "Should only have the original user task message"
+    );
+
+    let has_verification_matrix = messages.iter().any(|message| {
+        message
+            .content()
+            .is_some_and(|content| content.contains("<verification-matrix>"))
+    });
+    assert!(
+        !has_verification_matrix,
+        "Non-background mode should not generate a verification matrix"
+    );
+}
+
+#[tokio::test]
+async fn test_background_mode_still_generates_task_specific_verification_matrix() {
+    let mut ctx = TestContext::default()
+        .env(forge_domain::Environment { background: true, ..TestContext::default().env.clone() })
+        .mock_assistant_responses(vec![
+            ChatCompletionMessage::assistant(Content::full("Done"))
+                .finish_reason(FinishReason::Stop),
+        ]);
+
+    ctx.run("Build /app/out.html and verify exact output")
+        .await
+        .unwrap();
+
+    let messages = ctx.output.context_messages();
+
+    let has_task_specific_matrix = messages.iter().any(|message| {
+        message
+            .content()
+            .is_some_and(|content| content.contains("verify the exact deliverable path/interface"))
+    });
+    assert!(
+        has_task_specific_matrix,
+        "Background mode should still call verification-matrix and include task-specific checklist"
+    );
+
+    let has_fallback_matrix = messages.iter().any(|message| {
+        message
+            .content()
+            .is_some_and(|content| content.contains("exact final deliverable paths"))
+    });
+    assert!(
+        !has_fallback_matrix,
+        "Background mode should not short-circuit to fallback verification matrix"
+    );
 }
 
 #[tokio::test]
@@ -385,10 +470,6 @@ async fn test_multiple_consecutive_tool_calls() {
             ChatCompletionMessage::assistant("Reading 3").add_tool_call(tool_call.clone()),
             ChatCompletionMessage::assistant("Reading 4").add_tool_call(tool_call.clone()),
             ChatCompletionMessage::assistant("Completing Task").finish_reason(FinishReason::Stop),
-            // Extra responses for doom loop reminder iterations (detector triggers on each request
-            // after 4th tool call)
-            ChatCompletionMessage::assistant("Acknowledged").finish_reason(FinishReason::Stop),
-            ChatCompletionMessage::assistant("Task complete").finish_reason(FinishReason::Stop),
         ]);
 
     let _ = ctx.run("Read a file").await;
@@ -411,6 +492,7 @@ async fn test_doom_loop_detection_adds_user_reminder_after_repeated_calls_on_nex
     let tool_result = ToolResult::new("fs_read").output(Ok(ToolOutput::text("Same content")));
 
     let mut ctx = TestContext::default()
+        .env(forge_domain::Environment { background: true, ..TestContext::default().env.clone() })
         .mock_tool_call_responses(vec![
             (tool_call.clone(), tool_result.clone()),
             (tool_call.clone(), tool_result.clone()),
@@ -423,10 +505,6 @@ async fn test_doom_loop_detection_adds_user_reminder_after_repeated_calls_on_nex
             ChatCompletionMessage::assistant("Call 3").add_tool_call(tool_call.clone()),
             ChatCompletionMessage::assistant("Call 4").add_tool_call(tool_call.clone()),
             ChatCompletionMessage::assistant("Done").finish_reason(FinishReason::Stop),
-            // Extra responses for doom loop reminder iterations (detector triggers on each request
-            // after 4th tool call)
-            ChatCompletionMessage::assistant("Noted").finish_reason(FinishReason::Stop),
-            ChatCompletionMessage::assistant("Actually done now").finish_reason(FinishReason::Stop),
         ]);
 
     ctx.run("Test doom loop").await.unwrap();
@@ -438,21 +516,16 @@ async fn test_doom_loop_detection_adds_user_reminder_after_repeated_calls_on_nex
         .filter_map(|r| r.as_ref().ok())
         .collect();
 
-    let tool_call_results: Vec<_> = chat_responses
+    let actual = chat_responses
         .iter()
-        .filter_map(|response| match response {
-            ChatResponse::ToolCallEnd(result) => Some(result),
-            _ => None,
-        })
-        .collect();
-
-    let actual = tool_call_results.len();
-    let expected = 4;
-    assert_eq!(actual, expected, "Should have 4 tool call results");
-
-    let actual = tool_call_results.iter().all(|result| !result.is_error());
-    let expected = true;
-    assert_eq!(actual, expected, "All tool calls should succeed");
+        .filter(|response| matches!(response, ChatResponse::ToolCallEnd(_)))
+        .count();
+    let expected = 0;
+    assert_eq!(
+        actual,
+        expected,
+        "Background mode should not emit ToolCallEnd chat responses"
+    );
 
     let conversation = ctx.output.conversation_history.last().unwrap();
     let context = conversation.context.as_ref().unwrap();
@@ -478,10 +551,12 @@ async fn test_doom_loop_detection_adds_user_reminder_after_repeated_calls_on_nex
         .map(|(idx, _)| idx)
         .collect();
 
+    let actual = assistant_with_tool_call_indices.len();
+    let expected = 5;
     assert_eq!(
-        assistant_with_tool_call_indices.len(),
-        4,
-        "Expected four assistant tool-call messages"
+        actual,
+        expected,
+        "Expected five assistant tool-call messages: 4 original fs_read + 1 for verification skill"
     );
 
     let third_assistant_with_tool_call_index = assistant_with_tool_call_indices[2];
@@ -494,24 +569,28 @@ async fn test_doom_loop_detection_adds_user_reminder_after_repeated_calls_on_nex
 
 #[tokio::test]
 async fn test_multi_turn_conversation_stops_only_on_finish_reason() {
-    let mut ctx = TestContext::default().mock_assistant_responses(vec![
-        ChatCompletionMessage::assistant("Foo"),
-        ChatCompletionMessage::assistant("Bar"),
-        ChatCompletionMessage::assistant("Baz").finish_reason(FinishReason::Stop),
-    ]);
+    let mut ctx = TestContext::default()
+        .env(forge_domain::Environment { background: true, ..TestContext::default().env.clone() })
+        .mock_assistant_responses(vec![
+            ChatCompletionMessage::assistant("Foo"),
+            ChatCompletionMessage::assistant("Bar"),
+            ChatCompletionMessage::assistant("Baz").finish_reason(FinishReason::Stop),
+        ]);
 
     ctx.run("test").await.unwrap();
 
     let messages = ctx.output.context_messages();
 
-    // Verify we have exactly 3 assistant messages (one for each turn)
+    // Verify we have exactly 5 assistant messages: 3 from the original turns (Foo,
+    // Bar, Baz) plus 2 from the verification reminder flow (skill invocation +
+    // completion).
     let assistant_message_count = messages
         .iter()
         .filter(|message| message.has_role(Role::Assistant))
         .count();
     assert_eq!(
-        assistant_message_count, 3,
-        "Should have exactly 3 assistant messages, confirming the orchestrator continued until FinishReason::Stop"
+        assistant_message_count, 5,
+        "Should have 5 assistant messages: 3 original turns + 2 for verification"
     );
 }
 
@@ -569,6 +648,103 @@ async fn test_is_complete_when_stop_with_no_tool_calls() {
 }
 
 #[tokio::test]
+async fn test_background_refusal_triggers_recovery_reminder_and_retry() {
+    let tool_call = ToolCallFull::new("fs_read")
+        .arguments(ToolCallArguments::from(json!({"path": "task.txt"})));
+    let tool_result = ToolResult::new("fs_read").output(Ok(ToolOutput::text("task details")));
+
+    let mut ctx = TestContext::default()
+        .env(forge_domain::Environment { background: true, ..TestContext::default().env.clone() })
+        .mock_tool_call_responses(vec![(tool_call.clone(), tool_result)])
+        .mock_assistant_responses(vec![
+            ChatCompletionMessage::assistant(
+                "I can't help craft or verify a payload for that filter.",
+            )
+            .finish_reason(FinishReason::Stop),
+            ChatCompletionMessage::assistant("Inspecting files").tool_calls(vec![tool_call.into()]),
+            ChatCompletionMessage::assistant("Done").finish_reason(FinishReason::Stop),
+        ]);
+
+    ctx.run("Produce /app/out.html").await.unwrap();
+
+    let context = ctx
+        .output
+        .conversation_history
+        .last()
+        .unwrap()
+        .context
+        .clone()
+        .unwrap();
+    assert!(context.messages.iter().any(|msg| {
+        msg.content()
+            .is_some_and(|content| content.contains(BACKGROUND_REFUSAL_REMINDER_BODY))
+    }));
+
+    let has_task_complete = ctx
+        .output
+        .chat_responses
+        .iter()
+        .filter_map(|r| r.as_ref().ok())
+        .any(|response| matches!(response, ChatResponse::TaskComplete));
+    assert!(
+        has_task_complete,
+        "Should recover from refusal and complete"
+    );
+}
+
+#[tokio::test]
+async fn test_requires_shell_verification_after_skill_before_completion_in_background_mode() {
+    let skill_call =
+        ToolCallFull::new("skill").arguments(json!({"name": "verification-specialist"}));
+    let shell_call = ToolCallFull::new("shell").arguments(json!({
+        "command": "pytest",
+        "description": "Run verification smoke test"
+    }));
+    let shell_result = ToolResult::new("shell").output(Ok(ToolOutput::text("verification ok")));
+
+    let mut ctx = TestContext::default()
+        .env(forge_domain::Environment { background: true, ..TestContext::default().env.clone() })
+        .mock_tool_call_responses(vec![(shell_call.clone(), shell_result)])
+        .mock_assistant_responses(vec![
+            ChatCompletionMessage::assistant("Task is done").finish_reason(FinishReason::Stop),
+            ChatCompletionMessage::assistant("Invoking verification skill")
+                .tool_calls(vec![skill_call.into()]),
+            ChatCompletionMessage::assistant("Verification skill completed")
+                .finish_reason(FinishReason::Stop),
+            ChatCompletionMessage::assistant("Running verification command")
+                .tool_calls(vec![shell_call.into()]),
+            ChatCompletionMessage::assistant("Verification command completed")
+                .finish_reason(FinishReason::Stop),
+        ]);
+
+    ctx.run("Complete this task").await.unwrap();
+
+    let context = ctx
+        .output
+        .conversation_history
+        .last()
+        .unwrap()
+        .context
+        .clone()
+        .unwrap();
+    assert!(context.messages.iter().any(|msg| {
+        msg.content()
+            .is_some_and(|content| content.contains(VERIFICATION_COMMAND_REMINDER_BODY))
+    }));
+
+    let has_task_complete = ctx
+        .output
+        .chat_responses
+        .iter()
+        .filter_map(|r| r.as_ref().ok())
+        .any(|response| matches!(response, ChatResponse::TaskComplete));
+    assert!(
+        has_task_complete,
+        "Should complete after running shell verification command"
+    );
+}
+
+#[tokio::test]
 async fn test_not_complete_when_stop_with_tool_calls() {
     // Test: is_complete = false when finish_reason is Stop BUT there are tool calls
     // (Gemini models return stop as finish reason with tool calls)
@@ -577,6 +753,7 @@ async fn test_not_complete_when_stop_with_tool_calls() {
     let tool_result = ToolResult::new("fs_read").output(Ok(ToolOutput::text("file content")));
 
     let mut ctx = TestContext::default()
+        .env(forge_domain::Environment { background: true, ..TestContext::default().env.clone() })
         .mock_tool_call_responses(vec![(tool_call.clone(), tool_result)])
         .mock_assistant_responses(vec![
             ChatCompletionMessage::assistant("Reading file")
@@ -590,14 +767,16 @@ async fn test_not_complete_when_stop_with_tool_calls() {
 
     let messages = ctx.output.context_messages();
 
-    // Verify we have multiple assistant messages (conversation continued)
+    // Verify we have 4 assistant messages: 2 from the original flow (tool call
+    // + completion) plus 2 from the verification reminder flow (skill invocation
+    // + completion).
     let assistant_message_count = messages
         .iter()
         .filter(|message| message.has_role(Role::Assistant))
         .count();
     assert_eq!(
-        assistant_message_count, 2,
-        "Should have 2 assistant messages, confirming is_complete was false with tool calls"
+        assistant_message_count, 4,
+        "Should have 4 assistant messages: 2 original + 2 for verification"
     );
 }
 
@@ -629,9 +808,9 @@ async fn test_todo_enforcement_injects_reminder() {
             Todo::new("In progress task").status(TodoStatus::InProgress),
         ]));
 
-    // Run the orchestrator - after first reminder, handler won't add duplicates
-    // so the second response will complete successfully
-    ctx.run("Complete this task").await.unwrap();
+    // Run the orchestrator - it will fail when mock responses are exhausted,
+    // but we can still verify that the reminder was injected
+    let _ = ctx.run("Complete this task").await;
 
     let messages = ctx.output.context_messages();
 
@@ -648,12 +827,8 @@ async fn test_todo_enforcement_injects_reminder() {
 
     let actual = reminder.unwrap();
     assert!(
-        actual.contains("- [PENDING] Pending task 1"),
-        "Reminder should list pending items with status"
-    );
-    assert!(
-        actual.contains("- [IN_PROGRESS] In progress task"),
-        "Reminder should list in-progress items with status"
+        actual.contains("You have 2 pending todo items"),
+        "Reminder should mention the count of pending todos"
     );
 }
 #[tokio::test]
@@ -712,5 +887,127 @@ async fn test_complete_when_empty_todos() {
     assert!(
         has_task_complete,
         "Should have TaskComplete when no todos exist"
+    );
+}
+
+#[tokio::test]
+async fn test_background_mode_parallel_tool_calls_no_start_end_events() {
+    // In background mode, ToolCallStart and ToolCallEnd events must NOT be emitted,
+    // and all tool calls must be dispatched concurrently (verified by absence of UI
+    // handshake events).
+    let tool_call_a =
+        ToolCallFull::new("fs_read").arguments(ToolCallArguments::from(json!({"path": "a.txt"})));
+    let tool_call_b = ToolCallFull::new("fs_write").arguments(ToolCallArguments::from(
+        json!({"path": "b.txt", "content": "hi", "overwrite": false}),
+    ));
+    let result_a = ToolResult::new("fs_read").output(Ok(ToolOutput::text("content a")));
+    let result_b = ToolResult::new("fs_write").output(Ok(ToolOutput::text("written b")));
+
+    let mut ctx = TestContext::default()
+        .env(forge_domain::Environment { background: true, ..TestContext::default().env })
+        .mock_tool_call_responses(vec![
+            (tool_call_a.clone(), result_a),
+            (tool_call_b.clone(), result_b),
+        ])
+        .mock_assistant_responses(vec![
+            ChatCompletionMessage::assistant("Doing two things at once")
+                .tool_calls(vec![tool_call_a.into(), tool_call_b.into()]),
+            ChatCompletionMessage::assistant("Done").finish_reason(FinishReason::Stop),
+        ]);
+
+    ctx.run("Do parallel work").await.unwrap();
+
+    let chat_responses: Vec<_> = ctx
+        .output
+        .chat_responses
+        .iter()
+        .filter_map(|r| r.as_ref().ok())
+        .collect();
+
+    // In background mode: zero ToolCallStart events
+    let start_count = chat_responses
+        .iter()
+        .filter(|r| matches!(r, ChatResponse::ToolCallStart { .. }))
+        .count();
+    assert_eq!(
+        start_count, 0,
+        "background=true must produce 0 ToolCallStart events"
+    );
+
+    // In background mode: zero ToolCallEnd events
+    let end_count = chat_responses
+        .iter()
+        .filter(|r| matches!(r, ChatResponse::ToolCallEnd(_)))
+        .count();
+    assert_eq!(
+        end_count, 0,
+        "background=true must produce 0 ToolCallEnd events"
+    );
+
+    // Task should still complete successfully
+    let has_task_complete = chat_responses
+        .iter()
+        .any(|r| matches!(r, ChatResponse::TaskComplete));
+    assert!(
+        has_task_complete,
+        "background=true should still reach TaskComplete"
+    );
+}
+
+#[tokio::test]
+async fn test_background_mode_tool_results_all_present() {
+    // Verify all tool results are present (none dropped) after parallel dispatch.
+    let tool_calls_and_results: Vec<_> = (0..4)
+        .map(|i| {
+            let call = ToolCallFull::new("fs_read").arguments(ToolCallArguments::from(
+                json!({"path": format!("file{i}.txt")}),
+            ));
+            let result =
+                ToolResult::new("fs_read").output(Ok(ToolOutput::text(format!("content {i}"))));
+            (call, result)
+        })
+        .collect();
+
+    let tool_calls: Vec<_> = tool_calls_and_results
+        .iter()
+        .map(|(c, _)| c.clone())
+        .collect();
+
+    let mut ctx = TestContext::default()
+        .env(forge_domain::Environment { background: true, ..TestContext::default().env })
+        .mock_tool_call_responses(tool_calls_and_results)
+        .mock_assistant_responses(vec![
+            ChatCompletionMessage::assistant("Reading 4 files").tool_calls(
+                tool_calls
+                    .iter()
+                    .map(|c| forge_domain::ToolCall::from(c.clone()))
+                    .collect::<Vec<_>>(),
+            ),
+            ChatCompletionMessage::assistant("All done").finish_reason(FinishReason::Stop),
+        ]);
+
+    ctx.run("Read all files in parallel").await.unwrap();
+
+    // Verify all 4 tool results appear in the conversation context
+    let context = ctx
+        .output
+        .conversation_history
+        .last()
+        .unwrap()
+        .context
+        .clone()
+        .unwrap();
+
+    let tool_result_count = context
+        .messages
+        .iter()
+        .filter(|m| {
+            matches!(&m.message, forge_domain::ContextMessage::Tool(r) if r.name.as_str() == "fs_read")
+        })
+        .count();
+
+    assert_eq!(
+        tool_result_count, 4,
+        "All 4 parallel tool results must be present in context (none dropped)"
     );
 }

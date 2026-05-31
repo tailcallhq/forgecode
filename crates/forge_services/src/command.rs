@@ -57,15 +57,16 @@ impl<F: FileReaderInfra + FileWriterInfra + FileInfoInfra + EnvironmentInfra + D
         // Load built-in commands first (lowest precedence)
         let mut commands = self.init_default()?;
 
+        let env = self.infra.get_environment();
+
         // Load custom commands from global directory
-        let dir = self.infra.get_environment().command_path();
+        let dir = env.command_path();
         let custom_commands = self.init_command_dir(&dir).await?;
         commands.extend(custom_commands);
 
         // Load custom commands from CWD
-        let dir = self.infra.get_environment().command_path_local();
+        let dir = env.command_path_local();
         let cwd_commands = self.init_command_dir(&dir).await?;
-
         commands.extend(cwd_commands);
 
         // Handle command name conflicts by keeping the last occurrence

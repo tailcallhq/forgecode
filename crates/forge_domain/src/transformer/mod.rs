@@ -73,6 +73,7 @@ where
 }
 
 // Re-export specific transformers
+mod document_handling;
 mod drop_reasoning_details;
 mod image_handling;
 mod normalize_tool_args;
@@ -81,6 +82,7 @@ mod set_model;
 mod sort_tools;
 mod transform_tool_calls;
 
+pub use document_handling::DocumentHandling;
 pub use drop_reasoning_details::DropReasoningDetails;
 pub use image_handling::ImageHandling;
 pub use normalize_tool_args::NormalizeToolCallArguments;

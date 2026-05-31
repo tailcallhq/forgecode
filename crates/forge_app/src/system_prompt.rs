@@ -6,7 +6,7 @@ use forge_domain::{
     Agent, Conversation, Environment, Extension, ExtensionStat, File, Model, SystemContext,
     Template, TemplateConfig, ToolCatalog, ToolDefinition, ToolUsagePrompt,
 };
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 use strum::IntoEnumIterator;
 use tracing::debug;
 
@@ -25,6 +25,8 @@ pub struct SystemPrompt<S> {
     max_extensions: usize,
     /// Configuration values passed into tool description templates.
     template_config: TemplateConfig,
+    /// Maximum task execution time in seconds (from ForgeConfig).
+    task_timeout_secs: Option<u64>,
 }
 
 impl<S: SkillFetchService + ShellService> SystemPrompt<S> {
@@ -39,6 +41,7 @@ impl<S: SkillFetchService + ShellService> SystemPrompt<S> {
             custom_instructions: Vec::default(),
             max_extensions: 0,
             template_config: TemplateConfig::default(),
+            task_timeout_secs: None,
         }
     }
 
@@ -107,8 +110,8 @@ impl<S: SkillFetchService + ShellService> SystemPrompt<S> {
                 .collect();
             let tool_names: Map<String, Value> = ToolCatalog::iter()
                 .map(|tool| {
-                    let def = tool.definition();
-                    (def.name.to_string(), json!(def.name.to_string()))
+                    let tool_name = tool.definition().name.to_string();
+                    (tool_name.clone(), serde_json::Value::String(tool_name))
                 })
                 .filter(|(name, _)| agent_tool_names.contains(name))
                 .collect();
@@ -124,8 +127,10 @@ impl<S: SkillFetchService + ShellService> SystemPrompt<S> {
                 model: None,
                 tool_names,
                 extensions,
-                agents: vec![],
+                agents: Vec::new(), /* Empty for system prompt (agents list is for tool
+                                     * descriptions only) */
                 config: None,
+                task_timeout_secs: self.task_timeout_secs,
             };
 
             let static_block = TemplateEngine::default()
@@ -247,11 +252,87 @@ fn parse_extensions(extensions: &str, max_extensions: usize) -> Option<Extension
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use fake::Fake;
+    use forge_domain::{Agent, Environment, Template};
     use pretty_assertions::assert_eq;
 
     use super::*;
 
     const MAX_EXTENSIONS: usize = 15;
+
+    struct MockSkillFetchService;
+
+    #[async_trait::async_trait]
+    impl SkillFetchService for MockSkillFetchService {
+        async fn fetch_skill(&self, _skill_name: String) -> anyhow::Result<forge_domain::Skill> {
+            Ok(
+                forge_domain::Skill::new("test_skill", "Test skill", "Test skill description")
+                    .path("/skills/test.md"),
+            )
+        }
+
+        async fn list_skills(&self) -> anyhow::Result<Vec<forge_domain::Skill>> {
+            Ok(vec![])
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ShellService for MockSkillFetchService {
+        async fn execute(
+            &self,
+            _command: String,
+            _cwd: std::path::PathBuf,
+            _keep_ansi: bool,
+            _silent: bool,
+            _env_vars: Option<Vec<String>>,
+            _description: Option<String>,
+        ) -> anyhow::Result<crate::ShellOutput> {
+            Ok(crate::ShellOutput {
+                output: forge_domain::CommandOutput {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    command: String::new(),
+                    exit_code: Some(0),
+                    wall_time_secs: None,
+                },
+                shell: "/bin/bash".to_string(),
+                description: None,
+            })
+        }
+    }
+    fn create_test_environment() -> Environment {
+        use fake::Faker;
+        Faker.fake()
+    }
+
+    fn create_test_agent() -> Agent {
+        use forge_domain::{AgentId, ModelId, ProviderId};
+        Agent::new(
+            AgentId::new("test_agent"),
+            ProviderId::FORGE,
+            ModelId::new("test_model"),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_system_prompt_adds_context() {
+        // Fixture
+        let services = Arc::new(MockSkillFetchService);
+        let env = create_test_environment();
+        let agent = create_test_agent();
+        let system_prompt = SystemPrompt::new(services, env, agent);
+
+        // Act - create a conversation and add system message
+        let conversation = forge_domain::Conversation::generate();
+        let result = system_prompt.add_system_message(conversation).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let conversation = result.unwrap();
+        assert!(conversation.context.is_some());
+    }
 
     #[test]
     fn test_parse_extensions_sorts_git_output() {
@@ -314,5 +395,217 @@ mod tests {
     fn test_parse_extensions_returns_none_for_empty_output() {
         assert_eq!(parse_extensions("", MAX_EXTENSIONS), None);
         assert_eq!(parse_extensions("   \n  \n", MAX_EXTENSIONS), None);
+    }
+
+    #[tokio::test]
+    async fn test_tool_names_populated_in_context() {
+        use forge_domain::{Template, ToolDefinition};
+
+        // Fixture - create system prompt with tool definitions
+        let services = Arc::new(MockSkillFetchService);
+        let env = create_test_environment();
+        let agent = create_test_agent().system_prompt(Template::new(
+            "Tools: {{tool_names.todo_write}}, {{tool_names.read}}",
+        ));
+
+        let tool_definitions = vec![
+            ToolDefinition::new("todo_write").description("Task tracking"),
+            ToolDefinition::new("read").description("Read files"),
+            ToolDefinition::new("write").description("Write files"),
+        ];
+
+        let system_prompt =
+            SystemPrompt::new(services, env, agent).tool_definitions(tool_definitions);
+
+        // Act
+        let conversation = forge_domain::Conversation::generate();
+        let result = system_prompt.add_system_message(conversation).await;
+
+        // Assert - verify tool_names are available in rendered template
+        assert!(result.is_ok());
+        let conversation = result.unwrap();
+        let context = conversation.context.expect("Context should exist");
+        let system_message = context
+            .messages
+            .iter()
+            .find(|m| m.has_role(forge_domain::Role::System))
+            .expect("System message should exist");
+
+        let content = system_message.content().expect("Content should exist");
+
+        // Verify template variables were resolved
+        assert!(
+            content.contains("Tools: todo_write, read"),
+            "Template should resolve {{{{tool_names.todo_write}}}} and {{{{tool_names.read}}}}, got: {}",
+            content
+        );
+    }
+
+    #[tokio::test]
+    async fn test_conditional_tool_names_when_tool_missing() {
+        use forge_domain::{Template, ToolDefinition};
+
+        // Fixture - create system prompt with conditional tool reference
+        let services = Arc::new(MockSkillFetchService);
+        let env = create_test_environment();
+        let agent = create_test_agent().system_prompt(Template::new(
+            "Search using {{#if tool_names.sem_search}}{{tool_names.sem_search}}, {{/if}}{{tool_names.fs_search}}",
+        ));
+
+        // Only include fs_search, not sem_search
+        let tool_definitions = vec![ToolDefinition::new("fs_search").description("File search")];
+
+        let system_prompt =
+            SystemPrompt::new(services, env, agent).tool_definitions(tool_definitions);
+
+        // Act
+        let conversation = forge_domain::Conversation::generate();
+        let result = system_prompt.add_system_message(conversation).await;
+
+        // Assert - verify conditional rendering works when tool is missing
+        assert!(result.is_ok());
+        let conversation = result.unwrap();
+        let context = conversation.context.expect("Context should exist");
+        let system_message = context
+            .messages
+            .iter()
+            .find(|m| m.has_role(forge_domain::Role::System))
+            .expect("System message should exist");
+
+        let content = system_message.content().expect("Content should exist");
+
+        // Should render only fs_search since sem_search is not available
+        assert!(
+            content.contains("Search using fs_search"),
+            "Template should conditionally omit sem_search, got: {}",
+            content
+        );
+        // Should not have double commas or extra spaces from missing tool
+        assert!(
+            !content.contains("Search using , fs_search"),
+            "Template should not have empty tool reference, got: {}",
+            content
+        );
+    }
+
+    #[tokio::test]
+    async fn test_conditional_tool_names_when_tool_present() {
+        use forge_domain::{Template, ToolDefinition};
+
+        // Fixture - create system prompt with conditional tool reference
+        let services = Arc::new(MockSkillFetchService);
+        let env = create_test_environment();
+        let agent = create_test_agent().system_prompt(Template::new(
+            "Search using {{#if tool_names.sem_search}}{{tool_names.sem_search}}, {{/if}}{{tool_names.fs_search}}",
+        ));
+
+        // Include both tools
+        let tool_definitions = vec![
+            ToolDefinition::new("sem_search").description("Semantic search"),
+            ToolDefinition::new("fs_search").description("File search"),
+        ];
+
+        let system_prompt =
+            SystemPrompt::new(services, env, agent).tool_definitions(tool_definitions);
+
+        // Act
+        let conversation = forge_domain::Conversation::generate();
+        let result = system_prompt.add_system_message(conversation).await;
+
+        // Assert - verify conditional rendering includes both tools
+        assert!(result.is_ok());
+        let conversation = result.unwrap();
+        let context = conversation.context.expect("Context should exist");
+        let system_message = context
+            .messages
+            .iter()
+            .find(|m| m.has_role(forge_domain::Role::System))
+            .expect("System message should exist");
+
+        let content = system_message.content().expect("Content should exist");
+
+        // Should render both tools
+        assert!(
+            content.contains("Search using sem_search, fs_search"),
+            "Template should include both tools, got: {}",
+            content
+        );
+    }
+
+    #[tokio::test]
+    async fn test_background_prompt_renders_task_timeout_secs() {
+        use forge_domain::{Conversation, ToolDefinition};
+
+        // Fixture
+        let services = Arc::new(MockSkillFetchService);
+        let mut env = create_test_environment();
+        env.background = true;
+        let agent = create_test_agent().system_prompt(Template::new(
+            "{{#if task_timeout_secs}}Your total time budget for this task is **{{task_timeout_secs}} seconds**{{/if}}",
+        ));
+        let tool_definitions = vec![ToolDefinition::new("shell").description("Run commands")];
+        let system_prompt = SystemPrompt::new(services, env, agent)
+            .tool_definitions(tool_definitions)
+            .task_timeout_secs(Some(600));
+
+        // Act
+        let conversation = Conversation::generate();
+        let actual = system_prompt
+            .add_system_message(conversation)
+            .await
+            .unwrap()
+            .context
+            .expect("Context should exist")
+            .messages
+            .iter()
+            .find(|message| message.has_role(forge_domain::Role::System))
+            .and_then(|message| message.content())
+            .expect("System message should exist")
+            .to_string();
+
+        // Assert — the timeout budget line should render
+        assert!(
+            actual.contains("Your total time budget for this task is **600 seconds**"),
+            "Expected task timeout budget to render, got:\n{}",
+            actual
+        );
+    }
+
+    #[tokio::test]
+    async fn test_background_prompt_omits_timeout_when_absent() {
+        use forge_domain::{Conversation, ToolDefinition};
+
+        // Fixture — no task_timeout_secs set
+        let services = Arc::new(MockSkillFetchService);
+        let mut env = create_test_environment();
+        env.background = true;
+        let agent = create_test_agent().system_prompt(Template::new(
+            "{{#if task_timeout_secs}}Your total time budget for this task is **{{task_timeout_secs}} seconds**{{/if}}",
+        ));
+        let tool_definitions = vec![ToolDefinition::new("shell").description("Run commands")];
+        let system_prompt =
+            SystemPrompt::new(services, env, agent).tool_definitions(tool_definitions);
+
+        // Act
+        let conversation = Conversation::generate();
+        let actual = system_prompt
+            .add_system_message(conversation)
+            .await
+            .unwrap()
+            .context
+            .expect("Context should exist")
+            .messages
+            .iter()
+            .find(|message| message.has_role(forge_domain::Role::System))
+            .and_then(|message| message.content())
+            .expect("System message should exist")
+            .to_string();
+
+        // Assert — the timeout-specific text must NOT appear
+        assert!(
+            !actual.contains("Your total time budget for this task is"),
+            "Expected NO task timeout budget when task_timeout_secs is absent, got:\n{}",
+            actual
+        );
     }
 }

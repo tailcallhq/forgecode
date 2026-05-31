@@ -30,7 +30,7 @@ impl<F: EnvironmentInfra + FileReaderInfra + CommandInfra> ForgeCustomInstructio
         }
 
         // Repo custom instructions
-        if let Some(git_root_path) = self.get_git_root().await {
+        if let Some(git_root_path) = self.get_git_root(&environment.cwd).await {
             let git_agent_md = git_root_path.join("AGENTS.md");
             if !paths.contains(&git_agent_md) {
                 paths.push(git_agent_md);
@@ -46,12 +46,12 @@ impl<F: EnvironmentInfra + FileReaderInfra + CommandInfra> ForgeCustomInstructio
         paths
     }
 
-    async fn get_git_root(&self) -> Option<PathBuf> {
+    async fn get_git_root(&self, cwd: &std::path::Path) -> Option<PathBuf> {
         let output = self
             .infra
             .execute_command(
                 "git rev-parse --show-toplevel".to_owned(),
-                self.infra.get_environment().cwd,
+                cwd.to_path_buf(),
                 true, // silent mode - don't print git output
                 None, // no environment variables needed for git command
             )

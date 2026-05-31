@@ -282,6 +282,20 @@ pub enum ContentBlock {
     RedactedThinking {
         data: Option<String>,
     },
+    /// Server-executed tool use (e.g., web_search). Silently ignored since the
+    /// server handles execution and returns results inline.
+    ServerToolUse {
+        id: String,
+        name: String,
+        #[serde(default)]
+        input: serde_json::Value,
+    },
+    /// Result from a server-executed web search tool call.
+    WebSearchToolResult {
+        tool_use_id: String,
+        #[serde(default)]
+        content: serde_json::Value,
+    },
 }
 
 impl TryFrom<EventData> for ChatCompletionMessage {
@@ -403,6 +417,11 @@ impl TryFrom<ContentBlock> for ChatCompletionMessage {
                     arguments_part: partial_json,
                     thought_signature: None,
                 })
+            }
+            // Server-executed tool events are handled by the API; ignore them
+            // client-side.
+            ContentBlock::ServerToolUse { .. } | ContentBlock::WebSearchToolResult { .. } => {
+                ChatCompletionMessage::assistant(Content::part(""))
             }
         };
 

@@ -161,7 +161,7 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
         request.model = Some(model.as_str().to_string());
 
         // Apply Codex-specific request adjustments via the transformer pipeline.
-        if self.provider.id == forge_domain::ProviderId::CODEX {
+        if self.provider.id == forge_domain::ProviderId::CODEX || model.as_str().contains("gpt-5") {
             use forge_domain::Transformer;
             request = super::codex_transformer::CodexTransformer.transform(request);
         }
@@ -251,9 +251,10 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                         Err(forge_eventsource::Error::StreamEnded) => None,
                         Err(forge_eventsource::Error::InvalidStatusCode(_, response))
                         | Err(forge_eventsource::Error::InvalidContentType(_, response)) => {
+                            let status = response.status();
                             let (_, reason) = read_http_error_reason(*response).await;
-                            Some(Err(anyhow::anyhow!(reason)
-                                .context(format_http_context(None, "POST", &url))))
+                            Some(Err(status_code_error(status, reason)
+                                .context(format_http_context(Some(status), "POST", &url))))
                         }
                         Err(e) => {
                             Some(Err(anyhow::Error::from(e)
@@ -304,10 +305,9 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                 match event_result {
                     Ok(event) if ["[DONE]", ""].contains(&event.data.as_str()) => None,
                     Ok(event) => {
-                        let result = serde_json::from_str::<super::response::ResponsesStreamEvent>(
-                            &event.data,
-                        )
-                        .with_context(|| format!("Failed to parse SSE event: {}", event.data));
+                        let payload = super::codex_transformer::CodexTransformer::normalize_fast_service_tier_response_payload(&event.data);
+                        let result =
+                            serde_json::from_str::<super::response::ResponsesStreamEvent>(payload.as_ref());
                         match result {
                             Ok(super::response::ResponsesStreamEvent::Keepalive { .. }) => None,
                             Ok(super::response::ResponsesStreamEvent::Ping { cost }) => {
@@ -334,7 +334,12 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                             Ok(super::response::ResponsesStreamEvent::Response(inner)) => {
                                 Some(Ok(super::response::StreamItem::Event(inner)))
                             }
-                            Err(e) => Some(Err(e)),
+                            Err(_) => {
+                                // Skip events that can't be deserialized (e.g.
+                                // server-executed tool events with partial data).
+                                tracing::debug!(data = %event.data, "Skipping unrecognized SSE event");
+                                None
+                            }
                         }
                     }
                     Err(e) => Some(Err(into_sse_parse_error(e))),
@@ -1326,6 +1331,15 @@ mod tests {
         assert!(session_id.is_none());
     }
 
+    #[test]
+    fn test_openai_responses_repository_new() {
+        let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
+        let _repo = OpenAIResponsesResponseRepository::new(infra.clone());
+
+        // Verify the repository was created successfully
+        assert!(Arc::strong_count(&infra) > 0);
+    }
+
     #[tokio::test]
     async fn test_openai_responses_repository_models_returns_empty() -> anyhow::Result<()> {
         let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
@@ -1635,6 +1649,41 @@ mod tests {
             "missing body: {err_str}"
         );
         assert!(err_str.contains("/v1/responses"), "missing url: {err_str}");
+        Ok(())
+    }
+
+    /// Tests that retryable SSE HTTP status errors retain their status code so
+    /// the orchestrator-level retry policy can retry transient upstream
+    /// failures.
+    #[tokio::test]
+    async fn test_stream_error_on_retryable_status_preserves_retry_signal() -> anyhow::Result<()> {
+        let mut fixture = MockServer::new().await;
+        let error_body = "upstream connect error or disconnect/reset before headers";
+        let _mock = fixture
+            .mock_post_error("/v1/responses", error_body, 503)
+            .await;
+
+        let provider = openai_responses(
+            "test-api-key",
+            &format!("{}/v1/chat/completions", fixture.url()),
+        );
+        let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
+        let provider_impl = OpenAIResponsesProvider::new(provider, infra);
+        let context = ChatContext::default()
+            .add_message(ContextMessage::user("Hi", None))
+            .stream(true);
+
+        let mut stream = provider_impl
+            .chat(&ModelId::from("gpt-4o"), context)
+            .await?;
+
+        let actual = stream.next().await.expect("stream should yield one item");
+        assert!(actual.is_err());
+        let error = actual.unwrap_err();
+        assert_eq!(retry::get_api_status_code(&error), Some(503));
+
+        let retryable = retry::into_retry(error, &forge_config::RetryConfig::default());
+        assert!(is_retryable(&retryable));
         Ok(())
     }
 

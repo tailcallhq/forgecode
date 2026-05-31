@@ -2,7 +2,7 @@ use derive_setters::Setters;
 use forge_template::Element;
 use serde::{Deserialize, Serialize};
 
-use crate::{ConversationId, Image, ToolCallFull, ToolCallId, ToolName};
+use crate::{ConversationId, Document, Image, ToolCallFull, ToolCallId, ToolName};
 
 const REFLECTION_PROMPT: &str =
     include_str!("../../../../templates/forge-partial-tool-error-reflection.md");
@@ -105,6 +105,11 @@ impl ToolOutput {
         ToolOutput { is_error: false, values: vec![ToolValue::Image(img)] }
     }
 
+    /// Creates a `ToolOutput` containing a single document value.
+    pub fn document(doc: Document) -> Self {
+        ToolOutput { is_error: false, values: vec![ToolValue::Document(doc)] }
+    }
+
     pub fn combine_mut(&mut self, value: ToolOutput) {
         self.values.extend(value.values);
     }
@@ -141,6 +146,7 @@ pub enum ToolValue {
         conversation_id: ConversationId,
     },
     Image(Image),
+    Document(Document),
     #[default]
     Empty,
 }
@@ -158,6 +164,7 @@ impl ToolValue {
         match self {
             ToolValue::Text(text) => Some(text),
             ToolValue::Image(_) => None,
+            ToolValue::Document(_) => None,
             ToolValue::Empty => None,
             ToolValue::AI { value, .. } => Some(value),
         }

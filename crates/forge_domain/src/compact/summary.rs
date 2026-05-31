@@ -274,7 +274,7 @@ impl From<&Context> for ContextSummary {
                         tool_results.insert(call_id, tool_result);
                     }
                 }
-                ContextMessage::Image(_) => {}
+                ContextMessage::Image(_) | ContextMessage::Document(_) => {}
             }
         }
 

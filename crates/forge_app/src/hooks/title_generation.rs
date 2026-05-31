@@ -156,6 +156,13 @@ mod tests {
         async fn update(&self, _conversation: Conversation) -> anyhow::Result<()> {
             Ok(())
         }
+
+        async fn get_pending_todos(
+            &self,
+            _conversation_id: &forge_domain::ConversationId,
+        ) -> anyhow::Result<Vec<forge_domain::Todo>> {
+            Ok(vec![])
+        }
     }
 
     fn setup(message: &str) -> (TitleGenerationHandler<MockAgentService>, Conversation) {

@@ -47,6 +47,7 @@ url.workspace = true
 forge_eventsource.workspace = true
 lazy_static = "1.5.0"
 forge_domain.workspace = true
+lsp-types = "0.95"
 forge_config.workspace = true
 oauth2 = { version = "5.0", features = ["reqwest"] }
 serde_urlencoded = "0.7.1"

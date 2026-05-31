@@ -202,14 +202,14 @@ mod tests {
 
     #[test]
     fn test_wrapping_narrow_width() {
-        insta::assert_snapshot!(render_with_width(1, "This is a very long heading that should wrap", 20), @"
+        insta::assert_snapshot!(render_with_width(1, "This is a very long heading that should wrap", 20), @r###"
 
         <dim><h1>#</h1></dim> <h1>THIS IS A VERY</h1>
 
         <dim><h1>#</h1></dim> <h1>LONG HEADING THAT</h1>
 
         <dim><h1>#</h1></dim> <h1>SHOULD WRAP</h1>
-        ");
+        "###);
     }
 
     #[test]
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_heading_with_link() {
-        insta::assert_snapshot!(render(3, "See [documentation](https://example.com)"), @r#"  <dim><h3>###</h3></dim> <h3>See <a href="https://example.com">documentation</a></h3>"#);
+        insta::assert_snapshot!(render(3, "See [documentation](https://example.com)"), @r###"  <dim><h3>###</h3></dim> <h3>See <a href="https://example.com">documentation</a></h3>"###);
     }
 
     #[test]

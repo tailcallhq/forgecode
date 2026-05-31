@@ -23,6 +23,19 @@ impl Transformer for MakeOpenAiCompat {
         request.session_id = None;
         request.reasoning = None;
 
+        // remove openrouter specific parts
+        if let Some(messages) = request.messages.as_mut() {
+            for message in messages {
+                if let Some(crate::dto::openai::MessageContent::Parts(parts)) =
+                    message.content.as_mut()
+                {
+                    parts.retain(|part| {
+                        !matches!(part, crate::dto::openai::ContentPart::File { .. })
+                    });
+                }
+            }
+        }
+
         let tools_present = request
             .tools
             .as_ref()

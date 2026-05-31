@@ -57,6 +57,10 @@ pub struct Environment {
     pub shell: String,
     /// The base path relative to which everything else is stored.
     pub base_path: PathBuf,
+    /// Whether the environment is running in background mode (e.g., CI/CD,
+    /// automated workflows) where user interaction is limited.
+    #[serde(default)]
+    pub background: bool,
 }
 
 impl Environment {
@@ -80,11 +84,6 @@ impl Environment {
     }
     pub fn mcp_user_config(&self) -> PathBuf {
         self.base_path.join(".mcp.json")
-    }
-
-    /// Returns the path where the MCP trust store is persisted across restarts.
-    pub fn mcp_trust_path(&self) -> PathBuf {
-        self.base_path.join(".mcp_trust.json")
     }
 
     pub fn agent_path(&self) -> PathBuf {

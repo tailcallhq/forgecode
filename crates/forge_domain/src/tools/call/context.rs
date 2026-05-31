@@ -2,19 +2,29 @@ use std::sync::{Arc, Mutex};
 
 use derive_setters::Setters;
 
-use crate::{ArcSender, ChatResponse, Metrics, TitleFormat, Todo, TodoItem};
+use crate::{ArcSender, ChatResponse, ConversationId, Metrics, TitleFormat, Todo, TodoItem};
 
 /// Provides additional context for tool calls.
 #[derive(Debug, Clone, Setters)]
 pub struct ToolCallContext {
     sender: Option<ArcSender>,
     metrics: Arc<Mutex<Metrics>>,
+    conversation_id: ConversationId,
 }
 
 impl ToolCallContext {
     /// Creates a new ToolCallContext with default values
     pub fn new(metrics: Metrics) -> Self {
-        Self { sender: None, metrics: Arc::new(Mutex::new(metrics)) }
+        Self {
+            sender: None,
+            metrics: Arc::new(Mutex::new(metrics)),
+            conversation_id: ConversationId::default(),
+        }
+    }
+
+    /// Gets the conversation ID for this tool execution context
+    pub fn get_conversation_id(&self) -> ConversationId {
+        self.conversation_id
     }
 
     /// Send a message through the sender if available

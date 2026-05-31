@@ -1,7 +1,7 @@
 use nom::Parser;
 use nom::bytes::complete::tag;
 
-use crate::{FileInfo, Image};
+use crate::{Document, FileInfo, Image};
 
 /// A file or directory attachment included in a chat message.
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone, PartialEq, Eq)]
@@ -20,6 +20,7 @@ pub enum AttachmentContent {
     /// A binary image file encoded for inline display.
     Image(Image),
     /// A text file, optionally restricted to a line range.
+    Document(Document),
     FileContent {
         /// Line-numbered display text shown to the model. May represent only a
         /// slice of the full file when a range was requested.
@@ -52,9 +53,17 @@ impl AttachmentContent {
         }
     }
 
+    pub fn as_document(&self) -> Option<&Document> {
+        match self {
+            AttachmentContent::Document(doc) => Some(doc),
+            _ => None,
+        }
+    }
+
     pub fn contains(&self, text: &str) -> bool {
         match self {
             AttachmentContent::Image(_) => false,
+            AttachmentContent::Document(_) => false,
             AttachmentContent::FileContent { content, .. } => content.contains(text),
             AttachmentContent::DirectoryListing { .. } => false,
         }

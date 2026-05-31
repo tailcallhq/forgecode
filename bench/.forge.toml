@@ -1,0 +1,94 @@
+"$schema" = "https://forgecode.dev/schema.json"
+
+max_search_lines = 1000
+max_search_result_bytes = 10240
+max_fetch_chars = 50000
+max_stdout_prefix_lines = 100
+max_stdout_suffix_lines = 100
+max_stdout_line_chars = 500
+max_line_chars = 2000
+max_read_lines = 2000
+max_file_read_batch_size = 50
+max_file_size_bytes = 154857600
+max_image_size_bytes = 154857600
+tool_timeout_secs = 3000
+auto_open_dump = true
+max_conversations = 100
+max_sem_search_results = 100
+sem_search_top_k = 10
+services_url = "https://api.forgecode.dev/"
+max_extensions = 15
+max_parallel_file_reads = 64
+model_cache_ttl_secs = 604800
+use_forge_committer = false
+max_commit_count = 20
+top_p = 0.8
+top_k = 30
+max_tokens = 20000
+max_tool_failure_per_turn = 300
+max_requests_per_turn = 100000
+restricted = false
+tool_supported = true
+currency_symbol = ""
+currency_conversion_rate = 1.0
+verify_todos = true
+use_text_patch_fallback = false
+research_subagent = false
+subagents = true
+merge_system_messages = false
+
+[retry]
+initial_backoff_ms = 200
+min_delay_ms = 1000
+backoff_factor = 2
+max_attempts = 8
+status_codes = [
+    429,
+    500,
+    502,
+    503,
+    504,
+    408,
+    522,
+    520,
+    529,
+]
+suppress_errors = false
+
+[http]
+connect_timeout_secs = 30
+read_timeout_secs = 900
+pool_idle_timeout_secs = 90
+pool_max_idle_per_host = 5
+max_redirects = 10
+hickory = false
+tls_backend = "default"
+adaptive_window = true
+keep_alive_interval_secs = 60
+keep_alive_timeout_secs = 10
+keep_alive_while_idle = true
+accept_invalid_certs = false
+
+[session]
+provider_id = "openai"
+model_id = "gpt-5.5-2026-04-23"
+
+[commit]
+provider_id = "openai"
+model_id = "gpt-5.4-nano"
+
+[updates]
+frequency = "daily"
+auto_update = true
+
+[compact]
+retention_window = 6
+eviction_window = 0.2
+max_tokens = 2000
+token_threshold = 100000
+message_threshold = 200
+on_turn_end = false
+
+[reasoning]
+effort = "xhigh"
+enabled = true

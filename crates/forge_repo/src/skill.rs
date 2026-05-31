@@ -58,6 +58,26 @@ impl<I> ForgeSkillRepository<I> {
                 "forge://skills/github-pr-description/SKILL.md",
                 include_str!("skills/github-pr-description/SKILL.md"),
             ),
+            (
+                "forge://skills/verification-specialist/SKILL.md",
+                include_str!("skills/verification-specialist/SKILL.md"),
+            ),
+            (
+                "forge://skills/constraint-enforcer/SKILL.md",
+                include_str!("skills/constraint-enforcer/SKILL.md"),
+            ),
+            (
+                "forge://skills/edge-case-tester/SKILL.md",
+                include_str!("skills/edge-case-tester/SKILL.md"),
+            ),
+            (
+                "forge://skills/reverse-engineering-helper/SKILL.md",
+                include_str!("skills/reverse-engineering-helper/SKILL.md"),
+            ),
+            (
+                "forge://skills/ml-model-debugging/SKILL.md",
+                include_str!("skills/ml-model-debugging/SKILL.md"),
+            ),
         ];
 
         builtin_skills
@@ -408,47 +428,47 @@ mod tests {
         let actual = repo.load_builtin_skills();
 
         // Assert
-        assert_eq!(actual.len(), 3);
+        let expected = [
+            ("create-skill", "forge://skills/create-skill/SKILL.md"),
+            ("execute-plan", "forge://skills/execute-plan/SKILL.md"),
+            (
+                "github-pr-description",
+                "forge://skills/github-pr-description/SKILL.md",
+            ),
+            (
+                "verification-specialist",
+                "forge://skills/verification-specialist/SKILL.md",
+            ),
+            (
+                "constraint-enforcer",
+                "forge://skills/constraint-enforcer/SKILL.md",
+            ),
+            (
+                "edge-case-tester",
+                "forge://skills/edge-case-tester/SKILL.md",
+            ),
+            (
+                "reverse-engineering-helper",
+                "forge://skills/reverse-engineering-helper/SKILL.md",
+            ),
+            (
+                "ml-model-debugging",
+                "forge://skills/ml-model-debugging/SKILL.md",
+            ),
+        ];
 
-        // Check create-skill
-        let create_skill = actual.iter().find(|s| s.name == "create-skill").unwrap();
-        assert_eq!(
-            create_skill.path,
-            Some(std::path::Path::new("forge://skills/create-skill/SKILL.md").to_path_buf())
-        );
-        assert_eq!(
-            create_skill.description,
-            "Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends your capabilities with specialized knowledge, workflows, or tool integrations."
-        );
-        assert!(create_skill.command.contains("Skill Creator"));
-        assert!(create_skill.command.contains("creating effective skills"));
+        assert_eq!(actual.len(), expected.len());
 
-        // Check execute-plan
-        let execute_plan = actual.iter().find(|s| s.name == "execute-plan").unwrap();
-        assert_eq!(
-            execute_plan.path,
-            Some(std::path::Path::new("forge://skills/execute-plan/SKILL.md").to_path_buf())
-        );
-        assert!(
-            execute_plan
-                .description
-                .contains("Execute structured task plans")
-        );
-        assert!(execute_plan.command.contains("Execute Plan"));
+        for (name, path) in expected {
+            let skill = actual
+                .iter()
+                .find(|skill| skill.name == name)
+                .unwrap_or_else(|| panic!("missing built-in skill: {name}"));
 
-        // Check github-pr-description
-        let pr_description = actual
-            .iter()
-            .find(|s| s.name == "github-pr-description")
-            .unwrap();
-        assert_eq!(
-            pr_description.path,
-            Some(
-                std::path::Path::new("forge://skills/github-pr-description/SKILL.md").to_path_buf()
-            )
-        );
-        assert!(!pr_description.description.is_empty());
-        assert!(pr_description.command.contains("Create PR Description"));
+            assert_eq!(skill.path, Some(std::path::Path::new(path).to_path_buf()));
+            assert!(!skill.description.is_empty());
+            assert!(!skill.command.is_empty());
+        }
     }
 
     #[tokio::test]

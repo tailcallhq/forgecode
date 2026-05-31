@@ -11,7 +11,11 @@ expression: actual
     "tools_supported": true,
     "supports_parallel_tool_calls": true,
     "supports_reasoning": true,
-    "input_modalities": []
+    "input_modalities": [
+      "text",
+      "image",
+      "pdf"
+    ]
   },
   {
     "id": "gemini-1.5-flash",
@@ -21,6 +25,10 @@ expression: actual
     "tools_supported": true,
     "supports_parallel_tool_calls": true,
     "supports_reasoning": true,
-    "input_modalities": []
+    "input_modalities": [
+      "text",
+      "image",
+      "pdf"
+    ]
   }
 ]

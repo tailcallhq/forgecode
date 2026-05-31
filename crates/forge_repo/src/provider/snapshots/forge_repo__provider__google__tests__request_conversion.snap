@@ -55,6 +55,14 @@ expression: request
     }
   ],
   "generationConfig": {},
+  "tools": [
+    {
+      "google_search": {}
+    },
+    {
+      "code_execution": {}
+    }
+  ],
   "toolConfig": {
     "functionCallingConfig": {
       "mode": "ANY",

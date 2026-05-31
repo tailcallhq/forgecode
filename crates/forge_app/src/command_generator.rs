@@ -155,6 +155,7 @@ mod tests {
             env.cwd = "/test/dir".into();
             env.shell = "/bin/bash".to_string();
             env.home = Some("/home/test".into());
+            env.background = true;
 
             Arc::new(Self {
                 files: files.into_iter().map(|(p, d)| (p.to_string(), d)).collect(),

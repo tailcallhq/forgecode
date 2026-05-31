@@ -6,6 +6,7 @@ expression: to_value(actual)
   command="simple_command"
   shell="/bin/bash"
   exit_code="0"
+  wall_time_secs="0.10"
 >
 <stdout
   total_lines="1"

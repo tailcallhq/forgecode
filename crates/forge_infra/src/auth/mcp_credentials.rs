@@ -134,6 +134,7 @@ mod tests {
             home: Some(PathBuf::from("/home/test")),
             shell: "bash".to_string(),
             base_path,
+            background: false,
         }
     }
 

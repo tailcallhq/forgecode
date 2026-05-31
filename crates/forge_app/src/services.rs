@@ -5,8 +5,8 @@ use bytes::Bytes;
 use derive_setters::Setters;
 use forge_domain::{
     AgentId, AnyProvider, Attachment, AuthContextRequest, AuthContextResponse, AuthMethod,
-    ChatCompletionMessage, CommandOutput, Context, Conversation, ConversationId, File, FileInfo,
-    FileStatus, Image, McpConfig, McpServers, Model, ModelId, Node, Provider, ProviderId,
+    ChatCompletionMessage, CommandOutput, Context, Conversation, ConversationId, Document, File,
+    FileInfo, FileStatus, Image, McpConfig, McpServers, Model, ModelId, Node, Provider, ProviderId,
     ResultStream, Scope, SearchParams, SyncProgress, SyntaxError, Template, ToolCallFull,
     ToolOutput, WorkspaceAuth, WorkspaceId, WorkspaceInfo,
 };
@@ -44,6 +44,7 @@ pub struct ReadOutput {
 pub enum Content {
     File(String),
     Image(Image),
+    Document(Document),
 }
 
 impl Content {
@@ -55,16 +56,28 @@ impl Content {
         Self::Image(image)
     }
 
+    pub fn document(document: Document) -> Self {
+        Self::Document(document)
+    }
+
     pub fn file_content(&self) -> &str {
         match self {
             Self::File(content) => content,
             Self::Image(_) => "",
+            Self::Document(_) => "",
         }
     }
 
     pub fn as_image(&self) -> Option<&Image> {
         match self {
             Self::Image(img) => Some(img),
+            _ => None,
+        }
+    }
+
+    pub fn as_document(&self) -> Option<&Document> {
+        match self {
+            Self::Document(doc) => Some(doc),
             _ => None,
         }
     }
@@ -214,11 +227,6 @@ pub trait McpConfigManager: Send + Sync {
 
     /// Responsible for writing the McpConfig on disk.
     async fn write_mcp_config(&self, config: &McpConfig, scope: &Scope) -> anyhow::Result<()>;
-
-    /// Returns the trusted subset of MCP servers, prompting interactively for
-    /// any project-local config file not yet approved. Must be called once at
-    /// the startup boundary, never on pure config-read paths.
-    async fn filter_trusted(&self, raw: McpConfig) -> anyhow::Result<McpConfig>;
 }
 
 #[async_trait::async_trait]
@@ -227,10 +235,6 @@ pub trait McpService: Send + Sync {
     async fn execute_mcp(&self, call: ToolCallFull) -> anyhow::Result<ToolOutput>;
     /// Refresh the MCP cache by fetching fresh data
     async fn reload_mcp(&self) -> anyhow::Result<()>;
-    /// Applies the interactive trust gate for any project-local MCP config.
-    /// Servers are NOT connected here — connections remain lazy and happen on
-    /// first tool use. Must be called once at startup.
-    async fn init_mcp(&self) -> anyhow::Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -540,6 +544,39 @@ pub trait ProviderAuthService: Send + Sync {
     ) -> anyhow::Result<Provider<Url>>;
 }
 
+#[async_trait::async_trait]
+pub trait TodoService: Send + Sync {
+    /// Updates or creates todos for a conversation
+    ///
+    /// # Arguments
+    ///
+    /// * `conversation_id` - The conversation these todos belong to
+    /// * `todos` - List of todos to create or update
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if todos cannot be persisted or validation fails
+    async fn update_todos(
+        &self,
+        conversation_id: &ConversationId,
+        todos: Vec<forge_domain::Todo>,
+    ) -> anyhow::Result<Vec<forge_domain::Todo>>;
+
+    /// Gets all todos for a conversation
+    ///
+    /// # Arguments
+    ///
+    /// * `conversation_id` - The conversation to get todos for
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if todos cannot be retrieved
+    async fn get_todos(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> anyhow::Result<Vec<forge_domain::Todo>>;
+}
+
 pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     type ProviderService: ProviderService;
     type AppConfigService: AppConfigService;
@@ -568,6 +605,7 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     type ProviderAuthService: ProviderAuthService;
     type WorkspaceService: WorkspaceService;
     type SkillFetchService: SkillFetchService;
+    type TodoService: TodoService;
 
     fn provider_service(&self) -> &Self::ProviderService;
     fn config_service(&self) -> &Self::AppConfigService;
@@ -596,6 +634,7 @@ pub trait Services: Send + Sync + 'static + Clone + EnvironmentInfra {
     fn provider_auth_service(&self) -> &Self::ProviderAuthService;
     fn workspace_service(&self) -> &Self::WorkspaceService;
     fn skill_fetch_service(&self) -> &Self::SkillFetchService;
+    fn todo_service(&self) -> &Self::TodoService;
 }
 
 #[async_trait::async_trait]
@@ -689,10 +728,6 @@ impl<I: Services> McpConfigManager for I {
             .write_mcp_config(config, scope)
             .await
     }
-
-    async fn filter_trusted(&self, raw: McpConfig) -> anyhow::Result<McpConfig> {
-        self.mcp_config_manager().filter_trusted(raw).await
-    }
 }
 
 #[async_trait::async_trait]
@@ -707,10 +742,6 @@ impl<I: Services> McpService for I {
 
     async fn reload_mcp(&self) -> anyhow::Result<()> {
         self.mcp_service().reload_mcp().await
-    }
-
-    async fn init_mcp(&self) -> anyhow::Result<()> {
-        self.mcp_service().init_mcp().await
     }
 }
 
@@ -1081,5 +1112,25 @@ impl<I: Services> WorkspaceService for I {
 
     async fn init_workspace(&self, path: PathBuf) -> anyhow::Result<WorkspaceId> {
         self.workspace_service().init_workspace(path).await
+    }
+}
+
+#[async_trait::async_trait]
+impl<I: Services> TodoService for I {
+    async fn update_todos(
+        &self,
+        conversation_id: &ConversationId,
+        todos: Vec<forge_domain::Todo>,
+    ) -> anyhow::Result<Vec<forge_domain::Todo>> {
+        self.todo_service()
+            .update_todos(conversation_id, todos)
+            .await
+    }
+
+    async fn get_todos(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> anyhow::Result<Vec<forge_domain::Todo>> {
+        self.todo_service().get_todos(conversation_id).await
     }
 }

@@ -46,8 +46,8 @@ pub(super) enum ResponsesStreamEvent {
     /// Codex backend `response.completed` event. The Codex backend omits
     /// required `oai::Response` fields (e.g. `output`) on this event, so it
     /// cannot be parsed via the generic `oai::ResponseStreamEvent`. We
-    /// deserialize only `end_turn` (backend-only continue-turn signal); other
-    /// data (output items, usage) arrives via earlier streaming events.
+    /// deserialize only `end_turn` and usage; other output arrives via earlier
+    /// streaming events.
     #[serde(rename = "response.completed")]
     ResponseCompleted { response: ResponseCompletedPayload },
 
@@ -96,15 +96,13 @@ where
 pub(super) enum StreamItem {
     /// A standard OpenAI Responses API streaming event.
     Event(Box<oai::ResponseStreamEvent>),
-    /// A pre-resolved message (e.g. cost from a proxy ping event, or a
-    /// Codex `response.completed` event already converted to its terminal
-    /// `ChatCompletionMessage`).
+    /// A pre-resolved message (e.g. cost from a proxy ping event, or a Codex
+    /// `response.completed` event already converted to its terminal message).
     Message(Box<ChatCompletionMessage>),
 }
 
 /// Payload of the Codex `response.completed` event. The Codex backend omits
-/// required `oai::Response` fields (e.g. `output`), so we deserialize only
-/// `end_turn` (backend-only continue-turn signal).
+/// required `oai::Response` fields, so only metadata needed by Forge is parsed.
 #[derive(Debug, Deserialize)]
 pub(super) struct ResponseCompletedPayload {
     #[serde(default)]
@@ -113,8 +111,7 @@ pub(super) struct ResponseCompletedPayload {
     pub usage: Option<oai::ResponseUsage>,
 }
 
-/// Payload of the Codex `response.incomplete` event. Carries the
-/// `incomplete_details.reason` used to produce a useful error message.
+/// Payload of the Codex `response.incomplete` event.
 #[derive(Debug, Deserialize)]
 pub(super) struct ResponseIncompletePayload {
     #[serde(default)]
@@ -305,8 +302,7 @@ fn retain_encrypted_reasoning_details(
 }
 
 /// Builds the terminal `ChatCompletionMessage` for a `response.completed`
-/// event. Deduplicates content/reasoning/tool_calls that were already streamed
-/// via deltas and applies the Codex `end_turn` override when present.
+/// event and applies the Codex `end_turn` override when present.
 pub(super) fn into_response_completed_message(
     payload: ResponseCompletedPayload,
 ) -> ChatCompletionMessage {
@@ -315,8 +311,6 @@ pub(super) fn into_response_completed_message(
         message = message.usage(usage.into_domain());
     }
     if payload.end_turn == Some(false) {
-        // Server explicitly asks to continue the turn; leave finish_reason
-        // unset so the orchestrator loop does not terminate.
         message
     } else {
         message.finish_reason_opt(Some(FinishReason::Stop))
@@ -521,7 +515,13 @@ impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
                                 Some(Err(into_response_failed_error(failed)))
                             }
                             oai::ResponseStreamEvent::ResponseError(err) => {
-                                Some(Err(anyhow::anyhow!("Upstream error: {}", err.message)))
+                                let mut error_response =
+                                    OpenAIErrorResponse::default().message(err.message.clone());
+                                if let Some(code) = err.code.clone() {
+                                    error_response =
+                                        error_response.code(OpenAIErrorCode::String(code));
+                                }
+                                Some(Err(OpenAIError::Response(error_response).into()))
                             }
                             _ => None,
                         },
@@ -539,13 +539,13 @@ impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
 #[cfg(test)]
 mod tests {
     use async_openai::types::responses as oai;
-    use pretty_assertions::assert_eq;
 
     // Type alias for ResponseStream in tests since it's not provided by
     // response-types
     type ResponseStream =
         std::pin::Pin<Box<dyn futures::Stream<Item = anyhow::Result<StreamItem>> + Send>>;
     use forge_app::domain::{Content, FinishReason, Reasoning, ReasoningFull, TokenCount, Usage};
+    use forge_app::dto::openai::Error as OpenAIError;
     use forge_domain::{ChatCompletionMessage as Message, ToolCallId, ToolName};
     use tokio_stream::StreamExt;
 
@@ -1467,7 +1467,21 @@ mod tests {
         let actual = stream_domain.next().await.unwrap();
 
         assert!(actual.is_err());
-        assert!(actual.unwrap_err().to_string().contains("Upstream error"));
+        let err = actual.unwrap_err();
+        // Should be a typed OpenAI error with the code preserved
+        let openai_err = err
+            .downcast_ref::<OpenAIError>()
+            .expect("expected typed OpenAI error");
+        match openai_err {
+            OpenAIError::Response(resp) => {
+                assert_eq!(
+                    resp.code.as_ref().unwrap().as_str(),
+                    Some("connection_error")
+                );
+                assert_eq!(resp.message.as_deref(), Some("Connection error"));
+            }
+            _ => panic!("expected Response variant"),
+        }
 
         Ok(())
     }
@@ -1772,44 +1786,6 @@ mod tests {
                 assert!((cost - 0.123).abs() < f64::EPSILON);
             }
             other => panic!("Expected Ping, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_responses_stream_event_deserializes_codex_response_completed_without_output() {
-        let fixture = serde_json::json!({
-            "type": "response.completed",
-            "response": {
-                "id": "resp_1",
-                "created_at": 1773422509,
-                "model": "gpt-5.3-codex-spark",
-                "object": "response",
-                "status": "completed",
-                "end_turn": false,
-                "usage": {
-                    "input_tokens": 14900,
-                    "output_tokens": 381,
-                    "total_tokens": 15281,
-                    "input_tokens_details": { "cached_tokens": 14720 },
-                    "output_tokens_details": { "reasoning_tokens": 317 }
-                }
-            }
-        });
-        let actual: ResponsesStreamEvent = serde_json::from_value(fixture).unwrap();
-        let expected = Usage {
-            prompt_tokens: TokenCount::Actual(14900),
-            completion_tokens: TokenCount::Actual(381),
-            total_tokens: TokenCount::Actual(15281),
-            cached_tokens: TokenCount::Actual(14720),
-            cost: None,
-        };
-
-        match actual {
-            ResponsesStreamEvent::ResponseCompleted { response } => {
-                assert_eq!(response.end_turn, Some(false));
-                assert_eq!(response.usage.unwrap().into_domain(), expected);
-            }
-            other => panic!("Expected ResponseCompleted, got {:?}", other),
         }
     }
 

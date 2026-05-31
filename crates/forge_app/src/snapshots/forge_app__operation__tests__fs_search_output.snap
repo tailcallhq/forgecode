@@ -9,7 +9,7 @@ expression: to_value(actual)
   display_lines="1-25"
   pattern="search"
   glob="*.txt"
-  reason="Results truncated due to exceeding the 25 lines limit. Please use a more specific search pattern"
+  reason="WARNING: Search results are INCOMPLETE — output exceeded the 25 lines limit and was truncated. Showing 25 of 50 total matches. The displayed results do NOT represent all matches. Please use a more specific search pattern to ensure full coverage."
 ><![CDATA[foo.txt:1:Match line 1: Test
 foo.txt:2:Match line 2: Test
 foo.txt:3:Match line 3: Test

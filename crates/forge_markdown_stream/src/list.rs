@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn test_inline_link() {
-        insta::assert_snapshot!(render(0, ListBullet::Dash, "See [link](https://example.com)"), @r#"  <dash>•</dash> See <a href="https://example.com">link</a>"#);
+        insta::assert_snapshot!(render(0, ListBullet::Dash, "See [link](https://example.com)"), @r###"  <dash>•</dash> See <a href="https://example.com">link</a>"###);
     }
 
     #[test]

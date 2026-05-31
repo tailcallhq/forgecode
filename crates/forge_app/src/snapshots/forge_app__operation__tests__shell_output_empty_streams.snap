@@ -6,5 +6,6 @@ expression: to_value(actual)
   command="silent_command"
   shell="/bin/bash"
   exit_code="0"
+  wall_time_secs="0.05"
 >
 </shell_output>

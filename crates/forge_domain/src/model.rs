@@ -3,11 +3,21 @@ use derive_setters::Setters;
 use fake::Dummy;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum_macros::EnumString;
+use strum_macros::{Display as StrumDisplay, EnumString};
 
 /// Represents input modalities that a model can accept
 #[derive(
-    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, EnumString, JsonSchema, Dummy,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Hash,
+    EnumString,
+    JsonSchema,
+    Dummy,
+    StrumDisplay,
 )]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase", ascii_case_insensitive)]
@@ -16,6 +26,8 @@ pub enum InputModality {
     Text,
     /// Image input (vision-capable models)
     Image,
+    /// PDF/document input (document-capable models)
+    Pdf,
 }
 
 /// Default input modalities when not specified (text-only)

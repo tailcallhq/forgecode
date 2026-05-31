@@ -1,11 +1,31 @@
 use forge_domain::{
     Compact, CompactionStrategy, Context, ContextMessage, ContextSummary, Environment,
-    MessageEntry, Transformer,
+    MessageEntry, Role, TextMessage, Transformer,
 };
 use tracing::info;
 
 use crate::TemplateEngine;
 use crate::transformers::SummaryTransformer;
+
+/// Formats todos as markdown checkboxes for context injection
+fn format_todos_for_context(todos: &[forge_domain::TodoItem]) -> String {
+    use forge_domain::TodoStatus;
+
+    let mut result = String::new();
+
+    for todo in todos {
+        let checkbox = match todo.status {
+            TodoStatus::Completed => "[x]",
+            TodoStatus::InProgress => "[~]",
+            TodoStatus::Pending => "[ ]",
+            TodoStatus::Cancelled => "[-]",
+        };
+
+        result.push_str(&format!("{} {}\n", checkbox, todo.content));
+    }
+
+    result.trim_end().to_string()
+}
 
 /// A service dedicated to handling context compaction.
 pub struct Compactor {
@@ -133,6 +153,40 @@ impl Compactor {
                 _ => None,
             });
 
+        // Todo list state preservation
+        //
+        // Extract the most recent todo list from tool calls in the compacted sequence.
+        // This ensures the agent always has access to the current todo state after
+        // compaction, even if the original todo_write results are removed.
+        //
+        // We search for the LAST todo_write tool call to get the most recent state.
+        let latest_todos = compaction_sequence
+            .iter()
+            .rev() // Get LAST todo state (most recent)
+            .find_map(|msg| match &**msg {
+                ContextMessage::Text(text) => {
+                    // Look for todo_write tool calls in assistant messages
+                    text.tool_calls.as_ref().and_then(|calls| {
+                        calls
+                            .iter()
+                            .rev()
+                            .find(|call| call.name.as_str() == "todo_write")
+                            .and_then(|call| {
+                                // Extract todos from the tool call arguments
+                                forge_domain::ToolCatalog::try_from(call.clone())
+                                    .ok()
+                                    .and_then(|catalog| match catalog {
+                                        forge_domain::ToolCatalog::TodoWrite(todo_write) => {
+                                            Some(todo_write.todos)
+                                        }
+                                        _ => None,
+                                    })
+                            })
+                    })
+                }
+                _ => None,
+            });
+
         // Accumulate usage from all messages in the compaction range before they are
         // destroyed
         let compacted_usage = context.messages.get(start..=end).and_then(|slice| {
@@ -166,6 +220,51 @@ impl Compactor {
                 .is_none_or(|rd| rd.is_empty())
         {
             msg.reasoning_details = Some(reasoning);
+        }
+
+        // Inject preserved todo list as a droppable user message if we found any
+        // This makes the current todo state available to the agent after compaction
+        if let Some(todos) = latest_todos
+            && !todos.is_empty()
+        {
+            // Format todos as markdown checkboxes for easy agent comprehension
+            let todo_content = format_todos_for_context(&todos);
+
+            // Create a droppable user message with the current todos
+            // This will be removed in next compaction if newer todos exist
+            let todo_message = TextMessage {
+                role: Role::User,
+                content: format!("<system-reminder>\n{}\n</system-reminder>", todo_content),
+                raw_content: None,
+                tool_calls: None,
+                reasoning_details: None,
+                model: None,
+                droppable: true, // Allow future compactions to remove this
+                thought_signature: None,
+                phase: None,
+            };
+
+            // Insert after the summary but before other messages
+            // Find the position right after the summary (which we just inserted)
+            let insert_pos = context
+                .messages
+                .iter()
+                .position(|msg| {
+                    msg.content()
+                        .is_some_and(|c| c.contains("Previous conversation summary"))
+                })
+                .map(|pos| pos + 1)
+                .unwrap_or(1); // Fallback to position 1 if summary not found
+
+            context
+                .messages
+                .insert(insert_pos, ContextMessage::Text(todo_message).into());
+
+            info!(
+                todos_count = todos.len(),
+                "Preserved {} todos after compaction",
+                todos.len()
+            );
         }
 
         Ok(context)

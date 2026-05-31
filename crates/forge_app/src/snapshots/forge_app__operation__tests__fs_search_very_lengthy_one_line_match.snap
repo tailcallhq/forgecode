@@ -9,6 +9,6 @@ expression: to_value(actual)
   display_lines="0-0"
   pattern="search"
   glob="*.txt"
-  reason="Results truncated due to exceeding the 1049 bytes size limit. Please use a more specific search pattern"
+  reason="WARNING: Search results are INCOMPLETE — output exceeded the 1049 bytes size limit and was truncated. Showing 0 of 1 total matches. The displayed results do NOT represent all matches. Please use a more specific search pattern to ensure full coverage."
 ><![CDATA[]]>
 </search_results>

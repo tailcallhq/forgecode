@@ -1,0 +1,45 @@
+---
+source: crates/forge_domain/src/transformer/document_handling.rs
+expression: snapshot
+---
+transformation: DocumentHandling
+before:
+  messages:
+    - text:
+        role: System
+        content: System message
+    - text:
+        role: User
+        content: User message
+    - tool:
+        name: doc_tool
+        call_id: call_1
+        output:
+          is_error: false
+          values:
+            - document:
+                data: pdf_data
+                mime_type: application/pdf
+                filename: ~
+after:
+  messages:
+    - text:
+        role: System
+        content: System message
+    - text:
+        role: User
+        content: User message
+    - tool:
+        name: doc_tool
+        call_id: call_1
+        output:
+          is_error: false
+          values:
+            - text: "[The document with ID 0 will be sent as an attachment in the next message]"
+    - text:
+        role: User
+        content: "[Here is the document attachment for ID 0]"
+    - document:
+        data: pdf_data
+        mime_type: application/pdf
+        filename: ~

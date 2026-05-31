@@ -66,7 +66,7 @@ mod tests {
 
     #[test]
     fn test_html_entities() {
-        insta::assert_snapshot!(render("&amp; &lt; &gt; &quot;"), @r#"& < > ""#);
+        insta::assert_snapshot!(render("&amp; &lt; &gt; &quot;"), @r###"& < > ""###);
     }
 
     #[test]
@@ -101,12 +101,12 @@ mod tests {
 
     #[test]
     fn test_link() {
-        insta::assert_snapshot!(render("[click](https://example.com)"), @r#"<a href="https://example.com">click</a>"#);
+        insta::assert_snapshot!(render("[click](https://example.com)"), @r###"<a href="https://example.com">click</a>"###);
     }
 
     #[test]
     fn test_image() {
-        insta::assert_snapshot!(render("![alt](image.png)"), @r#"<img alt="alt" src="image.png"/>"#);
+        insta::assert_snapshot!(render("![alt](image.png)"), @r###"<img alt="alt" src="image.png"/>"###);
     }
 
     #[test]
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_entities_in_link() {
-        insta::assert_snapshot!(render("[&lt;click&gt;](https://example.com)"), @r#"<a href="https://example.com"><click></a>"#);
+        insta::assert_snapshot!(render("[&lt;click&gt;](https://example.com)"), @r###"<a href="https://example.com"><click></a>"###);
     }
 
     #[test]
@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn test_link_special_url() {
-        insta::assert_snapshot!(render("[link](https://example.com/path?q=1&b=2)"), @r#"<a href="https://example.com/path?q=1&b=2">link</a>"#);
+        insta::assert_snapshot!(render("[link](https://example.com/path?q=1&b=2)"), @r###"<a href="https://example.com/path?q=1&b=2">link</a>"###);
     }
 
     #[test]
@@ -151,6 +151,6 @@ mod tests {
 
     #[test]
     fn test_image_empty_alt() {
-        insta::assert_snapshot!(render("![](image.png)"), @r#"<img alt="" src="image.png"/>"#);
+        insta::assert_snapshot!(render("![](image.png)"), @r###"<img alt="" src="image.png"/>"###);
     }
 }

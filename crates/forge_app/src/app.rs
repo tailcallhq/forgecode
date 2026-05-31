@@ -121,6 +121,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
                 .files(files.clone())
                 .max_extensions(forge_config.max_extensions)
                 .template_config(build_template_config(&forge_config))
+                .task_timeout_secs(forge_config.task_timeout_secs)
                 .add_system_message(conversation)
                 .await?;
 
@@ -130,6 +131,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             agent.clone(),
             chat.event.clone(),
             current_time,
+            environment.clone(),
         )
         .add_user_prompt(conversation)
         .await?;
@@ -171,16 +173,21 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             .on_toolcall_end(tracing_handler)
             .on_end(on_end_hook);
 
+        let config = self.services.get_config()?;
+        let retry_config = config.retry.unwrap_or_default();
+
         let orch = Orchestrator::new(
             services.clone(),
+            environment.clone(),
             conversation,
             agent,
-            self.services.get_config()?,
+            retry_config,
         )
         .error_tracker(ToolErrorTracker::new(max_tool_failure_per_turn))
         .tool_definitions(tool_definitions)
         .models(models)
-        .hook(Arc::new(hook));
+        .hook(Arc::new(hook))
+        .task_timeout_secs(config.task_timeout_secs);
 
         // Create and return the stream
         let stream = MpscStream::spawn(

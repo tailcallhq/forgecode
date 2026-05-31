@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use forge_app::domain::{
-    Attachment, AttachmentContent, DirectoryEntry, FileTag, Image, LineNumbers,
+    Attachment, AttachmentContent, DirectoryEntry, Document, FileTag, Image, LineNumbers,
 };
 use forge_app::utils::format_display_path;
 use forge_app::{
@@ -72,7 +72,7 @@ impl<
             });
         }
 
-        // Determine file type (text or image with format)
+        // Determine file type (text, image, or document)
         let mime_type = extension.and_then(|ext| match ext.as_str() {
             "jpeg" | "jpg" => Some("image/jpeg".to_string()),
             "png" => Some("image/png".to_string()),
@@ -81,30 +81,41 @@ impl<
         });
 
         //NOTE: Apply the same slicing as file reads for text content
-        let content = match mime_type {
-            Some(mime_type) => {
-                AttachmentContent::Image(Image::new_bytes(self.infra.read(&path).await?, mime_type))
+        let content = match mime_type.as_deref() {
+            Some(mime) if mime.starts_with("image/") => {
+                AttachmentContent::Image(Image::new_bytes(self.infra.read(&path).await?, mime))
             }
-            None => {
-                let start = tag.loc.as_ref().and_then(|loc| loc.start);
-                let end = tag.loc.as_ref().and_then(|loc| loc.end);
-                let max_read_lines = self.infra.get_config()?.max_read_lines;
-                let (start_line, end_line) = resolve_range(start, end, max_read_lines);
+            Some("application/pdf") => {
+                let raw = self.infra.read(&path).await?;
+                AttachmentContent::Document(Document::new_bytes(raw, "application/pdf"))
+            }
+            _ => {
+                // Read raw bytes first so we can sniff for PDF magic bytes
+                // before attempting a UTF-8 range read (which rejects binary files).
+                let raw = self.infra.read(&path).await?;
+                if raw.starts_with(b"%PDF-") {
+                    AttachmentContent::Document(Document::new_bytes(raw, "application/pdf"))
+                } else {
+                    let start = tag.loc.as_ref().and_then(|loc| loc.start);
+                    let end = tag.loc.as_ref().and_then(|loc| loc.end);
+                    let max_read_lines = self.infra.get_config()?.max_read_lines;
+                    let (start_line, end_line) = resolve_range(start, end, max_read_lines);
 
-                // range_read_utf8 returns the range content and FileInfo which
-                // carries a content_hash of the **full** file. Using the
-                // full-file hash ensures consistency with the external-change
-                // detector, which always hashes the entire file.
-                let (file_content, file_info) = self
-                    .infra
-                    .range_read_utf8(&path, start_line, end_line)
-                    .await?;
+                    // range_read_utf8 returns the range content and FileInfo which
+                    // carries a content_hash of the **full** file. Using the
+                    // full-file hash ensures consistency with the external-change
+                    // detector, which always hashes the entire file.
+                    let (file_content, file_info) = self
+                        .infra
+                        .range_read_utf8(&path, start_line, end_line)
+                        .await?;
 
-                AttachmentContent::FileContent {
-                    content: file_content
-                        .to_numbered_from(file_info.start_line as usize)
-                        .to_string(),
-                    info: file_info,
+                    AttachmentContent::FileContent {
+                        content: file_content
+                            .to_numbered_from(file_info.start_line as usize)
+                            .to_string(),
+                        info: file_info,
+                    }
                 }
             }
         };
@@ -169,7 +180,12 @@ pub mod tests {
         }
 
         fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
-            Ok(forge_config::ForgeConfig { max_read_lines: 2000, ..Default::default() })
+            Ok(forge_config::ForgeConfig {
+                max_read_lines: 2000,
+                max_file_size_bytes: 10 * 1024 * 1024, // 10MB
+                max_image_size_bytes: 5 * 1024 * 1024, // 5MB
+                ..Default::default()
+            })
         }
 
         async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
@@ -216,6 +232,11 @@ pub mod tests {
         pub fn add_file(&self, path: PathBuf, content: String) {
             let mut files = self.files.lock().unwrap();
             files.push((path, Bytes::from_owner(content)));
+        }
+
+        pub fn add_bytes(&self, path: PathBuf, content: Vec<u8>) {
+            let mut files = self.files.lock().unwrap();
+            files.push((path, Bytes::from(content)));
         }
 
         pub fn add_dir(&self, path: PathBuf) {
@@ -468,6 +489,10 @@ pub mod tests {
 
         pub fn add_file(&self, path: PathBuf, content: String) {
             self.file_service.add_file(path, content);
+        }
+
+        pub fn add_bytes(&self, path: PathBuf, content: Vec<u8>) {
+            self.file_service.add_bytes(path, content);
         }
     }
 

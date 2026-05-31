@@ -224,6 +224,18 @@ pub struct ForgeConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggest: Option<ModelConfig>,
 
+    /// Whether to enable background mode for CI/CD and automated workflows
+    /// where user interaction is limited.
+    #[serde(default)]
+    pub background: bool,
+
+    /// Maximum task execution time in seconds. When set, the remaining time
+    /// budget is injected into every tool result so agents can make
+    /// time-aware decisions. Maps to the `FORGE_TASK_TIMEOUT_SECS` environment
+    /// variable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_timeout_secs: Option<u64>,
+
     // --- Workflow fields ---
     /// Configuration for automatic Forge updates.
     #[serde(default, skip_serializing_if = "Option::is_none")]

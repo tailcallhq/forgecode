@@ -1,18 +1,5 @@
 use nu_ansi_term::{Color, Style};
-
-pub(crate) struct StyledText {
-    pub(crate) buffer: Vec<(Style, String)>,
-}
-
-impl StyledText {
-    pub fn new() -> Self {
-        Self { buffer: Vec::new() }
-    }
-
-    pub fn push(&mut self, value: (Style, String)) {
-        self.buffer.push(value);
-    }
-}
+use reedline::{Highlighter, StyledText};
 
 /// Syntax highlighter for the forge readline prompt.
 ///
@@ -24,8 +11,8 @@ impl StyledText {
 /// - All other text is rendered in the default terminal style.
 pub struct ForgeHighlighter;
 
-impl ForgeHighlighter {
-    pub(crate) fn highlight(&self, line: &str, _cursor: usize) -> StyledText {
+impl Highlighter for ForgeHighlighter {
+    fn highlight(&self, line: &str, _cursor: usize) -> StyledText {
         let mut styled = StyledText::new();
 
         if line.is_empty() {
