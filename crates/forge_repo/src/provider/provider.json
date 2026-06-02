@@ -108,7 +108,46 @@
     "response_type": "OpenAI",
     "url": "https://api.x.ai/v1/chat/completions",
     "models": "https://api.x.ai/v1/models",
-    "auth_methods": ["api_key"]
+    "auth_methods": [
+      {
+        "oauth_code": {
+          "auth_url": "https://auth.x.ai/oauth2/authorize",
+          "token_url": "https://auth.x.ai/oauth2/token",
+          "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "scopes": [
+            "openid",
+            "profile",
+            "email",
+            "offline_access",
+            "grok-cli:access",
+            "api:access"
+          ],
+          "redirect_uri": "http://127.0.0.1:56121/callback",
+          "use_pkce": true,
+          "extra_auth_params": {
+            "plan": "generic",
+            "referrer": "forgecode"
+          }
+        }
+      },
+      {
+        "oauth_device": {
+          "auth_url": "https://auth.x.ai/oauth2/device/code",
+          "token_url": "https://auth.x.ai/oauth2/token",
+          "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "scopes": [
+            "openid",
+            "profile",
+            "email",
+            "offline_access",
+            "grok-cli:access",
+            "api:access"
+          ],
+          "use_pkce": false
+        }
+      },
+      "api_key"
+    ]
   },
   {
     "id": "openai",
