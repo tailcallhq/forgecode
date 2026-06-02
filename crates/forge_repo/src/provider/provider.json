@@ -2507,6 +2507,16 @@
     "url": "https://{{#if HOSTNAME}}{{HOSTNAME}}{{else}}api.minimax.io{{/if}}/anthropic/v1/messages",
     "models": [
       {
+        "id": "MiniMax-M3",
+        "name": "MiniMax M3",
+        "description": "Latest generation MiniMax model with enhanced reasoning, function calling, and extended context",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
         "id": "MiniMax-M2.7",
         "name": "MiniMax M2.7",
         "description": "Peak performance model optimized for code generation and refactoring with advanced reasoning",
@@ -2520,56 +2530,6 @@
         "id": "MiniMax-M2.7-highspeed",
         "name": "MiniMax M2.7 Highspeed",
         "description": "Same performance as M2.7 with significantly faster inference (~100 tps)",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "MiniMax-M2.5",
-        "name": "MiniMax M2.5",
-        "description": "Peak performance model optimized for code generation and refactoring with advanced reasoning",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "MiniMax-M2.5-highspeed",
-        "name": "MiniMax M2.5 Highspeed",
-        "description": "Same performance as M2.5 with significantly faster inference (~100 tps)",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "MiniMax-M2.1",
-        "name": "MiniMax M2.1",
-        "description": "230B total parameters with 10B activated per inference, optimized for code generation and refactoring",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "MiniMax-M2.1-highspeed",
-        "name": "MiniMax M2.1 Highspeed",
-        "description": "Same performance as M2.1 with significantly faster inference (~100 tps)",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "MiniMax-M2",
-        "name": "MiniMax M2",
-        "description": "Agentic capabilities with advanced reasoning, function calling, and real-time streaming",
         "context_length": 204800,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
