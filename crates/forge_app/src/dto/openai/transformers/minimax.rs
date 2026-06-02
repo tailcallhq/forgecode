@@ -8,7 +8,8 @@ use crate::dto::openai::Request;
 /// for optimal performance:
 /// - Temperature: 1.0
 /// - Top P: 0.95
-/// - Top K: 40 (for m2.1), 20 (for all other models including M2, M2.5, M2.7, M3)
+/// - Top K: 40 (for m2.1), 20 (for all other models including M2, M2.5, M2.7,
+///   M3)
 ///
 /// These parameters are based on official MiniMax evaluation methodology
 /// (see VideoMMMU, Video-MME benchmarks in M3 blog post).
