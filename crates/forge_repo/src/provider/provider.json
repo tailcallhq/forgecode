@@ -1444,6 +1444,16 @@
         "input_modalities": ["text"]
       },
       {
+        "id": "minimax.minimax-m3",
+        "name": "MiniMax M3",
+        "description": "Frontier coding model with 1M context, MSA sparse attention, native multimodality, and agentic capabilities",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "minimax.minimax-m2.1",
         "name": "MiniMax M2.1",
         "description": "",
@@ -2516,6 +2526,16 @@
     "response_type": "Anthropic",
     "url": "https://{{#if HOSTNAME}}{{HOSTNAME}}{{else}}api.minimax.io{{/if}}/anthropic/v1/messages",
     "models": [
+      {
+        "id": "MiniMax-M3",
+        "name": "MiniMax M3",
+        "description": "Frontier coding model with 1M context, MSA sparse attention, native multimodality (image/video), and agentic capabilities",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
       {
         "id": "MiniMax-M2.7",
         "name": "MiniMax M2.7",
