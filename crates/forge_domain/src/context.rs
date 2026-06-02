@@ -524,24 +524,37 @@ impl Context {
         self
     }
 
-    /// Updates the set system message
+    /// Replaces any existing system messages with the provided content.
+    ///
+    /// All entries in `content` are joined into a single system message
+    /// (separated by `\n\n`) and inserted at position 0 of the message list.
+    /// This is required for compatibility with chat templates — such as
+    /// Qwen3.5/3.6 (llama.cpp, vLLM) — that only allow a single system
+    /// message at `messages[0]` and raise `raise_exception('System message
+    /// must be at the beginning.')` for any additional system message.
     pub fn set_system_messages<S: Into<String>>(mut self, content: Vec<S>) -> Self {
-        if self.messages.is_empty() {
-            for message in content {
-                self.messages
-                    .push(ContextMessage::system(message.into()).into());
-            }
-            self
-        } else {
-            // drop all the system messages;
-            self.messages.retain(|m| !m.has_role(Role::System));
-            // add the system message at the beginning.
-            for message in content.into_iter().rev() {
-                self.messages
-                    .insert(0, ContextMessage::system(message.into()).into());
-            }
-            self
+        // Drop every existing system message regardless of the new payload.
+        self.messages.retain(|m| !m.has_role(Role::System));
+
+        // Combine all provided system message entries into a single block.
+        let combined: String = content
+            .into_iter()
+            .map(Into::into)
+            .filter(|s: &String| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        if combined.is_empty() {
+            return self;
         }
+
+        // Insert the single, combined system message at the beginning of the
+        // message list, so chat templates that require `messages[0]` to be the
+        // (only) system message continue to work.
+        self.messages
+            .insert(0, ContextMessage::system(combined).into());
+
+        self
     }
 
     /// Converts the context to textual format
@@ -846,6 +859,65 @@ mod tests {
         assert_eq!(
             request.messages[0],
             ContextMessage::system("A system message").into(),
+        );
+    }
+
+    /// Regression test for #2894: chat templates such as Qwen3.5/3.6 (used by
+    /// llama.cpp and vLLM) only allow a single system message at
+    /// `messages[0]` and raise `raise_exception('System message must be at the
+    /// beginning.')` for any additional one. Therefore `set_system_messages`
+    /// must always produce exactly one system message in the context, no
+    /// matter how many entries are passed in.
+    #[test]
+    fn test_set_system_messages_collapses_into_single_message() {
+        // Fixture: multiple distinct system message blocks (mirroring what
+        // `system_prompt.rs` passes: the static agent prompt + the
+        // non-static agent template).
+        let request = Context::default().set_system_messages(vec![
+            "Static agent prompt",
+            "Non-static agent template",
+        ]);
+
+        let expected = ContextMessage::system("Static agent prompt\n\nNon-static agent template")
+            .into();
+
+        // The first message must be the single, combined system message.
+        assert_eq!(request.messages[0], expected);
+
+        // And there must be exactly one system message in the whole context.
+        let system_count = request
+            .messages
+            .iter()
+            .filter(|m| m.has_role(Role::System))
+            .count();
+        assert_eq!(system_count, 1);
+    }
+
+    /// Regression test for #2894: when called on a context that already
+    /// contains a pre-existing system message (e.g. an injected one from
+    /// earlier in the pipeline), the call must replace ALL of them with a
+    /// single combined message — never append a second one.
+    #[test]
+    fn test_set_system_messages_replaces_existing_single_system_message() {
+        let model = ModelId::new("test-model");
+        let request = Context::default()
+            .add_message(ContextMessage::system("Pre-existing system message"))
+            .add_message(ContextMessage::user("Do something", Some(model)))
+            .set_system_messages(vec!["First", "Second"]);
+
+        // The pre-existing system message must have been replaced (not
+        // retained or duplicated).
+        let system_count = request
+            .messages
+            .iter()
+            .filter(|m| m.has_role(Role::System))
+            .count();
+        assert_eq!(system_count, 1);
+
+        // The single remaining system message must be the combined payload.
+        assert_eq!(
+            request.messages[0],
+            ContextMessage::system("First\n\nSecond").into(),
         );
     }
 
