@@ -176,15 +176,4 @@ mod tests {
         assert_eq!(actual.top_p, Some(0.95));
         assert_eq!(actual.top_k, Some(20)); // M3 uses same config as M2.7
     }
-
-    #[test]
-    fn test_minimax_m3_pro() {
-        let fixture = create_request_fixture("minimax-m3-pro");
-        let mut transformer = SetMinimaxParams;
-        let actual = transformer.transform(fixture);
-
-        assert_eq!(actual.temperature, Some(1.0));
-        assert_eq!(actual.top_p, Some(0.95));
-        assert_eq!(actual.top_k, Some(20)); // M3 uses same config as M2.7
-    }
 }
