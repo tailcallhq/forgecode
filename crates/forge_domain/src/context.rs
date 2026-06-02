@@ -873,13 +873,11 @@ mod tests {
         // Fixture: multiple distinct system message blocks (mirroring what
         // `system_prompt.rs` passes: the static agent prompt + the
         // non-static agent template).
-        let request = Context::default().set_system_messages(vec![
-            "Static agent prompt",
-            "Non-static agent template",
-        ]);
+        let request = Context::default()
+            .set_system_messages(vec!["Static agent prompt", "Non-static agent template"]);
 
-        let expected = ContextMessage::system("Static agent prompt\n\nNon-static agent template")
-            .into();
+        let expected =
+            ContextMessage::system("Static agent prompt\n\nNon-static agent template").into();
 
         // The first message must be the single, combined system message.
         assert_eq!(request.messages[0], expected);
