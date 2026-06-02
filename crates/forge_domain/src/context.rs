@@ -526,31 +526,48 @@ impl Context {
 
     /// Replaces any existing system messages with the provided content.
     ///
-    /// All entries in `content` are joined into a single system message
-    /// (separated by `\n\n`) and inserted at position 0 of the message list.
-    /// This is required for compatibility with chat templates — such as
-    /// Qwen3.5/3.6 (llama.cpp, vLLM) — that only allow a single system
-    /// message at `messages[0]` and raise `raise_exception('System message
-    /// must be at the beginning.')` for any additional system message.
+    /// All non-empty entries in `content` are joined into a single system
+    /// message (separated by `\n\n`) and inserted at position 0 of the
+    /// message list. This is required for compatibility with chat templates
+    /// — such as Qwen3.5/3.6 served by llama.cpp or vLLM — that only allow
+    /// a single system message at `messages[0]` and raise the Jinja
+    /// exception shown below for any additional system message.
+    ///
+    /// If `content` is empty (or every entry is an empty string), every
+    /// existing system message is removed and no replacement is inserted.
+    /// Callers that want to preserve an existing system message should not
+    /// invoke this method with an empty payload.
+    ///
+    /// ```text
+    /// raise_exception('System message must be at the beginning.')
+    /// ```
     pub fn set_system_messages<S: Into<String>>(mut self, content: Vec<S>) -> Self {
         // Drop every existing system message regardless of the new payload.
         self.messages.retain(|m| !m.has_role(Role::System));
 
-        // Combine all provided system message entries into a single block.
-        let combined: String = content
+        // Combine all provided system message entries into a single block,
+        // skipping empty entries and inserting the `\n\n` separator only
+        // between non-empty entries — all in a single allocation.
+        let mut combined = String::new();
+        let mut iter = content
             .into_iter()
             .map(Into::into)
-            .filter(|s: &String| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n");
+            .filter(|s: &String| !s.is_empty());
+        if let Some(first) = iter.next() {
+            combined.push_str(&first);
+            for s in iter {
+                combined.push_str("\n\n");
+                combined.push_str(&s);
+            }
+        }
 
         if combined.is_empty() {
             return self;
         }
 
         // Insert the single, combined system message at the beginning of the
-        // message list, so chat templates that require `messages[0]` to be the
-        // (only) system message continue to work.
+        // message list, so chat templates that require `messages[0]` to be
+        // the (only) system message continue to work.
         self.messages
             .insert(0, ContextMessage::system(combined).into());
 
@@ -862,12 +879,16 @@ mod tests {
         );
     }
 
-    /// Regression test for #2894: chat templates such as Qwen3.5/3.6 (used by
-    /// llama.cpp and vLLM) only allow a single system message at
-    /// `messages[0]` and raise `raise_exception('System message must be at the
-    /// beginning.')` for any additional one. Therefore `set_system_messages`
-    /// must always produce exactly one system message in the context, no
-    /// matter how many entries are passed in.
+    /// Regression test for #2894: chat templates such as Qwen3.5/3.6
+    /// (served by llama.cpp or vLLM) only allow a single system message at
+    /// `messages[0]` and raise the Jinja exception shown below for any
+    /// additional one. Therefore `set_system_messages` must always produce
+    /// exactly one system message in the context, no matter how many entries
+    /// are passed in.
+    ///
+    /// ```text
+    /// raise_exception('System message must be at the beginning.')
+    /// ```
     #[test]
     fn test_set_system_messages_collapses_into_single_message() {
         // Fixture: multiple distinct system message blocks (mirroring what
@@ -917,6 +938,47 @@ mod tests {
             request.messages[0],
             ContextMessage::system("First\n\nSecond").into(),
         );
+    }
+
+    /// An empty `content` (or a vector of only empty strings) removes every
+    /// existing system message and inserts no replacement. This matches the
+    /// pre-#2894 behavior on the non-empty branch and is now part of the
+    /// public contract of `set_system_messages`.
+    #[test]
+    fn test_set_system_messages_with_empty_payload_clears_existing() {
+        let model = ModelId::new("test-model");
+        let request = Context::default()
+            .add_message(ContextMessage::system("Pre-existing system message"))
+            .add_message(ContextMessage::user("Do something", Some(model)))
+            .set_system_messages(Vec::<String>::new());
+
+        // No system message should remain after the call.
+        let system_count = request
+            .messages
+            .iter()
+            .filter(|m| m.has_role(Role::System))
+            .count();
+        assert_eq!(system_count, 0);
+
+        // The user message must be preserved.
+        assert_eq!(request.messages.len(), 1);
+    }
+
+    /// When every entry in `content` is an empty string, the result must be
+    /// the same as passing an empty `content`: no system message is
+    /// inserted.
+    #[test]
+    fn test_set_system_messages_with_only_empty_strings_clears_existing() {
+        let request = Context::default()
+            .add_message(ContextMessage::system("Pre-existing system message"))
+            .set_system_messages(vec!["", "", ""]);
+
+        let system_count = request
+            .messages
+            .iter()
+            .filter(|m| m.has_role(Role::System))
+            .count();
+        assert_eq!(system_count, 0);
     }
 
     #[test]
