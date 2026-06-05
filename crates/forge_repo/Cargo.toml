@@ -37,6 +37,7 @@ aws-smithy-types.workspace = true
 aws-smithy-runtime-api.workspace = true
 aws-smithy-async.workspace = true
 aws-smithy-runtime.workspace = true
+aws-sigv4.workspace = true
 lazy_static.workspace = true
 derive_setters.workspace = true
 base64.workspace = true

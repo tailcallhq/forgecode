@@ -1,7 +1,11 @@
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use anyhow::Context as _;
 use async_openai::types::responses as oai;
+use aws_credential_types::provider::ProvideCredentials as _;
+use aws_sigv4::http_request::{SignableBody, SignableRequest, SigningSettings, sign};
+use aws_sigv4::sign::v4;
 use forge_app::domain::{
     ChatCompletionMessage, Context as ChatContext, Model, ModelId, ResultStream,
 };
@@ -44,6 +48,7 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
         if provider.id == ProviderId::CODEX
             || provider.id == ProviderId::OPENCODE_ZEN
             || provider.id == ProviderId::OPENAI_RESPONSES_COMPATIBLE
+            || provider.url.path().trim_end_matches('/').ends_with("/responses")
         {
             // These providers already configure a complete Responses endpoint,
             // so preserve the configured path exactly as-is.
@@ -147,6 +152,113 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
 
         headers
     }
+
+    /// Computes SigV4 signing headers for an AWS-authenticated request.
+    ///
+    /// When the provider credential is `AuthDetails::AwsProfile`, this loads
+    /// credentials via the named AWS profile and returns the Authorization,
+    /// x-amz-date, and (when present) x-amz-security-token headers that must
+    /// be added to the outgoing request.  The exact same `content-type` and
+    /// `host` values that are passed to this function must be sent with the
+    /// request, since SigV4 includes them in the signature.
+    ///
+    /// Returns `None` when the provider is not configured with an AWS profile.
+    async fn sigv4_headers(
+        &self,
+        method: &str,
+        url: &Url,
+        body: &[u8],
+        content_type: &str,
+    ) -> anyhow::Result<Option<Vec<(String, String)>>> {
+        let profile = match self
+            .provider
+            .credential
+            .as_ref()
+            .map(|c| &c.auth_details)
+        {
+            Some(forge_domain::AuthDetails::AwsProfile(p)) => p.as_ref().to_string(),
+            _ => return Ok(None),
+        };
+
+        // Read region from url_params, defaulting to us-east-1.
+        let region: String = self
+            .provider
+            .credential
+            .as_ref()
+            .and_then(|c| {
+                let key: forge_domain::URLParam = "AWS_REGION".to_string().into();
+                c.url_params.get(&key).map(|v| v.to_string())
+            })
+            .unwrap_or_else(|| "us-east-1".to_string());
+
+        // Load credentials via the named profile.
+        let sdk_config = aws_config::from_env()
+            .profile_name(&profile)
+            .region(aws_sdk_bedrockruntime::config::Region::new(region.clone()))
+            .load()
+            .await;
+
+        let creds_provider = sdk_config
+            .credentials_provider()
+            .context("No credentials provider found for AWS profile")?;
+
+        let creds = creds_provider
+            .provide_credentials()
+            .await
+            .context("Failed to load AWS credentials from profile")?;
+
+        // Build an Identity from the Credentials.
+        let identity: aws_smithy_runtime_api::client::identity::Identity = creds.clone().into();
+
+        // Build signing params.
+        let signing_settings = SigningSettings::default();
+        let signing_params = v4::SigningParams::builder()
+            .identity(&identity)
+            .region(region.as_str())
+            .name("bedrock")
+            .time(SystemTime::now())
+            .settings(signing_settings)
+            .build()
+            .context("Failed to build SigV4 signing params")?
+            .into();
+
+        let host = url.host_str().context("URL has no host")?;
+
+        // The headers we sign must be exactly what we send.
+        let headers_to_sign = [("host", host), ("content-type", content_type)];
+
+        let signable_request = SignableRequest::new(
+            method,
+            url.as_str(),
+            headers_to_sign.iter().map(|(k, v)| (*k, *v)),
+            SignableBody::Bytes(body),
+        )
+        .context("Failed to build signable request")?;
+
+        let (signing_instructions, _signature) =
+            sign(signable_request, &signing_params)
+                .context("SigV4 signing failed")?
+                .into_parts();
+
+        // Collect headers from signing instructions (Authorization, x-amz-date, etc.).
+        let mut result: Vec<(String, String)> = signing_instructions
+            .headers()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+
+        // Manually add x-amz-security-token if the credentials carry a session
+        // token and it wasn't already included by the signing instructions.
+        if let Some(token) = creds.session_token() {
+            let already_present = result
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case("x-amz-security-token"));
+            if !already_present {
+                result.push(("x-amz-security-token".to_string(), token.to_string()));
+            }
+        }
+
+        Ok(Some(result))
+    }
 }
 
 impl<T: HttpInfra> OpenAIResponsesProvider<T> {
@@ -156,7 +268,7 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
         context: ChatContext,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
         let conversation_id = context.conversation_id.as_ref().map(ToString::to_string);
-        let headers = create_headers(self.get_headers_for_conversation(conversation_id.as_deref()));
+        let mut headers = create_headers(self.get_headers_for_conversation(conversation_id.as_deref()));
         let mut request = oai::CreateResponse::from_domain(context)?;
         request.model = Some(model.as_str().to_string());
 
@@ -186,6 +298,31 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
         // eventsource-stream, exactly like the AI SDK does.
         if self.provider.id == forge_domain::ProviderId::CODEX {
             return self.chat_codex_stream(headers, json_bytes).await;
+        }
+
+        // For AWS profile auth, sign the request with SigV4 before dispatch.
+        if let Some(sig_headers) = self
+            .sigv4_headers("POST", &self.responses_url, &json_bytes, "application/json")
+            .await?
+        {
+            // Ensure content-type is present (SigV4 signed it; it must be sent).
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            for (k, v) in sig_headers {
+                if let (Ok(name), Ok(value)) = (
+                    reqwest::header::HeaderName::from_bytes(k.as_bytes()),
+                    reqwest::header::HeaderValue::from_str(&v),
+                ) {
+                    headers.insert(name, value);
+                }
+            }
+            // Identify the client to the Mantle endpoint.
+            headers.insert(
+                reqwest::header::HeaderName::from_static("x-amzn-mantle-client-agent"),
+                reqwest::header::HeaderValue::from_static("forge"),
+            );
         }
 
         let source = self

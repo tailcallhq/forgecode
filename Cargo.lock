@@ -2549,6 +2549,7 @@ dependencies = [
  "aws-config",
  "aws-credential-types",
  "aws-sdk-bedrockruntime",
+ "aws-sigv4",
  "aws-smithy-async",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
