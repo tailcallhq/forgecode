@@ -16,7 +16,7 @@ streamdown-render = "0.1.4"
 syntect.workspace = true
 colored.workspace = true
 unicode-width = "0.2"
-unicode-segmentation = "1.12"
+unicode-segmentation = "1.13"
 terminal-colorsaurus = "1.0.3"
 
 [dev-dependencies]
