@@ -1568,7 +1568,7 @@ mod tests {
         let mut fixture = MockServer::new().await;
 
         let _mock = fixture
-            .mock_codex_responses_stream("/backend-api/codex/responses", vec![], 400)
+            .mock_codex_responses_stream("/backend-api/codex/responses", vec![], 429)
             .await;
 
         let codex_url = format!("{}/backend-api/codex/responses", fixture.url());
@@ -1593,8 +1593,10 @@ mod tests {
         let actual = provider_impl
             .chat(&ModelId::from("gpt-5.1-codex"), context)
             .await;
+        let actual = actual.err().expect("chat should fail with status error");
 
-        assert!(actual.is_err());
+        let expected = Some(429);
+        assert_eq!(retry::get_api_status_code(&actual), expected);
 
         Ok(())
     }
