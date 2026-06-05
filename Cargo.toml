@@ -111,7 +111,7 @@ terminal_size = "0.4"
 unicode-width = "0.2"
 backon = "1.5.2"
 eserde = "0.1.7"
-uuid = { version = "1.23.0", features = [
+uuid = { version = "1.23.2", features = [
     "v4",
     "fast-rng",
     "serde",
