@@ -35,7 +35,7 @@ forge_walker.workspace = true
 forge_eventsource.workspace = true
 glob.workspace = true
 futures.workspace = true
-diesel = { version= "2.3.7", features = ["sqlite", "r2d2", "chrono"] }
+diesel = { version= "2.3.10", features = ["sqlite", "r2d2", "chrono"] }
 libsqlite3-sys = { version = "0.37.0", features = ["bundled"] }
 diesel_migrations = "2.2.0"
 chrono = { version = "0.4", features = ["serde"] }

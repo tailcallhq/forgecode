@@ -42,7 +42,7 @@ derive_setters.workspace = true
 base64.workspace = true
 schemars.workspace = true
 chrono = { version = "0.4", features = ["serde"] }
-diesel = { version = "2.3.7", features = ["sqlite", "r2d2", "chrono"] }
+diesel = { version = "2.3.10", features = ["sqlite", "r2d2", "chrono"] }
 diesel_migrations = "2.2.0"
 thiserror.workspace = true
 derive_more.workspace = true
