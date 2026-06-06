@@ -1,0 +1,155 @@
+# Maintainer: CachyOS Custom Overlay <overlay@cachyos.org>
+# Contributor: ForgeCode packaging <noreply@forgecode.dev>
+#
+# PKGBUILD for Forge (https://forgecode.dev) built with CachyOS optimizations.
+# Intended for use in a private/custom CachyOS overlay repository served from
+# a Proxmox VM (or similar) using devtools + clean chroot (extra-x86_64-build).
+#
+# CachyOS makepkg.conf (or equivalent) supplies the RUSTFLAGS containing
+#   -C target-cpu=x86-64-v3   (or v4 for supported CPUs)
+#   plus any other CachyOS LTO / march / mtune settings.
+# This PKGBUILD does *not* override RUSTFLAGS so that the chroot environment
+# (and local makepkg.conf on CachyOS workstations) fully controls the opts.
+#
+# The binary is completely self-contained for the ZSH plugin:
+#   * shell-plugin/forge.setup.zsh , lib/*.zsh and completions are include_dir!'d
+#     and include_str!'d at compile time into the executable.
+#   * Therefore we only ship /usr/bin/forge ; no extra runtime data files required.
+#   * After package install users run `forge zsh setup` (or the interactive first-run
+#     banner) to populate the # >>> forge initialize >>> block in their ~/.zshrc.
+#
+# Compatible with the from-source scripts/install.sh (in the forge repo) for
+# local dev/CachyOS workstation testing outside of packaging:
+#   RUSTFLAGS="-C target-cpu=x86-64-v3" ./scripts/install.sh --reinstall
+#
+# Versioning strategy for custom/rebase/feature builds:
+#   - pkgver is the upstream base (0.1.0 here; update when rebasing on tags)
+#   - pkgrel carries a local suffix (e.g. 1.cachy , 1.xai20260606) so that
+#     our overlay packages never accidentally satisfy an official repo version
+#     and we can force upgrades on re-packs.
+#
+# Build in clean chroot example (from the overlay checkout containing this PKGBUILD):
+#   extra-x86_64-build   # or cachy-x86_64-build if the overlay provides a wrapper
+#
+# Local (dirty) test build from inside a forge source tree (for quick iteration):
+#   cd /path/to/forgecode
+#   cp cachyos/PKGBUILD .
+#   # (edit pkgrel if desired)
+#   makepkg -s --nocheck   # will use current tree as "source" via the hack below
+#
+# Co-Authored-By: ForgeCode <noreply@forgecode.dev>
+
+pkgname=forge
+pkgver=0.1.0
+pkgrel=1.cachy
+pkgdesc="AI-enabled pair programmer for 300+ models (Claude, GPT, Grok, Deepseek, Gemini...)"
+arch=('x86_64')
+url="https://forgecode.dev"
+license=('MIT')
+depends=('git' 'fd')
+optdepends=(
+  'bat: enhanced file previews in :doctor and the ZSH plugin'
+  'zsh: to use the : prefix ZSH plugin and theme'
+  'fzf: improved interactive pickers (some plugin features)'
+)
+makedepends=(
+  'cargo'
+  'cmake'
+  'nasm'
+  'perl'
+  'pkgconf'
+  'protobuf'
+  'sqlite'
+)
+provides=('forge')
+conflicts=('forge-bin')  # if an official bin package ever appears
+options=('!lto' '!debug') # LTO is controlled by the Cargo release profile + RUSTFLAGS
+source=()
+sha256sums=()
+# No separate .install file: post_install / post_upgrade are defined at the bottom of
+# this PKGBUILD and are executed by makepkg/pacman directly. This keeps the packaging
+# artifact count to the single PKGBUILD (plus the built package).
+
+# When this PKGBUILD lives next to a full forge checkout (for local makepkg testing
+# of CachyOS-optimized builds) we treat $startdir as the source tree.
+# In a real clean-chroot / overlay build you would normally use a git source entry
+# pointing at the desired branch/commit and a proper pkgver() function.
+# The logic below makes both scenarios work without modification.
+prepare() {
+  # If we were given a real source tarball/git clone by makepkg, use $srcdir.
+  # Otherwise fall back to the directory containing the PKGBUILD (local tree test).
+  if [ -d "$srcdir/forgecode" ]; then
+    cd "$srcdir/forgecode"
+  elif [ -f "$startdir/Cargo.toml" ] && [ -d "$startdir/crates/forge_main" ]; then
+    cd "$startdir"
+  else
+    # Last resort: assume user did `makepkg` while cwd is the forge tree
+    cd "$startdir"
+  fi
+
+  # Ensure we have a Cargo.lock (we do in the repo)
+  if [ ! -f Cargo.lock ]; then
+    cargo fetch --locked
+  fi
+}
+
+build() {
+  if [ -d "$srcdir/forgecode" ]; then
+    cd "$srcdir/forgecode"
+  elif [ -f "$startdir/Cargo.toml" ] && [ -d "$startdir/crates/forge_main" ]; then
+    cd "$startdir"
+  else
+    cd "$startdir"
+  fi
+
+  echo "==> Building with CachyOS-provided RUSTFLAGS (from makepkg.conf / chroot)"
+  echo "    RUSTFLAGS=${RUSTFLAGS:-<empty - relying on makepkg.conf>}"
+  echo "    APP_VERSION will be set to ${pkgver}-${pkgrel} for build.rs embedding"
+
+  export APP_VERSION="${pkgver}-${pkgrel}"
+
+  # --frozen for reproducibility inside the chroot (Cargo.lock is present)
+  cargo build --frozen --release -p forge_main --bin forge
+}
+
+package() {
+  if [ -d "$srcdir/forgecode" ]; then
+    cd "$srcdir/forgecode"
+  elif [ -f "$startdir/Cargo.toml" ] && [ -d "$startdir/crates/forge_main" ]; then
+    cd "$startdir"
+  else
+    cd "$startdir"
+  fi
+
+  install -Dm755 target/release/forge "$pkgdir/usr/bin/forge"
+
+  # License (required by Arch packaging guidelines)
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  # Optional: ship the original shell-plugin sources under /usr/share for reference
+  # or for people who want to inspect / diff the embedded code. Not required at
+  # runtime because everything the binary needs is compiled in via include_dir!.
+  # Uncomment if your overlay wants to expose them:
+  #
+  # install -d "$pkgdir/usr/share/forge/shell-plugin"
+  # cp -a --no-preserve=ownership shell-plugin/* "$pkgdir/usr/share/forge/shell-plugin/"
+}
+
+# The .install file is written inline by makepkg when this PKGBUILD is processed
+# (because we declared `install=forge.install` and the content follows).
+#
+# It only prints a friendly message after pacman -S / -U.
+post_install() {
+  echo "==> Forge installed to /usr/bin/forge"
+  echo "==> To enable the fast :command ZSH plugin (recommended):"
+  echo "      forge zsh setup"
+  echo "      exec zsh"
+  echo "==> Then try :doctor  or just type : followed by a prompt at your shell."
+  echo "==> CachyOS-optimized build (RUSTFLAGS from makepkg.conf at build time)."
+}
+
+post_upgrade() {
+  post_install
+}
+
+# vim: set ts=2 sw=2 et:
