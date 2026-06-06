@@ -619,6 +619,35 @@
     "auth_methods": ["api_key"]
   },
   {
+    "id": "bedrock_openai_responses",
+    "url_param_vars": ["AWS_REGION"],
+    "response_type": "OpenAIResponses",
+    "url": "https://bedrock-mantle.{{AWS_REGION}}.api.aws/openai/v1/responses",
+    "models": [
+      {
+        "id": "gpt-5.5",
+        "name": "GPT-5.5",
+        "description": "OpenAI GPT-5.5 served via AWS Bedrock (OpenAI Responses wire, SigV4 auth)",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.4",
+        "name": "GPT-5.4",
+        "description": "OpenAI GPT-5.4 served via AWS Bedrock (OpenAI Responses wire, SigV4 auth)",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      }
+    ],
+    "auth_methods": ["aws_profile"]
+  },
+  {
     "id": "anthropic",
     "api_key_vars": "ANTHROPIC_API_KEY",
     "url_param_vars": [],

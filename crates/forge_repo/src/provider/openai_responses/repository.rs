@@ -923,6 +923,42 @@ mod tests {
     }
 
     #[test]
+    fn test_openai_responses_provider_new_preserves_bedrock_mantle_responses_path() {
+        // Bedrock's OpenAI-compatible endpoint serves /openai/v1/responses and must
+        // NOT be rewritten to /v1/responses (that rewrite hit the wrong path). The
+        // path-preservation branch keys off the URL ending in `/responses`,
+        // independent of provider id, which is what lets a Bedrock provider use it.
+        let provider = Provider {
+            id: ProviderId::from("bedrock_openai_responses".to_string()),
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(ProviderResponse::OpenAIResponses),
+            url: Url::parse("https://bedrock-mantle.us-east-1.api.aws/openai/v1/responses")
+                .unwrap(),
+            credential: make_credential(
+                ProviderId::from("bedrock_openai_responses".to_string()),
+                "test-key",
+            ),
+            custom_headers: None,
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            models: None,
+        };
+        let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
+        let provider_impl = OpenAIResponsesProvider::<MockHttpClient>::new(provider, infra);
+
+        // Full path preserved (not collapsed to /v1/responses).
+        assert_eq!(
+            provider_impl.responses_url.as_str(),
+            "https://bedrock-mantle.us-east-1.api.aws/openai/v1/responses"
+        );
+        // api_base is the same URL with the trailing /responses trimmed.
+        assert_eq!(
+            provider_impl.api_base.as_str(),
+            "https://bedrock-mantle.us-east-1.api.aws/openai/v1"
+        );
+    }
+
+    #[test]
     fn test_openai_responses_provider_new_with_codex_url() {
         let provider = Provider {
             id: ProviderId::CODEX,
