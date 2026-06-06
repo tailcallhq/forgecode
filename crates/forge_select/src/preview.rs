@@ -8,8 +8,8 @@ use std::{cmp, fmt};
 use bstr::ByteSlice;
 use crossterm::cursor::{Hide, MoveTo, MoveToColumn, MoveUp, Show};
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-    MouseEventKind,
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers, MouseEventKind,
 };
 use crossterm::style::{
     Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
@@ -435,6 +435,12 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
 
         if event::poll(Duration::from_millis(250))? {
             match event::read()? {
+                // On Windows, crossterm reports key Release events in addition
+                // to Press/Repeat (Unix reports only Press). Ignore Release so a
+                // stray Release — notably the Release of the Enter key that
+                // opened this picker — isn't read as a fresh keystroke that
+                // instantly accepts the default selection and closes the picker.
+                Event::Key(key) if key.kind == KeyEventKind::Release => {}
                 Event::Key(key) => {
                     match handle_key_event(
                         key,
