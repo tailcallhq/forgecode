@@ -252,9 +252,7 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                         Err(forge_eventsource::Error::InvalidStatusCode(status, response)) => {
                             let (_, reason) = read_http_error_reason(*response).await;
                             Some(Err(anyhow::Error::from(
-                                forge_app::dto::openai::Error::InvalidStatusCode(
-                                    status.as_u16(),
-                                ),
+                                forge_app::dto::openai::Error::InvalidStatusCode(status.as_u16()),
                             )
                             .context(reason)
                             .context(format_http_context(None, "POST", &url))))
@@ -263,9 +261,7 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                             let status = response.status();
                             let (_, reason) = read_http_error_reason(*response).await;
                             Some(Err(anyhow::Error::from(
-                                forge_app::dto::openai::Error::InvalidStatusCode(
-                                    status.as_u16(),
-                                ),
+                                forge_app::dto::openai::Error::InvalidStatusCode(status.as_u16()),
                             )
                             .context(reason)
                             .context(format_http_context(None, "POST", &url))))
@@ -1726,13 +1722,13 @@ mod tests {
         assert_eq!(retry::get_api_status_code(&error), expected);
 
         // Verify it is classified as retryable
-        let retry_config = forge_config::RetryConfig::default()
-            .status_codes(vec![429, 500, 502, 503, 504]);
+        let retry_config =
+            forge_config::RetryConfig::default().status_codes(vec![429, 500, 502, 503, 504]);
         let retry_error = retry::into_retry(error, &retry_config);
         assert!(
-            retry_error.downcast_ref::<forge_domain::Error>().is_some_and(|e| {
-                matches!(e, forge_domain::Error::Retryable(_))
-            }),
+            retry_error
+                .downcast_ref::<forge_domain::Error>()
+                .is_some_and(|e| { matches!(e, forge_domain::Error::Retryable(_)) }),
             "503 error should be classified as retryable"
         );
 
