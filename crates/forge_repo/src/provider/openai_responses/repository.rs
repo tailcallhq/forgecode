@@ -48,7 +48,11 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
         if provider.id == ProviderId::CODEX
             || provider.id == ProviderId::OPENCODE_ZEN
             || provider.id == ProviderId::OPENAI_RESPONSES_COMPATIBLE
-            || provider.url.path().trim_end_matches('/').ends_with("/responses")
+            || provider
+                .url
+                .path()
+                .trim_end_matches('/')
+                .ends_with("/responses")
         {
             // These providers already configure a complete Responses endpoint,
             // so preserve the configured path exactly as-is.
@@ -170,12 +174,7 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
         body: &[u8],
         content_type: &str,
     ) -> anyhow::Result<Option<Vec<(String, String)>>> {
-        let profile = match self
-            .provider
-            .credential
-            .as_ref()
-            .map(|c| &c.auth_details)
-        {
+        let profile = match self.provider.credential.as_ref().map(|c| &c.auth_details) {
             Some(forge_domain::AuthDetails::AwsProfile(p)) => p.as_ref().to_string(),
             _ => return Ok(None),
         };
@@ -235,10 +234,9 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
         )
         .context("Failed to build signable request")?;
 
-        let (signing_instructions, _signature) =
-            sign(signable_request, &signing_params)
-                .context("SigV4 signing failed")?
-                .into_parts();
+        let (signing_instructions, _signature) = sign(signable_request, &signing_params)
+            .context("SigV4 signing failed")?
+            .into_parts();
 
         // Collect headers from signing instructions (Authorization, x-amz-date, etc.).
         let mut result: Vec<(String, String)> = signing_instructions
@@ -268,7 +266,8 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
         context: ChatContext,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
         let conversation_id = context.conversation_id.as_ref().map(ToString::to_string);
-        let mut headers = create_headers(self.get_headers_for_conversation(conversation_id.as_deref()));
+        let mut headers =
+            create_headers(self.get_headers_for_conversation(conversation_id.as_deref()));
         let mut request = oai::CreateResponse::from_domain(context)?;
         request.model = Some(model.as_str().to_string());
 
