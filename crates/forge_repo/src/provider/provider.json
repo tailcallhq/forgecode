@@ -2748,6 +2748,46 @@
     "url": "https://opencode.ai/zen",
     "models": [
       {
+        "id": "grok-build-0.1",
+        "name": "Grok Build 0.1",
+        "description": "",
+        "context_length": 256000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gemini-3.5-flash",
+        "name": "Gemini 3.5 Flash",
+        "description": "",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "claude-opus-4-8",
+        "name": "Claude Opus 4.8",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "claude-opus-4-6",
+        "name": "Claude Opus 4.6",
+        "description": "Most powerful Claude model - latest version",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-opus-4-5",
         "name": "Claude Opus 4.5",
         "description": "Most powerful Claude model",
@@ -2758,10 +2798,10 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "claude-sonnet-4",
-        "name": "Claude Sonnet 4",
-        "description": "Balanced Claude model",
-        "context_length": 1000000,
+        "id": "claude-opus-4-1",
+        "name": "Claude Opus 4.1",
+        "description": "Powerful Claude model for complex tasks",
+        "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -2778,40 +2818,20 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "grok-build-0.1",
-        "name": "Grok Build 0.1",
-        "description": "",
-        "context_length": 256000,
+        "id": "claude-sonnet-4-5",
+        "name": "Claude Sonnet 4.5",
+        "description": "Balanced Claude model for everyday tasks",
+        "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "gpt-5.2",
-        "name": "GPT-5.2",
-        "description": "Frontier model with improvements across knowledge, reasoning and coding",
-        "context_length": 400000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-5-codex",
-        "name": "GPT-5 Codex",
-        "description": "GPT-5 model optimized for coding",
-        "context_length": 400000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-5",
-        "name": "GPT-5",
-        "description": "Latest GPT-5 model",
-        "context_length": 400000,
+        "id": "claude-sonnet-4",
+        "name": "Claude Sonnet 4",
+        "description": "Balanced Claude model",
+        "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -2824,6 +2844,26 @@
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": false,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gemini-3.1-pro",
+        "name": "Gemini 3.1 Pro Preview",
+        "description": "Google's advanced multimodal model",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gemini-3-flash",
+        "name": "Gemini 3 Flash",
+        "description": "Google's fast multimodal model",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
       },
@@ -2842,6 +2882,186 @@
         "name": "GPT-5.4",
         "description": "GPT 5.4 frontier model for complex professional work",
         "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.3-codex-spark",
+        "name": "GPT-5.3 Codex Spark",
+        "description": "Latest GPT-5.3 Codex Spark model for agentic coding",
+        "context_length": 128000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "gpt-5.3-codex",
+        "name": "GPT-5.3 Codex",
+        "description": "Latest GPT-5.3 Codex model optimized for agentic coding",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.2",
+        "name": "GPT-5.2",
+        "description": "Frontier model with improvements across knowledge, reasoning and coding",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.2-codex",
+        "name": "GPT-5.2 Codex",
+        "description": "Frontier agentic coding model",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.1",
+        "name": "GPT-5.1",
+        "description": "Advanced GPT-5 model for complex tasks",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.1-codex-max",
+        "name": "GPT-5.1 Codex Max",
+        "description": "Most powerful GPT-5.1 Codex model",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.1-codex",
+        "name": "GPT-5.1 Codex",
+        "description": "GPT-5.1 model optimized for coding",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.1-codex-mini",
+        "name": "GPT-5.1 Codex Mini",
+        "description": "Fast and efficient GPT-5.1 Codex mini model for quick coding tasks",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5",
+        "name": "GPT-5",
+        "description": "Latest GPT-5 model",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5-codex",
+        "name": "GPT-5 Codex",
+        "description": "GPT-5 model optimized for coding",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5-nano",
+        "name": "GPT-5 Nano",
+        "description": "Cheapest GPT-5-class model for simple high-volume tasks",
+        "context_length": 400000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "glm-5",
+        "name": "GLM-5",
+        "description": "GLM 5 model from Zhipu AI",
+        "context_length": 204800,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "glm-5.1",
+        "name": "GLM-5.1",
+        "description": "Latest flagship model series, foundational models specifically designed for agent applications with 200K context window and 128K maximum output",
+        "context_length": 204800,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "minimax-m2.5",
+        "name": "MiniMax M2.5",
+        "description": "MiniMax M2.5 model for coding and reasoning",
+        "context_length": 204800,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "kimi-k2.5",
+        "name": "Kimi K2.5",
+        "description": "Moonshot AI Kimi K2.5 model",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "big-pickle",
+        "name": "Big Pickle",
+        "description": "Stealth model - free for testing",
+        "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "qwen3.6-plus",
+        "name": "Qwen3.6 Plus",
+        "description": "Advanced reasoning model with enhanced capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k2.6",
+        "name": "Kimi K2.6",
+        "description": "Moonshot AI Kimi K2.6 model with multimodal input, reasoning, and tool calling capabilities",
+        "context_length": 262144,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -2868,66 +3088,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "kimi-k2.6",
-        "name": "Kimi K2.6",
-        "description": "Moonshot AI Kimi K2.6 model with multimodal input, reasoning, and tool calling capabilities",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-5.1",
-        "name": "GPT-5.1",
-        "description": "Advanced GPT-5 model for complex tasks",
-        "context_length": 400000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-5-nano",
-        "name": "GPT-5 Nano",
-        "description": "Cheapest GPT-5-class model for simple high-volume tasks",
-        "context_length": 400000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "claude-opus-4-1",
-        "name": "Claude Opus 4.1",
-        "description": "Powerful Claude model for complex tasks",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-5.1-codex-max",
-        "name": "GPT-5.1 Codex Max",
-        "description": "Most powerful GPT-5.1 Codex model",
-        "context_length": 400000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-5.1-codex-mini",
-        "name": "GPT-5.1 Codex Mini",
-        "description": "Fast and efficient GPT-5.1 Codex mini model for quick coding tasks",
-        "context_length": 400000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "nemotron-3-ultra-free",
         "name": "Nemotron 3 Ultra Free",
         "description": "",
@@ -2936,26 +3096,6 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text"]
-      },
-      {
-        "id": "gemini-3-flash",
-        "name": "Gemini 3 Flash",
-        "description": "Google's fast multimodal model",
-        "context_length": 1048576,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "qwen3.6-plus",
-        "name": "Qwen3.6 Plus",
-        "description": "Advanced reasoning model with enhanced capabilities",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
       },
       {
         "id": "mimo-v2.5-free",
@@ -2978,50 +3118,10 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "gpt-5.3-codex",
-        "name": "GPT-5.3 Codex",
-        "description": "Latest GPT-5.3 Codex model optimized for agentic coding",
-        "context_length": 400000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-5.3-codex-spark",
-        "name": "GPT-5.3 Codex Spark",
-        "description": "Latest GPT-5.3 Codex Spark model for agentic coding",
-        "context_length": 128000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
         "id": "gpt-5.5-pro",
         "name": "GPT-5.5 Pro",
         "description": "",
         "context_length": 1050000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gemini-3.1-pro",
-        "name": "Gemini 3.1 Pro Preview",
-        "description": "Google's advanced multimodal model",
-        "context_length": 1048576,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gemini-3.5-flash",
-        "name": "Gemini 3.5 Flash",
-        "description": "",
-        "context_length": 1048576,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -3036,16 +3136,6 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text"]
-      },
-      {
-        "id": "gpt-5.2-codex",
-        "name": "GPT-5.2 Codex",
-        "description": "Frontier agentic coding model",
-        "context_length": 400000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
       },
       {
         "id": "minimax-m2.7",
@@ -3068,70 +3158,10 @@
         "input_modalities": ["text"]
       },
       {
-        "id": "claude-opus-4-8",
-        "name": "Claude Opus 4.8",
-        "description": "",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "glm-5",
-        "name": "GLM-5",
-        "description": "GLM 5 model from Zhipu AI",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "gpt-5.1-codex",
-        "name": "GPT-5.1 Codex",
-        "description": "GPT-5.1 model optimized for coding",
-        "context_length": 400000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "big-pickle",
-        "name": "Big Pickle",
-        "description": "Stealth model - free for testing",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
         "id": "minimax-m3-free",
         "name": "MiniMax M3 Free",
         "description": "",
         "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "minimax-m2.5",
-        "name": "MiniMax M2.5",
-        "description": "MiniMax M2.5 model for coding and reasoning",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "claude-sonnet-4-5",
-        "name": "Claude Sonnet 4.5",
-        "description": "Balanced Claude model for everyday tasks",
-        "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -3148,26 +3178,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "claude-opus-4-6",
-        "name": "Claude Opus 4.6",
-        "description": "Most powerful Claude model - latest version",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "kimi-k2.5",
-        "name": "Kimi K2.5",
-        "description": "Moonshot AI Kimi K2.5 model",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "claude-opus-4-7",
         "name": "Claude Opus 4.7",
         "description": "",
@@ -3176,16 +3186,6 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "glm-5.1",
-        "name": "GLM-5.1",
-        "description": "Latest flagship model series, foundational models specifically designed for agent applications with 200K context window and 128K maximum output",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
       }
     ],
     "auth_methods": ["api_key"]
