@@ -694,6 +694,7 @@ pub fn sanitize_gemini_schema(schema: &mut serde_json::Value) {
                 if !null_schemas.is_empty() && non_null_schemas.len() == 1 {
                     // Single non-null branch with nullable: merge into this schema
                     let mut merged = non_null_schemas.into_iter().next().unwrap();
+                    sanitize_gemini_schema(&mut merged);
                     if let serde_json::Value::Object(merged_map) = &mut merged {
                         // Copy current schema's keys into the merged branch
                         // (anyOf was already removed, so we copy everything else)
@@ -2156,6 +2157,41 @@ mod tests {
         assert_eq!(field["type"], "string");
         assert_eq!(field["nullable"], true);
         assert_eq!(field["enum"], json!(["a", "b", "c"]));
+        assert!(!field.as_object().unwrap().contains_key("anyOf"));
+    }
+
+    #[test]
+    fn test_gemini_anyof_null_elevation_single_object_branch_removes_additional_properties() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "field": {
+                    "anyOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "value": { "type": "string" }
+                            },
+                            "additionalProperties": false
+                        },
+                        { "type": "null" }
+                    ]
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let field = &schema["properties"]["field"];
+        assert_eq!(field["type"], "object");
+        assert_eq!(field["nullable"], true);
+        assert!(field["properties"].is_object());
+        assert!(
+            !field
+                .as_object()
+                .unwrap()
+                .contains_key("additionalProperties")
+        );
         assert!(!field.as_object().unwrap().contains_key("anyOf"));
     }
 
