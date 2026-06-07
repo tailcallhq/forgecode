@@ -2768,6 +2768,16 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "qwen3.5-plus",
+        "name": "Qwen3.5 Plus",
+        "description": "",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-opus-4-8",
         "name": "Claude Opus 4.8",
         "description": "",
@@ -2832,6 +2842,16 @@
         "name": "Claude Sonnet 4",
         "description": "Balanced Claude model",
         "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.5",
+        "name": "GPT-5.5",
+        "description": "",
+        "context_length": 1050000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -3028,66 +3048,6 @@
         "input_modalities": ["text"]
       },
       {
-        "id": "kimi-k2.5",
-        "name": "Kimi K2.5",
-        "description": "Moonshot AI Kimi K2.5 model",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "big-pickle",
-        "name": "Big Pickle",
-        "description": "Stealth model - free for testing",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "qwen3.6-plus",
-        "name": "Qwen3.6 Plus",
-        "description": "Advanced reasoning model with enhanced capabilities",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "kimi-k2.6",
-        "name": "Kimi K2.6",
-        "description": "Moonshot AI Kimi K2.6 model with multimodal input, reasoning, and tool calling capabilities",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "qwen3.5-plus",
-        "name": "Qwen3.5 Plus",
-        "description": "",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-5.5",
-        "name": "GPT-5.5",
-        "description": "",
-        "context_length": 1050000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "nemotron-3-ultra-free",
         "name": "Nemotron 3 Ultra Free",
         "description": "",
@@ -3108,6 +3068,16 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "kimi-k2.5",
+        "name": "Kimi K2.5",
+        "description": "Moonshot AI Kimi K2.5 model",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "gpt-5.4-nano",
         "name": "GPT-5.4 Nano",
         "description": "",
@@ -3116,6 +3086,16 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "big-pickle",
+        "name": "Big Pickle",
+        "description": "Stealth model - free for testing",
+        "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
       },
       {
         "id": "gpt-5.5-pro",
@@ -3146,6 +3126,26 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text"]
+      },
+      {
+        "id": "qwen3.6-plus",
+        "name": "Qwen3.6 Plus",
+        "description": "Advanced reasoning model with enhanced capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k2.6",
+        "name": "Kimi K2.6",
+        "description": "Moonshot AI Kimi K2.6 model with multimodal input, reasoning, and tool calling capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       },
       {
         "id": "deepseek-v4-flash",
@@ -3278,6 +3278,26 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "minimax-m3",
+        "name": "MiniMax M3",
+        "description": "",
+        "context_length": 512000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "qwen3.7-plus",
+        "name": "Qwen3.7 Plus",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "minimax-m2.7",
         "name": "MiniMax M2.7",
         "description": "MiniMax's latest model with enhanced reasoning and 204K context",
@@ -3312,26 +3332,6 @@
         "name": "Kimi K2.6",
         "description": "Moonshot AI Kimi K2.6 model with multimodal input, reasoning, and tool calling capabilities",
         "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "minimax-m3",
-        "name": "MiniMax M3",
-        "description": "",
-        "context_length": 512000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "qwen3.7-plus",
-        "name": "Qwen3.7 Plus",
-        "description": "",
-        "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
