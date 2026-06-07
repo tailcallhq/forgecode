@@ -2758,16 +2758,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "mimo-v2-flash-free",
-        "name": "MiMo V2 Flash Free",
-        "description": "Free Xiaomi MiMo model for testing",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
         "id": "claude-sonnet-4",
         "name": "Claude Sonnet 4",
         "description": "Balanced Claude model",
@@ -2812,46 +2802,6 @@
         "name": "GPT-5 Codex",
         "description": "GPT-5 model optimized for coding",
         "context_length": 400000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "hy3-preview-free",
-        "name": "Hy3 preview Free",
-        "description": "",
-        "context_length": 256000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "glm-4.6",
-        "name": "GLM-4.6",
-        "description": "",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "kimi-k2-thinking",
-        "name": "Kimi K2 Thinking",
-        "description": "",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "gemini-3-pro",
-        "name": "Gemini 3 Pro",
-        "description": "",
-        "context_length": 1048576,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -2908,16 +2858,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "minimax-m2.1",
-        "name": "MiniMax M2.1",
-        "description": "",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
         "id": "gpt-5.5",
         "name": "GPT-5.5",
         "description": "",
@@ -2936,16 +2876,6 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "glm-4.7",
-        "name": "GLM-4.7",
-        "description": "",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
       },
       {
         "id": "gpt-5.1",
@@ -2998,26 +2928,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "mimo-v2-omni-free",
-        "name": "MiMo V2 Omni Free",
-        "description": "MiMo-V2-Omni is a frontier omni-modal model that natively processes image, video, and audio inputs within a unified architecture",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "ring-2.6-1t-free",
-        "name": "Ring 2.6 1T Free",
-        "description": "",
-        "context_length": 262000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
         "id": "nemotron-3-ultra-free",
         "name": "Nemotron 3 Ultra Free",
         "description": "",
@@ -3025,16 +2935,6 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "trinity-large-preview-free",
-        "name": "Trinity Large Preview",
-        "description": "Free Trinity large preview model for testing",
-        "context_length": 131072,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": false,
         "input_modalities": ["text"]
       },
       {
@@ -3078,16 +2978,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "claude-3-5-haiku",
-        "name": "Claude Haiku 3.5",
-        "description": "Fast and efficient Claude model",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": false,
-        "supports_reasoning": false,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "gpt-5.3-codex",
         "name": "GPT-5.3 Codex",
         "description": "Latest GPT-5.3 Codex model optimized for agentic coding",
@@ -3108,16 +2998,6 @@
         "input_modalities": ["text"]
       },
       {
-        "id": "qwen3.6-plus-free",
-        "name": "Qwen3.6 Plus Free",
-        "description": "",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "gpt-5.5-pro",
         "name": "GPT-5.5 Pro",
         "description": "",
@@ -3126,16 +3006,6 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "minimax-m2.1-free",
-        "name": "MiniMax M2.1 Free",
-        "description": "",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
       },
       {
         "id": "gemini-3.1-pro",
@@ -3198,16 +3068,6 @@
         "input_modalities": ["text"]
       },
       {
-        "id": "kimi-k2.5-free",
-        "name": "Kimi K2.5 Free",
-        "description": "",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "claude-opus-4-8",
         "name": "Claude Opus 4.8",
         "description": "",
@@ -3216,16 +3076,6 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "nemotron-3-super-free",
-        "name": "Nemotron 3 Super Free",
-        "description": "Free NVIDIA Nemotron model for testing",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
       },
       {
         "id": "glm-5",
@@ -3248,16 +3098,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "qwen3-coder",
-        "name": "Qwen3 Coder",
-        "description": "",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": false,
-        "input_modalities": ["text"]
-      },
-      {
         "id": "big-pickle",
         "name": "Big Pickle",
         "description": "Stealth model - free for testing",
@@ -3265,16 +3105,6 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "ling-2.6-flash-free",
-        "name": "Ling 2.6 Flash Free",
-        "description": "",
-        "context_length": 262100,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": false,
         "input_modalities": ["text"]
       },
       {
@@ -3291,16 +3121,6 @@
         "id": "minimax-m2.5",
         "name": "MiniMax M2.5",
         "description": "MiniMax M2.5 model for coding and reasoning",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "glm-4.7-free",
-        "name": "GLM-4.7 Free",
-        "description": "",
         "context_length": 204800,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
@@ -3328,16 +3148,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "mimo-v2-pro-free",
-        "name": "MiMo V2 Pro Free",
-        "description": "MiMo-V2-Pro is Xiaomi's flagship foundation model, featuring over 1T total parameters and a 1M context length",
-        "context_length": 1048576,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
         "id": "claude-opus-4-6",
         "name": "Claude Opus 4.6",
         "description": "Most powerful Claude model - latest version",
@@ -3346,16 +3156,6 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "kimi-k2",
-        "name": "Kimi K2",
-        "description": "",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": false,
-        "input_modalities": ["text"]
       },
       {
         "id": "kimi-k2.5",
@@ -3386,36 +3186,6 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text"]
-      },
-      {
-        "id": "grok-code",
-        "name": "Grok Code Fast 1",
-        "description": "",
-        "context_length": 256000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "minimax-m2.5-free",
-        "name": "MiniMax M2.5 Free",
-        "description": "Free MiniMax M2.5 model for testing",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "glm-5-free",
-        "name": "GLM-5 Free",
-        "description": "",
-        "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
       }
     ],
     "auth_methods": ["api_key"]
@@ -3432,26 +3202,6 @@
         "name": "MiniMax M3",
         "description": "",
         "context_length": 512000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "qwen3.5-plus",
-        "name": "Qwen3.5 Plus",
-        "description": "",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "mimo-v2-omni",
-        "name": "MiMo V2 Omni",
-        "description": "Xiaomi's omni-modal model that natively processes image, video, and audio inputs",
-        "context_length": 262144,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -3522,16 +3272,6 @@
         "name": "MiniMax M2.5",
         "description": "MiniMax's model with 204K context and reasoning capabilities",
         "context_length": 204800,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "mimo-v2-pro",
-        "name": "MiMo V2 Pro",
-        "description": "Xiaomi's flagship foundation model with 1M context, reasoning, and tool calling capabilities",
-        "context_length": 1048576,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
