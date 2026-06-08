@@ -455,17 +455,8 @@ impl FromDomain<forge_domain::Context>
 
         // Capture reasoning-related flags before `context.messages` / other fields
         // are consumed below. `ModelSpecificReasoning` runs earlier in the pipeline
-        // and has already normalized `reasoning` per model family, so here we just
-        // branch on the shape it produced:
-        // - `max_tokens.is_some()` -> legacy `thinking.enabled` budget shape
-        // - otherwise              -> `thinking.adaptive` (Opus 4.7 / 4.6 / Sonnet 4.6)
+        // and has already normalized `reasoning` per model family.
         let reasoning_on = context.is_reasoning_supported();
-        let emits_legacy_thinking = reasoning_on
-            && context
-                .reasoning
-                .as_ref()
-                .and_then(|r| r.max_tokens)
-                .is_some();
 
         // Convert system messages
         let system: Vec<SystemContentBlock> = context
@@ -550,12 +541,13 @@ impl FromDomain<forge_domain::Context>
         };
 
         // Convert inference configuration
-        // When `thinking.enabled` (legacy budget shape) is being emitted below,
-        // Anthropic-on-Bedrock requires `top_p >= 0.95` or unset. `thinking.adaptive`
-        // (Opus 4.7 / Opus 4.6 / Sonnet 4.6) has no such constraint, and
-        // `ModelSpecificReasoning` already strips `top_p` entirely for Opus 4.7.
-        let adjusted_top_p = if emits_legacy_thinking {
-            // If legacy thinking is emitted and top_p is set, ensure it's at least 0.95
+        // Anthropic-on-Bedrock requires `top_p >= 0.95` or unset whenever any
+        // thinking shape is active — both `thinking.enabled` (legacy budget) and
+        // `thinking.adaptive` (Opus 4.6 / Sonnet 4.6) enforce this constraint.
+        // `ModelSpecificReasoning` already strips `top_p` entirely for Opus 4.7/4.8
+        // (AdaptiveOnly), so they arrive here with top_p == None already.
+        let adjusted_top_p = if reasoning_on {
+            // Clamp to minimum 0.95 when any thinking shape is active.
             context.top_p.map(|p| {
                 let value = p.value();
                 if value < 0.95 {
@@ -2054,10 +2046,10 @@ mod tests {
         );
     }
 
-    /// Adaptive thinking must NOT trigger the legacy `top_p >= 0.95` clamp —
-    /// that constraint only applies to `thinking.enabled` (budget shape).
+    /// Adaptive thinking enforces the same `top_p >= 0.95` constraint as the
+    /// legacy budget shape — both modes reject values below 0.95.
     #[test]
-    fn test_from_domain_context_adaptive_thinking_does_not_clamp_top_p() {
+    fn test_from_domain_context_adaptive_thinking_clamps_top_p() {
         use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamInput;
         use forge_domain::{Context, ReasoningConfig, TopP};
 
@@ -2084,8 +2076,8 @@ mod tests {
         let actual = ConverseStreamInput::from_domain(fixture).unwrap();
         let top_p = actual.inference_config().unwrap().top_p().unwrap();
         assert!(
-            (top_p - 0.5).abs() < f32::EPSILON,
-            "adaptive thinking must leave top_p untouched, got {top_p}"
+            top_p >= 0.95,
+            "adaptive thinking must clamp top_p to at least 0.95, got {top_p}"
         );
     }
 
