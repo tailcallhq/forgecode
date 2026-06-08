@@ -137,12 +137,20 @@ function _forge_select_model_pair_global() {
 }
 
 function _forge_reset() {
-  # Clear buffer and reset cursor position
   BUFFER=""
   CURSOR=0
-  # Force widget redraw and prompt reset
+  # Output may finish without a trailing newline. If ZLE accepts an empty line
+  # from that position, RPROMPT can be painted on top of the final output row.
+  # Move to a clean line before accepting the empty buffer so the next prompt
+  # is always rendered below Forge output.
+  print -r -- "" >/dev/tty
+
+  # Do not accept an empty command line here. accept-line asks ZLE to render the
+  # next prompt from inside the widget; with right prompts (p10k/RPROMPT) that
+  # repaint can still target the last output row and hide the tail of output.
+  # Invalidating the display is enough: the widget returns and zsh redraws the
+  # prompt naturally on the clean line above.
   zle -I
-  zle reset-prompt
 }
 
 # Helper function to print messages with consistent formatting based on log level

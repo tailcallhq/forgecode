@@ -118,11 +118,12 @@ function forge-accept-line() {
     # Add the original command to history before transformation
     print -s -- "$original_buffer"
     
-    # CRITICAL: Move cursor to end so output doesn't overwrite
-    # Don't clear BUFFER yet - let _forge_reset do that after action completes
-    # This keeps buffer state consistent if Ctrl+C is pressed
-    CURSOR=${#BUFFER}
-    zle redisplay
+    # CRITICAL: clear and invalidate the active ZLE prompt before writing output.
+    # Otherwise RPROMPT/text from the old prompt can remain on wrapped rows and
+    # the command output can run underneath it, which looks like clipping.
+    BUFFER=""
+    CURSOR=0
+    zle -I
     
     # Handle aliases - convert to their actual agent names
     case "$user_action" in
