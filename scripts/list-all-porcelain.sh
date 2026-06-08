@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # Script to run all 'forge list' commands with --porcelain flag
 # This helps visualize which list types contain $ID columns
 
