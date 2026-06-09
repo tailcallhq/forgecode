@@ -635,6 +635,16 @@
     "url": "https://api.anthropic.com/v1/messages",
     "models": [
       {
+        "id": "claude-fable-5",
+        "name": "Claude Fable 5",
+        "description": "Most capable widely released model for demanding reasoning and agentic work",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-opus-4-8",
         "name": "Claude Opus 4.8",
         "description": "",

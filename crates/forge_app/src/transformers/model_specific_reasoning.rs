@@ -31,6 +31,8 @@ impl ModelSpecificReasoning {
             || id.contains("48-opus")
             || id.contains("opus-4-7")
             || id.contains("47-opus")
+            || id.contains("mythos")
+            || id.contains("fable")
         {
             // Opus 4.8 shares Opus 4.7's API contract: adaptive thinking only
             // (legacy `budget_tokens` returns 400) and non-default sampling

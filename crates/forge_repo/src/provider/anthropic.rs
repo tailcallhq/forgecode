@@ -101,7 +101,9 @@ fn interleaved_thinking_required(model: Option<&ModelId>) -> bool {
     !(id.contains("opus-4-8")
         || id.contains("opus-4-7")
         || id.contains("opus-4-6")
-        || id.contains("sonnet-4-6"))
+        || id.contains("sonnet-4-6")
+        || id.contains("mythos")
+        || id.contains("fable"))
 }
 
 impl<T: HttpInfra> Anthropic<T> {
