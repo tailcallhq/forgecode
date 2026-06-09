@@ -31,7 +31,7 @@ resolver = "2"
 
 [workspace.package]
 license = "MIT"
-version = "0.1.1"
+version = "2.9.9"
 rust-version = "1.92"
 edition = "2024"
 
