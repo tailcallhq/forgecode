@@ -133,6 +133,9 @@ jobs:
           ref: ${{ env.FEATURE_BRANCH }}
           fetch-depth: 0
 
+      - name: Configure git for container checkout
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
       - name: Build metadata
         id: meta
         run: |
