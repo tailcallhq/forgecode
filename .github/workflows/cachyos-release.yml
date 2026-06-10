@@ -74,8 +74,7 @@ jobs:
             || git remote set-url upstream "https://github.com/${UPSTREAM_REPO}.git"
           git fetch upstream "${UPSTREAM_BRANCH}"
 
-          git checkout "${UPSTREAM_BRANCH}"
-          git reset --hard "upstream/${UPSTREAM_BRANCH}"
+          git checkout -B "${UPSTREAM_BRANCH}" "upstream/${UPSTREAM_BRANCH}"
           git push origin "${UPSTREAM_BRANCH}"
 
   rebase-feature:
