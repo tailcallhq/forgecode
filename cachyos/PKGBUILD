@@ -87,10 +87,7 @@ prepare() {
     cd "$startdir"
   fi
 
-  # Ensure we have a Cargo.lock (we do in the repo)
-  if [ ! -f Cargo.lock ]; then
-    cargo fetch --locked
-  fi
+  cargo fetch --locked
 }
 
 build() {
@@ -104,12 +101,12 @@ build() {
 
   echo "==> Building with CachyOS-provided RUSTFLAGS (from makepkg.conf / chroot)"
   echo "    RUSTFLAGS=${RUSTFLAGS:-<empty - relying on makepkg.conf>}"
-  echo "    APP_VERSION will be set to ${pkgver}-${pkgrel} for build.rs embedding"
+  echo "    APP_VERSION will be set to ${APP_VERSION:-${pkgver}-${pkgrel}} for build.rs embedding"
 
-  export APP_VERSION="${pkgver}-${pkgrel}"
+  export APP_VERSION="${APP_VERSION:-${pkgver}-${pkgrel}}"
 
-  # --frozen for reproducibility inside the chroot (Cargo.lock is present)
-  cargo build --frozen --release -p forge_main --bin forge
+  # --locked honors Cargo.lock; deps are prefetched in prepare()
+  cargo build --locked --release -p forge_main --bin forge
 }
 
 package() {
