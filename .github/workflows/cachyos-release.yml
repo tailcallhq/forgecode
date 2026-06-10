@@ -1,13 +1,19 @@
 # Sync fork main with upstream, rebase the feature branch, then build a
 # CachyOS-optimized .pkg.tar.zst and publish it as a GitHub pre-release.
 #
-# Manual trigger: Actions → "CachyOS Release" → Run workflow
+# Lives on feat/xai-supergrok-oauth only — fork main stays a clean upstream mirror.
+# Primary trigger: push to this branch (workflow file must be on the pushed branch).
+# workflow_dispatch only works once GitHub indexes the workflow from default branch;
+# push is the reliable path for feature-branch-only workflows.
 #
 # Co-Authored-By: ForgeCode <noreply@forgecode.dev>
 
 name: CachyOS Release
 
 on:
+  push:
+    branches:
+      - feat/xai-supergrok-oauth
   workflow_dispatch:
     inputs:
       feature_branch:
@@ -34,11 +40,22 @@ permissions:
 env:
   UPSTREAM_REPO: tailcallhq/forgecode
   UPSTREAM_BRANCH: main
+  FEATURE_BRANCH: ${{ github.event.inputs.feature_branch || 'feat/xai-supergrok-oauth' }}
+  SKIP_SYNC: ${{ github.event.inputs.skip_sync || 'false' }}
+  TARGET_CPU: ${{ github.event.inputs.target_cpu || 'x86-64-v3' }}
 
 jobs:
+  should-run:
+    name: Gate (skip bot re-push loops)
+    if: github.event_name == 'workflow_dispatch' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Running CachyOS release pipeline"
+
   sync-main:
     name: Sync fork main with upstream
-    if: ${{ !inputs.skip_sync }}
+    needs: should-run
+    if: env.SKIP_SYNC != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -63,8 +80,8 @@ jobs:
 
   rebase-feature:
     name: Rebase feature branch onto main
-    needs: sync-main
-    if: always() && (needs.sync-main.result == 'success' || needs.sync-main.result == 'skipped')
+    needs: [should-run, sync-main]
+    if: always() && needs.should-run.result == 'success' && (needs.sync-main.result == 'success' || needs.sync-main.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -80,13 +97,14 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git fetch origin main
-          git checkout "${{ inputs.feature_branch }}"
+          git checkout "${FEATURE_BRANCH}"
           git rebase origin/main
-          git push --force-with-lease origin "${{ inputs.feature_branch }}"
+          git push --force-with-lease origin "${FEATURE_BRANCH}"
 
   build-cachyos:
     name: Build CachyOS package
-    needs: rebase-feature
+    needs: [should-run, rebase-feature]
+    if: needs.should-run.result == 'success' && needs.rebase-feature.result == 'success'
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
@@ -113,7 +131,7 @@ jobs:
       - name: Checkout feature branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.feature_branch }}
+          ref: ${{ env.FEATURE_BRANCH }}
           fetch-depth: 0
 
       - name: Build metadata
@@ -128,7 +146,7 @@ jobs:
       - name: Build package
         id: build
         env:
-          TARGET_CPU: ${{ inputs.target_cpu }}
+          TARGET_CPU: ${{ env.TARGET_CPU }}
         run: |
           set -euo pipefail
           chown -R builder:builder .
@@ -164,7 +182,7 @@ jobs:
       - name: Resolve release notes
         id: notes
         run: |
-          if [[ "${{ inputs.skip_sync }}" == "true" ]]; then
+          if [[ "${SKIP_SYNC}" == "true" ]]; then
             echo "sync_status=skipped" >> "$GITHUB_OUTPUT"
           else
             echo "sync_status=yes" >> "$GITHUB_OUTPUT"
@@ -181,7 +199,7 @@ jobs:
             dist/*.pkg.tar.zst
             dist/*.sha256
           body: |
-            CachyOS-optimized **forge** build from branch `${{ inputs.feature_branch }}`.
+            CachyOS-optimized **forge** build from branch `${{ env.FEATURE_BRANCH }}`.
 
             ## Install on CachyOS / Arch
 
@@ -204,7 +222,7 @@ jobs:
             :doctor
             ```
 
-            **CPU target:** `${{ inputs.target_cpu }}`  
+            **CPU target:** `${{ env.TARGET_CPU }}`  
             **Package version:** `${{ needs.build-cachyos.outputs.app_version }}`  
             **Upstream synced:** `${{ steps.notes.outputs.sync_status }}`
 
