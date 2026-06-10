@@ -41,7 +41,7 @@
 
 pkgname=forge
 pkgver=0.1.0
-pkgrel=1.cachy
+pkgrel=1
 pkgdesc="AI-enabled pair programmer for 300+ models (Claude, GPT, Grok, Deepseek, Gemini...)"
 arch=('x86_64')
 url="https://forgecode.dev"

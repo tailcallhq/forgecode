@@ -91,7 +91,7 @@ prepare_pkgbuild() {
 
 run_makepkg() {
   cd "$REPO_ROOT"
-  export APP_VERSION="${pkgver}-${pkgrel}"
+  export APP_VERSION="${APP_VERSION:-${pkgver}-${pkgrel}}"
   export RUSTFLAGS="${RUSTFLAGS:--C target-cpu=${TARGET_CPU} -C opt-level=3 -C codegen-units=1 -C lto=fat}"
   export PATH="${HOME}/.cargo/bin:${PATH}"
 
@@ -135,7 +135,9 @@ ensure_rust_toolchain
 pkgver="$(read_pkgver)"
 git_sha="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
 date_tag="$(date -u +%Y%m%d)"
-pkgrel="1.cachy.${date_tag}.${git_sha}"
+# pkgrel must be integer[.integer] for makepkg; encode cachy + git sha in APP_VERSION.
+pkgrel="${date_tag}"
+export APP_VERSION="${pkgver}-${pkgrel}+cachy+${git_sha}"
 
 trap cleanup EXIT
 prepare_pkgbuild "$pkgver" "$pkgrel"
