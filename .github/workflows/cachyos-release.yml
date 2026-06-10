@@ -55,7 +55,7 @@ jobs:
   sync-main:
     name: Sync fork main with upstream
     needs: should-run
-    if: env.SKIP_SYNC != 'true'
+    if: github.event_name == 'push' || !inputs.skip_sync
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
