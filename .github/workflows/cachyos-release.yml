@@ -152,14 +152,26 @@ jobs:
         run: |
           set -euo pipefail
           chown -R builder:builder .
+          build_log="${RUNNER_TEMP}/cachyos-build.log"
           su - builder -c "
             set -euo pipefail
-            export GITHUB_OUTPUT='${GITHUB_OUTPUT}'
             export TARGET_CPU='${TARGET_CPU}'
             cd '${GITHUB_WORKSPACE}'
             chmod +x scripts/build-cachyos-pkg.sh
             ./scripts/build-cachyos-pkg.sh
-          "
+          " | tee "${build_log}"
+          package_file="$(grep '^::package_file::' "${build_log}" | tail -1 | sed 's/^::package_file:://')"
+          package_name="$(grep '^::package_name::' "${build_log}" | tail -1 | sed 's/^::package_name:://')"
+          app_version="$(grep '^::app_version::' "${build_log}" | tail -1 | sed 's/^::app_version:://')"
+          [[ -n "${package_file}" && -f "${package_file}" ]] || {
+            echo "Package artifact missing after build" >&2
+            exit 1
+          }
+          {
+            echo "package_file=${package_file}"
+            echo "package_name=${package_name}"
+            echo "app_version=${app_version}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4

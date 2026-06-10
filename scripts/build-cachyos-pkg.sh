@@ -113,7 +113,7 @@ write_outputs() {
   log "Built package: ${pkg_file}"
   cat "${pkg_file}.sha256"
 
-  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  if [[ -n "${GITHUB_OUTPUT:-}" && -w "${GITHUB_OUTPUT}" ]]; then
     {
       echo "package_file=${pkg_file}"
       echo "package_name=$(basename "$pkg_file")"
@@ -122,6 +122,11 @@ write_outputs() {
       echo "pkgrel=${pkgrel}"
     } >>"$GITHUB_OUTPUT"
   fi
+
+  # Machine-readable marker for CI when GITHUB_OUTPUT is not writable (e.g. builder user).
+  echo "::package_file::${pkg_file}"
+  echo "::package_name::$(basename "$pkg_file")"
+  echo "::app_version::${APP_VERSION}"
 }
 
 cleanup() {
