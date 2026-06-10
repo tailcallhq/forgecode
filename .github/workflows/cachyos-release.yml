@@ -1,0 +1,214 @@
+# Sync fork main with upstream, rebase the feature branch, then build a
+# CachyOS-optimized .pkg.tar.zst and publish it as a GitHub pre-release.
+#
+# Manual trigger: Actions → "CachyOS Release" → Run workflow
+#
+# Co-Authored-By: ForgeCode <noreply@forgecode.dev>
+
+name: CachyOS Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      feature_branch:
+        description: Feature branch to rebase and build
+        type: string
+        default: feat/xai-supergrok-oauth
+        required: true
+      skip_sync:
+        description: Skip syncing fork main with upstream
+        type: boolean
+        default: false
+      target_cpu:
+        description: Rust/CPU target (x86-64-v3 recommended for most CachyOS installs)
+        type: choice
+        options:
+          - x86-64-v3
+          - x86-64-v4
+        default: x86-64-v3
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_REPO: tailcallhq/forgecode
+  UPSTREAM_BRANCH: main
+
+jobs:
+  sync-main:
+    name: Sync fork main with upstream
+    if: ${{ !inputs.skip_sync }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fast-forward main to upstream
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" \
+            || git remote set-url upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream "${UPSTREAM_BRANCH}"
+
+          git checkout "${UPSTREAM_BRANCH}"
+          git reset --hard "upstream/${UPSTREAM_BRANCH}"
+          git push origin "${UPSTREAM_BRANCH}"
+
+  rebase-feature:
+    name: Rebase feature branch onto main
+    needs: sync-main
+    if: always() && (needs.sync-main.result == 'success' || needs.sync-main.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rebase and push
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin main
+          git checkout "${{ inputs.feature_branch }}"
+          git rebase origin/main
+          git push --force-with-lease origin "${{ inputs.feature_branch }}"
+
+  build-cachyos:
+    name: Build CachyOS package
+    needs: rebase-feature
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    outputs:
+      package_name: ${{ steps.build.outputs.package_name }}
+      app_version: ${{ steps.build.outputs.app_version }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
+      date_tag: ${{ steps.meta.outputs.date_tag }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+    steps:
+      - name: Install base tooling
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm
+          pacman -S --needed --noconfirm \
+            base-devel git curl protobuf cmake nasm perl pkgconf sqlite sudo
+
+      - name: Create builder user
+        run: |
+          set -euo pipefail
+          useradd -m -G wheel builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.feature_branch }}
+          fetch-depth: 0
+
+      - name: Build metadata
+        id: meta
+        run: |
+          short_sha="$(git rev-parse --short HEAD)"
+          date_tag="$(date -u +%Y%m%d)"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "date_tag=${date_tag}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=cachyos-${date_tag}-${short_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Build package
+        id: build
+        env:
+          TARGET_CPU: ${{ inputs.target_cpu }}
+        run: |
+          set -euo pipefail
+          chown -R builder:builder .
+          su - builder -c "
+            set -euo pipefail
+            export GITHUB_OUTPUT='${GITHUB_OUTPUT}'
+            export TARGET_CPU='${TARGET_CPU}'
+            cd '${GITHUB_WORKSPACE}'
+            chmod +x scripts/build-cachyos-pkg.sh
+            ./scripts/build-cachyos-pkg.sh
+          "
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cachyos-forge-package
+          path: |
+            forge-*.pkg.tar.zst
+            forge-*.pkg.tar.zst.sha256
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub pre-release
+    needs: build-cachyos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download package
+        uses: actions/download-artifact@v4
+        with:
+          name: cachyos-forge-package
+          path: dist
+
+      - name: Resolve release notes
+        id: notes
+        run: |
+          if [[ "${{ inputs.skip_sync }}" == "true" ]]; then
+            echo "sync_status=skipped" >> "$GITHUB_OUTPUT"
+          else
+            echo "sync_status=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build-cachyos.outputs.release_tag }}
+          name: CachyOS forge ${{ needs.build-cachyos.outputs.app_version }}
+          prerelease: true
+          generate_release_notes: false
+          files: |
+            dist/*.pkg.tar.zst
+            dist/*.sha256
+          body: |
+            CachyOS-optimized **forge** build from branch `${{ inputs.feature_branch }}`.
+
+            ## Install on CachyOS / Arch
+
+            ```bash
+            # Option A: GitHub CLI
+            gh release download "${{ needs.build-cachyos.outputs.release_tag }}" \
+              --repo "${{ github.repository }}" \
+              --pattern '*.pkg.tar.zst'
+
+            # Option B: browser download, then:
+            sudo pacman -U forge-*.pkg.tar.zst
+            forge zsh setup
+            exec zsh
+            ```
+
+            ## Verify
+
+            ```bash
+            forge --version
+            :doctor
+            ```
+
+            **CPU target:** `${{ inputs.target_cpu }}`  
+            **Package version:** `${{ needs.build-cachyos.outputs.app_version }}`  
+            **Upstream synced:** `${{ steps.notes.outputs.sync_status }}`
+
+            The package ships only `/usr/bin/forge` (ZSH plugin is embedded at compile time).
+            Re-run `forge zsh setup` after upgrades if your shell config changed upstream.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

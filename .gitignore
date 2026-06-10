@@ -50,3 +50,10 @@ bench/__pycache__
 # Beads / Dolt files (added by bd init)
 .dolt/
 .beads-credential-key
+
+# makepkg / CachyOS packaging artifacts
+PKGBUILD
+*.pkg.tar.zst
+*.pkg.tar.zst.sha256
+pkg/
+src/
