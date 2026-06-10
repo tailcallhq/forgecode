@@ -34,6 +34,8 @@ impl From<Model> for forge_domain::Model {
             || value.id.contains("claude-sonnet")
             || value.id.contains("claude-opus")
             || value.id.contains("claude-haiku")
+            || value.id.contains("claude-mythos")
+            || value.id.contains("claude-fable")
         {
             vec![
                 forge_domain::InputModality::Text,
@@ -77,6 +79,11 @@ impl From<Model> for forge_domain::Model {
 ///   header
 /// - Legacy models may have different context lengths
 fn get_context_length(model_id: &str) -> Option<u64> {
+    // Claude Mythos / Fable models (1M context)
+    if model_id.starts_with("claude-mythos") || model_id.starts_with("claude-fable") {
+        return Some(1_000_000);
+    }
+
     // Current models (200K context)
     if model_id.starts_with("claude-sonnet-4-5-")
         || model_id.starts_with("claude-haiku-4-5-")
