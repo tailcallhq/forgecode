@@ -145,7 +145,7 @@ function _forge_reset() {
   # nlnct (new count after clearing) and clears the delta lines. By
   # printing padding here, the cleared lines are blank ones we inserted
   # rather than the forge conversation output that precedes them.
-  local pad="${BUFFERLINES:-1}"
+  local pad="${BUFFERLINES:-1}" _i
   for ((_i=1; _i<pad; _i++)); do print; done
 
   # Clear buffer and reset cursor position
