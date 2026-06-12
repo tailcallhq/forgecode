@@ -195,8 +195,12 @@ impl IntoDomain for oai::Response {
 
                     // Process reasoning text content
                     if let Some(content) = &reasoning.content {
-                        let reasoning_text =
-                            content.iter().map(|c| match c { oai::ReasoningItemContent::ReasoningText(t) => t.text.as_str() }).collect::<String>();
+                        let reasoning_text = content
+                            .iter()
+                            .map(|c| match c {
+                                oai::ReasoningItemContent::ReasoningText(t) => t.text.as_str(),
+                            })
+                            .collect::<String>();
                         if !reasoning_text.is_empty() {
                             all_reasoning_text.push_str(&reasoning_text);
                             message =
