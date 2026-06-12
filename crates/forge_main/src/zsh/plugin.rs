@@ -426,7 +426,7 @@ mod tests {
             && fixture.contains("    case \"$user_action\" in")
             // _forge_reset pads with newlines before clearing to prevent ZLE from clearing
             // conversation output lines (see helpers.zsh:139-157)
-            && fixture.contains("for ((_i=1; _i<=pad; _i++)); do echo; done\n")
+            && fixture.contains("for ((_i=1; _i<pad; _i++)); do echo; done\n")
             && fixture.contains("BUFFER=\"\"\n  CURSOR=0")
             // D and A markers follow the action, with _forge_reset at the end
             && fixture.contains(
