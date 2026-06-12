@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::str::FromStr;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use backon::{ExponentialBuilder, Retryable};
@@ -10,13 +9,11 @@ use forge_app::McpClientInfra;
 use forge_domain::{
     Environment, Image, McpHttpServer, McpServerConfig, ToolDefinition, ToolName, ToolOutput,
 };
-use reqwest::Client;
-use reqwest::header::{HeaderName, HeaderValue};
-use rmcp::model::{CallToolRequestParam, ClientInfo, Implementation, InitializeRequestParam};
+use http::{HeaderName, HeaderValue};
+use rmcp::model::{CallToolRequestParams, ClientInfo, Implementation, InitializeRequestParams};
 use rmcp::service::RunningService;
-use rmcp::transport::sse_client::SseClientConfig;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
-use rmcp::transport::{SseClientTransport, StreamableHttpClientTransport, TokioChildProcess};
+use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
 use rmcp::{RoleClient, ServiceExt};
 use schemars::Schema;
 use serde_json::Value;
@@ -30,12 +27,11 @@ const VERSION: &str = match option_env!("APP_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
 };
 
-type RmcpClient = RunningService<RoleClient, InitializeRequestParam>;
+type RmcpClient = RunningService<RoleClient, InitializeRequestParams>;
 
 #[derive(Clone)]
 pub struct ForgeMcpClient {
     client: Arc<RwLock<Option<Arc<RmcpClient>>>>,
-    http_client: Arc<Client>,
     config: McpServerConfig,
     env_vars: BTreeMap<String, String>,
     environment: Environment,
@@ -43,49 +39,13 @@ pub struct ForgeMcpClient {
 }
 
 impl ForgeMcpClient {
-    /// Build a reqwest client with default headers from the MCP server config.
-    fn build_http_client(http: &McpHttpServer) -> anyhow::Result<Client> {
-        let mut header_map = reqwest::header::HeaderMap::new();
-        for (key, value) in &http.headers {
-            if let Ok(name) = HeaderName::from_str(key)
-                && let Ok(val) = HeaderValue::from_str(value)
-            {
-                header_map.insert(name, val);
-            }
-        }
-
-        Ok(Client::builder().default_headers(header_map).build()?)
-    }
-
     pub fn new(
         config: McpServerConfig,
         env_vars: &BTreeMap<String, String>,
         environment: Environment,
     ) -> Self {
-        // Try to resolve config early so we can extract headers for the HTTP client.
-        // If resolution fails, fall back to a plain client (headers will be missing
-        // but the error will surface when create_connection is called).
-        let resolved = resolve_http_templates(
-            match &config {
-                McpServerConfig::Http(http) => http.clone(),
-                McpServerConfig::Stdio(_) => McpHttpServer {
-                    url: String::new(),
-                    headers: BTreeMap::new(),
-                    timeout: None,
-                    disable: false,
-                    oauth: forge_domain::McpOAuthSetting::default(),
-                },
-            },
-            env_vars,
-        );
-
-        let http_client = resolved
-            .and_then(|http| Self::build_http_client(&http))
-            .unwrap_or_default();
-
         Self {
             client: Default::default(),
-            http_client: Arc::new(http_client),
             config,
             env_vars: env_vars.clone(),
             environment,
@@ -107,17 +67,7 @@ impl ForgeMcpClient {
     }
 
     fn client_info(&self) -> ClientInfo {
-        ClientInfo {
-            protocol_version: Default::default(),
-            capabilities: Default::default(),
-            client_info: Implementation {
-                name: "Forge".to_string(),
-                version: VERSION.to_string(),
-                icons: None,
-                title: None,
-                website_url: None,
-            },
-        }
+        ClientInfo::new(Default::default(), Implementation::new("Forge", VERSION))
     }
 
     /// Connects to the MCP server. If `force` is true, it will reconnect even
@@ -219,23 +169,10 @@ impl ForgeMcpClient {
         &self,
         http: &McpHttpServer,
     ) -> anyhow::Result<RmcpClient> {
-        // Try HTTP first, fall back to SSE if it fails
-        let client = self.reqwest_client();
-        let transport = StreamableHttpClientTransport::with_client(
-            client.as_ref().clone(),
-            StreamableHttpClientTransportConfig::with_uri(http.url.clone()),
-        );
-        match self.client_info().serve(transport).await {
-            Ok(client) => Ok(client),
-            Err(_e) => {
-                let transport = SseClientTransport::start_with_client(
-                    client.as_ref().clone(),
-                    SseClientConfig { sse_endpoint: http.url.clone().into(), ..Default::default() },
-                )
-                .await?;
-                Ok(self.client_info().serve(transport).await?)
-            }
-        }
+        let config = StreamableHttpClientTransportConfig::with_uri(http.url.clone())
+            .custom_headers(build_header_map(&http.headers));
+        let transport = StreamableHttpClientTransport::from_config(config);
+        Ok(self.client_info().serve(transport).await?)
     }
 
     /// Create an OAuth-enabled connection using rmcp's OAuth support.
@@ -368,10 +305,12 @@ impl ForgeMcpClient {
         {
             use rmcp::transport::auth::CredentialStore;
             let save_store = McpTokenStorage::new(http.url.clone(), self.environment.clone());
-            let stored = rmcp::transport::auth::StoredCredentials {
-                client_id: credentials.0,
-                token_response: credentials.1,
-            };
+            let stored = rmcp::transport::auth::StoredCredentials::new(
+                credentials.0,
+                credentials.1,
+                vec![],
+                None,
+            );
             save_store
                 .save(stored)
                 .await
@@ -397,12 +336,9 @@ impl ForgeMcpClient {
         http: &McpHttpServer,
         token: &str,
     ) -> anyhow::Result<Arc<RmcpClient>> {
-        let client = self.reqwest_client();
-        let transport = StreamableHttpClientTransport::with_client(
-            client.as_ref().clone(),
-            StreamableHttpClientTransportConfig::with_uri(http.url.clone()).auth_header(token),
-        );
-
+        let config =
+            StreamableHttpClientTransportConfig::with_uri(http.url.clone()).auth_header(token);
+        let transport = StreamableHttpClientTransport::from_config(config);
         Ok(Arc::new(self.client_info().serve(transport).await?))
     }
 
@@ -495,14 +431,6 @@ impl ForgeMcpClient {
         Ok((code, state))
     }
 
-    fn reqwest_client(&self) -> Arc<Client> {
-        // Reuse the cached HTTP client (with pre-configured default headers)
-        // to prevent file descriptor leaks. Each reqwest::Client manages its
-        // own connection pool, so creating new clients for each connection
-        // leads to "Too many open files" errors.
-        self.http_client.clone()
-    }
-
     async fn list(&self) -> anyhow::Result<Vec<ToolDefinition>> {
         let client = self.connect().await?;
         let tools = client.list_tools(None).await?;
@@ -527,13 +455,12 @@ impl ForgeMcpClient {
     async fn call(&self, tool_name: &ToolName, input: &Value) -> anyhow::Result<ToolOutput> {
         let client = self.connect().await?;
         let result = client
-            .call_tool(CallToolRequestParam {
-                name: Cow::Owned(tool_name.to_string()),
-                arguments: if let Value::Object(args) = input {
-                    Some(args.clone())
-                } else {
-                    None
-                },
+            .call_tool({
+                let mut params = CallToolRequestParams::new(Cow::Owned(tool_name.to_string()));
+                if let Value::Object(args) = input {
+                    params = params.with_arguments(args.clone());
+                }
+                params
             })
             .await?;
 
@@ -625,6 +552,19 @@ fn resolve_http_templates(
     }
 
     Ok(http)
+}
+
+fn build_header_map(
+    headers: &BTreeMap<String, String>,
+) -> std::collections::HashMap<HeaderName, HeaderValue> {
+    headers
+        .iter()
+        .filter_map(|(k, v)| {
+            let name = k.parse::<HeaderName>().ok()?;
+            let val = v.parse::<HeaderValue>().ok()?;
+            Some((name, val))
+        })
+        .collect()
 }
 
 /// Trigger OAuth authentication for a specific MCP server URL.
@@ -734,10 +674,8 @@ pub async fn mcp_auth(server_url: &str, env: &Environment) -> anyhow::Result<()>
         .map_err(|e| anyhow::anyhow!("Failed to get credentials: {}", e))?;
 
     let save_store = McpTokenStorage::new(server_url.to_string(), env.clone());
-    let stored = rmcp::transport::auth::StoredCredentials {
-        client_id: credentials.0,
-        token_response: credentials.1,
-    };
+    let stored =
+        rmcp::transport::auth::StoredCredentials::new(credentials.0, credentials.1, vec![], None);
     save_store
         .save(stored)
         .await
