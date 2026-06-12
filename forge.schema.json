@@ -15,6 +15,11 @@
         }
       ]
     },
+    "auto_install_vscode_extension": {
+      "description": "Enables automatic VS Code extension installation when Forge runs inside\nVS Code and the extension is not already installed.",
+      "type": "boolean",
+      "default": false
+    },
     "auto_open_dump": {
       "description": "Whether to automatically open HTML dump files in the browser after\ncreation.",
       "type": "boolean",

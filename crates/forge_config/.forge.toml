@@ -32,6 +32,7 @@ research_subagent = false
 currency_symbol = "$"
 currency_conversion_rate = 1.0
 subagents = true
+auto_install_vscode_extension = true
 use_forge_committer = true
 use_text_patch_fallback = false
 

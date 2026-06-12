@@ -3860,7 +3860,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_message(&mut self, content: Option<String>) -> Result<()> {
         let conversation_id = self.init_conversation().await?;
 
-        self.install_vscode_extension();
+        if self.config.auto_install_vscode_extension {
+            self.install_vscode_extension();
+        }
 
         // Track if content was provided to decide whether to use piped input as
         // additional context
