@@ -81,7 +81,7 @@ fn map_reasoning_details_to_input_items(
 
             Some(oai::InputItem::Item(oai::Item::Reasoning(
                 oai::ReasoningItem {
-                    id,
+                    id: Some(id),
                     summary,
                     content: None,
                     encrypted_content: Some(encrypted_content),
@@ -1306,7 +1306,7 @@ mod tests {
         };
 
         let expected = oai::ReasoningItem {
-            id: "rs_123".to_string(),
+            id: Some("rs_123".to_string()),
             summary: vec![oai::SummaryPart::SummaryText(oai::SummaryTextContent {
                 text: "Summary of reasoning".to_string(),
             })],
@@ -1362,7 +1362,7 @@ mod tests {
         };
 
         let expected = oai::ReasoningItem {
-            id: "rs_ok".to_string(),
+            id: Some("rs_ok".to_string()),
             summary: vec![],
             content: None,
             encrypted_content: Some("enc_ok".to_string()),
