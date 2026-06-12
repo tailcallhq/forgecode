@@ -3253,8 +3253,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             // Prompt user to paste authorization code
             let code =
                 ForgeWidget::input(format!("Paste the authorization code for {provider_id}"))
-                .prompt()?
-                .ok_or_else(|| anyhow::anyhow!("Authorization code input cancelled"))?;
+                    .prompt()?
+                    .ok_or_else(|| anyhow::anyhow!("Authorization code input cancelled"))?;
 
             if code.trim().is_empty() {
                 anyhow::bail!("Authorization code cannot be empty");
