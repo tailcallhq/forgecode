@@ -39,9 +39,9 @@ function _forge_action_default() {
                 echo
                 # Execute custom command with execute subcommand
                 if [[ -n "$input_text" ]]; then
-                    _forge_exec cmd execute --cid "$_FORGE_CONVERSATION_ID" "$user_action" "$input_text"
+                    _forge_exec_interactive cmd execute --cid "$_FORGE_CONVERSATION_ID" "$user_action" "$input_text"
                 else
-                    _forge_exec cmd execute --cid "$_FORGE_CONVERSATION_ID" "$user_action"
+                    _forge_exec_interactive cmd execute --cid "$_FORGE_CONVERSATION_ID" "$user_action"
                 fi
                 return 0
             fi
