@@ -581,6 +581,7 @@ fn normalize_gemini_schema_subset_keywords(map: &mut serde_json::Map<String, ser
         "definitions",
         "deprecated",
         "examples",
+        "propertyNames",
         "title",
         "unevaluatedItems",
         "unevaluatedProperties",
@@ -610,8 +611,8 @@ fn normalize_gemini_schema_subset_keywords(map: &mut serde_json::Map<String, ser
 ///   The `required` array is filtered to only include fields present in
 ///   `properties`.
 /// - **Unsupported JSON Schema metadata and references are rejected**:
-///   `$schema`, `$defs`, `$ref`, `title`, and `additionalProperties` are
-///   removed.
+///   `$schema`, `$defs`, `$ref`, `title`, `additionalProperties`, and
+///   `propertyNames` are removed.
 /// - **Exclusive bounds are rejected**: `exclusiveMinimum` and
 ///   `exclusiveMaximum` are converted to `minimum` and `maximum` when the
 ///   inclusive bound is not already present.
@@ -1682,6 +1683,40 @@ mod tests {
                 .unwrap()
                 .contains_key("additionalProperties")
         );
+    }
+
+    #[test]
+    fn test_gemini_removes_property_names() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "pages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "metadata": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "pattern": "^[a-z]+$"
+                                }
+                            }
+                        }
+                    }
+                },
+                "config": {
+                    "type": "object",
+                    "propertyNames": {
+                        "pattern": "^[a-z]+$"
+                    }
+                }
+            }
+        });
+
+        sanitize_gemini_schema(&mut schema);
+
+        let api_request_json = serde_json::to_string(&schema).unwrap();
+        assert!(!api_request_json.contains("propertyNames"));
     }
 
     #[test]

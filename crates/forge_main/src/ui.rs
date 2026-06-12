@@ -430,7 +430,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                     match error.downcast::<ReadLineError>() {
                         Ok(error) => {
-                            return Err(error)?;
+                            Err(error)?;
                         }
                         Err(error) => self.writeln_to_stderr(
                             TitleFormat::error(error.to_string()).display().to_string(),
@@ -3025,8 +3025,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         .prompt()?
                         .context("Parameter selection cancelled")?
                 } else {
-                    // Free-text path (existing behavior)
-                    let mut input = ForgeWidget::input(format!("Enter {}", param.name));
+                    // Free-text path
+                    let label = if param.optional {
+                        format!("Enter {} (optional, press Enter to skip)", param.name)
+                    } else {
+                        format!("Enter {}", param.name)
+                    };
+                    let mut input = ForgeWidget::input(label);
 
                     // Add default value if it exists in the credential
                     if let Some(params) = existing_url_params
@@ -3035,13 +3040,19 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         input = input.with_default(default_value.as_str());
                     }
 
+                    if param.optional {
+                        input = input.allow_empty(true);
+                    }
+
                     let param_value = input.prompt()?.context("Parameter input cancelled")?;
 
-                    anyhow::ensure!(
-                        !param_value.trim().is_empty(),
-                        "{} cannot be empty",
-                        param.name
-                    );
+                    if !param.optional {
+                        anyhow::ensure!(
+                            !param_value.trim().is_empty(),
+                            "{} cannot be empty",
+                            param.name
+                        );
+                    }
 
                     param_value.trim_end_matches('/').to_string()
                 };
@@ -3831,6 +3842,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 .await?;
             // only call on_update if this is the first initialization
             on_update(self.api.clone(), self.config.updates.as_ref()).await;
+            // Apply the MCP trust gate. Servers are NOT connected here —
+            // connections remain lazy and happen on first tool use.
+            self.api.init_mcp().await?;
         }
 
         // Execute independent operations in parallel to improve performance
@@ -3868,7 +3882,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_message(&mut self, content: Option<String>) -> Result<()> {
         let conversation_id = self.init_conversation().await?;
 
-        self.install_vscode_extension();
+        if self.config.auto_install_vscode_extension {
+            self.install_vscode_extension();
+        }
 
         // Track if content was provided to decide whether to use piped input as
         // additional context

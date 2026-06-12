@@ -231,6 +231,16 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                                         .usage(usage),
                                     ))))
                                 }
+                                Ok(super::response::ResponsesStreamEvent::ResponseCompleted {
+                                    response,
+                                }) => Some(Ok(super::response::StreamItem::Message(Box::new(
+                                    super::response::into_response_completed_message(response),
+                                )))),
+                                Ok(super::response::ResponsesStreamEvent::ResponseIncomplete {
+                                    response,
+                                }) => Some(Err(super::response::into_response_incomplete_error(
+                                    response.incomplete_details.map(|d| d.reason),
+                                ))),
                                 Ok(super::response::ResponsesStreamEvent::Unknown(_)) => None,
                                 Ok(super::response::ResponsesStreamEvent::Response(inner)) => {
                                     Some(Ok(super::response::StreamItem::Event(inner)))
@@ -239,11 +249,22 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                             }
                         }
                         Err(forge_eventsource::Error::StreamEnded) => None,
-                        Err(forge_eventsource::Error::InvalidStatusCode(_, response))
-                        | Err(forge_eventsource::Error::InvalidContentType(_, response)) => {
+                        Err(forge_eventsource::Error::InvalidStatusCode(status, response)) => {
                             let (_, reason) = read_http_error_reason(*response).await;
-                            Some(Err(anyhow::anyhow!(reason)
-                                .context(format_http_context(None, "POST", &url))))
+                            Some(Err(anyhow::Error::from(
+                                forge_app::dto::openai::Error::InvalidStatusCode(status.as_u16()),
+                            )
+                            .context(reason)
+                            .context(format_http_context(None, "POST", &url))))
+                        }
+                        Err(forge_eventsource::Error::InvalidContentType(_, response)) => {
+                            let status = response.status();
+                            let (_, reason) = read_http_error_reason(*response).await;
+                            Some(Err(anyhow::Error::from(
+                                forge_app::dto::openai::Error::InvalidStatusCode(status.as_u16()),
+                            )
+                            .context(reason)
+                            .context(format_http_context(None, "POST", &url))))
                         }
                         Err(e) => {
                             Some(Err(anyhow::Error::from(e)
@@ -310,6 +331,16 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
                                     .usage(usage),
                                 ))))
                             }
+                            Ok(super::response::ResponsesStreamEvent::ResponseCompleted {
+                                response,
+                            }) => Some(Ok(super::response::StreamItem::Message(Box::new(
+                                super::response::into_response_completed_message(response),
+                            )))),
+                            Ok(super::response::ResponsesStreamEvent::ResponseIncomplete {
+                                response,
+                            }) => Some(Err(super::response::into_response_incomplete_error(
+                                response.incomplete_details.map(|d| d.reason),
+                            ))),
                             Ok(super::response::ResponsesStreamEvent::Unknown(_)) => None,
                             Ok(super::response::ResponsesStreamEvent::Response(inner)) => {
                                 Some(Ok(super::response::StreamItem::Event(inner)))
@@ -1548,7 +1579,7 @@ mod tests {
         let mut fixture = MockServer::new().await;
 
         let _mock = fixture
-            .mock_codex_responses_stream("/backend-api/codex/responses", vec![], 400)
+            .mock_codex_responses_stream("/backend-api/codex/responses", vec![], 429)
             .await;
 
         let codex_url = format!("{}/backend-api/codex/responses", fixture.url());
@@ -1573,8 +1604,10 @@ mod tests {
         let actual = provider_impl
             .chat(&ModelId::from("gpt-5.1-codex"), context)
             .await;
+        let actual = actual.err().expect("chat should fail with status error");
 
-        assert!(actual.is_err());
+        let expected = Some(429);
+        assert_eq!(retry::get_api_status_code(&actual), expected);
 
         Ok(())
     }
@@ -1654,6 +1687,121 @@ mod tests {
             "missing body: {err_str}"
         );
         assert!(err_str.contains("/v1/responses"), "missing url: {err_str}");
+        Ok(())
+    }
+
+    /// Tests that a 503 Service Unavailable error from the SSE endpoint is
+    /// correctly classified as retryable by the retry logic.
+    #[tokio::test]
+    async fn test_stream_503_error_is_retryable() -> anyhow::Result<()> {
+        let mut fixture = MockServer::new().await;
+        let _mock = fixture
+            .mock_post_error("/v1/responses", "upstream connec", 503)
+            .await;
+
+        let provider = openai_responses(
+            "test-api-key",
+            &format!("{}/v1/chat/completions", fixture.url()),
+        );
+        let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
+        let provider_impl = OpenAIResponsesProvider::new(provider, infra);
+        let context = ChatContext::default()
+            .add_message(ContextMessage::user("Hi", None))
+            .stream(true);
+
+        let mut stream = provider_impl
+            .chat(&ModelId::from("gpt-4o"), context)
+            .await?;
+
+        let actual = stream.next().await.expect("stream should yield one item");
+        assert!(actual.is_err());
+        let error = actual.unwrap_err();
+
+        // Verify the status code is preserved in the error
+        let expected = Some(503u16);
+        assert_eq!(retry::get_api_status_code(&error), expected);
+
+        // Verify it is classified as retryable
+        let retry_config =
+            forge_config::RetryConfig::default().status_codes(vec![429, 500, 502, 503, 504]);
+        let retry_error = retry::into_retry(error, &retry_config);
+        assert!(
+            retry_error
+                .downcast_ref::<forge_domain::Error>()
+                .is_some_and(|e| { matches!(e, forge_domain::Error::Retryable(_)) }),
+            "503 error should be classified as retryable"
+        );
+
+        Ok(())
+    }
+
+    /// Tests that the retry_with_config mechanism will actually retry an
+    /// operation that produces a 503 error from the OpenAI Responses stream.
+    #[tokio::test]
+    async fn test_503_error_triggers_retry() -> anyhow::Result<()> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let mut fixture = MockServer::new().await;
+        let _mock = fixture
+            .mock_post_error("/v1/responses", "upstream connec", 503)
+            .await;
+
+        let provider = openai_responses(
+            "test-api-key",
+            &format!("{}/v1/chat/completions", fixture.url()),
+        );
+        let infra = Arc::new(MockHttpClient { client: reqwest::Client::new() });
+        let provider_impl = OpenAIResponsesProvider::new(provider, infra);
+        let retry_config = forge_config::RetryConfig::default()
+            .status_codes(vec![429, 500, 502, 503, 504])
+            .max_attempts(3usize)
+            .min_delay_ms(1u64);
+
+        let attempt_count = Arc::new(AtomicUsize::new(0));
+        let attempt_count_clone = attempt_count.clone();
+
+        let result: anyhow::Result<()> = forge_app::retry::retry_with_config(
+            &retry_config,
+            || {
+                let provider_impl = provider_impl.clone();
+                let retry_config = retry_config.clone();
+                attempt_count_clone.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    let context = ChatContext::default()
+                        .add_message(ContextMessage::user("Hi", None))
+                        .stream(true);
+
+                    let mut stream = provider_impl
+                        .chat(&ModelId::from("gpt-4o"), context)
+                        .await
+                        .map_err(|e| retry::into_retry(e, &retry_config))?;
+
+                    // Drain the stream to surface the 503 error
+                    while let Some(item) = stream.next().await {
+                        let _ = item.map_err(|e| retry::into_retry(e, &retry_config))?;
+                    }
+
+                    // The first attempt should never reach here (503 error),
+                    // but if the mock server stops returning 503, we succeed.
+                    Ok(())
+                }
+            },
+            None::<fn(&anyhow::Error, std::time::Duration)>,
+        )
+        .await;
+
+        // The operation should have failed after exhausting retries
+        assert!(result.is_err(), "Expected error after retries");
+
+        // Verify that the operation was retried (1 initial + up to max_attempts
+        // retries)
+        let actual_attempts = attempt_count.load(Ordering::SeqCst);
+        let expected_min_attempts = 2; // At least initial + 1 retry
+        assert!(
+            actual_attempts >= expected_min_attempts,
+            "Expected at least {expected_min_attempts} attempts, got {actual_attempts}"
+        );
+
         Ok(())
     }
 }

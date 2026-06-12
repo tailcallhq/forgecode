@@ -173,8 +173,11 @@ impl<F: forge_app::FileWriterInfra + 'static> ForgeHttpInfra<F> {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unable to read response body".to_string());
-            return Err(anyhow::anyhow!(error_body))
-                .with_context(|| format_http_context(Some(status), method, url));
+            return Err(anyhow::Error::from(
+                forge_app::dto::openai::Error::InvalidStatusCode(status.as_u16()),
+            ))
+            .context(error_body)
+            .with_context(|| format_http_context(Some(status), method, url));
         }
 
         Ok(response)

@@ -635,6 +635,26 @@
     "url": "https://api.anthropic.com/v1/messages",
     "models": [
       {
+        "id": "claude-fable-5",
+        "name": "Claude Fable 5",
+        "description": "Most capable widely released model for demanding reasoning and agentic work",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "claude-opus-4-8",
+        "name": "Claude Opus 4.8",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-opus-4-7",
         "name": "Claude Opus 4.7",
         "description": "Most intelligent model for building agents and coding",
@@ -1097,6 +1117,16 @@
     "url": "https://{{#if (eq LOCATION \"global\")}}aiplatform.googleapis.com{{else}}{{LOCATION}}-aiplatform.googleapis.com{{/if}}/v1beta1/projects/{{PROJECT_ID}}/locations/{{LOCATION}}/publishers/google",
     "models": [
       {
+        "id": "gemini-3.5-flash",
+        "name": "Gemini 3.5 Flash",
+        "description": "",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "gemini-3.1-flash-lite-preview",
         "name": "Gemini 3.1 Flash Lite Preview",
         "description": "Google's most cost-efficient Gemini model, optimized for low latency use cases for high-volume, cost-sensitive LLM traffic.",
@@ -1228,11 +1258,11 @@
     "url_param_vars": [
       {"name": "VLLM_SSL_SCHEME", "options": ["http", "https"]},
       "VLLM_HOST",
-      "VLLM_PORT"
+      {"name": "VLLM_PORT", "optional": true}
     ],
     "response_type": "OpenAI",
-    "url": "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}:{{VLLM_PORT}}/v1/chat/completions",
-    "models": "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}:{{VLLM_PORT}}/v1/models",
+    "url": "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}{{#if VLLM_PORT}}:{{VLLM_PORT}}{{/if}}/v1/chat/completions",
+    "models": "{{VLLM_SSL_SCHEME}}://{{VLLM_HOST}}{{#if VLLM_PORT}}:{{VLLM_PORT}}{{/if}}/v1/models",
     "auth_methods": ["api_key"]
   },
   {
@@ -1296,6 +1326,66 @@
     "response_type": "Bedrock",
     "url": "https://bedrock-runtime.{{AWS_REGION}}.amazonaws.com",
     "models": [
+      {
+        "id": "jp.anthropic.claude-opus-4-8",
+        "name": "Claude Opus 4.8 (JP)",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "au.anthropic.claude-opus-4-8",
+        "name": "Claude Opus 4.8 (AU)",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "global.anthropic.claude-opus-4-8",
+        "name": "Claude Opus 4.8 (Global)",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "eu.anthropic.claude-opus-4-8",
+        "name": "Claude Opus 4.8 (EU)",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "us.anthropic.claude-opus-4-8",
+        "name": "Claude Opus 4.8 (US)",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "anthropic.claude-opus-4-8",
+        "name": "Claude Opus 4.8",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
       {
         "id": "google.gemma-3-27b-it",
         "name": "Google Gemma 3 27B Instruct",
@@ -1364,6 +1454,16 @@
         "input_modalities": ["text"]
       },
       {
+        "id": "minimax.minimax-m3",
+        "name": "MiniMax M3",
+        "description": "Frontier coding model with 1M context, MSA sparse attention, native multimodality, and agentic capabilities",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "minimax.minimax-m2.1",
         "name": "MiniMax M2.1",
         "description": "",
@@ -1373,6 +1473,7 @@
         "supports_reasoning": true,
         "input_modalities": ["text"]
       },
+      
       {
         "id": "us.anthropic.claude-sonnet-4-20250514-v1:0",
         "name": "Claude Sonnet 4 (US)",
@@ -2165,6 +2266,16 @@
     "url": "{{#if (eq LOCATION \"global\")}}https://aiplatform.googleapis.com/v1/projects/{{PROJECT_ID}}/locations/{{LOCATION}}/publishers/anthropic/models/{{else}}https://{{LOCATION}}-aiplatform.googleapis.com/v1/projects/{{PROJECT_ID}}/locations/{{LOCATION}}/publishers/anthropic/models/{{/if}}",
     "models": [
       {
+        "id": "claude-opus-4-8",
+        "name": "Claude Opus 4.8",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-sonnet-4-6",
         "name": "Claude Sonnet 4.6",
         "description": "Most balanced Claude model with excellent performance and speed",
@@ -2325,6 +2436,16 @@
     "url": "https://generativelanguage.googleapis.com/v1beta",
     "models": [
       {
+        "id": "gemini-3.5-flash",
+        "name": "Gemini 3.5 Flash",
+        "description": "",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "gemini-3.1-pro-preview",
         "name": "Gemini 3.1 Pro Preview",
         "description": "Most capable Gemini model with advanced reasoning",
@@ -2406,6 +2527,16 @@
     "response_type": "Anthropic",
     "url": "https://{{#if HOSTNAME}}{{HOSTNAME}}{{else}}api.minimax.io{{/if}}/anthropic/v1/messages",
     "models": [
+      {
+        "id": "MiniMax-M3",
+        "name": "MiniMax M3",
+        "description": "Frontier coding model with 1M context, MSA sparse attention, native multimodality (image/video), and agentic capabilities",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
       {
         "id": "MiniMax-M2.7",
         "name": "MiniMax M2.7",
@@ -2626,6 +2757,46 @@
     "response_type": "OpenCode",
     "url": "https://opencode.ai/zen",
     "models": [
+      {
+        "id": "grok-build-0.1",
+        "name": "Grok Build 0.1",
+        "description": "",
+        "context_length": 256000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gemini-3.5-flash",
+        "name": "Gemini 3.5 Flash",
+        "description": "",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "grok-code",
+        "name": "Grok Code Fast 1",
+        "description": "",
+        "context_length": 256000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "claude-opus-4-8",
+        "name": "Claude Opus 4.8",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
       {
         "id": "claude-opus-4-6",
         "name": "Claude Opus 4.6",
@@ -3000,6 +3171,16 @@
     "url": "https://opencode.ai/zen/go",
     "models": [
       {
+        "id": "qwen3.7-max",
+        "name": "Qwen3.7 Max",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
         "id": "mimo-v2.5-pro",
         "name": "MiMo V2.5 Pro",
         "description": "MiMo V2.5 Pro model",
@@ -3211,6 +3392,16 @@
         "input_modalities": ["text"]
       },
       {
+        "id": "qwen3.7-max",
+        "name": "Qwen3.7 Max",
+        "description": "",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
         "id": "glm-4.7",
         "name": "GLM 4.7",
         "description": "GLM-4.7 is a version in Zhipu AI's GLM-4 API model family. Offers strong performance in Chinese and English for instruction following, reasoning, tool use, and multi-turn dialogue. Part of the same generation as GLM-4-Plus, with improvements in long-context handling and structured output.",
@@ -3299,26 +3490,6 @@
     "url": "https://api.fireworks.ai/inference/v1/chat/completions",
     "auth_methods": ["api_key"],
     "models": [
-      {
-        "id": "accounts/fireworks/routers/kimi-k2p5-turbo",
-        "name": "Kimi K2.5 Turbo (Firepass) ",
-        "description": "Kimi K2.5 Turbo model",
-        "context_length": 256000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "accounts/fireworks/routers/kimi-k2p6",
-        "name": "Kimi K2.6 (Firepass)",
-        "description": "Kimi K2.6 model",
-        "context_length": 262144,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
       {
         "id": "accounts/fireworks/models/kimi-k2p5",
         "name": "Kimi K2.5",
@@ -3461,6 +3632,26 @@
     ]
   },
   {
+    "id": "fireworks-ai-firepass",
+    "api_key_vars": "FIREWORKS_AI_FIREPASS_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.fireworks.ai/inference/v1/chat/completions",
+    "auth_methods": ["api_key"],
+    "models": [
+      {
+        "id": "accounts/fireworks/routers/kimi-k2p6-turbo",
+        "name": "Kimi K2.6 Turbo (firepass)",
+        "description": "Kimi K2.6 Turbo model",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      }
+    ]
+  },
+  {
     "id": "modal",
     "api_key_vars": "MODAL_API_KEY",
     "url_param_vars": [],
@@ -3548,6 +3739,15 @@
     "response_type": "OpenAI",
     "url": "https://integrate.api.nvidia.com/v1/chat/completions",
     "models": "https://integrate.api.nvidia.com/v1/models",
+    "auth_methods": ["api_key"]
+  },
+  {
+    "id": "ambient",
+    "api_key_vars": "AMBIENT_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.ambient.xyz/v1/chat/completions",
+    "models": "https://api.ambient.xyz/v1/models",
     "auth_methods": ["api_key"]
   }
 ]

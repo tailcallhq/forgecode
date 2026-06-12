@@ -27,7 +27,16 @@ impl ModelSpecificReasoning {
 
     fn family(&self) -> AnthropicModelFamily {
         let id = self.model_id.to_lowercase();
-        if id.contains("opus-4-7") || id.contains("47-opus") {
+        if id.contains("opus-4-8")
+            || id.contains("48-opus")
+            || id.contains("opus-4-7")
+            || id.contains("47-opus")
+            || id.contains("mythos")
+            || id.contains("fable")
+        {
+            // Opus 4.8 shares Opus 4.7's API contract: adaptive thinking only
+            // (legacy `budget_tokens` returns 400) and non-default sampling
+            // params (`temperature`/`top_p`/`top_k`) return 400.
             AnthropicModelFamily::AdaptiveOnly
         } else if id.contains("opus-4-6")
             || id.contains("46-opus")
@@ -82,7 +91,7 @@ impl Transformer for ModelSpecificReasoning {
                     warn!(
                         model = %self.model_id,
                         dropped_max_tokens = max_tokens,
-                        "Dropping `reasoning.max_tokens` for Opus 4.7: extended thinking budgets are unsupported. Use `reasoning.effort` to control thinking depth instead."
+                        "Dropping `reasoning.max_tokens` for Opus 4.7/4.8: extended thinking budgets are unsupported. Use `reasoning.effort` to control thinking depth instead."
                     );
                 }
                 context.temperature = None;
@@ -108,7 +117,7 @@ impl Transformer for ModelSpecificReasoning {
                     {
                         warn!(
                             model = %self.model_id,
-                            "Dropping `reasoning.effort`: the effort parameter is only supported on Opus 4.5, Opus 4.6, Sonnet 4.6, and Opus 4.7."
+                            "Dropping `reasoning.effort`: the effort parameter is only supported on Opus 4.5, Opus 4.6, Sonnet 4.6, Opus 4.7, and Opus 4.8."
                         );
                         reasoning.effort = None;
                     }
@@ -150,6 +159,64 @@ mod tests {
             max_tokens: None,
             effort: Some(Effort::XHigh),
             exclude: Some(true),
+        });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_opus_4_8_drops_max_tokens_and_sampling_params() {
+        // Opus 4.8 shares Opus 4.7's API contract: legacy `budget_tokens` and
+        // non-default sampling params both return 400, so they must be dropped.
+        let fixture = fixture_context_with_sampling().reasoning(ReasoningConfig {
+            enabled: Some(true),
+            max_tokens: Some(8000),
+            effort: Some(Effort::XHigh),
+            exclude: Some(true),
+        });
+
+        let actual = ModelSpecificReasoning::new("claude-opus-4-8").transform(fixture);
+
+        let expected = Context::default().reasoning(ReasoningConfig {
+            enabled: Some(true),
+            max_tokens: None,
+            effort: Some(Effort::XHigh),
+            exclude: Some(true),
+        });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_opus_4_8_strips_sampling_even_without_reasoning() {
+        let fixture = fixture_context_with_sampling();
+
+        let actual = ModelSpecificReasoning::new("claude-opus-4-8").transform(fixture);
+
+        let expected = Context::default();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_opus_4_8_bedrock_prefix_still_matches() {
+        // Bedrock region prefixes (`us.anthropic.claude-...`) must still be
+        // classified as AdaptiveOnly so sampling params are stripped and
+        // `max_tokens` is dropped.
+        let fixture = fixture_context_with_sampling().reasoning(ReasoningConfig {
+            enabled: Some(true),
+            max_tokens: Some(8000),
+            effort: Some(Effort::XHigh),
+            exclude: None,
+        });
+
+        let actual = ModelSpecificReasoning::new("us.anthropic.claude-opus-4-8").transform(fixture);
+
+        let expected = Context::default().reasoning(ReasoningConfig {
+            enabled: Some(true),
+            max_tokens: None,
+            effort: Some(Effort::XHigh),
+            exclude: None,
         });
 
         assert_eq!(actual, expected);

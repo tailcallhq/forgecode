@@ -92,13 +92,18 @@ impl<H: HttpInfra> Anthropic<H> {
 }
 
 /// Returns false when the model auto-enables interleaved thinking through
-/// adaptive thinking (Opus 4.7, Opus 4.6, Sonnet 4.6). When the model is
-/// unknown (e.g., listing endpoints), the flag is included because it is
+/// adaptive thinking (Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 4.6). When the model
+/// is unknown (e.g., listing endpoints), the flag is included because it is
 /// harmless on non-chat endpoints and necessary on older chat models.
 fn interleaved_thinking_required(model: Option<&ModelId>) -> bool {
     let Some(model) = model else { return true };
     let id = model.as_str().to_lowercase();
-    !(id.contains("opus-4-7") || id.contains("opus-4-6") || id.contains("sonnet-4-6"))
+    !(id.contains("opus-4-8")
+        || id.contains("opus-4-7")
+        || id.contains("opus-4-6")
+        || id.contains("sonnet-4-6")
+        || id.contains("mythos")
+        || id.contains("fable"))
 }
 
 impl<T: HttpInfra> Anthropic<T> {
@@ -801,8 +806,8 @@ mod tests {
 
     #[test]
     fn test_get_headers_drops_interleaved_thinking_for_4_6_plus_models() {
-        // Adaptive thinking auto-enables interleaved thinking on Opus 4.7,
-        // Opus 4.6, and Sonnet 4.6; the beta header is redundant there.
+        // Adaptive thinking auto-enables interleaved thinking on Opus 4.8,
+        // Opus 4.7, Opus 4.6, and Sonnet 4.6; the beta header is redundant there.
         let chat_url = Url::parse("https://api.anthropic.com/v1/messages").unwrap();
         let model_url = Url::parse("https://api.anthropic.com/v1/models").unwrap();
 
@@ -832,9 +837,11 @@ mod tests {
         );
 
         for model_id in [
+            "claude-opus-4-8",
             "claude-opus-4-7",
             "claude-opus-4-6",
             "claude-sonnet-4-6",
+            "us.anthropic.claude-opus-4-8",
             "us.anthropic.claude-opus-4-7",
             "global.anthropic.claude-sonnet-4-6",
         ] {

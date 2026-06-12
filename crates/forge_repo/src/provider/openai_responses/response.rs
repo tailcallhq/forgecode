@@ -43,6 +43,20 @@ pub(super) enum ResponsesStreamEvent {
         cost: f64,
     },
 
+    /// Codex backend `response.completed` event. The Codex backend omits
+    /// required `oai::Response` fields (e.g. `output`) on this event, so it
+    /// cannot be parsed via the generic `oai::ResponseStreamEvent`. We
+    /// deserialize only `end_turn` (backend-only continue-turn signal); other
+    /// data (output items, usage) arrives via earlier streaming events.
+    #[serde(rename = "response.completed")]
+    ResponseCompleted { response: ResponseCompletedPayload },
+
+    /// Codex backend `response.incomplete` event. Mapped to a hard error so
+    /// the orchestrator stops the turn instead of looping on a truncated
+    /// assistant message.
+    #[serde(rename = "response.incomplete")]
+    ResponseIncomplete { response: ResponseIncompletePayload },
+
     /// Any standard OpenAI Responses API streaming event.
     #[serde(untagged)]
     Response(Box<oai::ResponseStreamEvent>),
@@ -82,8 +96,29 @@ where
 pub(super) enum StreamItem {
     /// A standard OpenAI Responses API streaming event.
     Event(Box<oai::ResponseStreamEvent>),
-    /// A pre-resolved message (e.g. cost from a proxy ping event).
+    /// A pre-resolved message (e.g. cost from a proxy ping event, or a
+    /// Codex `response.completed` event already converted to its terminal
+    /// `ChatCompletionMessage`).
     Message(Box<ChatCompletionMessage>),
+}
+
+/// Payload of the Codex `response.completed` event. The Codex backend omits
+/// required `oai::Response` fields (e.g. `output`), so we deserialize only
+/// `end_turn` (backend-only continue-turn signal).
+#[derive(Debug, Deserialize)]
+pub(super) struct ResponseCompletedPayload {
+    #[serde(default)]
+    pub end_turn: Option<bool>,
+    #[serde(default)]
+    pub usage: Option<oai::ResponseUsage>,
+}
+
+/// Payload of the Codex `response.incomplete` event. Carries the
+/// `incomplete_details.reason` used to produce a useful error message.
+#[derive(Debug, Deserialize)]
+pub(super) struct ResponseIncompletePayload {
+    #[serde(default)]
+    pub incomplete_details: Option<oai::IncompleteDetails>,
 }
 
 /// Converts OpenAI Responses API usage into the domain Usage type.
@@ -151,7 +186,7 @@ impl IntoDomain for oai::Response {
                             message.add_reasoning_detail(forge_domain::Reasoning::Full(vec![
                                 forge_domain::ReasoningFull {
                                     data: Some(encrypted_content.clone()),
-                                    id: Some(reasoning.id.clone()),
+                                    id: reasoning.id.clone(),
                                     type_of: Some("reasoning.encrypted".to_string()),
                                     ..Default::default()
                                 },
@@ -160,8 +195,12 @@ impl IntoDomain for oai::Response {
 
                     // Process reasoning text content
                     if let Some(content) = &reasoning.content {
-                        let reasoning_text =
-                            content.iter().map(|c| c.text.as_str()).collect::<String>();
+                        let reasoning_text = content
+                            .iter()
+                            .map(|c| match c {
+                                oai::ReasoningItemContent::ReasoningText(t) => t.text.as_str(),
+                            })
+                            .collect::<String>();
                         if !reasoning_text.is_empty() {
                             all_reasoning_text.push_str(&reasoning_text);
                             message =
@@ -169,7 +208,7 @@ impl IntoDomain for oai::Response {
                                     forge_domain::ReasoningFull {
                                         text: Some(reasoning_text),
                                         type_of: Some("reasoning.text".to_string()),
-                                        id: Some(reasoning.id.clone()),
+                                        id: reasoning.id.clone(),
                                         ..Default::default()
                                     },
                                 ]));
@@ -196,7 +235,7 @@ impl IntoDomain for oai::Response {
                                     forge_domain::ReasoningFull {
                                         text: Some(summary_text),
                                         type_of: Some("reasoning.summary".to_string()),
-                                        id: Some(reasoning.id.clone()),
+                                        id: reasoning.id.clone(),
                                         ..Default::default()
                                     },
                                 ]));
@@ -267,6 +306,32 @@ fn retain_encrypted_reasoning_details(
     } else {
         Some(encrypted)
     }
+}
+
+/// Builds the terminal `ChatCompletionMessage` for a `response.completed`
+/// event. Deduplicates content/reasoning/tool_calls that were already streamed
+/// via deltas and applies the Codex `end_turn` override when present.
+pub(super) fn into_response_completed_message(
+    payload: ResponseCompletedPayload,
+) -> ChatCompletionMessage {
+    let mut message = ChatCompletionMessage::default();
+    if let Some(usage) = payload.usage {
+        message = message.usage(usage.into_domain());
+    }
+    if payload.end_turn == Some(false) {
+        // Server explicitly asks to continue the turn; leave finish_reason
+        // unset so the orchestrator loop does not terminate.
+        message
+    } else {
+        message.finish_reason_opt(Some(FinishReason::Stop))
+    }
+}
+
+/// Maps a `response.incomplete` event into a hard error so the orchestrator
+/// stops the turn instead of looping on a truncated assistant message.
+pub(super) fn into_response_incomplete_error(reason: Option<String>) -> anyhow::Error {
+    let reason = reason.unwrap_or_else(|| "unknown".to_string());
+    anyhow::anyhow!("Upstream response incomplete: {reason}")
 }
 
 fn into_response_failed_error(failed: oai::ResponseFailedEvent) -> anyhow::Error {
@@ -478,6 +543,7 @@ impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
 #[cfg(test)]
 mod tests {
     use async_openai::types::responses as oai;
+    use pretty_assertions::assert_eq;
 
     // Type alias for ResponseStream in tests since it's not provided by
     // response-types
@@ -1710,6 +1776,44 @@ mod tests {
                 assert!((cost - 0.123).abs() < f64::EPSILON);
             }
             other => panic!("Expected Ping, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_responses_stream_event_deserializes_codex_response_completed_without_output() {
+        let fixture = serde_json::json!({
+            "type": "response.completed",
+            "response": {
+                "id": "resp_1",
+                "created_at": 1773422509,
+                "model": "gpt-5.3-codex-spark",
+                "object": "response",
+                "status": "completed",
+                "end_turn": false,
+                "usage": {
+                    "input_tokens": 14900,
+                    "output_tokens": 381,
+                    "total_tokens": 15281,
+                    "input_tokens_details": { "cached_tokens": 14720 },
+                    "output_tokens_details": { "reasoning_tokens": 317 }
+                }
+            }
+        });
+        let actual: ResponsesStreamEvent = serde_json::from_value(fixture).unwrap();
+        let expected = Usage {
+            prompt_tokens: TokenCount::Actual(14900),
+            completion_tokens: TokenCount::Actual(381),
+            total_tokens: TokenCount::Actual(15281),
+            cached_tokens: TokenCount::Actual(14720),
+            cost: None,
+        };
+
+        match actual {
+            ResponsesStreamEvent::ResponseCompleted { response } => {
+                assert_eq!(response.end_turn, Some(false));
+                assert_eq!(response.usage.unwrap().into_domain(), expected);
+            }
+            other => panic!("Expected ResponseCompleted, got {:?}", other),
         }
     }
 

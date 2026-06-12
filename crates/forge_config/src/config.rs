@@ -57,6 +57,10 @@ pub struct ProviderUrlParam {
     /// UI.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<String>,
+    /// Whether this parameter is optional. When `true`, the parameter may be
+    /// left blank without causing an error.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub optional: bool,
 }
 
 /// Source of models for a provider: either a URL to fetch them from or a
@@ -318,6 +322,18 @@ pub struct ForgeConfig {
     /// When false the `task` tool is disabled and `sage` is available instead.
     #[serde(default)]
     pub subagents: bool,
+
+    /// Enables automatic VS Code extension installation when Forge runs inside
+    /// VS Code and the extension is not already installed.
+    #[serde(default)]
+    pub auto_install_vscode_extension: bool,
+
+    /// When `true`, all system messages in the conversation are merged into a
+    /// single leading system message before the request is sent. Enable this
+    /// for providers that reject requests containing system messages after
+    /// user or assistant turns (e.g. vLLM, NVIDIA NIM).
+    #[serde(default)]
+    pub merge_system_messages: bool,
 }
 
 impl ForgeConfig {
@@ -476,5 +492,25 @@ models = "http://example.com/v1/models"
         }];
 
         assert_eq!(actual.providers, expected);
+    }
+
+    #[test]
+    fn test_auto_install_vscode_extension_defaults_to_true() {
+        let actual = ConfigReader::default().read_defaults().build().unwrap();
+
+        assert_eq!(actual.auto_install_vscode_extension, true);
+    }
+
+    #[test]
+    fn test_auto_install_vscode_extension_can_be_disabled() {
+        let toml = "auto_install_vscode_extension = false\n";
+
+        let actual = ConfigReader::default()
+            .read_defaults()
+            .read_toml(toml)
+            .build()
+            .unwrap();
+
+        assert_eq!(actual.auto_install_vscode_extension, false);
     }
 }
