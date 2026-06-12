@@ -664,6 +664,16 @@
     "url": "https://api.anthropic.com/v1/messages",
     "models": [
       {
+        "id": "claude-fable-5",
+        "name": "Claude Fable 5",
+        "description": "Most capable widely released model for demanding reasoning and agentic work",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-opus-4-8",
         "name": "Claude Opus 4.8",
         "description": "",
@@ -2285,6 +2295,16 @@
     "url": "{{#if (eq LOCATION \"global\")}}https://aiplatform.googleapis.com/v1/projects/{{PROJECT_ID}}/locations/{{LOCATION}}/publishers/anthropic/models/{{else}}https://{{LOCATION}}-aiplatform.googleapis.com/v1/projects/{{PROJECT_ID}}/locations/{{LOCATION}}/publishers/anthropic/models/{{/if}}",
     "models": [
       {
+        "id": "claude-fable-5",
+        "name": "Claude Fable 5",
+        "description": "Most capable widely released model for demanding reasoning and agentic work",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-opus-4-8",
         "name": "Claude Opus 4.8",
         "description": "",
@@ -3758,6 +3778,15 @@
     "response_type": "OpenAI",
     "url": "https://integrate.api.nvidia.com/v1/chat/completions",
     "models": "https://integrate.api.nvidia.com/v1/models",
+    "auth_methods": ["api_key"]
+  },
+  {
+    "id": "ambient",
+    "api_key_vars": "AMBIENT_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.ambient.xyz/v1/chat/completions",
+    "models": "https://api.ambient.xyz/v1/models",
     "auth_methods": ["api_key"]
   }
 ]

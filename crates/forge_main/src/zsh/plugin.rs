@@ -417,11 +417,21 @@ mod tests {
         use pretty_assertions::assert_eq;
 
         let fixture = generate_zsh_plugin().unwrap();
-        let actual = fixture.contains(
-            "    _forge_osc133_emit \"B\"\n    _forge_osc133_emit \"C\"\n    case \"$user_action\" in",
-        ) && fixture.contains(
-            "    local action_status=$?\n    _forge_osc133_emit \"D;$action_status\"\n    _forge_osc133_emit \"A\"\n    _forge_reset",
-        );
+
+        // Verify OSC 133 B and C markers are emitted before the action dispatch
+        let actual = fixture.contains("    _forge_osc133_emit \"B\"\n    _forge_osc133_emit \"C\"")
+            // The buffer is redisplayed with cursor at end so user input stays visible
+            && fixture.contains("CURSOR=${#BUFFER}\n    zle redisplay")
+            // The case dispatch follows the buffer redisplay
+            && fixture.contains("    case \"$user_action\" in")
+            // _forge_reset pads with newlines before clearing to prevent ZLE from clearing
+            // conversation output lines (see helpers.zsh:139-157)
+            && fixture.contains("for ((_i=1; _i<pad; _i++)); do print; done\n")
+            && fixture.contains("BUFFER=\"\"\n  CURSOR=0")
+            // D and A markers follow the action, with _forge_reset at the end
+            && fixture.contains(
+                "    local action_status=$?\n    _forge_osc133_emit \"D;$action_status\"\n    _forge_osc133_emit \"A\"\n    _forge_reset",
+            );
         let expected = true;
         assert_eq!(actual, expected);
     }

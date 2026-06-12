@@ -131,24 +131,34 @@ fn render_prompt(prompt: &ForgePrompt) -> ResponsivePrompt {
     let right = prompt.render_prompt_right();
     let right = right.trim_start();
 
+    // `raw` is what rustyline measures to position the cursor; `styled` is what
+    // it prints. `raw` MUST be free of ANSI escapes: rustyline's Windows
+    // console backend computes cursor columns by counting grapheme widths of
+    // `raw` (it cannot interpret escape sequences and debug-asserts against
+    // them), so any styling left in `raw` is counted as visible width and
+    // pushes the cursor past where the text actually is. The left prompt and
+    // indicator are styled via `nu_ansi_term`, so strip those codes for `raw`.
+    // The right prompt is positioned off to the side with cursor save/restore
+    // and is not part of the input-line geometry, so it is excluded from `raw`
+    // entirely.
     if right.trim().is_empty() {
-        let prompt = format!("{left}{indicator}");
-        return ResponsivePrompt { raw: prompt.clone(), styled: prompt };
+        let styled = format!("{left}{indicator}");
+        let raw = strip_ansi_codes(&styled).into_owned();
+        return ResponsivePrompt { raw, styled };
     }
 
     if let Some((first_line, remaining)) = left.split_once('\n') {
         let right = render_right_prompt(right);
+        let raw = strip_ansi_codes(&format!("{first_line}\n{remaining}{indicator}")).into_owned();
         return ResponsivePrompt {
-            raw: format!("{first_line}\n{remaining}{indicator}"),
+            raw,
             styled: format!("{first_line}{right}\n{remaining}{indicator}"),
         };
     }
 
     let right = render_right_prompt(right);
-    ResponsivePrompt {
-        raw: format!("{left}{indicator}"),
-        styled: format!("{left}{right}{indicator}"),
-    }
+    let raw = strip_ansi_codes(&format!("{left}{indicator}")).into_owned();
+    ResponsivePrompt { raw, styled: format!("{left}{right}{indicator}") }
 }
 
 fn render_right_prompt(right: &str) -> String {
@@ -271,5 +281,29 @@ mod tests {
 
         let expected = ReadResult::Success("@[/usr/bin/env]".to_string());
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_render_prompt_raw_has_no_ansi_escapes() {
+        use std::path::PathBuf;
+
+        use forge_api::{AgentId, ModelId};
+
+        // rustyline measures `raw()` to position the cursor and, on Windows,
+        // cannot interpret ANSI escapes (it counts their bytes as visible
+        // columns). `raw()` must therefore be free of escape sequences even
+        // though the visible prompt is styled.
+        let mut prompt = ForgePrompt::new(PathBuf::from("project"), AgentId::default());
+        prompt.model(ModelId::new("anthropic/claude-opus-4"));
+
+        let rendered = render_prompt(&prompt);
+
+        assert!(
+            !rendered.raw.contains('\u{1b}'),
+            "raw prompt must not contain ANSI escape sequences: {:?}",
+            rendered.raw
+        );
+        // The styled prompt, by contrast, does carry styling for display.
+        assert!(rendered.styled.contains('\u{1b}'));
     }
 }

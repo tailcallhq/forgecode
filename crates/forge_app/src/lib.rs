@@ -20,7 +20,7 @@ mod operation;
 mod orch;
 #[cfg(test)]
 mod orch_spec;
-mod retry;
+pub mod retry;
 mod search_dedup;
 mod services;
 mod set_conversation_id;

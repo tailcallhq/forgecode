@@ -3251,9 +3251,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             server.wait_for_code().await?
         } else {
             // Prompt user to paste authorization code
-            let code = ForgeWidget::input("Paste the authorization code")
-                .prompt()?
-                .ok_or_else(|| anyhow::anyhow!("Authorization code input cancelled"))?;
+            let code =
+                ForgeWidget::input(format!("Paste the authorization code for {provider_id}"))
+                    .prompt()?
+                    .ok_or_else(|| anyhow::anyhow!("Authorization code input cancelled"))?;
 
             if code.trim().is_empty() {
                 anyhow::bail!("Authorization code cannot be empty");
@@ -3860,7 +3861,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_message(&mut self, content: Option<String>) -> Result<()> {
         let conversation_id = self.init_conversation().await?;
 
-        self.install_vscode_extension();
+        if self.config.auto_install_vscode_extension {
+            self.install_vscode_extension();
+        }
 
         // Track if content was provided to decide whether to use piped input as
         // additional context

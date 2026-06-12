@@ -137,6 +137,17 @@ function _forge_select_model_pair_global() {
 }
 
 function _forge_reset() {
+  # Print newlines equal to the current buffer display line count so that
+  # ZLE's zrefresh() clears these padding lines instead of conversation
+  # output. When BUFFER spans multiple display lines (newlines or terminal
+  # wrap), ZLE tracks the multi-line state internally (olnct). On
+  # reset-prompt, zrefresh() compares olnct (old multi-line count) against
+  # nlnct (new count after clearing) and clears the delta lines. By
+  # printing padding here, the cleared lines are blank ones we inserted
+  # rather than the forge conversation output that precedes them.
+  local pad="${BUFFERLINES:-1}" _i
+  for ((_i=1; _i<pad; _i++)); do print; done
+
   # Clear buffer and reset cursor position
   BUFFER=""
   CURSOR=0

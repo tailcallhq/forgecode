@@ -1,7 +1,9 @@
-use std::io::IsTerminal;
+use std::io::{self, IsTerminal};
 
 use anyhow::Result;
 use colored::Colorize;
+use crossterm::execute;
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use rustyline::DefaultEditor;
 use tracing::debug;
 
@@ -63,6 +65,13 @@ impl InputBuilder {
             return Ok(None);
         }
 
+        // Enter the alternate screen so that the prompt is always visible and
+        // cannot be scrolled out of the viewport. This fixes an issue in
+        // terminals like VS Code (xterm.js) where rustyline's per-keystroke
+        // redraw causes the viewport to jump back to the cursor position,
+        // scrolling the prompt out of view.
+        let _guard = AlternateScreenGuard::enter();
+
         let mut rl = DefaultEditor::new()?;
 
         // On Windows, rustyline miscounts ANSI escape bytes as visible characters,
@@ -100,6 +109,24 @@ impl InputBuilder {
 
             return Ok(Some(trimmed.to_string()));
         }
+    }
+}
+
+/// Guard that enters the terminal alternate screen on creation and exits it on
+/// drop. Failures are silently ignored — the alternate screen is a cosmetic
+/// best-effort fix for terminal viewport issues.
+struct AlternateScreenGuard;
+
+impl AlternateScreenGuard {
+    fn enter() -> Option<Self> {
+        execute!(io::stdout(), EnterAlternateScreen).ok()?;
+        Some(Self)
+    }
+}
+
+impl Drop for AlternateScreenGuard {
+    fn drop(&mut self) {
+        let _ = execute!(io::stdout(), LeaveAlternateScreen);
     }
 }
 

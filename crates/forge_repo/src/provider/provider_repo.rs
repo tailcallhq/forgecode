@@ -886,6 +886,23 @@ mod tests {
     }
 
     #[test]
+    fn test_ambient_config() {
+        let configs = get_provider_configs();
+        let config = configs
+            .iter()
+            .find(|c| c.id == ProviderId::AMBIENT)
+            .unwrap();
+        assert_eq!(config.id, ProviderId::AMBIENT);
+        assert_eq!(config.api_key_vars, Some("AMBIENT_API_KEY".to_string()));
+        assert!(config.url_param_vars.is_empty());
+        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(
+            config.url.as_str(),
+            "https://api.ambient.xyz/v1/chat/completions"
+        );
+    }
+
+    #[test]
     fn test_provider_entry_with_static_models_converts_to_hardcoded() {
         let model = forge_domain::Model::new("Qwen3.6-35B-A3b-q3-mlx")
             .name("Qwen3.5-35B".to_string())

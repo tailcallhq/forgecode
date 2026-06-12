@@ -323,6 +323,11 @@ pub struct ForgeConfig {
     #[serde(default)]
     pub subagents: bool,
 
+    /// Enables automatic VS Code extension installation when Forge runs inside
+    /// VS Code and the extension is not already installed.
+    #[serde(default)]
+    pub auto_install_vscode_extension: bool,
+
     /// When `true`, all system messages in the conversation are merged into a
     /// single leading system message before the request is sent. Enable this
     /// for providers that reject requests containing system messages after
@@ -487,5 +492,25 @@ models = "http://example.com/v1/models"
         }];
 
         assert_eq!(actual.providers, expected);
+    }
+
+    #[test]
+    fn test_auto_install_vscode_extension_defaults_to_true() {
+        let actual = ConfigReader::default().read_defaults().build().unwrap();
+
+        assert_eq!(actual.auto_install_vscode_extension, true);
+    }
+
+    #[test]
+    fn test_auto_install_vscode_extension_can_be_disabled() {
+        let toml = "auto_install_vscode_extension = false\n";
+
+        let actual = ConfigReader::default()
+            .read_defaults()
+            .read_toml(toml)
+            .build()
+            .unwrap();
+
+        assert_eq!(actual.auto_install_vscode_extension, false);
     }
 }

@@ -186,7 +186,7 @@ impl IntoDomain for oai::Response {
                             message.add_reasoning_detail(forge_domain::Reasoning::Full(vec![
                                 forge_domain::ReasoningFull {
                                     data: Some(encrypted_content.clone()),
-                                    id: Some(reasoning.id.clone()),
+                                    id: reasoning.id.clone(),
                                     type_of: Some("reasoning.encrypted".to_string()),
                                     ..Default::default()
                                 },
@@ -195,8 +195,12 @@ impl IntoDomain for oai::Response {
 
                     // Process reasoning text content
                     if let Some(content) = &reasoning.content {
-                        let reasoning_text =
-                            content.iter().map(|c| c.text.as_str()).collect::<String>();
+                        let reasoning_text = content
+                            .iter()
+                            .map(|c| match c {
+                                oai::ReasoningItemContent::ReasoningText(t) => t.text.as_str(),
+                            })
+                            .collect::<String>();
                         if !reasoning_text.is_empty() {
                             all_reasoning_text.push_str(&reasoning_text);
                             message =
@@ -204,7 +208,7 @@ impl IntoDomain for oai::Response {
                                     forge_domain::ReasoningFull {
                                         text: Some(reasoning_text),
                                         type_of: Some("reasoning.text".to_string()),
-                                        id: Some(reasoning.id.clone()),
+                                        id: reasoning.id.clone(),
                                         ..Default::default()
                                     },
                                 ]));
@@ -231,7 +235,7 @@ impl IntoDomain for oai::Response {
                                     forge_domain::ReasoningFull {
                                         text: Some(summary_text),
                                         type_of: Some("reasoning.summary".to_string()),
-                                        id: Some(reasoning.id.clone()),
+                                        id: reasoning.id.clone(),
                                         ..Default::default()
                                     },
                                 ]));
