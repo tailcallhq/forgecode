@@ -336,8 +336,8 @@ impl ForgeMcpClient {
         http: &McpHttpServer,
         token: &str,
     ) -> anyhow::Result<Arc<RmcpClient>> {
-        let config = StreamableHttpClientTransportConfig::with_uri(http.url.clone())
-            .auth_header(token);
+        let config =
+            StreamableHttpClientTransportConfig::with_uri(http.url.clone()).auth_header(token);
         let transport = StreamableHttpClientTransport::from_config(config);
         Ok(Arc::new(self.client_info().serve(transport).await?))
     }
@@ -674,12 +674,8 @@ pub async fn mcp_auth(server_url: &str, env: &Environment) -> anyhow::Result<()>
         .map_err(|e| anyhow::anyhow!("Failed to get credentials: {}", e))?;
 
     let save_store = McpTokenStorage::new(server_url.to_string(), env.clone());
-    let stored = rmcp::transport::auth::StoredCredentials::new(
-        credentials.0,
-        credentials.1,
-        vec![],
-        None,
-    );
+    let stored =
+        rmcp::transport::auth::StoredCredentials::new(credentials.0, credentials.1, vec![], None);
     save_store
         .save(stored)
         .await
