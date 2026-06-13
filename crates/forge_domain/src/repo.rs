@@ -79,6 +79,22 @@ pub trait ConversationRepository: Send + Sync {
         limit: Option<usize>,
     ) -> Result<Option<Vec<Conversation>>>;
 
+    /// Retrieves all conversations across all workspaces with an optional
+    /// limit.
+    ///
+    /// Unlike `get_all_conversations`, this does not filter by workspace,
+    /// returning conversations from every project directory.
+    ///
+    /// # Arguments
+    /// * `limit` - Optional maximum number of conversations to retrieve
+    ///
+    /// # Errors
+    /// Returns an error if the operation fails
+    async fn get_all_workspaces_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<Conversation>>>;
+
     /// Retrieves the most recent conversation
     ///
     /// # Errors

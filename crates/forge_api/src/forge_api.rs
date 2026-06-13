@@ -184,6 +184,17 @@ impl<
             .unwrap_or_default())
     }
 
+    async fn get_all_workspaces_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Vec<Conversation>> {
+        Ok(self
+            .services
+            .get_all_workspaces_conversations(limit)
+            .await?
+            .unwrap_or_default())
+    }
+
     async fn last_conversation(&self) -> anyhow::Result<Option<Conversation>> {
         self.services.last_conversation().await
     }

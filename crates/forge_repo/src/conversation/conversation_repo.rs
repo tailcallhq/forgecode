@@ -111,6 +111,33 @@ impl ConversationRepository for ConversationRepositoryImpl {
         .await
     }
 
+    async fn get_all_workspaces_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.run_with_connection(move |connection, _wid| {
+            let mut query = conversations::table
+                .filter(conversations::context.is_not_null())
+                .order(conversations::updated_at.desc())
+                .into_boxed();
+
+            if let Some(limit_value) = limit {
+                query = query.limit(limit_value as i64);
+            }
+
+            let records: Vec<ConversationRecord> = query.load(connection)?;
+
+            if records.is_empty() {
+                return Ok(None);
+            }
+
+            let conversations: Result<Vec<Conversation>, _> =
+                records.into_iter().map(Conversation::try_from).collect();
+            Ok(Some(conversations?))
+        })
+        .await
+    }
+
     async fn get_last_conversation(&self) -> anyhow::Result<Option<Conversation>> {
         self.run_with_connection(move |connection, wid| {
             let workspace_id = wid.id() as i64;
