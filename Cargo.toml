@@ -67,7 +67,7 @@ rustyline = "18.0.0"
 regex = "1.12.3"
 reqwest = { version = "0.13.0", features = [
     "json",
-    "rustls-tls",
+    "rustls-no-provider",
     "hickory-dns",
     "http2",
 ], default-features = false }
