@@ -958,6 +958,16 @@
     "url": "https://api.z.ai/api/coding/paas/v4/chat/completions",
     "models": [
       {
+        "id": "glm-5.2",
+        "name": "GLM-5.2",
+        "description": "New flagship model with powerful coding capabilities, 1M context support, and continued strengths in long-horizon tasks",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
         "id": "glm-5.1",
         "name": "GLM-5.1",
         "description": "Latest flagship model series, foundational models specifically designed for agent applications with 200K context window and 128K maximum output",
