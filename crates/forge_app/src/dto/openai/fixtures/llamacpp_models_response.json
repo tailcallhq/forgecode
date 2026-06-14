@@ -1,0 +1,91 @@
+{
+  "data": [
+    {
+      "id": "GLM-4.7-Flash-GGUF",
+      "aliases": [],
+      "tags": [],
+      "object": "model",
+      "owned_by": "llamacpp",
+      "created": 1781360984,
+      "status": {
+        "value": "unloaded",
+        "args": [
+          "/usr/bin/llama-server",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "0",
+          "--ui-mcp-proxy",
+          "--alias",
+          "GLM-4.7-Flash-GGUF",
+          "--ctx-size",
+          "135000",
+          "--model",
+          "/home/greg/.lmstudio/models/lmstudio-community/GLM-4.7-Flash-GGUF/GLM-4.7-Flash-Q4_K_M.gguf",
+          "--parallel",
+          "1"
+        ],
+        "preset": "[GLM-4.7-Flash-GGUF]\nui-mcp-proxy = 1\nctx-size = 135000\nmodel = /home/greg/.lmstudio/models/lmstudio-community/GLM-4.7-Flash-GGUF/GLM-4.7-Flash-Q4_K_M.gguf\nparallel = 1\n\n"
+      },
+      "architecture": {
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ]
+      },
+      "need_download": false
+    },
+    {
+      "id": "Qwen3.6-35B-A3B-GGUF",
+      "aliases": [],
+      "tags": [],
+      "object": "model",
+      "owned_by": "llamacpp",
+      "created": 1781360984,
+      "status": {
+        "value": "loaded",
+        "args": [
+          "/usr/bin/llama-server",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "49759",
+          "--ui-mcp-proxy",
+          "--alias",
+          "Qwen3.6-35B-A3B-GGUF",
+          "--ctx-size",
+          "135000",
+          "--model",
+          "/home/greg/.lmstudio/models/lmstudio-community/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-Q8_0.gguf",
+          "--mmproj",
+          "/home/greg/.lmstudio/models/lmstudio-community/Qwen3.6-35B-A3B-GGUF/mmproj-Qwen3.6-35B-A3B-BF16.gguf",
+          "--parallel",
+          "1"
+        ],
+        "preset": "[Qwen3.6-35B-A3B-GGUF]\nui-mcp-proxy = 1\nctx-size = 135000\nmodel = /home/greg/.lmstudio/models/lmstudio-community/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-Q8_0.gguf\nmmproj = /home/greg/.lmstudio/models/lmstudio-community/Qwen3.6-35B-A3B-GGUF/mmproj-Qwen3.6-35B-A3B-BF16.gguf\nparallel = 1\n\n"
+      },
+      "architecture": {
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "text"
+        ]
+      },
+      "need_download": false,
+      "meta": {
+        "vocab_type": 2,
+        "n_vocab": 248320,
+        "n_ctx": 135168,
+        "n_ctx_train": 262144,
+        "n_embd": 2048,
+        "n_params": 34660610688,
+        "size": 36892150272
+      }
+    }
+  ],
+  "object": "list"
+}
