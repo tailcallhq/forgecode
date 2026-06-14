@@ -1319,6 +1319,62 @@ mod tests {
         assert!(matches!(actual.unwrap(), AnyAuthStrategy::CodexDevice(_)));
     }
 
+    #[test]
+    fn test_create_auth_strategy_xai_oauth_code_uses_standard() {
+        // xAI is neither CLAUDE_CODE nor GITHUB_COPILOT, so the OAuthCode
+        // (SuperGrok loopback) flow must fall through to the generic
+        // StandardHttpProvider with zero per-provider code.
+        let config = OAuthConfig {
+            client_id: "b1a00492-073a-47ea-816f-4c329264a828".to_string().into(),
+            auth_url: Url::parse("https://auth.x.ai/oauth2/authorize").unwrap(),
+            token_url: Url::parse("https://auth.x.ai/oauth2/token").unwrap(),
+            scopes: vec!["api:access".to_string()],
+            redirect_uri: Some("http://127.0.0.1:56121/callback".to_string()),
+            use_pkce: true,
+            token_refresh_url: None,
+            extra_auth_params: None,
+            custom_headers: None,
+        };
+
+        let factory = ForgeAuthStrategyFactory;
+        let actual = factory
+            .create_auth_strategy(
+                ProviderId::XAI,
+                forge_domain::AuthMethod::OAuthCode(config),
+                vec![],
+            )
+            .unwrap();
+        assert!(matches!(actual, AnyAuthStrategy::OAuthCodeStandard(_)));
+    }
+
+    #[test]
+    fn test_create_auth_strategy_xai_oauth_device_uses_device() {
+        // The xAI headless device flow omits token_refresh_url, so it must
+        // route to the plain OAuthDevice strategy (RFC 8628), not the
+        // GitHub-Copilot OAuthWithApiKey hybrid.
+        let config = OAuthConfig {
+            client_id: "b1a00492-073a-47ea-816f-4c329264a828".to_string().into(),
+            auth_url: Url::parse("https://auth.x.ai/oauth2/device/code").unwrap(),
+            token_url: Url::parse("https://auth.x.ai/oauth2/token").unwrap(),
+            scopes: vec!["api:access".to_string()],
+            redirect_uri: None,
+            use_pkce: false,
+            token_refresh_url: None,
+            extra_auth_params: None,
+            custom_headers: None,
+        };
+
+        let factory = ForgeAuthStrategyFactory;
+        let actual = factory
+            .create_auth_strategy(
+                ProviderId::XAI,
+                forge_domain::AuthMethod::OAuthDevice(config),
+                vec![],
+            )
+            .unwrap();
+        assert!(matches!(actual, AnyAuthStrategy::OAuthDevice(_)));
+    }
+
     /// Helper to build a JWT token with the given claims payload.
     fn build_jwt(claims: &serde_json::Value) -> String {
         use base64::Engine;

@@ -714,6 +714,84 @@ mod tests {
     }
 
     #[test]
+    fn test_xai_oauth_config() {
+        let configs = get_provider_configs();
+        let config = configs.iter().find(|c| c.id == ProviderId::XAI).unwrap();
+
+        assert_eq!(config.id, ProviderId::XAI);
+        assert_eq!(config.api_key_vars, Some("XAI_API_KEY".to_string()));
+        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(config.url.as_str(), "https://api.x.ai/v1/chat/completions");
+
+        // Three auth methods: loopback OAuth, headless device OAuth, manual key.
+        assert_eq!(config.auth_methods.len(), 3);
+        assert!(config.auth_methods.contains(&AuthMethod::ApiKey));
+
+        let expected_scopes = vec![
+            "openid".to_string(),
+            "profile".to_string(),
+            "email".to_string(),
+            "offline_access".to_string(),
+            "grok-cli:access".to_string(),
+            "api:access".to_string(),
+        ];
+
+        // Loopback authorization-code + PKCE (SuperGrok subscription).
+        let code = config
+            .auth_methods
+            .iter()
+            .find_map(|m| match m {
+                AuthMethod::OAuthCode(cfg) => Some(cfg),
+                _ => None,
+            })
+            .expect("xai should expose an oauth_code auth method");
+        assert_eq!(
+            code.client_id.as_str(),
+            "b1a00492-073a-47ea-816f-4c329264a828"
+        );
+        assert_eq!(code.auth_url.as_str(), "https://auth.x.ai/oauth2/authorize");
+        assert_eq!(code.token_url.as_str(), "https://auth.x.ai/oauth2/token");
+        assert_eq!(code.scopes, expected_scopes);
+        assert_eq!(
+            code.redirect_uri.as_deref(),
+            Some("http://127.0.0.1:56121/callback")
+        );
+        assert!(code.use_pkce);
+        let extra = code
+            .extra_auth_params
+            .as_ref()
+            .expect("oauth_code should set extra_auth_params");
+        // plan=generic is mandatory: xAI rejects loopback OAuth from
+        // non-allowlisted clients without it.
+        assert_eq!(extra.get("plan").map(String::as_str), Some("generic"));
+        assert_eq!(extra.get("referrer").map(String::as_str), Some("forgecode"));
+
+        // Headless device-code (remote / VPS). auth_url MUST be the
+        // device-authorization endpoint, and token_refresh_url must be absent
+        // so the factory routes to the plain device flow.
+        let device = config
+            .auth_methods
+            .iter()
+            .find_map(|m| match m {
+                AuthMethod::OAuthDevice(cfg) => Some(cfg),
+                _ => None,
+            })
+            .expect("xai should expose an oauth_device auth method");
+        assert_eq!(
+            device.client_id.as_str(),
+            "b1a00492-073a-47ea-816f-4c329264a828"
+        );
+        assert_eq!(
+            device.auth_url.as_str(),
+            "https://auth.x.ai/oauth2/device/code"
+        );
+        assert_eq!(device.token_url.as_str(), "https://auth.x.ai/oauth2/token");
+        assert_eq!(device.scopes, expected_scopes);
+        assert!(device.redirect_uri.is_none());
+        assert!(device.token_refresh_url.is_none());
+    }
+
+    #[test]
     fn test_vertex_ai_config() {
         let configs = get_provider_configs();
         let config = configs
