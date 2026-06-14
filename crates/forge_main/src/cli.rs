@@ -757,6 +757,12 @@ pub enum ConversationCommand {
         md: bool,
     },
 
+    /// Show nested conversations spawned by a conversation.
+    Tree {
+        /// Conversation ID.
+        id: ConversationId,
+    },
+
     /// Show conversation details.
     Info {
         /// Conversation ID.
@@ -1083,6 +1089,27 @@ mod tests {
             _ => false,
         };
         assert_eq!(is_list, true);
+    }
+
+    #[test]
+    fn test_conversation_tree() {
+        let fixture = Cli::parse_from([
+            "forge",
+            "conversation",
+            "tree",
+            "550e8400-e29b-41d4-a716-446655440004",
+        ]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
+                ConversationCommand::Tree { id } => Some(id),
+                _ => None,
+            },
+            _ => None,
+        };
+        let expected = Some(
+            ConversationId::parse("550e8400-e29b-41d4-a716-446655440004").unwrap(),
+        );
+        assert_eq!(actual, expected);
     }
 
     #[test]

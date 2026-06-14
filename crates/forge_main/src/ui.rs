@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -839,6 +839,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         let max_conversations = self.config.max_conversations;
                         let conversations =
                             self.api.get_conversations(Some(max_conversations)).await?;
+                        let conversations = Self::user_initiated_conversations(conversations);
 
                         if !conversations.is_empty()
                             && let Some(conversation) = ConversationSelector::select_conversation(
@@ -921,6 +922,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let conversation = self.validate_conversation_exists(&id).await?;
 
                 self.on_show_last_message(conversation, md).await?;
+            }
+            ConversationCommand::Tree { id } => {
+                let conversation = self.validate_conversation_exists(&id).await?;
+
+                self.on_show_conversation_tree(conversation).await?;
             }
             ConversationCommand::Info { id } => {
                 let conversation = self.validate_conversation_exists(&id).await?;
@@ -2032,9 +2038,53 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    async fn on_show_conversation_tree(&mut self, root: Conversation) -> anyhow::Result<()> {
+        let mut lines = Vec::new();
+        let mut stack = vec![(root, String::new(), true, true)];
+        let mut visited = HashSet::new();
+
+        while let Some((conversation, prefix, is_last, is_root)) = stack.pop() {
+            if !visited.insert(conversation.id) {
+                continue;
+            }
+
+            let title = conversation
+                .title
+                .as_deref()
+                .map(str::to_string)
+                .unwrap_or_else(|| markers::EMPTY.to_string());
+            let connector = if is_root {
+                String::new()
+            } else if is_last {
+                "└── ".to_string()
+            } else {
+                "├── ".to_string()
+            };
+            lines.push(format!("{prefix}{connector}{} {title}", conversation.id));
+
+            let child_prefix = if is_root {
+                String::new()
+            } else if is_last {
+                format!("{prefix}    ")
+            } else {
+                format!("{prefix}│   ")
+            };
+
+            let children = self.fetch_related_conversations(&conversation).await;
+            let child_count = children.len();
+            for (index, child) in children.into_iter().enumerate().rev() {
+                stack.push((child, child_prefix.clone(), index + 1 == child_count, false));
+            }
+        }
+
+        self.writeln(lines.join("\n"))?;
+        Ok(())
+    }
+
     async fn on_show_conversations(&mut self, porcelain: bool) -> anyhow::Result<()> {
         let max_conversations = self.config.max_conversations;
         let conversations = self.api.get_conversations(Some(max_conversations)).await?;
+        let conversations = Self::user_initiated_conversations(conversations);
 
         if conversations.is_empty() {
             return Ok(());
@@ -2084,6 +2134,25 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
 
         Ok(())
+    }
+
+    fn user_initiated_conversations(conversations: Vec<Conversation>) -> Vec<Conversation> {
+        let related_ids: HashSet<ConversationId> = conversations
+            .iter()
+            .flat_map(Conversation::related_conversation_ids)
+            .collect();
+
+        conversations
+            .into_iter()
+            .filter(|conversation| {
+                conversation
+                    .context
+                    .as_ref()
+                    .and_then(|context| context.initiator.as_deref())
+                    .is_none_or(|initiator| initiator == "user")
+                    && !related_ids.contains(&conversation.id)
+            })
+            .collect()
     }
 
     async fn on_command(&mut self, command: AppCommand) -> anyhow::Result<bool> {
