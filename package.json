@@ -21,7 +21,7 @@
     "@types/yargs": "^17.0.35",
     "ai": "^6.0.77",
     "chalk": "^5.6.2",
-    "csv-parse": "^6.1.0",
+    "csv-parse": "^7.0.0",
     "handlebars": "^4.7.9",
     "p-limit": "^7.2.0",
     "pino": "^10.1.0",
