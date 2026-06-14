@@ -764,7 +764,6 @@ pub enum ConversationCommand {
         md: bool,
     },
 
-
     /// Show conversation details.
     Info {
         /// Conversation ID.
@@ -1301,7 +1300,9 @@ mod tests {
     fn test_list_conversation_command() {
         let fixture = Cli::parse_from(["forge", "list", "conversation"]);
         let is_conversation_list = match fixture.subcommands {
-            Some(TopLevelCommand::List(list)) => matches!(list.command, ListCommand::Conversation { .. }),
+            Some(TopLevelCommand::List(list)) => {
+                matches!(list.command, ListCommand::Conversation { .. })
+            }
             _ => false,
         };
         assert_eq!(is_conversation_list, true);
@@ -1311,7 +1312,9 @@ mod tests {
     fn test_list_session_alias_command() {
         let fixture = Cli::parse_from(["forge", "list", "session"]);
         let is_conversation_list = match fixture.subcommands {
-            Some(TopLevelCommand::List(list)) => matches!(list.command, ListCommand::Conversation { .. }),
+            Some(TopLevelCommand::List(list)) => {
+                matches!(list.command, ListCommand::Conversation { .. })
+            }
             _ => false,
         };
         assert_eq!(is_conversation_list, true);

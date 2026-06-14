@@ -503,10 +503,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     }
                     ListCommand::Conversation { parent } => {
                         if let Some(parent_id) = parent {
-                            let parent_conv =
-                                self.validate_conversation_exists(&parent_id).await?;
-                            let children =
-                                self.fetch_related_conversations(&parent_conv).await;
+                            let parent_conv = self.validate_conversation_exists(&parent_id).await?;
+                            let children = self.fetch_related_conversations(&parent_conv).await;
 
                             if children.is_empty() {
                                 self.writeln_title(TitleFormat::info(
@@ -521,12 +519,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                                         .map(|t| t.to_string())
                                         .unwrap_or_else(|| markers::EMPTY.to_string());
 
-                                    let duration = chrono::Utc::now()
-                                        .signed_duration_since(
-                                            conv.metadata
-                                                .updated_at
-                                                .unwrap_or(conv.metadata.created_at),
-                                        );
+                                    let duration = chrono::Utc::now().signed_duration_since(
+                                        conv.metadata
+                                            .updated_at
+                                            .unwrap_or(conv.metadata.created_at),
+                                    );
                                     let duration = std::time::Duration::from_secs(
                                         (duration.num_minutes() * 60).max(0) as u64,
                                     );
@@ -884,17 +881,15 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         }
                     }
                     SelectCommand::Conversation { query, parent } => {
-                        let conversations =
-                            if let Some(parent_id) = parent {
-                                let parent_conv =
-                                    self.validate_conversation_exists(parent_id).await?;
-                                self.fetch_related_conversations(&parent_conv).await
-                            } else {
-                                let max_conversations = self.config.max_conversations;
-                                let conversations =
-                                    self.api.get_conversations(Some(max_conversations)).await?;
-                                Self::user_initiated_conversations(conversations)
-                            };
+                        let conversations = if let Some(parent_id) = parent {
+                            let parent_conv = self.validate_conversation_exists(parent_id).await?;
+                            self.fetch_related_conversations(&parent_conv).await
+                        } else {
+                            let max_conversations = self.config.max_conversations;
+                            let conversations =
+                                self.api.get_conversations(Some(max_conversations)).await?;
+                            Self::user_initiated_conversations(conversations)
+                        };
 
                         if !conversations.is_empty()
                             && let Some(conversation) = ConversationSelector::select_conversation(
@@ -2193,16 +2188,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let children = self.fetch_related_conversations(&parent).await;
 
                 if children.is_empty() {
-                    self.writeln_title(TitleFormat::info(
-                        "No child conversations found.",
-                    ))?;
-                } else if let Some(conversation) =
-                    ConversationSelector::select_conversation(
-                        &children,
-                        self.state.conversation_id,
-                        None,
-                    )
-                    .await?
+                    self.writeln_title(TitleFormat::info("No child conversations found."))?;
+                } else if let Some(conversation) = ConversationSelector::select_conversation(
+                    &children,
+                    self.state.conversation_id,
+                    None,
+                )
+                .await?
                 {
                     let conversation_id = conversation.id;
                     self.state.conversation_id = Some(conversation_id);
