@@ -237,6 +237,10 @@ pub enum SelectCommand {
         /// Initial query text pre-filled in the search box.
         #[arg(long, short = 'q')]
         query: Option<String>,
+
+        /// Show child conversations of a parent conversation.
+        #[arg(long)]
+        parent: Option<ConversationId>,
     },
 
     /// Select a file interactively with a preview pane.
