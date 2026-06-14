@@ -1106,9 +1106,7 @@ mod tests {
             },
             _ => None,
         };
-        let expected = Some(
-            ConversationId::parse("550e8400-e29b-41d4-a716-446655440004").unwrap(),
-        );
+        let expected = Some(ConversationId::parse("550e8400-e29b-41d4-a716-446655440004").unwrap());
         assert_eq!(actual, expected);
     }
 
