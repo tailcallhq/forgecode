@@ -20,6 +20,23 @@ use crate::provider::utils::{create_headers, format_http_context, join_url};
 
 /// Enhances error messages with provider-specific helpful information
 fn enhance_error(error: anyhow::Error, provider_id: &ProviderId) -> anyhow::Error {
+    // Check for 401/403 errors — these indicate an invalid API key or
+    // insufficient permissions. Retrying won't fix these.
+    let status = crate::provider::retry::get_api_status_code(&error);
+    if status == Some(401) || status == Some(403) {
+        let provider_name = provider_id.to_string();
+        let action = if status == Some(401) {
+            format!(
+                "Your {provider_name} API key is invalid. Update it in settings and try again."
+            )
+        } else {
+            format!(
+                "Your {provider_name} API key does not have permission to access this resource. Check your account permissions."
+            )
+        };
+        return error.context(action);
+    }
+
     // GitHub Copilot specific error enhancements
     if *provider_id == ProviderId::GITHUB_COPILOT {
         let error_string = format!("{:#}", error);
@@ -364,11 +381,12 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + 'stat
 
     async fn models(&self, provider: Provider<Url>) -> anyhow::Result<Vec<Model>> {
         let retry_config = self.infra.get_config()?.retry.unwrap_or_default();
+        let provider_id = provider.id.clone();
         let provider_client = OpenAIProvider::new(provider, self.infra.clone());
         provider_client
             .models()
             .await
-            .map_err(|e| into_retry(e, &retry_config))
+            .map_err(|e| enhance_error(into_retry(e, &retry_config), &provider_id))
             .context("Failed to fetch models from OpenAI-compatible provider")
     }
 }

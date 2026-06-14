@@ -6,13 +6,24 @@ use forge_config::RetryConfig;
 const TRANSPORT_ERROR_CODES: [&str; 3] = ["ERR_STREAM_PREMATURE_CLOSE", "ECONNRESET", "ETIMEDOUT"];
 const OPENAI_OVERLOADED_ERROR_CODE: &str = "server_is_overloaded";
 
+/// HTTP status codes that must never be retried — they indicate a configuration
+/// problem (bad API key, insufficient permissions) that no amount of retrying
+/// will fix.
+const NEVER_RETRY_STATUS_CODES: [u16; 2] = [401, 403];
+
 pub fn into_retry(error: anyhow::Error, retry_config: &RetryConfig) -> anyhow::Error {
+    // 401/403 are always fatal — retrying won't fix a bad API key or missing
+    // permissions.
     if let Some(code) = get_req_status_code(&error)
         .or(get_event_req_status_code(&error))
         .or(get_api_status_code(&error))
-        && retry_config.status_codes.contains(&code)
     {
-        return DomainError::Retryable(error).into();
+        if NEVER_RETRY_STATUS_CODES.contains(&code) {
+            return error;
+        }
+        if retry_config.status_codes.contains(&code) {
+            return DomainError::Retryable(error).into();
+        }
     }
 
     if is_api_transport_error(&error)
@@ -186,6 +197,22 @@ mod tests {
             error = ErrorResponse::default().error(Box::new(error));
         }
         anyhow::Error::from(Error::Response(error))
+    }
+
+    #[test]
+    fn test_never_retry_401_403_even_if_in_config() {
+        // 401/403 must never be retryable even if the config includes them
+        let retry_config = fixture_retry_config(vec![401, 403, 429, 500]);
+
+        let error_401 = fixture_response_error(Some(401));
+        assert!(!is_retryable(into_retry(error_401, &retry_config)));
+
+        let error_403 = fixture_response_error(Some(403));
+        assert!(!is_retryable(into_retry(error_403, &retry_config)));
+
+        // 500 should still be retryable when in config
+        let error_500 = fixture_response_error(Some(500));
+        assert!(is_retryable(into_retry(error_500, &retry_config)));
     }
 
     #[test]
