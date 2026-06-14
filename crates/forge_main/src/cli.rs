@@ -1811,7 +1811,10 @@ mod tests {
         ]);
         let is_delete_with_id = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => {
-                matches!(conversation.command, Some(ConversationCommand::Delete { id: _ }))
+                matches!(
+                    conversation.command,
+                    Some(ConversationCommand::Delete { id: _ })
+                )
             }
             _ => false,
         };
