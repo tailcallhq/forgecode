@@ -2092,6 +2092,49 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    /// Displays child conversations of a parent as a flat list
+    async fn on_show_conversation_children(&mut self, parent: Conversation) -> anyhow::Result<()> {
+        let children = self.fetch_related_conversations(&parent).await;
+
+        if children.is_empty() {
+            self.writeln_title(TitleFormat::info("No child conversations found."))?;
+            return Ok(());
+        }
+
+        let mut info = Info::new();
+
+        for conv in children.into_iter() {
+            let title = conv
+                .title
+                .as_deref()
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| markers::EMPTY.to_string());
+
+            let duration = chrono::Utc::now().signed_duration_since(
+                conv.metadata.updated_at.unwrap_or(conv.metadata.created_at),
+            );
+            let duration =
+                std::time::Duration::from_secs((duration.num_minutes() * 60).max(0) as u64);
+            let time_ago = if duration.is_zero() {
+                "now".to_string()
+            } else {
+                format!("{} ago", humantime::format_duration(duration))
+            };
+
+            info = info
+                .add_title(conv.id)
+                .add_key_value("Title", title)
+                .add_key_value("Updated", time_ago);
+        }
+
+        let porcelain = Porcelain::from(&info)
+            .drop_col(3)
+            .truncate(1, 60)
+            .uppercase_headers();
+        self.writeln(porcelain)?;
+        Ok(())
+    }
+
     async fn on_show_conversations(&mut self, porcelain: bool) -> anyhow::Result<()> {
         let max_conversations = self.config.max_conversations;
         let conversations = self.api.get_conversations(Some(max_conversations)).await?;
