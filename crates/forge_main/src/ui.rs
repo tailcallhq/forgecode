@@ -501,8 +501,56 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     ListCommand::Mcp => {
                         self.on_show_mcp_servers(porcelain).await?;
                     }
-                    ListCommand::Conversation => {
-                        self.on_show_conversations(porcelain).await?;
+                    ListCommand::Conversation { parent } => {
+                        if let Some(parent_id) = parent {
+                            let parent_conv =
+                                self.validate_conversation_exists(&parent_id).await?;
+                            let children =
+                                self.fetch_related_conversations(&parent_conv).await;
+
+                            if children.is_empty() {
+                                self.writeln_title(TitleFormat::info(
+                                    "No child conversations found.",
+                                ))?;
+                            } else {
+                                let mut info = Info::new();
+                                for conv in children.into_iter() {
+                                    let title = conv
+                                        .title
+                                        .as_deref()
+                                        .map(|t| t.to_string())
+                                        .unwrap_or_else(|| markers::EMPTY.to_string());
+
+                                    let duration = chrono::Utc::now()
+                                        .signed_duration_since(
+                                            conv.metadata
+                                                .updated_at
+                                                .unwrap_or(conv.metadata.created_at),
+                                        );
+                                    let duration = std::time::Duration::from_secs(
+                                        (duration.num_minutes() * 60).max(0) as u64,
+                                    );
+                                    let time_ago = if duration.is_zero() {
+                                        "now".to_string()
+                                    } else {
+                                        format!("{} ago", humantime::format_duration(duration))
+                                    };
+
+                                    info = info
+                                        .add_title(conv.id)
+                                        .add_key_value("Title", title)
+                                        .add_key_value("Updated", time_ago);
+                                }
+
+                                let porcelain = Porcelain::from(&info)
+                                    .drop_col(3)
+                                    .truncate(1, 60)
+                                    .uppercase_headers();
+                                self.writeln(porcelain)?;
+                            }
+                        } else {
+                            self.on_show_conversations(porcelain).await?;
+                        }
                     }
                     ListCommand::Cmd => {
                         self.on_show_custom_commands(porcelain).await?;
@@ -863,13 +911,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         &mut self,
         conversation_group: crate::cli::ConversationCommandGroup,
     ) -> anyhow::Result<()> {
-        // When --parent is provided, list child conversations of that parent
-        if let Some(parent_id) = conversation_group.parent {
-            let parent = self.validate_conversation_exists(&parent_id).await?;
-            self.on_show_conversation_children(parent).await?;
-            return Ok(());
-        }
-
         match conversation_group.command {
             Some(ConversationCommand::List { porcelain }) => {
                 self.on_show_conversations(porcelain).await?;
@@ -929,11 +970,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let conversation = self.validate_conversation_exists(&id).await?;
 
                 self.on_show_last_message(conversation, md).await?;
-            }
-            Some(ConversationCommand::Tree { id }) => {
-                let conversation = self.validate_conversation_exists(&id).await?;
-
-                self.on_show_conversation_tree(conversation).await?;
             }
             Some(ConversationCommand::Info { id }) => {
                 let conversation = self.validate_conversation_exists(&id).await?;
@@ -2049,92 +2085,6 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
-    async fn on_show_conversation_tree(&mut self, root: Conversation) -> anyhow::Result<()> {
-        let mut lines = Vec::new();
-        let mut stack = vec![(root, String::new(), true, true)];
-        let mut visited = HashSet::new();
-
-        while let Some((conversation, prefix, is_last, is_root)) = stack.pop() {
-            if !visited.insert(conversation.id) {
-                continue;
-            }
-
-            let title = conversation
-                .title
-                .as_deref()
-                .map(str::to_string)
-                .unwrap_or_else(|| markers::EMPTY.to_string());
-            let connector = if is_root {
-                String::new()
-            } else if is_last {
-                "└── ".to_string()
-            } else {
-                "├── ".to_string()
-            };
-            lines.push(format!("{prefix}{connector}{} {title}", conversation.id));
-
-            let child_prefix = if is_root {
-                String::new()
-            } else if is_last {
-                format!("{prefix}    ")
-            } else {
-                format!("{prefix}│   ")
-            };
-
-            let children = self.fetch_related_conversations(&conversation).await;
-            let child_count = children.len();
-            for (index, child) in children.into_iter().enumerate().rev() {
-                stack.push((child, child_prefix.clone(), index + 1 == child_count, false));
-            }
-        }
-
-        self.writeln(lines.join("\n"))?;
-        Ok(())
-    }
-
-    /// Displays child conversations of a parent as a flat list
-    async fn on_show_conversation_children(&mut self, parent: Conversation) -> anyhow::Result<()> {
-        let children = self.fetch_related_conversations(&parent).await;
-
-        if children.is_empty() {
-            self.writeln_title(TitleFormat::info("No child conversations found."))?;
-            return Ok(());
-        }
-
-        let mut info = Info::new();
-
-        for conv in children.into_iter() {
-            let title = conv
-                .title
-                .as_deref()
-                .map(|t| t.to_string())
-                .unwrap_or_else(|| markers::EMPTY.to_string());
-
-            let duration = chrono::Utc::now().signed_duration_since(
-                conv.metadata.updated_at.unwrap_or(conv.metadata.created_at),
-            );
-            let duration =
-                std::time::Duration::from_secs((duration.num_minutes() * 60).max(0) as u64);
-            let time_ago = if duration.is_zero() {
-                "now".to_string()
-            } else {
-                format!("{} ago", humantime::format_duration(duration))
-            };
-
-            info = info
-                .add_title(conv.id)
-                .add_key_value("Title", title)
-                .add_key_value("Updated", time_ago);
-        }
-
-        let porcelain = Porcelain::from(&info)
-            .drop_col(3)
-            .truncate(1, 60)
-            .uppercase_headers();
-        self.writeln(porcelain)?;
-        Ok(())
-    }
-
     async fn on_show_conversations(&mut self, porcelain: bool) -> anyhow::Result<()> {
         let max_conversations = self.config.max_conversations;
         let conversations = self.api.get_conversations(Some(max_conversations)).await?;
@@ -2232,8 +2182,49 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     .state
                     .conversation_id
                     .ok_or_else(|| anyhow::anyhow!("No active conversation"))?;
-                let conversation = self.validate_conversation_exists(&conversation_id).await?;
-                self.on_show_conversation_tree(conversation).await?;
+                let parent = self.validate_conversation_exists(&conversation_id).await?;
+                let children = self.fetch_related_conversations(&parent).await;
+
+                if children.is_empty() {
+                    self.writeln_title(TitleFormat::info(
+                        "No child conversations found.",
+                    ))?;
+                } else {
+                    let mut info = Info::new();
+                    for conv in children.into_iter() {
+                        let title = conv
+                            .title
+                            .as_deref()
+                            .map(|t| t.to_string())
+                            .unwrap_or_else(|| markers::EMPTY.to_string());
+
+                        let duration = chrono::Utc::now()
+                            .signed_duration_since(
+                                conv.metadata
+                                    .updated_at
+                                    .unwrap_or(conv.metadata.created_at),
+                            );
+                        let duration = std::time::Duration::from_secs(
+                            (duration.num_minutes() * 60).max(0) as u64,
+                        );
+                        let time_ago = if duration.is_zero() {
+                            "now".to_string()
+                        } else {
+                            format!("{} ago", humantime::format_duration(duration))
+                        };
+
+                        info = info
+                            .add_title(conv.id)
+                            .add_key_value("Title", title)
+                            .add_key_value("Updated", time_ago);
+                    }
+
+                    let porcelain = Porcelain::from(&info)
+                        .drop_col(3)
+                        .truncate(1, 60)
+                        .uppercase_headers();
+                    self.writeln(porcelain)?;
+                }
             }
             AppCommand::Compact => {
                 self.spinner.start(Some("Compacting"))?;

@@ -454,7 +454,11 @@ pub enum ListCommand {
 
     /// List conversation history.
     #[command(alias = "session")]
-    Conversation,
+    Conversation {
+        /// Show child conversations of a parent conversation.
+        #[arg(long)]
+        parent: Option<ConversationId>,
+    },
 
     /// List custom commands.
     #[command(alias = "cmds")]
@@ -703,10 +707,6 @@ pub enum ConfigGetField {
 /// Command group for conversation management.
 #[derive(Parser, Debug, Clone)]
 pub struct ConversationCommandGroup {
-    /// List child conversations of a parent conversation.
-    #[arg(long)]
-    pub parent: Option<ConversationId>,
-
     #[command(subcommand)]
     pub command: Option<ConversationCommand>,
 }
@@ -760,11 +760,6 @@ pub enum ConversationCommand {
         md: bool,
     },
 
-    /// Show nested conversations spawned by a conversation.
-    Tree {
-        /// Conversation ID.
-        id: ConversationId,
-    },
 
     /// Show conversation details.
     Info {
@@ -1095,25 +1090,6 @@ mod tests {
     }
 
     #[test]
-    fn test_conversation_tree() {
-        let fixture = Cli::parse_from([
-            "forge",
-            "conversation",
-            "tree",
-            "550e8400-e29b-41d4-a716-446655440004",
-        ]);
-        let actual = match fixture.subcommands {
-            Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                Some(ConversationCommand::Tree { id }) => Some(id),
-                _ => None,
-            },
-            _ => None,
-        };
-        let expected = Some(ConversationId::parse("550e8400-e29b-41d4-a716-446655440004").unwrap());
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
     fn test_session_alias_list() {
         let fixture = Cli::parse_from(["forge", "session", "list"]);
         let is_list = match fixture.subcommands {
@@ -1321,7 +1297,7 @@ mod tests {
     fn test_list_conversation_command() {
         let fixture = Cli::parse_from(["forge", "list", "conversation"]);
         let is_conversation_list = match fixture.subcommands {
-            Some(TopLevelCommand::List(list)) => matches!(list.command, ListCommand::Conversation),
+            Some(TopLevelCommand::List(list)) => matches!(list.command, ListCommand::Conversation { .. }),
             _ => false,
         };
         assert_eq!(is_conversation_list, true);
@@ -1331,7 +1307,7 @@ mod tests {
     fn test_list_session_alias_command() {
         let fixture = Cli::parse_from(["forge", "list", "session"]);
         let is_conversation_list = match fixture.subcommands {
-            Some(TopLevelCommand::List(list)) => matches!(list.command, ListCommand::Conversation),
+            Some(TopLevelCommand::List(list)) => matches!(list.command, ListCommand::Conversation { .. }),
             _ => false,
         };
         assert_eq!(is_conversation_list, true);

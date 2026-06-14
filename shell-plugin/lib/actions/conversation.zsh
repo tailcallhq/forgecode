@@ -116,9 +116,10 @@ function _forge_action_conversation() {
     fi
 }
 
+
 # Action handler: Show nested conversations spawned by current conversation
 function _forge_action_conversation_tree() {
-    _forge_handle_conversation_command "tree"
+    _forge_exec list conversation --parent "$_FORGE_CONVERSATION_ID"
 }
 
 # Action handler: Clone conversation
