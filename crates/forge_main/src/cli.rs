@@ -703,8 +703,12 @@ pub enum ConfigGetField {
 /// Command group for conversation management.
 #[derive(Parser, Debug, Clone)]
 pub struct ConversationCommandGroup {
+    /// List child conversations of a parent conversation.
+    #[arg(long)]
+    pub parent: Option<ConversationId>,
+
     #[command(subcommand)]
-    pub command: ConversationCommand,
+    pub command: Option<ConversationCommand>,
 }
 
 #[derive(Subcommand, Debug, Clone)]

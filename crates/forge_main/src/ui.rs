@@ -863,14 +863,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         &mut self,
         conversation_group: crate::cli::ConversationCommandGroup,
     ) -> anyhow::Result<()> {
+        // When --parent is provided, list child conversations of that parent
+        if let Some(parent_id) = conversation_group.parent {
+            let parent = self.validate_conversation_exists(&parent_id).await?;
+            self.on_show_conversation_children(parent).await?;
+            return Ok(());
+        }
+
         match conversation_group.command {
-            ConversationCommand::List { porcelain } => {
+            Some(ConversationCommand::List { porcelain }) => {
                 self.on_show_conversations(porcelain).await?;
             }
-            ConversationCommand::New => {
+            Some(ConversationCommand::New) => {
                 self.handle_generate_conversation_id().await?;
             }
-            ConversationCommand::Dump { id, html } => {
+            Some(ConversationCommand::Dump { id, html }) => {
                 self.validate_conversation_exists(&id).await?;
 
                 let original_id = self.state.conversation_id;
@@ -881,7 +888,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 self.state.conversation_id = original_id;
             }
-            ConversationCommand::Compact { id } => {
+            Some(ConversationCommand::Compact { id }) => {
                 self.validate_conversation_exists(&id).await?;
 
                 let original_id = self.state.conversation_id;
@@ -892,7 +899,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 self.state.conversation_id = original_id;
             }
-            ConversationCommand::Delete { id } => {
+            Some(ConversationCommand::Delete { id }) => {
                 let conversation_id =
                     ConversationId::parse(&id).context(format!("Invalid conversation ID: {id}"))?;
 
@@ -900,7 +907,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 self.on_conversation_delete(conversation_id).await?;
             }
-            ConversationCommand::Retry { id } => {
+            Some(ConversationCommand::Retry { id }) => {
                 self.validate_conversation_exists(&id).await?;
 
                 let original_id = self.state.conversation_id;
@@ -911,41 +918,41 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 self.state.conversation_id = original_id;
             }
-            ConversationCommand::Resume { id } => {
+            Some(ConversationCommand::Resume { id }) => {
                 self.validate_conversation_exists(&id).await?;
 
                 self.state.conversation_id = Some(id);
                 self.writeln_title(TitleFormat::info(format!("Resumed conversation: {id}")))?;
                 // Interactive mode will be handled by the main loop
             }
-            ConversationCommand::Show { id, md } => {
+            Some(ConversationCommand::Show { id, md }) => {
                 let conversation = self.validate_conversation_exists(&id).await?;
 
                 self.on_show_last_message(conversation, md).await?;
             }
-            ConversationCommand::Tree { id } => {
+            Some(ConversationCommand::Tree { id }) => {
                 let conversation = self.validate_conversation_exists(&id).await?;
 
                 self.on_show_conversation_tree(conversation).await?;
             }
-            ConversationCommand::Info { id } => {
+            Some(ConversationCommand::Info { id }) => {
                 let conversation = self.validate_conversation_exists(&id).await?;
 
                 self.on_show_conv_info(conversation).await?;
             }
-            ConversationCommand::Stats { id, porcelain } => {
+            Some(ConversationCommand::Stats { id, porcelain }) => {
                 let conversation = self.validate_conversation_exists(&id).await?;
 
                 self.on_show_conv_stats(conversation, porcelain).await?;
             }
-            ConversationCommand::Clone { id, porcelain } => {
+            Some(ConversationCommand::Clone { id, porcelain }) => {
                 let conversation = self.validate_conversation_exists(&id).await?;
 
                 self.spinner.start(Some("Cloning"))?;
                 self.on_clone_conversation(conversation, porcelain).await?;
                 self.spinner.stop(None)?;
             }
-            ConversationCommand::Rename { id, name } => {
+            Some(ConversationCommand::Rename { id, name }) => {
                 self.validate_conversation_exists(&id).await?;
 
                 let name = name.trim().to_string();
@@ -959,6 +966,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     "Conversation renamed to '{}'",
                     name.bold()
                 )))?;
+            }
+            None => {
+                self.on_show_conversations(false).await?;
             }
         }
 
@@ -2004,6 +2014,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.spinner.start(Some("Loading Conversations"))?;
         let max_conversations = self.config.max_conversations;
         let conversations = self.api.get_conversations(Some(max_conversations)).await?;
+        let conversations = Self::user_initiated_conversations(conversations);
         self.spinner.stop(None)?;
 
         if conversations.is_empty() {
@@ -2172,6 +2183,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 } else {
                     self.list_conversations().await?;
                 }
+            }
+            AppCommand::ConversationTree => {
+                let conversation_id = self
+                    .state
+                    .conversation_id
+                    .ok_or_else(|| anyhow::anyhow!("No active conversation"))?;
+                let conversation = self.validate_conversation_exists(&conversation_id).await?;
+                self.on_show_conversation_tree(conversation).await?;
             }
             AppCommand::Compact => {
                 self.spinner.start(Some("Compacting"))?;

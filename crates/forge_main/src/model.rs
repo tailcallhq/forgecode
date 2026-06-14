@@ -114,6 +114,8 @@ impl ForgeCommandManager {
                 | "logout"
                 | "retry"
                 | "conversations"
+                | "conversation-tree"
+                | "ct"
                 | "list"
                 | "commit"
                 | "rename"
@@ -650,6 +652,13 @@ pub enum AppCommand {
         id: Option<String>,
     },
 
+    /// Show nested conversations spawned by the current conversation
+    #[strum(props(
+        usage = "Show nested conversations spawned by the current conversation [alias: ct]"
+    ))]
+    #[command(name = "conversation-tree", alias = "ct")]
+    ConversationTree,
+
     /// Delete a conversation permanently
     #[strum(props(usage = "Delete a conversation permanently"))]
     #[command(skip)]
@@ -716,6 +725,7 @@ impl AppCommand {
             AppCommand::Logout => "logout",
             AppCommand::Retry => "retry",
             AppCommand::Conversations { .. } => "conversation",
+            AppCommand::ConversationTree => "conversation-tree",
             AppCommand::Delete => "delete",
             AppCommand::Rename { .. } => "rename",
             AppCommand::AgentSwitch(agent_id) => agent_id,
