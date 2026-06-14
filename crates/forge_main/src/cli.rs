@@ -710,7 +710,6 @@ pub struct ConversationCommandGroup {
     #[command(subcommand)]
     pub command: Option<ConversationCommand>,
 }
-
 #[derive(Subcommand, Debug, Clone)]
 pub enum ConversationCommand {
     /// List conversation history.
@@ -1088,7 +1087,7 @@ mod tests {
         let fixture = Cli::parse_from(["forge", "conversation", "list"]);
         let is_list = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => {
-                matches!(conversation.command, ConversationCommand::List { .. })
+                matches!(conversation.command, Some(ConversationCommand::List { .. }))
             }
             _ => false,
         };
@@ -1105,7 +1104,7 @@ mod tests {
         ]);
         let actual = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Tree { id } => Some(id),
+                Some(ConversationCommand::Tree { id }) => Some(id),
                 _ => None,
             },
             _ => None,
@@ -1119,7 +1118,7 @@ mod tests {
         let fixture = Cli::parse_from(["forge", "session", "list"]);
         let is_list = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => {
-                matches!(conversation.command, ConversationCommand::List { .. })
+                matches!(conversation.command, Some(ConversationCommand::List { .. }))
             }
             _ => false,
         };
@@ -1161,7 +1160,7 @@ mod tests {
         ]);
         let (id, html) = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Dump { id, html } => (id, html),
+                Some(ConversationCommand::Dump { id, html }) => (id, html),
                 _ => (ConversationId::default(), true),
             },
             _ => (ConversationId::default(), true),
@@ -1184,7 +1183,7 @@ mod tests {
         ]);
         let (id, html) = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Dump { id, html } => (id, html),
+                Some(ConversationCommand::Dump { id, html }) => (id, html),
                 _ => (ConversationId::default(), false),
             },
             _ => (ConversationId::default(), false),
@@ -1206,7 +1205,7 @@ mod tests {
         ]);
         let id = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Retry { id } => id,
+                Some(ConversationCommand::Retry { id }) => id,
                 _ => ConversationId::default(),
             },
             _ => ConversationId::default(),
@@ -1227,7 +1226,7 @@ mod tests {
         ]);
         let id = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Compact { id } => id,
+                Some(ConversationCommand::Compact { id }) => id,
                 _ => ConversationId::default(),
             },
             _ => ConversationId::default(),
@@ -1248,7 +1247,7 @@ mod tests {
         ]);
         let (id, md) = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Show { id, md } => (id, md),
+                Some(ConversationCommand::Show { id, md }) => (id, md),
                 _ => (ConversationId::default(), false),
             },
             _ => (ConversationId::default(), false),
@@ -1271,7 +1270,7 @@ mod tests {
         ]);
         let (id, md) = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Show { id, md } => (id, md),
+                Some(ConversationCommand::Show { id, md }) => (id, md),
                 _ => (ConversationId::default(), false),
             },
             _ => (ConversationId::default(), false),
@@ -1293,7 +1292,7 @@ mod tests {
         ]);
         let id = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Resume { id } => id,
+                Some(ConversationCommand::Resume { id }) => id,
                 _ => ConversationId::default(),
             },
             _ => ConversationId::default(),
@@ -1508,7 +1507,7 @@ mod tests {
         let fixture = Cli::parse_from(["forge", "conversation", "list", "--porcelain"]);
         let actual = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::List { porcelain } => porcelain,
+                Some(ConversationCommand::List { porcelain }) => porcelain,
                 _ => false,
             },
             _ => false,
@@ -1549,7 +1548,7 @@ mod tests {
         ]);
         let id = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Info { id } => id,
+                Some(ConversationCommand::Info { id }) => id,
                 _ => ConversationId::default(),
             },
             _ => ConversationId::default(),
@@ -1571,7 +1570,7 @@ mod tests {
         ]);
         let (id, porcelain) = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Stats { id, porcelain } => (id, porcelain),
+                Some(ConversationCommand::Stats { id, porcelain }) => (id, porcelain),
                 _ => (ConversationId::default(), false),
             },
             _ => (ConversationId::default(), false),
@@ -1603,7 +1602,7 @@ mod tests {
         ]);
         let (id, html) = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Dump { id, html } => (id, html),
+                Some(ConversationCommand::Dump { id, html }) => (id, html),
                 _ => (ConversationId::default(), true),
             },
             _ => (ConversationId::default(), true),
@@ -1625,7 +1624,7 @@ mod tests {
         ]);
         let id = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Retry { id } => id,
+                Some(ConversationCommand::Retry { id }) => id,
                 _ => ConversationId::default(),
             },
             _ => ConversationId::default(),
@@ -1672,7 +1671,7 @@ mod tests {
         ]);
         let id = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Clone { id, .. } => id,
+                Some(ConversationCommand::Clone { id, .. }) => id,
                 _ => ConversationId::default(),
             },
             _ => ConversationId::default(),
@@ -1694,7 +1693,7 @@ mod tests {
         ]);
         let (id, porcelain) = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => match conversation.command {
-                ConversationCommand::Clone { id, porcelain } => (id, porcelain),
+                Some(ConversationCommand::Clone { id, porcelain }) => (id, porcelain),
                 _ => (ConversationId::default(), false),
             },
             _ => (ConversationId::default(), false),
@@ -1812,7 +1811,7 @@ mod tests {
         ]);
         let is_delete_with_id = match fixture.subcommands {
             Some(TopLevelCommand::Conversation(conversation)) => {
-                matches!(conversation.command, ConversationCommand::Delete { id: _ })
+                matches!(conversation.command, Some(ConversationCommand::Delete { id: _ }))
             }
             _ => false,
         };
