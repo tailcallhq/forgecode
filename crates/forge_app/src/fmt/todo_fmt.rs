@@ -21,7 +21,7 @@ fn format_todo_line(todo: &Todo, line_style: TodoLineStyle) -> String {
         TodoStatus::Completed => "󰄵",
         TodoStatus::InProgress => "󰄗",
         TodoStatus::Pending => "󰄱",
-        TodoStatus::Cancelled => "󰅙",
+        TodoStatus::Cancelled => "",
     };
 
     let content = match todo.status {
