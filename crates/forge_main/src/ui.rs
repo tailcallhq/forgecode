@@ -914,13 +914,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         conversation_group: crate::cli::ConversationCommandGroup,
     ) -> anyhow::Result<()> {
         match conversation_group.command {
-            Some(ConversationCommand::List { porcelain }) => {
+            ConversationCommand::List { porcelain } => {
                 self.on_show_conversations(porcelain).await?;
             }
-            Some(ConversationCommand::New) => {
+            ConversationCommand::New => {
                 self.handle_generate_conversation_id().await?;
             }
-            Some(ConversationCommand::Dump { id, html }) => {
+            ConversationCommand::Dump { id, html } => {
                 self.validate_conversation_exists(&id).await?;
 
                 let original_id = self.state.conversation_id;
@@ -931,7 +931,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 self.state.conversation_id = original_id;
             }
-            Some(ConversationCommand::Compact { id }) => {
+            ConversationCommand::Compact { id } => {
                 self.validate_conversation_exists(&id).await?;
 
                 let original_id = self.state.conversation_id;
@@ -942,7 +942,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 self.state.conversation_id = original_id;
             }
-            Some(ConversationCommand::Delete { id }) => {
+            ConversationCommand::Delete { id } => {
                 let conversation_id =
                     ConversationId::parse(&id).context(format!("Invalid conversation ID: {id}"))?;
 
@@ -950,7 +950,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 self.on_conversation_delete(conversation_id).await?;
             }
-            Some(ConversationCommand::Retry { id }) => {
+            ConversationCommand::Retry { id } => {
                 self.validate_conversation_exists(&id).await?;
 
                 let original_id = self.state.conversation_id;
@@ -961,36 +961,36 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
                 self.state.conversation_id = original_id;
             }
-            Some(ConversationCommand::Resume { id }) => {
+            ConversationCommand::Resume { id } => {
                 self.validate_conversation_exists(&id).await?;
 
                 self.state.conversation_id = Some(id);
                 self.writeln_title(TitleFormat::info(format!("Resumed conversation: {id}")))?;
                 // Interactive mode will be handled by the main loop
             }
-            Some(ConversationCommand::Show { id, md }) => {
+            ConversationCommand::Show { id, md } => {
                 let conversation = self.validate_conversation_exists(&id).await?;
 
                 self.on_show_last_message(conversation, md).await?;
             }
-            Some(ConversationCommand::Info { id }) => {
+            ConversationCommand::Info { id } => {
                 let conversation = self.validate_conversation_exists(&id).await?;
 
                 self.on_show_conv_info(conversation).await?;
             }
-            Some(ConversationCommand::Stats { id, porcelain }) => {
+            ConversationCommand::Stats { id, porcelain } => {
                 let conversation = self.validate_conversation_exists(&id).await?;
 
                 self.on_show_conv_stats(conversation, porcelain).await?;
             }
-            Some(ConversationCommand::Clone { id, porcelain }) => {
+            ConversationCommand::Clone { id, porcelain } => {
                 let conversation = self.validate_conversation_exists(&id).await?;
 
                 self.spinner.start(Some("Cloning"))?;
                 self.on_clone_conversation(conversation, porcelain).await?;
                 self.spinner.stop(None)?;
             }
-            Some(ConversationCommand::Rename { id, name }) => {
+            ConversationCommand::Rename { id, name } => {
                 self.validate_conversation_exists(&id).await?;
 
                 let name = name.trim().to_string();
@@ -1005,11 +1005,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     name.bold()
                 )))?;
             }
-            None => {
-                self.on_show_conversations(false).await?;
-            }
         }
-
         Ok(())
     }
 
