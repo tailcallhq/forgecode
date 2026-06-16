@@ -6,6 +6,7 @@
 # - :conversation          - List and switch conversations (with interactive picker)
 # - :conversation <id>     - Switch to specific conversation by ID
 # - :conversation -        - Toggle between current and previous conversation (like cd -)
+# - :conversation-tree     - Show nested conversations spawned by current conversation
 # - :clone                 - Clone current or selected conversation
 # - :clone <id>            - Clone specific conversation by ID
 # - :copy                  - Copy last assistant message to OS clipboard as raw markdown
@@ -113,6 +114,12 @@ function _forge_action_conversation() {
         # Print log about conversation switching
         _forge_log success "Switched to conversation \033[1m${conversation_id}\033[0m"
     fi
+}
+
+
+# Action handler: Show nested conversations spawned by current conversation
+function _forge_action_conversation_tree() {
+    _forge_select conversation --parent "$_FORGE_CONVERSATION_ID"
 }
 
 # Action handler: Clone conversation

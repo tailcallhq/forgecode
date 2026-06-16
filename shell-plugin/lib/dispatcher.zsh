@@ -169,6 +169,9 @@ function forge-accept-line() {
         conversation|c)
             _forge_action_conversation "$input_text"
         ;;
+        conversation-tree|ct)
+            _forge_action_conversation_tree
+        ;;
         config-model|cm)
             _forge_action_model "$input_text"
         ;;

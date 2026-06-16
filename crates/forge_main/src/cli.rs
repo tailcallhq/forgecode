@@ -237,6 +237,10 @@ pub enum SelectCommand {
         /// Initial query text pre-filled in the search box.
         #[arg(long, short = 'q')]
         query: Option<String>,
+
+        /// Show child conversations of a parent conversation.
+        #[arg(long)]
+        parent: Option<ConversationId>,
     },
 
     /// Select a file interactively with a preview pane.
@@ -454,7 +458,11 @@ pub enum ListCommand {
 
     /// List conversation history.
     #[command(alias = "session")]
-    Conversation,
+    Conversation {
+        /// Show child conversations of a parent conversation.
+        #[arg(long)]
+        parent: Option<ConversationId>,
+    },
 
     /// List custom commands.
     #[command(alias = "cmds")]
@@ -706,7 +714,6 @@ pub struct ConversationCommandGroup {
     #[command(subcommand)]
     pub command: ConversationCommand,
 }
-
 #[derive(Subcommand, Debug, Clone)]
 pub enum ConversationCommand {
     /// List conversation history.
@@ -1293,7 +1300,9 @@ mod tests {
     fn test_list_conversation_command() {
         let fixture = Cli::parse_from(["forge", "list", "conversation"]);
         let is_conversation_list = match fixture.subcommands {
-            Some(TopLevelCommand::List(list)) => matches!(list.command, ListCommand::Conversation),
+            Some(TopLevelCommand::List(list)) => {
+                matches!(list.command, ListCommand::Conversation { .. })
+            }
             _ => false,
         };
         assert_eq!(is_conversation_list, true);
@@ -1303,7 +1312,9 @@ mod tests {
     fn test_list_session_alias_command() {
         let fixture = Cli::parse_from(["forge", "list", "session"]);
         let is_conversation_list = match fixture.subcommands {
-            Some(TopLevelCommand::List(list)) => matches!(list.command, ListCommand::Conversation),
+            Some(TopLevelCommand::List(list)) => {
+                matches!(list.command, ListCommand::Conversation { .. })
+            }
             _ => false,
         };
         assert_eq!(is_conversation_list, true);
