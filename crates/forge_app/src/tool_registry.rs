@@ -110,6 +110,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
                 let executor = self.agent_executor.clone();
                 let session_id = task_input.session_id.clone();
                 let agent_id = task_input.agent_id.clone();
+                let parent_id = context.conversation_id();
                 // Parse session_id into ConversationId if present
                 let conversation_id = session_id
                     .map(|id| forge_domain::ConversationId::parse(&id))
@@ -120,9 +121,10 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
                 let outputs = join_all(task_input.tasks.into_iter().map(|task| {
                     let agent_id = agent_id.clone();
                     let executor = executor.clone();
+                    let parent_id = parent_id;
                     async move {
                         executor
-                            .execute(AgentId::new(&agent_id), task, context, conversation_id)
+                            .execute(AgentId::new(&agent_id), task, context, conversation_id, parent_id)
                             .await
                     }
                 }))
@@ -169,13 +171,15 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
             let agent_input = AgentInput::try_from(&input)?;
             let executor = self.agent_executor.clone();
             let agent_name = input.name.as_str().to_string();
+            let parent_id = context.conversation_id();
             // NOTE: Agents should not timeout
             let outputs = join_all(agent_input.tasks.into_iter().map(|task| {
                 let agent_name = agent_name.clone();
                 let executor = executor.clone();
+                let parent_id = parent_id;
                 async move {
                     executor
-                        .execute(AgentId::new(&agent_name), task, context, None)
+                        .execute(AgentId::new(&agent_name), task, context, None, parent_id)
                         .await
                 }
             }))

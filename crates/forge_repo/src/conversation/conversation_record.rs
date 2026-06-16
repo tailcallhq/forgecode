@@ -949,6 +949,8 @@ pub(super) struct ConversationRecord {
     pub created_at: chrono::NaiveDateTime,
     pub updated_at: Option<chrono::NaiveDateTime>,
     pub metrics: Option<String>,
+    pub parent_id: Option<String>,
+    pub source: Option<String>,
 }
 
 impl ConversationRecord {
@@ -975,6 +977,8 @@ impl ConversationRecord {
             updated_at,
             workspace_id: workspace_id.id() as i64,
             metrics,
+            parent_id: conversation.parent_id.map(|id| id.into_string()),
+            source: conversation.source.clone(),
         }
     }
 }
@@ -1021,6 +1025,8 @@ impl TryFrom<ConversationRecord> for forge_domain::Conversation {
             .context(context)
             .title(record.title)
             .metrics(metrics)
+            .parent_id(record.parent_id.and_then(|id| ConversationId::parse(id).ok()))
+            .source(record.source)
             .metadata(
                 forge_domain::MetaData::new(record.created_at.and_utc())
                     .updated_at(record.updated_at.map(|updated_at| updated_at.and_utc())),

@@ -257,6 +257,25 @@ pub trait ConversationService: Send + Sync {
 
     /// Permanently deletes a conversation
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> anyhow::Result<()>;
+
+    /// Find all subagent conversations for a given parent
+    async fn get_conversations_by_parent(
+        &self,
+        parent_id: &ConversationId,
+    ) -> anyhow::Result<Option<Vec<Conversation>>>;
+
+    /// Find all top-level conversations (those without a parent)
+    async fn get_parent_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>>;
+
+    /// Find conversations by source (e.g., "interactive", "headless", "forge-p")
+    async fn get_conversations_by_source(
+        &self,
+        source: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>>;
 }
 
 #[async_trait::async_trait]
@@ -632,6 +651,34 @@ impl<I: Services> ConversationService for I {
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> anyhow::Result<()> {
         self.conversation_service()
             .delete_conversation(conversation_id)
+            .await
+    }
+
+    async fn get_conversations_by_parent(
+        &self,
+        parent_id: &ConversationId,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_service()
+            .get_conversations_by_parent(parent_id)
+            .await
+    }
+
+    async fn get_parent_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_service()
+            .get_parent_conversations(limit)
+            .await
+    }
+
+    async fn get_conversations_by_source(
+        &self,
+        source: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_service()
+            .get_conversations_by_source(source, limit)
             .await
     }
 }

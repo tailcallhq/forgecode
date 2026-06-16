@@ -262,8 +262,14 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
 
         // Retrieve the number of requests allowed per tick.
         let max_requests_per_turn = self.agent.max_requests_per_turn;
-        let tool_context =
-            ToolCallContext::new(self.conversation.metrics.clone()).sender(self.sender.clone());
+        let tool_context = {
+            let mut ctx = ToolCallContext::new(self.conversation.metrics.clone())
+                .sender(self.sender.clone());
+            ctx.set_conversation_id(Some(self.conversation.id));
+            ctx.set_parent_id(self.conversation.parent_id);
+            ctx.set_source(self.conversation.source.clone());
+            ctx
+        };
 
         while !should_yield {
             // Set context for the current loop iteration

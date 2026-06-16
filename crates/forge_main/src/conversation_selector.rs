@@ -5,8 +5,43 @@ use forge_domain::ConversationId;
 use forge_select::{ForgeWidget, PreviewLayout, PreviewPlacement, SelectRow};
 
 use crate::display_constants::markers;
-use crate::info::Info;
-use crate::porcelain::Porcelain;
+
+/// Fast display format for a conversation row in the selector.
+/// Avoids the Info/Porcelain overhead for large conversation lists.
+struct FastConversationRow<'a> {
+    conv: &'a Conversation,
+    now: chrono::DateTime<Utc>,
+}
+
+impl<'a> FastConversationRow<'a> {
+    fn new(conv: &'a Conversation, now: chrono::DateTime<Utc>) -> Self {
+        Self { conv, now }
+    }
+}
+
+impl<'a> std::fmt::Display for FastConversationRow<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let id = self.conv.id.to_string();
+        let short_id = &id[..8.min(id.len())];
+        let title = self.conv
+            .title
+            .as_deref()
+            .unwrap_or(markers::EMPTY);
+        let duration = self.now.signed_duration_since(
+            self.conv.metadata.updated_at.unwrap_or(self.conv.metadata.created_at),
+        );
+        let time_ago = if duration.num_seconds() < 60 {
+            "now".to_string()
+        } else if duration.num_minutes() < 60 {
+            format!("{}m ago", duration.num_minutes())
+        } else if duration.num_hours() < 24 {
+            format!("{}h ago", duration.num_hours())
+        } else {
+            format!("{}d ago", duration.num_days())
+        };
+        write!(f, "[{}] {} ({})", short_id, title, time_ago)
+    }
+}
 
 /// Logic for selecting conversations from a list
 pub struct ConversationSelector;
@@ -39,69 +74,21 @@ impl ConversationSelector {
             return Ok(None);
         }
 
-        // Build Info structure for display
+        // Build SelectRow items directly — no Info/Porcelain overhead.
+        // This keeps the selector fast even with thousands of conversations.
         let now = Utc::now();
-        let mut info = Info::new();
+        let mut rows: Vec<SelectRow> = Vec::with_capacity(valid_conversations.len() + 1);
+        rows.push(SelectRow::header("ID       Title                          Updated"));
 
         for conv in &valid_conversations {
-            let title = conv
-                .title
-                .as_deref()
-                .map(|t| t.to_string())
-                .unwrap_or_else(|| markers::EMPTY.to_string());
-
-            let duration = now.signed_duration_since(
-                conv.metadata.updated_at.unwrap_or(conv.metadata.created_at),
-            );
-            let duration =
-                std::time::Duration::from_secs((duration.num_minutes() * 60).max(0) as u64);
-            let time_ago = if duration.is_zero() {
-                "now".to_string()
-            } else {
-                format!("{} ago", humantime::format_duration(duration))
-            };
-
-            info = info
-                .add_title(conv.id)
-                .add_key_value("Title", title)
-                .add_key_value("Updated", time_ago);
-        }
-
-        // Convert to porcelain, drop the UUID title column (col 0), truncate the
-        // Title column for display, uppercase headers
-        let porcelain_output = Porcelain::from(&info)
-            .drop_col(0)
-            .truncate(0, 60)
-            .uppercase_headers();
-        let porcelain_str = porcelain_output.to_string();
-
-        let all_lines: Vec<&str> = porcelain_str.lines().collect();
-        if all_lines.is_empty() {
-            return Ok(None);
-        }
-
-        // Build SelectRow items for the shared Rust selector UI.
-        // Each row stores the UUID in `fields[0]` so that `{1}` in the preview
-        // command resolves to the conversation ID. The `raw` field is what gets
-        // returned on selection (the UUID).
-        let mut rows: Vec<SelectRow> = Vec::with_capacity(all_lines.len());
-
-        // Header row (non-selectable via header_lines=1)
-        if let Some(header) = all_lines.first() {
-            rows.push(SelectRow::header(header.to_string()));
-        }
-
-        // Data rows: each maps to a conversation
-        for (i, line) in all_lines.iter().skip(1).enumerate() {
-            if let Some(conv) = valid_conversations.get(i) {
-                let uuid = conv.id.to_string();
-                rows.push(SelectRow {
-                    raw: uuid.clone(),
-                    display: line.to_string(),
-                    search: line.to_string(),
-                    fields: vec![uuid],
-                });
-            }
+            let uuid = conv.id.to_string();
+            let display = FastConversationRow::new(conv, now).to_string();
+            rows.push(SelectRow {
+                raw: uuid.clone(),
+                display: display.clone(),
+                search: display,
+                fields: vec![uuid],
+            });
         }
 
         // Build a lookup map from UUID to Conversation for the result

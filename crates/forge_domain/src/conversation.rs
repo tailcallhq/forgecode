@@ -46,6 +46,8 @@ pub struct Conversation {
     pub context: Option<Context>,
     pub metrics: Metrics,
     pub metadata: MetaData,
+    pub parent_id: Option<ConversationId>,
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Setters, Serialize, Deserialize, Clone)]
@@ -71,6 +73,8 @@ impl Conversation {
             metadata: MetaData::new(created_at),
             title: None,
             context: None,
+            parent_id: None,
+            source: None,
         }
     }
     /// Creates a new conversation with a new conversation ID.

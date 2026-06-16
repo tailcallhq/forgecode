@@ -140,7 +140,38 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
         self.conversation_repository.get_last_conversation().await
     }
 
-    async fn delete_conversation(&self, conversation_id: &ConversationId) -> anyhow::Result<()> {
+    async fn get_conversations_by_parent(
+        &self,
+        parent_id: &ConversationId,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_conversations_by_parent(parent_id)
+            .await
+    }
+
+    async fn get_parent_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_parent_conversations(limit)
+            .await
+    }
+
+    async fn get_conversations_by_source(
+        &self,
+        source: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_conversations_by_source(source, limit)
+            .await
+    }
+
+    async fn delete_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> anyhow::Result<()> {
         self.conversation_repository
             .delete_conversation(conversation_id)
             .await

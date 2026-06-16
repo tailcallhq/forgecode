@@ -192,6 +192,40 @@ impl<
         self.services.delete_conversation(conversation_id).await
     }
 
+    async fn get_subagents(
+        &self,
+        parent_id: &ConversationId,
+    ) -> Result<Vec<Conversation>> {
+        Ok(self
+            .services
+            .get_conversations_by_parent(parent_id)
+            .await?
+            .unwrap_or_default())
+    }
+
+    async fn get_parent_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Vec<Conversation>> {
+        Ok(self
+            .services
+            .get_parent_conversations(limit)
+            .await?
+            .unwrap_or_default())
+    }
+
+    async fn get_conversations_by_source(
+        &self,
+        source: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<Conversation>> {
+        Ok(self
+            .services
+            .get_conversations_by_source(source, limit)
+            .await?
+            .unwrap_or_default())
+    }
+
     async fn rename_conversation(
         &self,
         conversation_id: &ConversationId,

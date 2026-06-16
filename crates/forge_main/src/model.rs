@@ -155,6 +155,14 @@ impl ForgeCommandManager {
                 | "sync-info"
                 | "workspace-init"
                 | "sync-init"
+                | "subagents"
+                | "sa"
+                | "goal"
+                | "g"
+                | "loop"
+                | "l"
+                | "parent"
+                | "p"
         )
     }
 
@@ -652,12 +660,32 @@ pub enum AppCommand {
         id: Option<String>,
     },
 
-    /// Show nested conversations spawned by the current conversation
-    #[strum(props(
-        usage = "Show nested conversations spawned by the current conversation [alias: ct]"
-    ))]
-    #[command(name = "conversation-tree", alias = "ct")]
-    ConversationTree,
+    /// List all subagent conversations for the current parent session
+    #[strum(props(usage = "List subagents for the current session"))]
+    #[command(name = "subagents", aliases = ["sa"])]
+    Subagents,
+
+    /// Set or view the current looping goal
+    #[strum(props(usage = "Set or view the current goal. Usage: :goal <description>"))]
+    #[command(alias = "g")]
+    Goal {
+        /// Goal description (optional — shows current goal if absent)
+        #[arg(trailing_var_arg = true, num_args = 0..)]
+        description: Vec<String>,
+    },
+
+    /// Toggle looping mode on/off
+    #[strum(props(usage = "Toggle looping mode. Usage: :loop [on|off]"))]
+    #[command(alias = "l")]
+    Loop {
+        /// Loop state (optional — toggles if absent)
+        state: Option<String>,
+    },
+
+    /// Jump to the parent conversation of the current subagent session
+    #[strum(props(usage = "Jump to the parent conversation of the current session"))]
+    #[command(alias = "p")]
+    Parent,
 
     /// Delete a conversation permanently
     #[strum(props(usage = "Delete a conversation permanently"))]
@@ -725,7 +753,10 @@ impl AppCommand {
             AppCommand::Logout => "logout",
             AppCommand::Retry => "retry",
             AppCommand::Conversations { .. } => "conversation",
-            AppCommand::ConversationTree => "conversation-tree",
+            AppCommand::Subagents => "subagents",
+            AppCommand::Goal { .. } => "goal",
+            AppCommand::Loop { .. } => "loop",
+            AppCommand::Parent => "parent",
             AppCommand::Delete => "delete",
             AppCommand::Rename { .. } => "rename",
             AppCommand::AgentSwitch(agent_id) => agent_id,

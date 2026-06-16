@@ -79,6 +79,25 @@ pub trait API: Sync + Send {
     /// Returns an error if the operation fails
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> Result<()>;
 
+    /// Lists all subagent conversations for a given parent conversation
+    async fn get_subagents(
+        &self,
+        parent_id: &ConversationId,
+    ) -> Result<Vec<Conversation>>;
+
+    /// Lists all top-level (parent) conversations, excluding subagents
+    async fn get_parent_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Vec<Conversation>>;
+
+    /// Lists conversations by source (e.g., "interactive", "headless", "forge-p")
+    async fn get_conversations_by_source(
+        &self,
+        source: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<Conversation>>;
+
     /// Renames a conversation by setting its title
     ///
     /// # Arguments

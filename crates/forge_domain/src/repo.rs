@@ -93,6 +93,44 @@ pub trait ConversationRepository: Send + Sync {
     /// # Errors
     /// Returns an error if the operation fails
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> Result<()>;
+
+    /// Retrieves all conversations that have the given parent_id
+    ///
+    /// # Arguments
+    /// * `parent_id` - The ID of the parent conversation
+    ///
+    /// # Errors
+    /// Returns an error if the operation fails
+    async fn get_conversations_by_parent(
+        &self,
+        parent_id: &ConversationId,
+    ) -> Result<Option<Vec<Conversation>>>;
+
+    /// Retrieves all top-level conversations (those without a parent_id)
+    ///
+    /// # Arguments
+    /// * `limit` - Optional maximum number of conversations to retrieve
+    ///
+    /// # Errors
+    /// Returns an error if the operation fails
+    async fn get_parent_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<Conversation>>>;
+
+    /// Retrieves conversations by source (e.g., "interactive", "headless", "forge-p")
+    ///
+    /// # Arguments
+    /// * `source` - The source to filter by
+    /// * `limit` - Optional maximum number of conversations to retrieve
+    ///
+    /// # Errors
+    /// Returns an error if the operation fails
+    async fn get_conversations_by_source(
+        &self,
+        source: &str,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<Conversation>>>;
 }
 
 #[async_trait::async_trait]

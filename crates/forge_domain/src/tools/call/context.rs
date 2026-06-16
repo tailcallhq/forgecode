@@ -2,19 +2,25 @@ use std::sync::{Arc, Mutex};
 
 use derive_setters::Setters;
 
-use crate::{ArcSender, ChatResponse, Metrics, TitleFormat, Todo, TodoItem};
+use crate::{ArcSender, ChatResponse, ConversationId, Metrics, TitleFormat, Todo, TodoItem};
 
 /// Provides additional context for tool calls.
 #[derive(Debug, Clone, Setters)]
 pub struct ToolCallContext {
     sender: Option<ArcSender>,
     metrics: Arc<Mutex<Metrics>>,
+    #[setters(skip)]
+    conversation_id: Option<ConversationId>,
+    #[setters(skip)]
+    parent_id: Option<ConversationId>,
+    #[setters(skip)]
+    source: Option<String>,
 }
 
 impl ToolCallContext {
     /// Creates a new ToolCallContext with default values
     pub fn new(metrics: Metrics) -> Self {
-        Self { sender: None, metrics: Arc::new(Mutex::new(metrics)) }
+        Self { sender: None, metrics: Arc::new(Mutex::new(metrics)), conversation_id: None, parent_id: None, source: None }
     }
 
     /// Send a message through the sender if available
@@ -57,6 +63,36 @@ impl ToolCallContext {
             .lock()
             .map_err(|_| anyhow::anyhow!("Failed to acquire metrics lock"))?;
         f(&mut metrics)
+    }
+
+    /// Returns the conversation ID associated with this tool call context, if any.
+    pub fn conversation_id(&self) -> Option<ConversationId> {
+        self.conversation_id
+    }
+
+    /// Sets the conversation ID for this tool call context.
+    pub fn set_conversation_id(&mut self, id: Option<ConversationId>) {
+        self.conversation_id = id;
+    }
+
+    /// Returns the parent conversation ID associated with this tool call context, if any.
+    pub fn parent_id(&self) -> Option<ConversationId> {
+        self.parent_id
+    }
+
+    /// Sets the parent conversation ID for this tool call context.
+    pub fn set_parent_id(&mut self, id: Option<ConversationId>) {
+        self.parent_id = id;
+    }
+
+    /// Returns the source associated with this tool call context, if any.
+    pub fn source(&self) -> Option<&str> {
+        self.source.as_deref()
+    }
+
+    /// Sets the source for this tool call context.
+    pub fn set_source(&mut self, source: Option<String>) {
+        self.source = source;
     }
 
     /// Returns all known todos (active and historical completed todos).

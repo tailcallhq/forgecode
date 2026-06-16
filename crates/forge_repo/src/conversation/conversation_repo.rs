@@ -56,6 +56,8 @@ impl ConversationRepository for ConversationRepositoryImpl {
                     conversations::context.eq(&record.context),
                     conversations::updated_at.eq(record.updated_at),
                     conversations::metrics.eq(&record.metrics),
+                    conversations::parent_id.eq(&record.parent_id),
+                    conversations::source.eq(&record.source),
                 ))
                 .execute(connection)?;
             Ok(())
@@ -141,6 +143,93 @@ impl ConversationRepository for ConversationRepositoryImpl {
                 .execute(connection)?;
 
             Ok(())
+        })
+        .await
+    }
+
+    async fn get_conversations_by_parent(
+        &self,
+        parent_id: &ConversationId,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        let parent_id = parent_id.into_string();
+        self.run_with_connection(move |connection, wid| {
+            let workspace_id = wid.id() as i64;
+            let records: Vec<ConversationRecord> = conversations::table
+                .filter(conversations::workspace_id.eq(&workspace_id))
+                .filter(conversations::parent_id.eq(&parent_id))
+                .filter(conversations::context.is_not_null())
+                .order(conversations::updated_at.desc())
+                .load(connection)?;
+
+            if records.is_empty() {
+                return Ok(None);
+            }
+
+            let conversations: Result<Vec<Conversation>, _> =
+                records.into_iter().map(Conversation::try_from).collect();
+            Ok(Some(conversations?))
+        })
+        .await
+    }
+
+    async fn get_parent_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.run_with_connection(move |connection, wid| {
+            let workspace_id = wid.id() as i64;
+            let mut query = conversations::table
+                .filter(conversations::workspace_id.eq(&workspace_id))
+                .filter(conversations::context.is_not_null())
+                .filter(conversations::parent_id.is_null())
+                .order(conversations::updated_at.desc())
+                .into_boxed();
+
+            if let Some(limit_value) = limit {
+                query = query.limit(limit_value as i64);
+            }
+
+            let records: Vec<ConversationRecord> = query.load(connection)?;
+
+            if records.is_empty() {
+                return Ok(None);
+            }
+
+            let conversations: Result<Vec<Conversation>, _> =
+                records.into_iter().map(Conversation::try_from).collect();
+            Ok(Some(conversations?))
+        })
+        .await
+    }
+
+    async fn get_conversations_by_source(
+        &self,
+        source: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        let source = source.to_string();
+        self.run_with_connection(move |connection, wid| {
+            let workspace_id = wid.id() as i64;
+            let mut query = conversations::table
+                .filter(conversations::workspace_id.eq(&workspace_id))
+                .filter(conversations::context.is_not_null())
+                .filter(conversations::source.eq(&source))
+                .order(conversations::updated_at.desc())
+                .into_boxed();
+
+            if let Some(limit_value) = limit {
+                query = query.limit(limit_value as i64);
+            }
+
+            let records: Vec<ConversationRecord> = query.load(connection)?;
+
+            if records.is_empty() {
+                return Ok(None);
+            }
+
+            let conversations: Result<Vec<Conversation>, _> =
+                records.into_iter().map(Conversation::try_from).collect();
+            Ok(Some(conversations?))
         })
         .await
     }
