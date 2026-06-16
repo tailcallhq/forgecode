@@ -234,9 +234,10 @@ impl Agent {
     /// Applies a safe `token_threshold` derived from the selected model's
     /// context window.
     ///
-    /// The percentage-based cap comes from `compact.token_threshold_percentage`,
-    /// or falls back to 70% of the selected model's context window. If model
-    /// metadata is unavailable, a default 128K context window is used.
+    /// The percentage-based cap comes from
+    /// `compact.token_threshold_percentage`, or falls back to 70% of the
+    /// selected model's context window. If model metadata is unavailable, a
+    /// default 128K context window is used.
     ///
     /// When `compact.token_threshold` is explicitly configured, it is treated
     /// as an absolute cap and the lower of it and the percentage-based cap is
