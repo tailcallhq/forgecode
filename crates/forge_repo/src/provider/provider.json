@@ -818,6 +818,16 @@
     "url": "https://api.z.ai/api/paas/v4/chat/completions",
     "models": [
       {
+        "id": "glm-5.2",
+        "name": "GLM-5.2",
+        "description": "Flagship foundation model built for long-horizon tasks with truly usable 1M-token context, delivering stable long-task execution and reliable adherence to engineering standards",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
         "id": "glm-5.1",
         "name": "GLM-5.1",
         "description": "Latest flagship model series, foundational models specifically designed for agent applications with 200K context window and 128K maximum output",
@@ -3452,6 +3462,16 @@
     "url": "https://api.novita.ai/openai/v1/chat/completions",
     "models": [
       {
+        "id": "zai-org/glm-5.2",
+        "name": "GLM-5.2",
+        "description": "GLM-5.2 is Z.AI's latest flagship model, meticulously engineered for long-horizon autonomous tasks with 1M context window and 128K maximum output",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
         "id": "zai-org/glm-5.1",
         "name": "GLM-5.1",
         "description": "GLM-5.1 is Z.AI's latest flagship model, meticulously engineered for long-horizon autonomous tasks. Capable of working continuously on a single assignment for up to 8 hours,",
@@ -3674,6 +3694,16 @@
         "name": "GLM 5.1",
         "description": "GLM 5.1 model",
         "context_length": 202800,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "accounts/fireworks/models/glm-5p2",
+        "name": "GLM 5.2",
+        "description": "GLM 5.2 model",
+        "context_length": 1048576,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
