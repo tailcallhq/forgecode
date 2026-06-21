@@ -670,6 +670,10 @@ mod tests {
             updated_at: None,
             workspace_id: 0,
             metrics: None,
+            parent_id: None,
+            source: None,
+            cwd: None,
+            message_count: None,
         };
 
         let actual = Conversation::try_from(fixture)?;
@@ -1114,6 +1118,10 @@ mod tests {
             updated_at: None,
             workspace_id: 0,
             metrics: None,
+            parent_id: None,
+            source: None,
+            cwd: None,
+            message_count: None,
         };
 
         let result = Conversation::try_from(fixture);
