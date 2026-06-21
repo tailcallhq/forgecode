@@ -689,6 +689,29 @@ pub enum AppCommand {
     #[command(alias = "p")]
     Parent,
 
+    /// Re-bind the current (subagent) conversation to a different parent.
+    /// Usage: `:reparent <parent_id>` or `:reparent --detach` to promote to a
+    /// top-level session.
+    #[strum(props(usage = "Re-parent the current session. Usage: :reparent <id>|--detach"))]
+    #[command(alias = "rp")]
+    Reparent {
+        /// New parent conversation ID, or `--detach` to promote this
+        /// session to top-level.
+        #[arg(trailing_var_arg = true, num_args = 0..)]
+        target: Vec<String>,
+    },
+
+    /// Filter conversations by working directory. Usage: `:cwd <path>` or
+    /// `:cwd --current` to scope to the current shell cwd.
+    #[strum(props(usage = "Filter conversations by cwd. Usage: :cwd <path>|--current"))]
+    #[command(alias = "cw")]
+    Cwd {
+        /// Cwd to filter by (exact match), or `--current` to use the
+        /// current shell working directory.
+        #[arg(trailing_var_arg = true, num_args = 0..)]
+        target: Vec<String>,
+    },
+
     /// Full-text search over conversation titles and contents (FTS5 BM25).
     /// Usage: `:search <query>` or `:search "rust refactor"`.
     #[strum(props(usage = "Search conversation history. Usage: :search <query>"))]
@@ -787,6 +810,8 @@ impl AppCommand {
             AppCommand::Goal { .. } => "goal",
             AppCommand::Loop { .. } => "loop",
             AppCommand::Parent => "parent",
+            AppCommand::Reparent { .. } => "reparent",
+            AppCommand::Cwd { .. } => "cwd",
             AppCommand::Search { .. } => "search",
             AppCommand::Delete => "delete",
             AppCommand::Rename { .. } => "rename",

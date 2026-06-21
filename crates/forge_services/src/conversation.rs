@@ -120,4 +120,24 @@ impl<S: ConversationRepository> ConversationService for ForgeConversationService
             .await?;
         Ok(())
     }
+
+    async fn update_parent_id(
+        &self,
+        conversation_id: &ConversationId,
+        new_parent_id: Option<&ConversationId>,
+    ) -> Result<()> {
+        self.conversation_repository
+            .update_parent_id(conversation_id, new_parent_id)
+            .await
+    }
+
+    async fn get_conversations_by_cwd(
+        &self,
+        cwd: &str,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_conversations_by_cwd(cwd, limit)
+            .await
+    }
 }

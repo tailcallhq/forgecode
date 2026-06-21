@@ -14,6 +14,10 @@ pub struct UIState {
     pub goal: Option<String>,
     pub loop_enabled: bool,
     pub last_activity: Instant,
+    /// CWD filter for the conversation selector. When set, the selector
+    /// scopes its results to conversations whose `cwd` column matches.
+    /// This is the "filter by project directory" UX.
+    pub cwd_filter: Option<String>,
 }
 
 impl Default for UIState {
@@ -24,12 +28,20 @@ impl Default for UIState {
             goal: None,
             loop_enabled: false,
             last_activity: Instant::now(),
+            cwd_filter: None,
         }
     }
 }
 
 impl UIState {
     pub fn new(env: Environment) -> Self {
-        Self { cwd: env.cwd, conversation_id: Default::default(), goal: None, loop_enabled: false, last_activity: Instant::now() }
+        Self {
+            cwd: env.cwd,
+            conversation_id: Default::default(),
+            goal: None,
+            loop_enabled: false,
+            last_activity: Instant::now(),
+            cwd_filter: None,
+        }
     }
 }

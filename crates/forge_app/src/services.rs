@@ -298,6 +298,24 @@ pub trait ConversationService: Send + Sync {
     /// back into a single segment, reducing query-time shadow-walk cost and
     /// disk footprint. Safe to call at any time; safe to call repeatedly.
     async fn optimize_fts_index(&self) -> anyhow::Result<()>;
+
+    /// Re-binds a subagent conversation to a different parent. Pass `None`
+    /// for `new_parent_id` to detach (promotes the subagent to a top-level
+    /// session). Atomic single-row update; does not recurse into descendants.
+    async fn update_parent_id(
+        &self,
+        conversation_id: &ConversationId,
+        new_parent_id: Option<&ConversationId>,
+    ) -> anyhow::Result<()>;
+
+    /// Retrieves conversations whose `cwd` column matches the given path
+    /// exactly. Used by the session viewer to filter by current working
+    /// directory (per-project scoping).
+    async fn get_conversations_by_cwd(
+        &self,
+        cwd: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>>;
 }
 
 #[async_trait::async_trait]
@@ -722,6 +740,26 @@ impl<I: Services> ConversationService for I {
 
     async fn optimize_fts_index(&self) -> anyhow::Result<()> {
         self.conversation_service().optimize_fts_index().await
+    }
+
+    async fn update_parent_id(
+        &self,
+        conversation_id: &ConversationId,
+        new_parent_id: Option<&ConversationId>,
+    ) -> anyhow::Result<()> {
+        self.conversation_service()
+            .update_parent_id(conversation_id, new_parent_id)
+            .await
+    }
+
+    async fn get_conversations_by_cwd(
+        &self,
+        cwd: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_service()
+            .get_conversations_by_cwd(cwd, limit)
+            .await
     }
 }
 #[async_trait::async_trait]

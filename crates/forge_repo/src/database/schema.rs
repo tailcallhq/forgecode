@@ -11,5 +11,9 @@ diesel::table! {
         metrics -> Nullable<Text>,
         parent_id -> Nullable<Text>,
         source -> Nullable<Text>,
+        #[sql_name = "cwd"]
+        cwd -> Nullable<Text>,
+        #[sql_name = "message_count"]
+        message_count -> Nullable<Integer>,
     }
 }

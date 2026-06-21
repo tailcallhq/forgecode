@@ -2328,6 +2328,101 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    /// Re-binds the current (subagent) conversation to a different parent.
+    /// Usage:
+    ///   - `:reparent <parent_id>`  → attach to the given parent
+    ///   - `:reparent --detach`     → promote this session to top-level
+    ///   - `:reparent`              → no-arg; shows usage hint
+    async fn handle_reparent(&mut self, target: Vec<String>) -> anyhow::Result<()> {
+        let conversation_id = match self.state.conversation_id {
+            Some(id) => id,
+            None => {
+                self.writeln_title(TitleFormat::error(
+                    "No active session. Start a conversation first.",
+                ))?;
+                return Ok(());
+            }
+        };
+
+        if target.is_empty() {
+            self.writeln_title(TitleFormat::info(
+                "Usage: :reparent <parent_id> | :reparent --detach",
+            ))?;
+            return Ok(());
+        }
+
+        // `:reparent --detach` → detach (None)
+        // `:reparent <anything else>` → parse as a ConversationId
+        let new_parent_id = if target.iter().any(|t| t == "--detach") {
+            None
+        } else {
+            let raw = target.join(" ").trim().to_string();
+            match ConversationId::parse(&raw) {
+                Ok(id) => Some(id),
+                Err(err) => {
+                    self.writeln_title(TitleFormat::error(format!(
+                        "Invalid parent ID {raw:?}: {err}"
+                    )))?;
+                    return Ok(());
+                }
+            }
+        };
+
+        self.api
+            .update_parent_id(&conversation_id, new_parent_id.as_ref())
+            .await?;
+
+        let msg = match new_parent_id {
+            Some(pid) => format!(
+                "Re-parented current session to {}.",
+                pid.into_string().bold()
+            ),
+            None => "Detached current session — promoted to top-level.".to_string(),
+        };
+        self.writeln_title(TitleFormat::info(msg))?;
+        Ok(())
+    }
+
+    /// Filters the conversation list by working directory. Usage:
+    ///   - `:cwd <path>`       → exact-match cwd filter
+    ///   - `:cwd --current`    → use the current shell working directory
+    ///   - `:cwd --clear`      → clear the cwd filter
+    async fn handle_cwd(&mut self, target: Vec<String>) -> anyhow::Result<()> {
+        if target.is_empty() || target.iter().any(|t| t == "--help" || t == "-h") {
+            self.writeln_title(TitleFormat::info(
+                "Usage: :cwd <path> | :cwd --current | :cwd --clear",
+            ))?;
+            return Ok(());
+        }
+
+        if target.iter().any(|t| t == "--clear") {
+            self.state.cwd_filter = None;
+            self.writeln_title(TitleFormat::info("Cleared cwd filter."))?;
+            return Ok(());
+        }
+
+        let cwd = if target.iter().any(|t| t == "--current") {
+            match std::env::current_dir() {
+                Ok(p) => p.to_string_lossy().to_string(),
+                Err(err) => {
+                    self.writeln_title(TitleFormat::error(format!(
+                        "Failed to read current dir: {err}"
+                    )))?;
+                    return Ok(());
+                }
+            }
+        } else {
+            target.join(" ").trim().to_string()
+        };
+
+        self.state.cwd_filter = Some(cwd.clone());
+        self.writeln_title(TitleFormat::info(format!(
+            "Cwd filter set to {}",
+            cwd.bold()
+        )))?;
+        Ok(())
+    }
+
     fn user_initiated_conversations(conversations: Vec<Conversation>) -> Vec<Conversation> {
         let related_ids: HashSet<ConversationId> = conversations
             .iter()
@@ -2381,6 +2476,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
             AppCommand::Parent => {
                 self.handle_parent().await?;
+            }
+            AppCommand::Reparent { target } => {
+                self.handle_reparent(target).await?;
+            }
+            AppCommand::Cwd { target } => {
+                self.handle_cwd(target).await?;
             }
             AppCommand::Search { query } => {
                 self.handle_search(query).await?;

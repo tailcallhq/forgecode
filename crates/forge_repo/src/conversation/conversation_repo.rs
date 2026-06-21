@@ -62,6 +62,8 @@ impl ConversationRepository for ConversationRepositoryImpl {
                     conversations::metrics.eq(&record.metrics),
                     conversations::parent_id.eq(&record.parent_id),
                     conversations::source.eq(&record.source),
+                    conversations::cwd.eq(&record.cwd),
+                    conversations::message_count.eq(record.message_count),
                 ))
                 .execute(connection)?;
             Ok(())
@@ -83,6 +85,8 @@ impl ConversationRepository for ConversationRepositoryImpl {
                     conversations::metrics.eq(&record.metrics),
                     conversations::parent_id.eq(&record.parent_id),
                     conversations::source.eq(&record.source),
+                    conversations::cwd.eq(&record.cwd),
+                    conversations::message_count.eq(record.message_count),
                 ))
                 .execute(connection)?;
             Ok(())
@@ -314,6 +318,64 @@ impl ConversationRepository for ConversationRepositoryImpl {
             diesel::sql_query("INSERT INTO conversations_fts(conversations_fts) VALUES('optimize')")
                 .execute(connection)?;
             Ok(())
+        })
+        .await
+    }
+
+    async fn update_parent_id(
+        &self,
+        conversation_id: &ConversationId,
+        new_parent_id: Option<&ConversationId>,
+    ) -> anyhow::Result<()> {
+        // The `Option<&ConversationId>` is borrowed for the duration of the
+        // move into `run_with_connection`. We materialise the inner string
+        // here so the closure becomes `'static`.
+        let new_parent_id_str: Option<String> =
+            new_parent_id.map(|id| id.into_string());
+        let conversation_id_str = conversation_id.into_string();
+        let now: chrono::NaiveDateTime = chrono::Utc::now().naive_utc();
+        self.run_with_connection(move |connection, _wid| {
+            diesel::update(conversations::table.filter(
+                conversations::conversation_id.eq(&conversation_id_str),
+            ))
+            .set((
+                conversations::parent_id.eq(new_parent_id_str),
+                conversations::updated_at.eq(Some(now)),
+            ))
+            .execute(connection)?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn get_conversations_by_cwd(
+        &self,
+        cwd: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        let cwd = cwd.to_string();
+        self.run_with_connection(move |connection, wid| {
+            let workspace_id = wid.id() as i64;
+            let mut query = conversations::table
+                .filter(conversations::workspace_id.eq(&workspace_id))
+                .filter(conversations::context.is_not_null())
+                .filter(conversations::cwd.eq(&cwd))
+                .order(conversations::updated_at.desc())
+                .into_boxed();
+
+            if let Some(limit_value) = limit {
+                query = query.limit(limit_value as i64);
+            }
+
+            let records: Vec<ConversationRecord> = query.load(connection)?;
+
+            if records.is_empty() {
+                return Ok(None);
+            }
+
+            let conversations: Result<Vec<Conversation>, _> =
+                records.into_iter().map(Conversation::try_from).collect();
+            Ok(Some(conversations?))
         })
         .await
     }

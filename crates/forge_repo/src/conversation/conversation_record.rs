@@ -958,6 +958,8 @@ pub(super) struct ConversationRecord {
     pub metrics: Option<String>,
     pub parent_id: Option<String>,
     pub source: Option<String>,
+    pub cwd: Option<String>,
+    pub message_count: Option<i32>,
 }
 
 impl ConversationRecord {
@@ -975,6 +977,15 @@ impl ConversationRecord {
         let updated_at = context.as_ref().map(|_| chrono::Utc::now().naive_utc());
         let metrics_record = MetricsRecord::from(&conversation.metrics);
         let metrics = serde_json::to_string(&metrics_record).ok();
+        // `message_count` is a denormalised count of the context's messages,
+        // written once at upsert time. `context.as_ref().map(...)` returns
+        // `None` for tombstone conversations (no Context blob), and we
+        // leave the column NULL in that case.
+        let message_count = conversation
+            .context
+            .as_ref()
+            .filter(|ctx| !ctx.messages.is_empty() || ctx.initiator.is_some())
+            .map(|ctx| ctx.messages.len() as i32);
 
         Self {
             conversation_id: conversation.id.into_string(),
@@ -986,6 +997,8 @@ impl ConversationRecord {
             metrics,
             parent_id: conversation.parent_id.map(|id| id.into_string()),
             source: conversation.source.clone(),
+            cwd: conversation.cwd.clone(),
+            message_count,
         }
     }
 
@@ -1014,6 +1027,11 @@ impl ConversationRecord {
         let updated_at = context.as_ref().map(|_| chrono::Utc::now().naive_utc());
         let metrics_record = MetricsRecord::from(&conversation.metrics);
         let metrics = serde_json::to_string(&metrics_record).ok();
+        let message_count = conversation
+            .context
+            .as_ref()
+            .filter(|ctx| !ctx.messages.is_empty() || ctx.initiator.is_some())
+            .map(|ctx| ctx.messages.len() as i32);
 
         Self {
             conversation_id: conversation.id.into_string(),
@@ -1025,6 +1043,8 @@ impl ConversationRecord {
             metrics,
             parent_id: conversation.parent_id.map(|id| id.into_string()),
             source: conversation.source.clone(),
+            cwd: conversation.cwd.clone(),
+            message_count,
         }
     }
 }
@@ -1073,6 +1093,8 @@ impl TryFrom<ConversationRecord> for forge_domain::Conversation {
             .metrics(metrics)
             .parent_id(record.parent_id.and_then(|id| ConversationId::parse(id).ok()))
             .source(record.source)
+            .cwd(record.cwd)
+            .message_count(record.message_count)
             .metadata(
                 forge_domain::MetaData::new(record.created_at.and_utc())
                     .updated_at(record.updated_at.map(|updated_at| updated_at.and_utc())),

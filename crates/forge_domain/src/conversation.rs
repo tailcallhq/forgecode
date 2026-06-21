@@ -48,6 +48,18 @@ pub struct Conversation {
     pub metadata: MetaData,
     pub parent_id: Option<ConversationId>,
     pub source: Option<String>,
+    /// Working directory of the agent when the conversation was created.
+    /// Used for grouping / filtering in the session selector and for FTS5
+    /// search so a user can find sessions by cwd fragment (e.g. "forgecode").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    /// Number of message entries in `context.messages` at the time of the
+    /// last write. Used to display a turn count in the session selector
+    /// and as a stable secondary sort key when the user picks "by turns".
+    /// Kept as a column (not a derived getter) so the selector does not
+    /// have to deserialize the full Context blob for every row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_count: Option<i32>,
 }
 
 #[derive(Debug, Setters, Serialize, Deserialize, Clone)]
@@ -75,6 +87,8 @@ impl Conversation {
             context: None,
             parent_id: None,
             source: None,
+            cwd: None,
+            message_count: None,
         }
     }
     /// Creates a new conversation with a new conversation ID.

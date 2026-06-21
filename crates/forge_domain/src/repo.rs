@@ -182,6 +182,47 @@ pub trait ConversationRepository: Send + Sync {
     /// # Errors
     /// Returns an error if the optimize statement fails to execute.
     async fn optimize_fts_index(&self) -> Result<()>;
+
+    /// Re-binds a subagent conversation to a different parent. Pass `None`
+    /// for `new_parent_id` to detach the conversation entirely (promotes it
+    /// to a top-level session).
+    ///
+    /// The existing `parent_id` (if any) is replaced atomically; no other
+    /// columns are touched. This does not recurse into descendants —
+    /// subagents of the reparented conversation remain linked to *this*
+    /// conversation.
+    ///
+    /// # Arguments
+    /// * `conversation_id` - The conversation to reparent.
+    /// * `new_parent_id` - The new parent, or `None` to detach.
+    ///
+    /// # Errors
+    /// Returns an error if the update fails or the conversation does not
+    /// exist.
+    async fn update_parent_id(
+        &self,
+        conversation_id: &ConversationId,
+        new_parent_id: Option<&ConversationId>,
+    ) -> Result<()>;
+
+    /// Retrieves conversations by working directory (cwd).
+    ///
+    /// Used by the session viewer to scope by cwd (per-project filtering).
+    /// The match is an exact equality on the `cwd` column, not a fuzzy
+    /// search — combine with [`Self::search_conversations`] for substring
+    /// matching.
+    ///
+    /// # Arguments
+    /// * `cwd` - Exact cwd to match.
+    /// * `limit` - Optional cap on returned rows.
+    ///
+    /// # Errors
+    /// Returns an error if the query fails.
+    async fn get_conversations_by_cwd(
+        &self,
+        cwd: &str,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<Conversation>>>;
 }
 
 #[async_trait::async_trait]

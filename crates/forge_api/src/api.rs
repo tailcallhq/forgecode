@@ -122,6 +122,24 @@ pub trait API: Sync + Send {
     /// disk footprint. Safe to call at any time; safe to call repeatedly.
     async fn optimize_fts_index(&self) -> Result<()>;
 
+    /// Re-binds a subagent conversation to a different parent. Pass `None`
+    /// for `new_parent_id` to detach (promotes the subagent to a top-level
+    /// session). Atomic single-row update; does not recurse into descendants.
+    async fn update_parent_id(
+        &self,
+        conversation_id: &ConversationId,
+        new_parent_id: Option<&ConversationId>,
+    ) -> Result<()>;
+
+    /// Retrieves conversations whose `cwd` column matches the given path
+    /// exactly. Used by the session viewer to filter by current working
+    /// directory (per-project scoping).
+    async fn get_conversations_by_cwd(
+        &self,
+        cwd: &str,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<Conversation>>>;
+
     /// Renames a conversation by setting its title
     ///
     /// # Arguments

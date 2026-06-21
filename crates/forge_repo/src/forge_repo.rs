@@ -199,6 +199,26 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
     async fn optimize_fts_index(&self) -> anyhow::Result<()> {
         self.conversation_repository.optimize_fts_index().await
     }
+
+    async fn update_parent_id(
+        &self,
+        conversation_id: &ConversationId,
+        new_parent_id: Option<&ConversationId>,
+    ) -> anyhow::Result<()> {
+        self.conversation_repository
+            .update_parent_id(conversation_id, new_parent_id)
+            .await
+    }
+
+    async fn get_conversations_by_cwd(
+        &self,
+        cwd: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_conversations_by_cwd(cwd, limit)
+            .await
+    }
 }
 
 #[async_trait::async_trait]
