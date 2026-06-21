@@ -7,6 +7,21 @@ use crate::conversation::conversation_record::ConversationRecord;
 use crate::database::schema::conversations;
 use crate::database::{DatabasePool, PooledSqliteConnection};
 
+/// Lightweight row type for FTS5 `snippet()` results. The query returns
+/// exactly one column (`s`) — we use a named struct (not a tuple) so
+/// diesel's `QueryableByName` derive can read it back from `sql_query`.
+#[derive(Debug, Clone)]
+struct SnippetRow {
+    s: String,
+}
+
+impl diesel::QueryableByName<diesel::sqlite::Sqlite> for SnippetRow {
+    fn build<'a>(row: &impl diesel::row::NamedRow<'a, diesel::sqlite::Sqlite>) -> diesel::deserialize::Result<Self> {
+        let s = diesel::row::NamedRow::get::<diesel::sql_types::Text, _>(row, "s")?;
+        Ok(SnippetRow { s })
+    }
+}
+
 pub struct ConversationRepositoryImpl {
     pool: Arc<DatabasePool>,
     wid: WorkspaceHash,
@@ -274,15 +289,21 @@ impl ConversationRepository for ConversationRepositoryImpl {
             let workspace_id = wid.id() as i64;
             // FTS5 BM25 search joined back to the base table on
             // `conversation_id` (the FTS5 table is content-less, so
-            // `c.rowid = fts.rowid` would not match). `rank` from
-            // `bm25()` is a negative number where lower = more relevant,
-            // so `ORDER BY rank` (ascending) yields "best match first".
+            // `c.rowid = fts.rowid` would not match). `bm25()` returns a
+            // negative number where lower = more relevant, so `ORDER BY
+            // rank_score` (ascending) yields "best match first".
+            //
+            // We do NOT include `snippet()` here because it would force
+            // the SELECT to return a column not in `ConversationRecord`.
+            // The UI fetches a snippet on-demand via the separate
+            // `get_conversation_snippet` method when the user picks a hit.
             let mut sql = String::from(
-                "SELECT c.* FROM conversations c \
+                "SELECT c.*, bm25(conversations_fts) AS rank_score \
+                 FROM conversations c \
                  JOIN conversations_fts fts ON c.conversation_id = fts.conversation_id \
                  WHERE conversations_fts MATCH ? \
                    AND c.workspace_id = ? \
-                 ORDER BY fts.rank",
+                 ORDER BY rank_score",
             );
             if limit_value.is_some() {
                 sql.push_str(" LIMIT ?");
@@ -305,6 +326,39 @@ impl ConversationRepository for ConversationRepositoryImpl {
                 .map(Conversation::try_from)
                 .collect();
             Ok(conversations?)
+        })
+        .await
+    }
+
+    /// Return a single FTS5 snippet for a (conversation, query) pair.
+    /// Used by the UI to render a "matched passage" preview for the
+    /// currently selected search hit. Returns `None` if no match.
+    async fn get_conversation_snippet(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        token_count: usize,
+    ) -> anyhow::Result<Option<String>> {
+        let conversation_id_str = conversation_id.into_string();
+        let query = query.to_string();
+        self.run_with_connection(move |connection, _wid| {
+            // We pass the conversation_id as a filter so the snippet
+            // function only highlights within that document. The token
+            // count is interpolated directly into the SQL because
+            // SQLite's `snippet()` 6th arg is a literal integer, not a
+            // bind parameter. FTS5 sanitises the MATCH expression; the
+            // integer is bounded by the caller (UI limits to 256).
+            let sql = format!(
+                "SELECT snippet(conversations_fts, 2, '[', ']', '…', {}) AS s \
+                 FROM conversations_fts \
+                 WHERE conversation_id = ? AND conversations_fts MATCH ?",
+                token_count.min(256)
+            );
+            let raw: Vec<SnippetRow> = diesel::sql_query(sql)
+                .bind::<diesel::sql_types::Text, _>(&conversation_id_str)
+                .bind::<diesel::sql_types::Text, _>(&query)
+                .load(connection)?;
+            Ok(raw.into_iter().next().map(|r| r.s))
         })
         .await
     }

@@ -2317,6 +2317,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         .await?
         {
             let conversation_id = conversation.id;
+
+            // Fetch a short FTS5 snippet (~32 tokens) so the user can see
+            // *why* this conversation matched. `None` means no preview —
+            // fall through silently (the title is already shown above).
+            if let Ok(Some(snippet)) = self
+                .api
+                .get_conversation_snippet(&conversation_id, &query, 32)
+                .await
+            {
+                self.writeln_title(TitleFormat::info(format!(
+                    "  matched: {}",
+                    snippet.dimmed()
+                )))?;
+            }
+
             self.state.conversation_id = Some(conversation_id);
             self.on_show_last_message(conversation, false).await?;
             self.writeln_title(TitleFormat::info(format!(
@@ -2423,6 +2438,49 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    async fn handle_sort(&mut self, target: Vec<String>) -> anyhow::Result<()> {
+        use forge_domain::ConversationSort;
+
+        if target.is_empty() || target.iter().any(|t| t == "--help" || t == "-h") {
+            self.writeln_title(TitleFormat::info(
+                "Usage: :sort <turns|updated|created|title|cwd> | :sort --reset",
+            ))?;
+            return Ok(());
+        }
+
+        if target.iter().any(|t| t == "--reset") {
+            self.state.sort = ConversationSort::default();
+            self.writeln_title(TitleFormat::info(format!(
+                "Sort reset to {}",
+                ConversationSort::default().name().bold()
+            )))?;
+            return Ok(());
+        }
+
+        let requested = target.join(" ").trim().to_lowercase();
+        let new_sort = match requested.as_str() {
+            "turns" | "messages" | "msg" | "count" => ConversationSort::Turns,
+            "updated" | "updated_at" | "recent" => ConversationSort::Updated,
+            "created" | "created_at" | "oldest" => ConversationSort::Created,
+            "title" | "name" => ConversationSort::Title,
+            "cwd" | "dir" | "directory" => ConversationSort::Cwd,
+            other => {
+                self.writeln_title(TitleFormat::error(format!(
+                    "Unknown sort key: {} (use: turns|updated|created|title|cwd)",
+                    other
+                )))?;
+                return Ok(());
+            }
+        };
+
+        self.state.sort = new_sort;
+        self.writeln_title(TitleFormat::info(format!(
+            "Sort set to {}",
+            new_sort.name().bold()
+        )))?;
+        Ok(())
+    }
+
     fn user_initiated_conversations(conversations: Vec<Conversation>) -> Vec<Conversation> {
         let related_ids: HashSet<ConversationId> = conversations
             .iter()
@@ -2482,6 +2540,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
             AppCommand::Cwd { target } => {
                 self.handle_cwd(target).await?;
+            }
+            AppCommand::Sort { target } => {
+                self.handle_sort(target).await?;
             }
             AppCommand::Search { query } => {
                 self.handle_search(query).await?;

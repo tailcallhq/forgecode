@@ -113,6 +113,17 @@ impl<S: ConversationRepository> ConversationService for ForgeConversationService
             .await
     }
 
+    async fn get_conversation_snippet(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        token_count: usize,
+    ) -> Result<Option<String>> {
+        self.conversation_repository
+            .get_conversation_snippet(conversation_id, query, token_count)
+            .await
+    }
+
     async fn optimize_fts_index(&self) -> Result<()> {
         let _ = self
             .conversation_repository

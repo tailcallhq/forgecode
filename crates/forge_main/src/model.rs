@@ -712,6 +712,18 @@ pub enum AppCommand {
         target: Vec<String>,
     },
 
+    /// Sort the conversation selector. Usage: `:sort <key>` where key is
+    /// one of `updated`, `created`, `turns`, `title`. Persists in
+    /// `UIState.sort` until the session exits or another `:sort` is run.
+    #[strum(props(usage = "Sort the conversation selector. Usage: :sort <key> (updated|created|turns|title)"))]
+    #[command(alias = "so")]
+    Sort {
+        /// Sort key: `updated` (default), `created`, `turns`, or `title`.
+        /// Anything else falls back to `updated` and prints a hint.
+        #[arg(trailing_var_arg = true, num_args = 0..)]
+        target: Vec<String>,
+    },
+
     /// Full-text search over conversation titles and contents (FTS5 BM25).
     /// Usage: `:search <query>` or `:search "rust refactor"`.
     #[strum(props(usage = "Search conversation history. Usage: :search <query>"))]
@@ -812,6 +824,7 @@ impl AppCommand {
             AppCommand::Parent => "parent",
             AppCommand::Reparent { .. } => "reparent",
             AppCommand::Cwd { .. } => "cwd",
+            AppCommand::Sort { .. } => "sort",
             AppCommand::Search { .. } => "search",
             AppCommand::Delete => "delete",
             AppCommand::Rename { .. } => "rename",

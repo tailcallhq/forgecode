@@ -979,6 +979,8 @@ mod tests {
             context: None,
             metrics,
             metadata: forge_domain::MetaData::new(Utc::now()),
+            cwd: None,
+            message_count: None,
             parent_id: None,
             source: None,
         };
@@ -1008,6 +1010,8 @@ mod tests {
             context: None,
             metrics,
             metadata: forge_domain::MetaData::new(Utc::now()),
+            cwd: None,
+            message_count: None,
             parent_id: None,
             source: None,
         };
@@ -1055,6 +1059,8 @@ mod tests {
             context: Some(context),
             metrics,
             metadata: forge_domain::MetaData::new(Utc::now()),
+            cwd: None,
+            message_count: None,
             parent_id: None,
             source: None,
         };
