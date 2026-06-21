@@ -145,7 +145,7 @@ impl EnvironmentInfra for ForgeEnvironmentInfra {
             apply_config_op(&mut fc, op);
         }
 
-        fc.write()?;
+        fc.write(None)?;
         debug!(config = ?fc, "written .forge.toml");
 
         // Reset cache so next get_config() re-reads the updated values from disk

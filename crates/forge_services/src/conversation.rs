@@ -94,4 +94,30 @@ impl<S: ConversationRepository> ConversationService for ForgeConversationService
             .get_conversations_by_source(source, limit)
             .await
     }
+
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> Result<()> {
+        let _ = self
+            .conversation_repository
+            .upsert_conversation_ref(conversation)
+            .await?;
+        Ok(())
+    }
+
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<Conversation>> {
+        self.conversation_repository
+            .search_conversations(query, limit)
+            .await
+    }
+
+    async fn optimize_fts_index(&self) -> Result<()> {
+        let _ = self
+            .conversation_repository
+            .optimize_fts_index()
+            .await?;
+        Ok(())
+    }
 }

@@ -26,6 +26,7 @@ pub struct Orchestrator<S> {
     error_tracker: ToolErrorTracker,
     hook: Arc<Hook>,
     config: forge_config::ForgeConfig,
+    dirty: bool,
 }
 
 impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orchestrator<S> {
@@ -45,6 +46,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             models: Default::default(),
             error_tracker: Default::default(),
             hook: Arc::new(Hook::default()),
+            dirty: false,
         }
     }
 
@@ -258,6 +260,17 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         // Signals that the task is completed
         let mut is_complete = false;
 
+        // Install crash-safety guard: if `run` exits via panic or cancellation,
+        // the guard's `Drop` performs a best-effort final persist via
+        // `services.update`. Held for the entire body of `run`. The guard owns
+        // a snapshot of the data it needs (instead of borrowing `self`) so the
+        // rest of `run` can keep using `self.foo()` without conflicts.
+        let mut _drop_guard = OrchestratorDropGuard {
+            dirty: self.dirty,
+            conversation: Some(self.conversation.clone()),
+            services: self.services.clone(),
+        };
+
         let mut request_count = 0;
 
         // Retrieve the number of requests allowed per tick.
@@ -274,7 +287,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         while !should_yield {
             // Set context for the current loop iteration
             self.conversation.context = Some(context.clone());
-            self.services.update(self.conversation.clone()).await?;
+            self.mark_dirty();
+            self.flush_if_dirty().await?;
 
             let request_event = LifecycleEvent::Request(EventData::new(
                 self.agent.clone(),
@@ -390,7 +404,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             // Update context in the conversation
             context = SetModel::new(model_id.clone()).transform(context);
             self.conversation.context = Some(context.clone());
-            self.services.update(self.conversation.clone()).await?;
+            self.mark_dirty();
+            self.flush_if_dirty().await?;
             request_count += 1;
 
             if !should_yield && let Some(max_request_allowed) = max_requests_per_turn {
@@ -435,7 +450,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                         &mut self.conversation,
                     )
                     .await?;
-                self.services.update(self.conversation.clone()).await?;
+                self.mark_dirty();
+                self.flush_if_dirty().await?;
                 // Check if End hook added messages - if so, continue the loop
                 if self.conversation.len() > end_count_before {
                     // End hook added messages, sync context and continue
@@ -447,7 +463,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             }
         }
 
-        self.services.update(self.conversation.clone()).await?;
+        self.mark_dirty();
+        self.flush_if_dirty().await?;
 
         // Signal Task Completion
         if is_complete {
@@ -459,5 +476,57 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
 
     fn get_model(&self) -> ModelId {
         self.agent.model.clone()
+    }
+
+    /// Mark the conversation as dirty so the next `flush_if_dirty` will persist.
+    /// Cheap (no I/O) — call whenever the conversation changes.
+    fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
+    /// Persist the conversation if `dirty` is set, then clear the flag. This is
+    /// the single chokepoint where `services.update` is called from `run`, paired
+    /// with `OrchestratorDropGuard` for crash-safety on panic/cancellation.
+    async fn flush_if_dirty(&mut self) -> anyhow::Result<()> {
+        if self.dirty {
+            self.services.update(self.conversation.clone()).await?;
+            self.dirty = false;
+        }
+        Ok(())
+    }
+}
+
+/// Crash-safety guard for `Orchestrator::run`. If `run` exits via panic or
+/// cancellation before `flush_if_dirty` clears the dirty flag, the `Drop` impl
+/// performs a best-effort final `services.update`. Stores only the data needed
+/// for the final persist so it does not borrow the orchestrator and conflict
+/// with the rest of `run`'s `self.foo()` calls.
+struct OrchestratorDropGuard<S>
+where
+    S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>,
+{
+    dirty: bool,
+    conversation: Option<crate::domain::Conversation>,
+    services: Arc<S>,
+}
+
+impl<S> Drop for OrchestratorDropGuard<S>
+where
+    S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>,
+{
+    fn drop(&mut self) {
+        // Best-effort final persist on panic/cancellation. Uses block_in_place
+        // because Drop cannot be async; the underlying SQLite write is fast
+        // (a single statement), so this is acceptable.
+        if self.dirty {
+            if let Some(conversation) = self.conversation.take() {
+                let services = self.services.clone();
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        let _ = services.update(conversation).await;
+                    })
+                });
+            }
+        }
     }
 }

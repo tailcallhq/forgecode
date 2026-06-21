@@ -276,6 +276,28 @@ pub trait ConversationService: Send + Sync {
         source: &str,
         limit: Option<usize>,
     ) -> anyhow::Result<Option<Vec<Conversation>>>;
+
+    /// By-reference variant of [`Self::upsert_conversation`]. Avoids the
+    /// per-call `Conversation` clone on hot paths (orchestrator loop, service
+    /// `modify_conversation`). Preferred for code that already holds a
+    /// `&Conversation`.
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> anyhow::Result<()>;
+
+    /// Full-text search over conversation titles and context, scoped to the
+    /// current workspace. Backed by the FTS5 virtual table installed by
+    /// migration `2026-06-14-000002_add_fts5_to_conversations`. Results are
+    /// ranked by BM25. Empty `Vec` means no matches — use `.is_empty()` on
+    /// the result.
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Vec<Conversation>>;
+
+    /// Reclaim FTS5 segment shadow data. Compacts per-segment shadow trees
+    /// back into a single segment, reducing query-time shadow-walk cost and
+    /// disk footprint. Safe to call at any time; safe to call repeatedly.
+    async fn optimize_fts_index(&self) -> anyhow::Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -680,6 +702,26 @@ impl<I: Services> ConversationService for I {
         self.conversation_service()
             .get_conversations_by_source(source, limit)
             .await
+    }
+
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> anyhow::Result<()> {
+        self.conversation_service()
+            .upsert_conversation_ref(conversation)
+            .await
+    }
+
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Vec<Conversation>> {
+        self.conversation_service()
+            .search_conversations(query, limit)
+            .await
+    }
+
+    async fn optimize_fts_index(&self) -> anyhow::Result<()> {
+        self.conversation_service().optimize_fts_index().await
     }
 }
 #[async_trait::async_trait]

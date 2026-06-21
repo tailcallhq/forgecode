@@ -44,6 +44,31 @@ impl ConversationRepositoryImpl {
 
 #[async_trait::async_trait]
 impl ConversationRepository for ConversationRepositoryImpl {
+    async fn upsert_conversation_ref(
+        &self,
+        conversation: &Conversation,
+    ) -> anyhow::Result<()> {
+        let conversation = conversation.clone();
+        self.run_with_connection(move |connection, wid| {
+            let record = ConversationRecord::new_ref(&conversation, wid);
+            diesel::insert_into(conversations::table)
+                .values(&record)
+                .on_conflict(conversations::conversation_id)
+                .do_update()
+                .set((
+                    conversations::title.eq(&record.title),
+                    conversations::context.eq(&record.context),
+                    conversations::updated_at.eq(record.updated_at),
+                    conversations::metrics.eq(&record.metrics),
+                    conversations::parent_id.eq(&record.parent_id),
+                    conversations::source.eq(&record.source),
+                ))
+                .execute(connection)?;
+            Ok(())
+        })
+        .await
+    }
+
     async fn upsert_conversation(&self, conversation: Conversation) -> anyhow::Result<()> {
         self.run_with_connection(move |connection, wid| {
             let record = ConversationRecord::new(conversation, wid);
@@ -230,6 +255,65 @@ impl ConversationRepository for ConversationRepositoryImpl {
             let conversations: Result<Vec<Conversation>, _> =
                 records.into_iter().map(Conversation::try_from).collect();
             Ok(Some(conversations?))
+        })
+        .await
+    }
+
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Vec<Conversation>> {
+        let query = query.to_string();
+        let limit_value = limit.map(|n| n as i64);
+        self.run_with_connection(move |connection, wid| {
+            let workspace_id = wid.id() as i64;
+            // FTS5 BM25 search joined back to the base table on
+            // `conversation_id` (the FTS5 table is content-less, so
+            // `c.rowid = fts.rowid` would not match). `rank` from
+            // `bm25()` is a negative number where lower = more relevant,
+            // so `ORDER BY rank` (ascending) yields "best match first".
+            let mut sql = String::from(
+                "SELECT c.* FROM conversations c \
+                 JOIN conversations_fts fts ON c.conversation_id = fts.conversation_id \
+                 WHERE conversations_fts MATCH ? \
+                   AND c.workspace_id = ? \
+                 ORDER BY fts.rank",
+            );
+            if limit_value.is_some() {
+                sql.push_str(" LIMIT ?");
+            }
+
+            // We can't bind the FTS MATCH expression positionally because
+            // diesel::sql_query does not have a typed binding for FTS5's
+            // MATCH operator when used as a column. Use the lower-level
+            // `sql_query` so we can read back the typed rows.
+            let mut q = diesel::sql_query(sql).into_boxed();
+            q = q.bind::<diesel::sql_types::Text, _>(&query);
+            q = q.bind::<diesel::sql_types::BigInt, _>(workspace_id);
+            if let Some(l) = limit_value {
+                q = q.bind::<diesel::sql_types::BigInt, _>(l);
+            }
+
+            let raw_rows: Vec<ConversationRecord> = q.load(connection)?;
+            let conversations: Result<Vec<Conversation>, _> = raw_rows
+                .into_iter()
+                .map(Conversation::try_from)
+                .collect();
+            Ok(conversations?)
+        })
+        .await
+    }
+
+    async fn optimize_fts_index(&self) -> anyhow::Result<()> {
+        // FTS5's "optimize" command is invoked as a special INSERT against
+        // the virtual table itself. Diesel has no typed binding for it, so
+        // we use a raw sql_query. This is the canonical pattern from the
+        // SQLite FTS5 docs: https://sqlite.org/fts5.html#the_optimize_command
+        self.run_with_connection(move |connection, _wid| {
+            diesel::sql_query("INSERT INTO conversations_fts(conversations_fts) VALUES('optimize')")
+                .execute(connection)?;
+            Ok(())
         })
         .await
     }

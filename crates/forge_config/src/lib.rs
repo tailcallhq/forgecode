@@ -6,6 +6,7 @@ mod error;
 mod http;
 mod legacy;
 mod model;
+mod output;
 mod percentage;
 mod reader;
 mod reasoning;
@@ -19,11 +20,17 @@ pub use decimal::*;
 pub use error::Error;
 pub use http::*;
 pub use model::*;
+pub use output::*;
 pub use percentage::*;
-pub use reader::*;
+pub use reader::ConfigReader;
 pub use reasoning::*;
 pub use retry::*;
 pub use writer::*;
+
+/// Returns the path to the primary TOML config file (`~/.forge/.forge.toml`).
+pub fn config_path() -> std::path::PathBuf {
+    ConfigReader::config_path()
+}
 
 /// A `Result` type alias for this crate's [`Error`] type.
 pub type Result<T> = std::result::Result<T, Error>;

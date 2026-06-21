@@ -15,7 +15,7 @@ use forge_api::{
 };
 use forge_app::utils::{format_display_path, truncate_key};
 use forge_app::{CommitResult, ToolResolver};
-use forge_config::ForgeConfig;
+use forge_config::{ForgeConfig, OutputMode, OutputSettings};
 use forge_display::MarkdownFormat;
 use forge_domain::{
     AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, Role, TitleFormat, UserCommand,
@@ -2282,6 +2282,52 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    async fn handle_search(&mut self, query_parts: Vec<String>) -> anyhow::Result<()> {
+        let query = query_parts.join(" ").trim().to_string();
+        if query.is_empty() {
+            self.writeln_title(TitleFormat::error(
+                "Usage: :search <query>. Provide a search expression (e.g. :search \"rust refactor\").",
+            ))?;
+            return Ok(());
+        }
+
+        self.spinner.start(Some("Searching"))?;
+        let conversations = self.api.search_conversations(&query, Some(50)).await?;
+        self.spinner.stop(None)?;
+
+        if conversations.is_empty() {
+            self.writeln_title(TitleFormat::info(format!(
+                "No matches for {}",
+                format!("\"{query}\"").bold()
+            )))?;
+            return Ok(());
+        }
+
+        self.writeln_title(TitleFormat::info(format!(
+            "Matches for {} ({}):",
+            format!("\"{query}\"").bold(),
+            conversations.len()
+        )))?;
+
+        if let Some(conversation) = ConversationSelector::select_conversation(
+            &conversations,
+            self.state.conversation_id,
+            None,
+        )
+        .await?
+        {
+            let conversation_id = conversation.id;
+            self.state.conversation_id = Some(conversation_id);
+            self.on_show_last_message(conversation, false).await?;
+            self.writeln_title(TitleFormat::info(format!(
+                "Switched to conversation {}",
+                conversation_id.into_string().bold()
+            )))?;
+            self.on_info(false, Some(conversation_id)).await?;
+        }
+        Ok(())
+    }
+
     fn user_initiated_conversations(conversations: Vec<Conversation>) -> Vec<Conversation> {
         let related_ids: HashSet<ConversationId> = conversations
             .iter()
@@ -2336,9 +2382,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             AppCommand::Parent => {
                 self.handle_parent().await?;
             }
+            AppCommand::Search { query } => {
+                self.handle_search(query).await?;
+            }
             AppCommand::Compact => {
                 self.spinner.start(Some("Compacting"))?;
                 self.on_compaction().await?;
+            }
+            AppCommand::OutputCompact => {
+                self.apply_output_mode(OutputMode::Compact).await?;
+            }
+            AppCommand::OutputConcise => {
+                self.apply_output_mode(OutputMode::Concise).await?;
+            }
+            AppCommand::OutputVerbose => {
+                self.apply_output_mode(OutputMode::Verbose).await?;
             }
             AppCommand::Delete => {
                 self.handle_delete_conversation().await?;
@@ -5323,6 +5381,19 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let _ = crate::vscode::install_extension();
             }
         });
+    }
+
+    /// Apply an output mode setting and persist it to the config.
+    async fn apply_output_mode(&mut self, mode: OutputMode) -> Result<()> {
+        let mut cfg = forge_config::ForgeConfig::read().unwrap_or_default();
+        cfg.output = Some(OutputSettings {
+            mode,
+            ..cfg.output.clone().unwrap_or_default()
+        });
+        let path = forge_config::config_path();
+        cfg.write(Some(&path))?;
+        self.writeln_title(TitleFormat::info(format!("Output mode set to: {}", mode.label())))?;
+        Ok(())
     }
 }
 

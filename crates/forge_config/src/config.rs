@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::reader::ConfigReader;
 use crate::writer::ConfigWriter;
 use crate::{
-    AutoDumpFormat, Compact, Decimal, HttpConfig, ModelConfig, ReasoningConfig, RetryConfig, Update,
+    AutoDumpFormat, Compact, Decimal, HttpConfig, ModelConfig, OutputSettings, ReasoningConfig,
+    RetryConfig, Update,
 };
 
 /// Wire protocol a provider uses for chat completions.
@@ -263,6 +264,12 @@ pub struct ForgeConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact: Option<Compact>,
 
+    /// User-facing output rendering settings (verbose/concise/compact modes).
+    /// When absent the renderer falls back to `OutputSettings::default()`
+    /// (concise mode, trailing newline enabled).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<OutputSettings>,
+
     /// Whether restricted mode is active; when enabled, tool execution requires
     /// explicit permission grants.
     #[serde(default)]
@@ -355,13 +362,19 @@ impl ForgeConfig {
 
     /// Writes the configuration to the user config file.
     ///
+    /// When `path` is `None`, the default config path (`~/.forge/.forge.toml`)
+    /// is used. When `Some(path)`, the configuration is written to that path
+    /// instead.
+    ///
     /// # Errors
     ///
     /// Returns an error if the configuration cannot be serialized or written to
     /// disk.
-    pub fn write(&self) -> crate::Result<()> {
-        let path = ConfigReader::config_path();
-        ConfigWriter::new(self.clone()).write(&path)
+    pub fn write(&self, path: Option<&std::path::Path>) -> crate::Result<()> {
+        let target = path
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(ConfigReader::config_path);
+        ConfigWriter::new(self.clone()).write(&target)
     }
 }
 

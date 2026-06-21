@@ -2,6 +2,12 @@
 //!
 //! This module provides semantic summarization of conversation context using
 //! an LLM, offering higher quality summaries than template-based extraction.
+//!
+//! The summarizer is fully implemented but currently has no caller in the
+//! active code path (template-based extraction is used instead). The
+//! `#[allow(dead_code)]` keeps the API ready for future wiring without
+//! spamming the build with warnings.
+#![allow(dead_code)]
 
 use std::time::Duration;
 

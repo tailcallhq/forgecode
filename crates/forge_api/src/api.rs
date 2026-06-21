@@ -98,6 +98,30 @@ pub trait API: Sync + Send {
         limit: Option<usize>,
     ) -> Result<Vec<Conversation>>;
 
+    /// By-reference variant of [`Self::upsert_conversation`]. Avoids the
+    /// per-call `Conversation` clone on hot paths (orchestrator loop, service
+    /// `modify_conversation`). Preferred for code that already holds a
+    /// `&Conversation`.
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> Result<()>;
+
+    /// Full-text search over conversation titles and context, scoped to the
+    /// current workspace. Backed by the FTS5 virtual table installed by
+    /// migration `2026-06-14-000002_add_fts5_to_conversations`. Results are
+    /// ranked by BM25.
+    ///
+    /// Returns an empty `Vec` when the query matches zero rows (the underlying
+    /// repo returns `Option<Vec<...>>`; `None` is flattened to `vec![]`).
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<Conversation>>;
+
+    /// Reclaim FTS5 segment shadow data. Compacts per-segment shadow trees
+    /// back into a single segment, reducing query-time shadow-walk cost and
+    /// disk footprint. Safe to call at any time; safe to call repeatedly.
+    async fn optimize_fts_index(&self) -> Result<()>;
+
     /// Renames a conversation by setting its title
     ///
     /// # Arguments

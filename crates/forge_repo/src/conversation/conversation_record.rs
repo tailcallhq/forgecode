@@ -938,7 +938,14 @@ impl From<MetricsRecord> for forge_domain::Metrics {
 }
 
 /// Database model for conversations table
-#[derive(Debug, diesel::Queryable, diesel::Selectable, diesel::Insertable, diesel::AsChangeset)]
+#[derive(
+    Debug,
+    diesel::Queryable,
+    diesel::Selectable,
+    diesel::Insertable,
+    diesel::AsChangeset,
+    diesel::QueryableByName,
+)]
 #[diesel(table_name = crate::database::schema::conversations)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub(super) struct ConversationRecord {
@@ -957,6 +964,45 @@ impl ConversationRecord {
     /// Creates a new ConversationRecord from a Conversation domain object
     pub fn new(
         conversation: forge_domain::Conversation,
+        workspace_id: forge_domain::WorkspaceHash,
+    ) -> Self {
+        let context = conversation
+            .context
+            .as_ref()
+            .filter(|ctx| !ctx.messages.is_empty() || ctx.initiator.is_some())
+            .map(ContextRecord::from)
+            .and_then(|ctx_record| serde_json::to_string(&ctx_record).ok());
+        let updated_at = context.as_ref().map(|_| chrono::Utc::now().naive_utc());
+        let metrics_record = MetricsRecord::from(&conversation.metrics);
+        let metrics = serde_json::to_string(&metrics_record).ok();
+
+        Self {
+            conversation_id: conversation.id.into_string(),
+            title: conversation.title.clone(),
+            context,
+            created_at: conversation.metadata.created_at.naive_utc(),
+            updated_at,
+            workspace_id: workspace_id.id() as i64,
+            metrics,
+            parent_id: conversation.parent_id.map(|id| id.into_string()),
+            source: conversation.source.clone(),
+        }
+    }
+
+    /// Creates a new ConversationRecord from a borrowed `Conversation`.
+    ///
+    /// Equivalent to [`Self::new`] but takes the conversation by reference so
+    /// callers on the hot path (the orchestrator loop, the
+    /// `ConversationService::modify_conversation` closure) can avoid cloning
+    /// the full `Conversation` just to insert it.
+    ///
+    /// Each owned field on the record is built by cloning only the inner
+    /// scalars/strings from the source `Conversation` (not the whole struct),
+    /// so the cost is roughly proportional to the size of the
+    /// `Option<String>` columns (title, parent_id, source) plus the
+    /// serialised metrics/context blobs.
+    pub fn new_ref(
+        conversation: &forge_domain::Conversation,
         workspace_id: forge_domain::WorkspaceHash,
     ) -> Self {
         let context = conversation

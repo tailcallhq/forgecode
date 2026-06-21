@@ -46,6 +46,22 @@ pub trait SnapshotRepository: Send + Sync {
 /// creating, retrieving, and listing conversations.
 #[async_trait::async_trait]
 pub trait ConversationRepository: Send + Sync {
+    /// Creates or updates a conversation from a borrowed reference, avoiding
+    /// the per-call `Conversation` clone on hot paths (orchestrator loop,
+    /// service `modify_conversation`).
+    ///
+    /// This is the preferred variant for code that already holds a
+    /// `&Conversation` (i.e. almost every caller in the orchestrator).
+    /// The legacy by-value [`Self::upsert_conversation`] is preserved for
+    /// back-compat with code that owns the conversation outright.
+    ///
+    /// # Arguments
+    /// * `conversation` - Borrowed conversation to persist
+    ///
+    /// # Errors
+    /// Returns an error if the operation fails
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> Result<()>;
+
     /// Creates or updates a conversation
     ///
     /// # Arguments
@@ -131,6 +147,41 @@ pub trait ConversationRepository: Send + Sync {
         source: &str,
         limit: Option<usize>,
     ) -> Result<Option<Vec<Conversation>>>;
+
+    /// Full-text search over conversation titles and context, scoped to the
+    /// current workspace. Backed by the FTS5 virtual table installed by
+    /// migration `2026-06-14-000002_add_fts5_to_conversations`.
+    ///
+    /// Results are ranked by BM25 (`fts.rank`). An empty `Vec` means the
+    /// query matched zero rows (use `.is_empty()` on the result).
+    ///
+    /// # Arguments
+    /// * `query` - FTS5 MATCH expression (e.g. `"rust refactor"`, `"tokio*"`).
+    ///   Caller is responsible for sanitising; the implementation passes it
+    ///   through to SQLite unchanged.
+    /// * `limit` - Optional cap on returned rows.
+    ///
+    /// # Errors
+    /// Returns an error if the FTS query is malformed or the database call
+    /// fails.
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<Conversation>>;
+
+    /// Reclaims FTS5 segment shadow data by running
+    /// `INSERT INTO conversations_fts(conversations_fts) VALUES('optimize')`.
+    ///
+    /// FTS5 maintains per-segment shadow trees that can grow unboundedly under
+    /// heavy write / delete workloads. Periodically calling `optimize` (e.g.
+    /// at the end of a long session or from a maintenance command) compacts
+    /// them back into a single segment, reducing query-time shadow-walk cost
+    /// and disk footprint.
+    ///
+    /// # Errors
+    /// Returns an error if the optimize statement fails to execute.
+    async fn optimize_fts_index(&self) -> Result<()>;
 }
 
 #[async_trait::async_trait]

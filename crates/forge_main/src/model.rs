@@ -163,6 +163,8 @@ impl ForgeCommandManager {
                 | "l"
                 | "parent"
                 | "p"
+                | "search"
+                | "sr"
         )
     }
 
@@ -687,6 +689,16 @@ pub enum AppCommand {
     #[command(alias = "p")]
     Parent,
 
+    /// Full-text search over conversation titles and contents (FTS5 BM25).
+    /// Usage: `:search <query>` or `:search "rust refactor"`.
+    #[strum(props(usage = "Search conversation history. Usage: :search <query>"))]
+    #[command(alias = "sr")]
+    Search {
+        /// FTS5 MATCH expression (e.g. "rust refactor", "tokio*").
+        #[arg(trailing_var_arg = true, num_args = 1..)]
+        query: Vec<String>,
+    },
+
     /// Delete a conversation permanently
     #[strum(props(usage = "Delete a conversation permanently"))]
     #[command(skip)]
@@ -726,6 +738,24 @@ pub enum AppCommand {
     /// Index the current workspace for semantic code search
     #[strum(props(usage = "Index the current workspace for semantic search"))]
     Index,
+
+    /// Switch tool output to compact mode. Trims whitespace and folds blank
+    /// lines for terminal-friendly display. Triggered with `:output-compact`.
+    #[strum(props(
+        usage = "Switch tool output to compact mode (trim whitespace, fold blanks)"
+    ))]
+    OutputCompact,
+
+    /// Switch tool output to concise mode (default). Minimal output without
+    /// extra trimming. Triggered with `:output-concise`.
+    #[strum(props(usage = "Switch tool output to concise mode (default)"))]
+    OutputConcise,
+
+    /// Switch tool output to verbose mode. Includes metadata, reasoning
+    /// traces, and intermediate computation steps. Triggered with
+    /// `:output-verbose`.
+    #[strum(props(usage = "Switch tool output to verbose mode (include all metadata)"))]
+    OutputVerbose,
 }
 
 impl AppCommand {
@@ -757,6 +787,7 @@ impl AppCommand {
             AppCommand::Goal { .. } => "goal",
             AppCommand::Loop { .. } => "loop",
             AppCommand::Parent => "parent",
+            AppCommand::Search { .. } => "search",
             AppCommand::Delete => "delete",
             AppCommand::Rename { .. } => "rename",
             AppCommand::AgentSwitch(agent_id) => agent_id,
@@ -780,6 +811,9 @@ impl AppCommand {
             AppCommand::WorkspaceStatus => "workspace-status",
             AppCommand::WorkspaceInfo => "workspace-info",
             AppCommand::WorkspaceInit => "workspace-init",
+            AppCommand::OutputCompact => "output-compact",
+            AppCommand::OutputConcise => "output-concise",
+            AppCommand::OutputVerbose => "output-verbose",
         }
     }
 

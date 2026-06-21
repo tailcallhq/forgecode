@@ -226,6 +226,22 @@ impl<
             .unwrap_or_default())
     }
 
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> Result<()> {
+        self.services.upsert_conversation_ref(conversation).await
+    }
+
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<Conversation>> {
+        self.services.search_conversations(query, limit).await
+    }
+
+    async fn optimize_fts_index(&self) -> Result<()> {
+        self.services.optimize_fts_index().await
+    }
+
     async fn rename_conversation(
         &self,
         conversation_id: &ConversationId,

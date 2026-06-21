@@ -176,6 +176,29 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
             .delete_conversation(conversation_id)
             .await
     }
+
+    async fn upsert_conversation_ref(
+        &self,
+        conversation: &Conversation,
+    ) -> anyhow::Result<()> {
+        self.conversation_repository
+            .upsert_conversation_ref(conversation)
+            .await
+    }
+
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Vec<Conversation>> {
+        self.conversation_repository
+            .search_conversations(query, limit)
+            .await
+    }
+
+    async fn optimize_fts_index(&self) -> anyhow::Result<()> {
+        self.conversation_repository.optimize_fts_index().await
+    }
 }
 
 #[async_trait::async_trait]
