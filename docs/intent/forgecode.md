@@ -1,14 +1,14 @@
 <!--
-propagated-from: KooshaPari/phenotype-registry @ chore/l7-001-curation-snapshot
-date: 2026-06-17
-source-commit: a1aa44660
+propagated-from: KooshaPari/phenotype-registry @ chore/l7-010-taxonomy-rerender
+date: 2026-06-21
+source-commit: 2026-06-21-rerender
 do-not-edit-locally: regenerate via scripts/propagate-intent-to-repos.py
                      or update in the source-of-truth registry repo
 -->
 # forgecode — Intent
 
 forgecode is a registered phenotype-* repository. This is a stub intent file
-generated on 2026-06-20 by `scripts/render-stubs.py`. It exists because
+generated on 2026-06-21 by `scripts/render-stubs.py`. It exists because
 `ECOSYSTEM_MAP.md` declares forgecode canonical but no curated prompts
 have been generated for it yet during the L7 sweep.
 
@@ -29,7 +29,7 @@ declaration.
 
 ## Curated prompts
 
-Zero prompts curated as of L7-003 (2026-06-20).
+Zero prompts curated as of L7-003 (2026-06-21); L7-010 taxonomy rerender (2026-06-21).
 
 When prompts are ever bound to this repo (refresh cadence per ADR-024),
 this stub will be overwritten by `scripts/render-per-repo.py --force`.

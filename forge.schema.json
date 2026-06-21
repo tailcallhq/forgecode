@@ -233,6 +233,17 @@
       "default": 0,
       "minimum": 0
     },
+    "output": {
+      "description": "User-facing output rendering settings (verbose/concise/compact modes).\nWhen absent the renderer falls back to `OutputSettings::default()`\n(concise mode, trailing newline enabled).",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OutputSettings"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "providers": {
       "description": "Additional provider definitions merged with the built-in provider list.\n\nEntries with an `id` matching a built-in provider override its fields;\nentries with a new `id` are appended and become available for model\nselection.",
       "type": "array",
@@ -777,6 +788,42 @@
           }
         }
       ]
+    },
+    "OutputMode": {
+      "description": "Controls the verbosity of forge's tool output formatting.\n\nThe output mode affects how tool results are rendered in the chat UI:\n- `Concise`: Minimal output, just the essential information (default for\n  most users).\n- `Compact`: Same as concise but with extra whitespace trimming and\n  aggressive line folding for terminal-friendly display.\n- `Verbose`: Full output including all metadata, reasoning traces, and\n  intermediate computation steps. Useful for debugging.",
+      "oneOf": [
+        {
+          "description": "Minimal output (default).",
+          "type": "string",
+          "const": "concise"
+        },
+        {
+          "description": "Extra whitespace-trimmed variant of concise for terminal display.",
+          "type": "string",
+          "const": "compact"
+        },
+        {
+          "description": "Full output with all metadata and intermediate steps.",
+          "type": "string",
+          "const": "verbose"
+        }
+      ]
+    },
+    "OutputSettings": {
+      "description": "User-facing configuration for tool output rendering.",
+      "type": "object",
+      "properties": {
+        "mode": {
+          "description": "Verbosity level applied to tool output rendering.",
+          "$ref": "#/$defs/OutputMode",
+          "default": "concise"
+        },
+        "trailing_newline": {
+          "description": "Whether to include a trailing newline after tool output blocks.\nDefaults to `true`. Disable to suppress extra blank lines in agents\nthat add their own formatting.",
+          "type": "boolean",
+          "default": true
+        }
+      }
     },
     "ProviderAuthMethod": {
       "description": "Authentication method supported by a provider.\n\nOnly the simple (non-OAuth) methods are available here; providers that\nrequire OAuth device or authorization-code flows must be configured via the\nfile-based `provider.json` override instead.",
