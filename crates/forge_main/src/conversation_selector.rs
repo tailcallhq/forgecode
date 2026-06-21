@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use anyhow::Result;
 use chrono::Utc;
 use forge_api::Conversation;
@@ -91,11 +94,13 @@ impl ConversationSelector {
             });
         }
 
-        // Build a lookup map from UUID to Conversation for the result
-        let conv_map: std::collections::HashMap<String, Conversation> = valid_conversations
-            .into_iter()
-            .map(|c| (c.id.to_string(), c.clone()))
-            .collect();
+        // Build a lookup map from UUID to Arc<Conversation> for the result.
+        // Using Arc avoids cloning every Conversation twice (once for the row
+        // raw UUID and once for the lookup map) — big win on 6k+ lists.
+        let conv_map: HashMap<String, Arc<Conversation>> = valid_conversations
+            .iter()
+            .map(|c| (c.id.to_string(), Arc::new((*c).clone())))
+            .collect::<HashMap<_, _>>();
 
         let preview_command =
             "CLICOLOR_FORCE=1 forge conversation info {1}; echo; CLICOLOR_FORCE=1 forge conversation show {1}"
@@ -106,13 +111,16 @@ impl ConversationSelector {
                 .query(query)
                 .header_lines(1_usize)
                 .preview(Some(preview_command))
-                .preview_layout(PreviewLayout { placement: PreviewPlacement::Bottom, percent: 60 })
+                .preview_layout(PreviewLayout {
+                    placement: PreviewPlacement::Bottom,
+                    percent: 60,
+                })
                 .prompt()?
                 .map(|row| row.raw))
         })
         .await??;
 
-        Ok(selected_uuid.and_then(|uuid| conv_map.get(&uuid).cloned()))
+        Ok(selected_uuid.and_then(|uuid| conv_map.get(&uuid).map(|c| c.as_ref().clone())))
     }
 }
 

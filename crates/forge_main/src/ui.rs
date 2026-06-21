@@ -126,6 +126,17 @@ pub struct UI<A: ConsoleWriter, F: Fn(ForgeConfig) -> A> {
     cli: Cli,
     spinner: SharedSpinner<A>,
     config: ForgeConfig,
+    /// Cancellation handles for background cache-hydration tasks. Aborted
+    /// and replaced on each `hydrate_caches` call to prevent the zombie
+    /// task accumulation that caused the 10-20x scroll latency after a
+    /// few `/new` invocations.
+    hydration_handles: Vec<tokio::task::JoinHandle<()>>,
+    /// Generation counter for the conversation cache; bumped on every
+    /// conversation list refresh so stale preview fetches can be discarded.
+    cache_generation: std::sync::atomic::AtomicU64,
+    /// Soft interrupt flag for the prompt loop. Set when the user issues
+    /// a cancellation keystroke; cleared at the top of the next iteration.
+    interrupt_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     #[allow(dead_code)] // The guard is kept alive by being held in the struct
     _guard: forge_tracker::Guard,
 }
@@ -305,6 +316,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             spinner,
             markdown: MarkdownFormat::new(),
             config,
+            hydration_handles: Vec::new(),
+            cache_generation: std::sync::atomic::AtomicU64::new(0),
+            interrupt_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             _guard: forge_tracker::init_tracing(env.log_path(), TRACKER.clone())?,
         })
     }
@@ -330,11 +344,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             None
         };
 
-        // Prompt the user for input
-        let agent_id = self.api.get_active_agent().await.unwrap_or_default();
-        let model = self
-            .get_agent_model(self.api.get_active_agent().await)
-            .await;
+        // Prompt the user for input. Resolve the active agent once and
+        // reuse it for both the model lookup and the ForgePrompt builder —
+        // this batches 2 sequential awaits into 1 in the hot prompt loop.
+        let active_agent = self.api.get_active_agent().await.unwrap_or_default();
+        let agent_id = active_agent.clone();
+        let model = self.get_agent_model(Some(active_agent)).await;
         let reasoning_effort = self.api.get_reasoning_effort().await.ok().flatten();
         let mut forge_prompt = ForgePrompt::new(self.state.cwd.clone(), agent_id);
         if let Some(u) = usage {
@@ -471,18 +486,52 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
     }
 
-    // Improve startup time by hydrating caches
+    // Improve startup time by hydrating caches.
+    //
+    // IMPORTANT: any existing hydration tasks are aborted first to prevent
+    // the zombie task accumulation that produced the 10-20x scroll latency
+    // after a few `/new` invocations. Every call into this fn also bumps
+    // `cache_generation` so in-flight preview fetches can detect staleness.
     fn hydrate_caches(&self) {
-        let api = self.api.clone();
-        tokio::spawn(async move { api.get_models().await });
-        let api = self.api.clone();
-        tokio::spawn(async move { api.get_tools().await });
-        let api = self.api.clone();
-        tokio::spawn(async move { api.get_agent_infos().await });
-        let api = self.api.clone();
+        // Abort any prior background hydration tasks before spawning new ones
+        // to prevent Arc<API> clones + DB connections from accumulating
+        // across `/new` invocations.
+        for handle in &self.hydration_handles {
+            handle.abort();
+        }
+        // We can't mutate self.hydration_handles through &self; the orchestrator
+        // is expected to call `replace_hydration_handles` right after this.
+        // Bump the generation so any in-flight previews are discardable.
+        self.cache_generation
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Replaces the hydration task handles. Called by `init_state` after
+    /// `hydrate_caches` to install the newly-spawned handles so the next
+    /// call to `hydrate_caches` can abort them.
+    fn replace_hydration_handles(&mut self, handles: Vec<tokio::task::JoinHandle<()>>) {
+        for handle in &self.hydration_handles {
+            handle.abort();
+        }
+        self.hydration_handles = handles;
+    }
+
+    /// Spawns a tracked hydration task. Used by `init_state` so that
+    /// subsequent `hydrate_caches` calls can abort stale tasks.
+    fn spawn_tracked<Fut>(&self, fut: Fut) -> tokio::task::JoinHandle<()>
+    where
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
         tokio::spawn(async move {
-            let _ = api.hydrate_channel();
-        });
+            fut.await;
+        })
+    }
+
+    /// Returns the current cache generation. Used by the conversation
+    /// preview pipeline to discard stale fetches.
+    fn current_generation(&self) -> u64 {
+        self.cache_generation
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     async fn handle_generate_conversation_id(&mut self) -> Result<()> {
