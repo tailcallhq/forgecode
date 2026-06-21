@@ -16,10 +16,6 @@
 # -------------------------------------------------------------------
 
 name: Close Stale Issues and PR
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   DAYS_BEFORE_ISSUE_STALE: '30'
   DAYS_BEFORE_ISSUE_CLOSE: '7'
@@ -37,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Mark Stale Issues
-      uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f
+      uses: actions/stale@v10
       with:
         stale-issue-label: 'state: inactive'
         stale-pr-label: 'state: inactive'
