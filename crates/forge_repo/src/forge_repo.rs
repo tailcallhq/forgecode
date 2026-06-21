@@ -219,6 +219,17 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
             .get_conversations_by_cwd(cwd, limit)
             .await
     }
+
+    async fn get_conversation_snippet(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        token_count: usize,
+    ) -> anyhow::Result<Option<String>> {
+        self.conversation_repository
+            .get_conversation_snippet(conversation_id, query, token_count)
+            .await
+    }
 }
 
 #[async_trait::async_trait]

@@ -75,6 +75,61 @@ impl MetaData {
     }
 }
 
+/// Sort key for the session viewer selector.
+///
+/// Each variant maps to an `ORDER BY` clause in the `conversations` table.
+/// `Default` is `Updated` because the most common workflow is "show me what
+/// I was working on most recently" — especially after a crash recovery when
+/// the user is trying to find the parent session of a stranded subagent.
+#[derive(Debug, Default, Display, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConversationSort {
+    /// Sort by `updated_at` DESC (most recent first). Default.
+    #[default]
+    #[display("updated")]
+    Updated,
+    /// Sort by `created_at` DESC (newest first).
+    #[display("created")]
+    Created,
+    /// Sort by `message_count` DESC, then `updated_at` DESC.
+    /// This is the canonical "turns" view the user asked for.
+    #[display("turns")]
+    Turns,
+    /// Sort by `title` ASC, NULLS LAST.
+    #[display("title")]
+    Title,
+    /// Sort by `cwd` ASC, NULLS LAST, then `updated_at` DESC.
+    /// Useful for finding all sessions in a specific repo.
+    #[display("cwd")]
+    Cwd,
+}
+
+impl ConversationSort {
+    /// Stable lowercase identifier used for CLI parsing and storage.
+    /// Also used by the UI handler for `:sort <key>` echo.
+    pub fn name(self) -> &'static str {
+        match self {
+            ConversationSort::Updated => "updated",
+            ConversationSort::Created => "created",
+            ConversationSort::Turns => "turns",
+            ConversationSort::Title => "title",
+            ConversationSort::Cwd => "cwd",
+        }
+    }
+
+    /// Parse a sort key from a user-supplied string. Unknown keys fall
+    /// back to `Updated` and the caller is expected to print a hint.
+    pub fn parse(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "created" => ConversationSort::Created,
+            "turns" | "messages" | "msgs" => ConversationSort::Turns,
+            "title" | "name" | "alphabetical" => ConversationSort::Title,
+            "cwd" | "dir" | "directory" => ConversationSort::Cwd,
+            _ => ConversationSort::Updated,
+        }
+    }
+}
+
 impl Conversation {
     pub fn new(id: ConversationId) -> Self {
         let created_at = Utc::now();

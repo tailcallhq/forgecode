@@ -170,6 +170,28 @@ pub trait ConversationRepository: Send + Sync {
         limit: Option<usize>,
     ) -> Result<Vec<Conversation>>;
 
+    /// Returns a short FTS5 snippet (~32 tokens) for a single
+    /// `(conversation_id, query)` pair, with the matched terms wrapped in
+    /// `[…]` and the surrounding text wrapped in `…`. Used by the UI to
+    /// render a "matched passage" preview for the currently selected
+    /// search hit without forcing the main search query to include the
+    /// snippet column (which would couple the row layout to
+    /// `ConversationRecord`).
+    ///
+    /// Returns `Ok(None)` when the query does not match that conversation
+    /// — callers should treat `None` as "no preview available" and fall
+    /// back to the conversation title.
+    ///
+    /// # Errors
+    /// Returns an error if the FTS query is malformed or the database
+    /// call fails.
+    async fn get_conversation_snippet(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        token_count: usize,
+    ) -> Result<Option<String>>;
+
     /// Reclaims FTS5 segment shadow data by running
     /// `INSERT INTO conversations_fts(conversations_fts) VALUES('optimize')`.
     ///

@@ -316,6 +316,16 @@ pub trait ConversationService: Send + Sync {
         cwd: &str,
         limit: Option<usize>,
     ) -> anyhow::Result<Option<Vec<Conversation>>>;
+
+    /// Return an FTS5 snippet for a (conversation, query) pair — a short
+    /// highlighted excerpt of the matched passage. Used by the search UI
+    /// to render a preview pane when the user picks a search hit.
+    async fn get_conversation_snippet(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        token_count: usize,
+    ) -> anyhow::Result<Option<String>>;
 }
 
 #[async_trait::async_trait]
@@ -759,6 +769,17 @@ impl<I: Services> ConversationService for I {
     ) -> anyhow::Result<Option<Vec<Conversation>>> {
         self.conversation_service()
             .get_conversations_by_cwd(cwd, limit)
+            .await
+    }
+
+    async fn get_conversation_snippet(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        token_count: usize,
+    ) -> anyhow::Result<Option<String>> {
+        self.conversation_service()
+            .get_conversation_snippet(conversation_id, query, token_count)
             .await
     }
 }

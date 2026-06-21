@@ -140,6 +140,16 @@ pub trait API: Sync + Send {
         limit: Option<usize>,
     ) -> Result<Option<Vec<Conversation>>>;
 
+    /// Return an FTS5 snippet for a (conversation, query) pair — a short
+    /// highlighted excerpt of the matched passage. Used by the search UI
+    /// to render a preview pane when the user picks a search hit.
+    async fn get_conversation_snippet(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        token_count: usize,
+    ) -> Result<Option<String>>;
+
     /// Renames a conversation by setting its title
     ///
     /// # Arguments

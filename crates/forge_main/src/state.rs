@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use derive_setters::Setters;
 use forge_api::{ConversationId, Environment};
+use forge_domain::ConversationSort;
 
 //TODO: UIState and ForgePrompt seem like the same thing and can be merged
 /// State information for the UI
@@ -18,6 +19,10 @@ pub struct UIState {
     /// scopes its results to conversations whose `cwd` column matches.
     /// This is the "filter by project directory" UX.
     pub cwd_filter: Option<String>,
+    /// Sort key for the conversation selector. Re-exported from
+    /// `forge_domain::ConversationSort` so there's one canonical enum
+    /// across the repo / service / UI layers.
+    pub sort: ConversationSort,
 }
 
 impl Default for UIState {
@@ -29,6 +34,7 @@ impl Default for UIState {
             loop_enabled: false,
             last_activity: Instant::now(),
             cwd_filter: None,
+            sort: ConversationSort::default(),
         }
     }
 }
@@ -42,6 +48,7 @@ impl UIState {
             loop_enabled: false,
             last_activity: Instant::now(),
             cwd_filter: None,
+            sort: ConversationSort::default(),
         }
     }
 }
