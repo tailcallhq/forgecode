@@ -1,13 +1,13 @@
 <!--
-propagated-from: KooshaPari/phenotype-registry @ chore/l7-001-curation-snapshot
-date: 2026-06-17
-source-commit: a1aa44660
+propagated-from: KooshaPari/phenotype-registry @ chore/l7-010-taxonomy-rerender
+date: 2026-06-21
+source-commit: 2026-06-21-rerender
 do-not-edit-locally: regenerate via scripts/propagate-intent-to-repos.py
                      or update in the source-of-truth registry repo
 -->
 # forgecode — Boundary
 
-> Stub boundary file generated on 2026-06-20 by `scripts/render-stubs.py`
+> Stub boundary file generated on 2026-06-21 by `scripts/render-stubs.py`
 > for canonical repos with no curated prompts yet.
 
 ## In Scope
