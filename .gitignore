@@ -38,6 +38,7 @@ jobs/**
 *.new
 .vscode/
 .fastembed_cache/
+.cargo/
 *.log*
 *-dump.json
 *-dump.html

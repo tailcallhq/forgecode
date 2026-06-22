@@ -157,6 +157,50 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.spinner.ewrite_ln(title)
     }
 
+    /// Renders the status bar (Claude-style bottom-of-screen line) to stderr so
+    /// it does not get tangled with the chat output stream. The line is cleared
+    /// with ANSI escapes first so it overwrites the previous status.
+    ///
+    /// Format (when `is_busy`):
+    ///   ⠋  <active_tool> · <context_pct>% ctx · <last_action>
+    /// Format (when idle):
+    ///   ✓  <last_action> · <context_pct>% ctx
+    fn render_status_bar(&mut self) -> anyhow::Result<()> {
+        let snap = self.state.status_bar.snapshot();
+        // ANSI: ESC[2K = erase entire line, ESC[1A = move up one line (to
+        // overwrite a previously-drawn status line). We draw to stderr so the
+        // stream does not interleave with the chat output the user is reading.
+        let prefix = "\x1b[2K\x1b[1A\x1b[2K";
+        let bar = if snap.is_busy {
+            let spinner = "⠋".bright_cyan();
+            let tool = snap.active_tool.as_deref().unwrap_or("working").yellow();
+            let ctx = format!("{}% ctx", snap.context_pct).dimmed();
+            let last = snap.last_action.as_deref().unwrap_or("").dimmed();
+            format!(
+                "{prefix} {spinner} {tool} · {ctx} · {last}\n",
+                prefix = prefix,
+                spinner = spinner,
+                tool = tool,
+                ctx = ctx,
+                last = last
+            )
+        } else {
+            let mark = "✓".green();
+            let ctx = format!("{}% ctx", snap.context_pct).dimmed();
+            let last = snap.last_action.as_deref().unwrap_or("idle").dimmed();
+            format!(
+                "{prefix} {mark}  {last} · {ctx}\n",
+                prefix = prefix,
+                mark = mark,
+                last = last,
+                ctx = ctx
+            )
+        };
+        // ewrite_ln goes to stderr, which keeps the status line below the chat
+        // scroll region on most terminals.
+        self.spinner.ewrite_ln(bar)
+    }
+
     /// Helper to get provider for an optional agent, defaulting to the current
     /// active agent's provider
     async fn get_provider(&self, agent_id: Option<AgentId>) -> Result<Provider<Url>> {
