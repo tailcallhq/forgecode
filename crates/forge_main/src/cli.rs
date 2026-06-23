@@ -5,6 +5,7 @@
 //! remains compatible. The plugin at `shell-plugin/forge.plugin.zsh` implements
 //! shell completion and command shortcuts that depend on the CLI structure.
 
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -71,9 +72,15 @@ impl Cli {
     /// Determines whether the CLI should start in interactive mode.
     ///
     /// Returns true when no prompt, piped input, or subcommand is provided,
-    /// indicating the user wants to enter interactive mode.
+    /// **and** stdin is a TTY. Returns false when stdin is not a TTY even if
+    /// no other input was provided, so non-interactive contexts (CI, pipes,
+    /// detached shells) don't enter the prompt loop and hang on
+    /// `console::Term::read_line()`.
     pub fn is_interactive(&self) -> bool {
-        self.prompt.is_none() && self.piped_input.is_none() && self.subcommands.is_none()
+        self.prompt.is_none()
+            && self.piped_input.is_none()
+            && self.subcommands.is_none()
+            && std::io::stdin().is_terminal()
     }
 }
 

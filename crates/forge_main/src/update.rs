@@ -87,7 +87,7 @@ pub async fn on_update(api: Arc<impl API>, update: Option<&Update>) {
         return;
     }
 
-    let informer = update_informer::new(registry::GitHub, "tailcallhq/forgecode", VERSION)
+    let informer = update_informer::new(registry::GitHub, "KooshaPari/forgecode", VERSION)
         .interval(frequency.into());
 
     if let Some(version) = informer.check_version().ok().flatten()
