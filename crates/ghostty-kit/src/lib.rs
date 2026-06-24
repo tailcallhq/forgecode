@@ -18,6 +18,9 @@
 
 mod config;
 mod error;
+mod ipc;
+mod ipc_request;
+mod ipc_response;
 mod serialize;
 mod value;
 
@@ -26,6 +29,7 @@ pub use config::{
     ConfigValue, GhosttyConfig,
 };
 pub use error::{ConfigError, Result};
+pub use ipc::{GhosttyControl, IpcError, ProgressState, Response, WindowSize};
 
 #[doc(hidden)]
 pub use config::to_json;
