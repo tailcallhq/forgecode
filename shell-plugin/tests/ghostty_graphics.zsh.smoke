@@ -1,0 +1,111 @@
+#!/usr/bin/env zsh
+# Smoke test for shell-plugin/lib/ghostty_graphics.zsh
+#
+# Verifies the library can be sourced, exports its loaded sentinel, declares
+# the documented public functions, refuses to call out when graphics are not
+# available, and round-trips a single-file manifest.
+#
+# Run with:
+#   zsh -c 'source shell-plugin/tests/ghostty_graphics.zsh.smoke && echo OK'
+
+emulate -L zsh
+setopt local_options pipe_fail no_unset
+
+# Resolve the library path. When sourced via `zsh -c 'source tests/foo'`, $0
+# is "zsh" and ${0:A:h} is empty — so we probe PWD-relative candidates.
+LIB="shell-plugin/lib/ghostty_graphics.zsh"
+if [[ ! -r "$LIB" ]]; then
+    LIB="../lib/ghostty_graphics.zsh"
+fi
+if [[ ! -r "$LIB" ]]; then
+    print -u2 -- "FAIL: cannot find ghostty_graphics.zsh (tried shell-plugin/lib/, ../lib/)"
+    exit 1
+fi
+
+# 1. Source the library under test.
+source "$LIB"
+
+# 2. The lazy-load guard sentinel must be set.
+if [[ "${_FORGE_GRAPHICS_ZSH_LOADED:-}" != "1" ]]; then
+    print -u2 -- "FAIL: _FORGE_GRAPHICS_ZSH_LOADED is not '1' (got '${_FORGE_GRAPHICS_ZSH_LOADED:-<unset>}')"
+    exit 1
+fi
+
+# 3. All documented public functions (plus the private search helper) must be defined.
+local -a required=(
+    forge_graphics_detect
+    forge_graphics_load_manifest
+    forge_graphics_show
+    forge_graphics_hide
+    forge_graphics_cycle
+    forge_graphics_compile
+    _forge_graphics_search_dirs
+)
+local fn
+for fn in "${required[@]}"; do
+    if ! typeset -f "$fn" >/dev/null 2>&1; then
+        print -u2 -- "FAIL: function '$fn' is not defined after sourcing ghostty_graphics.zsh"
+        exit 1
+    fi
+done
+
+# 4. forge_graphics_show must refuse to call out when FORGE_GRAPHICS_AVAILABLE
+# is unset / not 1. Run in a subshell so the unset doesn't leak.
+(
+    emulate -L zsh
+    setopt local_options pipe_fail no_unset
+    unset FORGE_GRAPHICS_AVAILABLE
+    if forge_graphics_show somename 2>/dev/null; then
+        print -u2 -- "FAIL: forge_graphics_show succeeded without FORGE_GRAPHICS_AVAILABLE=1"
+        exit 1
+    fi
+    exit 0
+)
+
+# 5. forge_graphics_load_manifest must return non-zero for a non-existent path.
+if forge_graphics_load_manifest /nonexistent/path/to/manifest.json 2>/dev/null; then
+    print -u2 -- "FAIL: forge_graphics_load_manifest succeeded for a missing path"
+    exit 1
+fi
+
+# 6. A directory containing a single .gph file must load and emit the
+# expected FORGE_GRAPHICS_<NAME>_PATH env var. We build a temp dir under
+# mktemp so we don't pollute the repo. The OS reaps /tmp on reboot; for
+# safety we also explicitly rm -rf.
+local tmpdir gph_path
+tmpdir=$(mktemp -d -t forge_graphics_smoke.XXXXXX)
+if [[ ! -d "$tmpdir" ]]; then
+    print -u2 -- "FAIL: could not create temp dir"
+    exit 1
+fi
+
+gph_path="$tmpdir/aurora.gph"
+print -n -- "GPH\x00aurora-shader-payload" > "$gph_path" 2>/dev/null
+
+# Wipe any prior FORGE_GRAPHICS_* state so the load is hermetic.
+unset ${(k)parameters[(I)FORGE_GRAPHICS_*]} ${(k)parameters[(I)_FORGE_GRAPHICS_*]} 2>/dev/null
+
+if ! forge_graphics_load_manifest "$tmpdir"; then
+    print -u2 -- "FAIL: forge_graphics_load_manifest returned non-zero for single-gph dir: $tmpdir"
+    rm -rf -- "$tmpdir"
+    exit 1
+fi
+
+if [[ "${FORGE_GRAPHICS_COUNT:-}" != "1" ]]; then
+    print -u2 -- "FAIL: FORGE_GRAPHICS_COUNT != 1 (got '${FORGE_GRAPHICS_COUNT:-<unset>}')"
+    rm -rf -- "$tmpdir"
+    exit 1
+fi
+if [[ "${FORGE_GRAPHICS_AURORA_PATH:-}" != "$gph_path" ]]; then
+    print -u2 -- "FAIL: FORGE_GRAPHICS_AURORA_PATH is wrong (got '${FORGE_GRAPHICS_AURORA_PATH:-<unset>}', expected '$gph_path')"
+    rm -rf -- "$tmpdir"
+    exit 1
+fi
+if [[ -z "${FORGE_GRAPHICS_AURORA_HASH:-}" || "${FORGE_GRAPHICS_AURORA_HASH}" != "${_FORGE_GRAPHICS_AURORA_HASH:-}" ]]; then
+    print -u2 -- "FAIL: AURORA hash vars missing or inconsistent (public='${FORGE_GRAPHICS_AURORA_HASH:-<unset>}', private='${_FORGE_GRAPHICS_AURORA_HASH:-<unset>}')"
+    rm -rf -- "$tmpdir"
+    exit 1
+fi
+
+rm -rf -- "$tmpdir"
+print -- "OK"
