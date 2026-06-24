@@ -1,0 +1,92 @@
+#!/usr/bin/env zsh
+# Smoke test for shell-plugin/lib/ghostty.zsh
+#
+# Verifies the library can be sourced, exports its loaded sentinel, declares
+# the documented public functions, and refuses to call out when the `forge`
+# binary is missing from PATH.
+#
+# Run with:
+#   zsh -c 'source shell-plugin/tests/ghostty.zsh.smoke && echo OK'
+
+emulate -L zsh
+setopt local_options pipe_fail no_unset
+
+SCRIPT_DIR="${0:A:h}"
+LIB="$SCRIPT_DIR/../lib/ghostty.zsh"
+
+# 1. Source the library under test.
+if [[ ! -r "$LIB" ]]; then
+    print -u2 -- "FAIL: cannot read $LIB"
+    exit 1
+fi
+source "$LIB"
+
+# 2. The lazy-load guard sentinel must be set.
+if [[ "${_FORGE_GHOSTTY_ZSH_LOADED:-}" != "1" ]]; then
+    print -u2 -- "FAIL: _FORGE_GHOSTTY_ZSH_LOADED is not '1' (got '${_FORGE_GHOSTTY_ZSH_LOADED:-<unset>}')"
+    exit 1
+fi
+
+# 3. All documented public functions must be defined.
+local -a required=(
+    forge_ghostty_detect
+    forge_ghostty_call
+    forge_ghostty_title
+    forge_ghostty_progress
+    forge_ghostty_reload
+    forge_ghostty_open
+    forge_ghostty_bind
+)
+local fn
+for fn in "${required[@]}"; do
+    if ! typeset -f "$fn" >/dev/null 2>&1; then
+        print -u2 -- "FAIL: function '$fn' is not defined after sourcing ghostty.zsh"
+        exit 1
+    fi
+done
+
+# 4. The IPC bridge must refuse to call out when `forge` is missing from PATH.
+# Run in a subshell so the PATH mutation does not leak into this shell.
+if ! (
+    emulate -L zsh
+    setopt local_options pipe_fail no_unset
+    # Strip everything except the bare minimum so `forge` cannot be found.
+    # /usr/bin:/bin still has the usual POSIX utilities but no `forge`.
+    PATH=/usr/bin:/bin
+    rehash
+    # Calling with a no-op verb should fail because forge is not on PATH.
+    # Suppress both stdout and stderr; we only care about the exit code.
+    forge_ghostty_call set_window_title "smoke" >/dev/null 2>&1
+); then
+    : # success — bridge refused to call out
+else
+    print -u2 -- "FAIL: forge_ghostty_call succeeded with no forge on PATH"
+    exit 1
+fi
+
+# 5. Argument validation on the high-level wrappers must reject empty input.
+if forge_ghostty_title "" 2>/dev/null; then
+    print -u2 -- "FAIL: forge_ghostty_title accepted an empty title"
+    exit 1
+fi
+if forge_ghostty_progress 2>/dev/null; then
+    print -u2 -- "FAIL: forge_ghostty_progress accepted a missing state"
+    exit 1
+fi
+if forge_ghostty_progress bogus 2>/dev/null; then
+    print -u2 -- "FAIL: forge_ghostty_progress accepted an invalid state"
+    exit 1
+fi
+if forge_ghostty_open "" 2>/dev/null; then
+    print -u2 -- "FAIL: forge_ghostty_open accepted an empty url"
+    exit 1
+fi
+
+# 6. forge_ghostty_bind must be a no-op when zle is not loaded (e.g. inside
+# `zsh -c`). Just calling it must not error out and must return 0.
+if ! forge_ghostty_bind; then
+    print -u2 -- "FAIL: forge_ghostty_bind returned non-zero in non-interactive zsh"
+    exit 1
+fi
+
+print -- "OK"
