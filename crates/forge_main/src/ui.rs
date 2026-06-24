@@ -4585,7 +4585,38 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             ChatResponse::TaskMessage { content } => match content {
                 ChatResponseContent::ToolInput(title) => {
                     writer.finish()?;
-                    self.writeln(title.display())?;
+                    // ASCII color + symbol per tool type for visual scanning
+                    let title_str = title.display().to_string();
+                    let tool_name = title_str.split_whitespace().next().unwrap_or("");
+                    let (symbol, color_fn): (&str, fn(String) -> String) = match tool_name {
+                        // Read-family tools — cyan ⏵
+                        "read" | "cat" | "view" | "fs.read" | "fs.cat" | "fs.view" => {
+                            ("⏵", |s| s.cyan().to_string())
+                        }
+                        // Write/patch — green ✎
+                        "write" | "edit" | "patch" | "fs.write" | "fs.edit" | "fs.patch" => {
+                            ("✎", |s| s.green().to_string())
+                        }
+                        // Shell — yellow ▶
+                        "bash" | "shell" | "exec" | "process" => {
+                            ("▶", |s| s.yellow().to_string())
+                        }
+                        // Search/grep/find — magenta ⌕
+                        "search" | "grep" | "find" | "ripgrep" | "rg" | "fs.search" => {
+                            ("⌕", |s| s.magenta().to_string())
+                        }
+                        // Subagent/task — blue ⊙
+                        "task" | "forge_task" | "subagent" | "agent" => {
+                            ("⊙", |s| s.blue().to_string())
+                        }
+                        // Web — bright cyan ⤴
+                        "fetch" | "web" | "http" | "curl" | "wget" => {
+                            ("⤴", |s| s.bright_cyan().to_string())
+                        }
+                        // Default — no symbol, white
+                        _ => ("•", |s| s.white().to_string()),
+                    };
+                    self.writeln(format!("{} {}", symbol, color_fn(title_str)))?;
                 }
                 ChatResponseContent::ToolOutput(text) => {
                     writer.finish()?;
