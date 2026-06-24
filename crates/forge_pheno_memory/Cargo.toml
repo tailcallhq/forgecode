@@ -1,0 +1,36 @@
+[package]
+name = "forge_pheno_memory"
+version = "0.1.0"
+edition = "2021"
+description = "Pheno memory substrate for forgecode — wires thegent-memory v2 polyglot facade (supermemory + letta + cognee + mem0) into forgecode's infra/domain pattern"
+license = "Apache-2.0"
+repository = "https://github.com/tailcallhq/forgecode"
+publish = false
+
+[dependencies]
+# Pheno memory substrate (v2 polyglot facade). The `thegent-memory` crate is
+# vendored via path dep for the local forgecode worktree; downstream consumers
+# can swap this for a crates.io or git dep once a release is published.
+thegent-memory = { path = "../../../thegent/crates/thegent-memory" }
+
+# Forgecode native deps (used for the Infra + Domain re-export pattern).
+forge_domain = { path = "../forge_domain" }
+forge_app = { path = "../forge_app" }
+
+# Async runtime + traits.
+async-trait = "0.1"
+tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "sync"] }
+
+# Serialization for the public API surface (JSON-serialized scope labels).
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Observability — plug into forgecode's tracing if available, otherwise noop.
+tracing = "0.1"
+
+# Errors.
+anyhow = "1.0"
+thiserror = "1.0"
+
+[dev-dependencies]
+tokio = { version = "1.49", features = ["full"] }
