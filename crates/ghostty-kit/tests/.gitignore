@@ -1,0 +1,4 @@
+# Exclude scratch dirs created by `tests/golden.rs` for tests that
+# need to write temporary files (e.g. the recursive-include cycle
+# detection test).
+.tmp/

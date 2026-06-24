@@ -1,0 +1,8 @@
+# Pulled in by `with-includes.ghostty`. Defines a small set of
+# keybind directives.
+
+keybind = ctrl+shift+t=new_tab
+keybind = ctrl+shift+n=new_window
+keybind = ctrl+shift+q=quit
+keybind = ctrl+shift+c=copy_to_clipboard
+keybind = ctrl+shift+v=paste_from_clipboard

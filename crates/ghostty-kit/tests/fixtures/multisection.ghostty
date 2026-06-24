@@ -1,0 +1,19 @@
+# Multi-section config — `[window]` and `[keyboard]` blocks, with the
+# unbracketed top-level directives left between them.
+
+font-family = "Hack"
+font-size = 13
+
+[window]
+initial-window = true
+window-padding-x = 4
+window-padding-y = 4
+background-opacity = 0.92
+background = #101010
+foreground = #ffffff
+cursor-color = #ffcc00
+
+[keyboard]
+keybind = ctrl+shift+t=new_tab
+keybind = ctrl+shift+w=close_surface
+keybind = ctrl+alt+1=goto_tab:1

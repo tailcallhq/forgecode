@@ -1,0 +1,9 @@
+{
+  "source": "/Users/kooshapari/CodeProjects/Phenotype/repos/forgecode/crates/ghostty-kit/tests/fixtures/minimal.ghostty",
+  "includes": [
+  ],
+  "entries": [
+    { "type": "key_value", "key": "font-family", "value": { "type": "string", "value": "JetBrains Mono" }, "section": null, "line": 3 },
+    { "type": "key_value", "key": "theme", "value": { "type": "string", "value": "catppuccin-mocha" }, "section": null, "line": 4 }
+  ]
+}

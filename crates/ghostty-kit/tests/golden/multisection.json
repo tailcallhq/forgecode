@@ -1,0 +1,21 @@
+{
+  "source": "/Users/kooshapari/CodeProjects/Phenotype/repos/forgecode/crates/ghostty-kit/tests/fixtures/multisection.ghostty",
+  "includes": [
+  ],
+  "entries": [
+    { "type": "key_value", "key": "font-family", "value": { "type": "string", "value": "Hack" }, "section": null, "line": 4 },
+    { "type": "key_value", "key": "font-size", "value": { "type": "integer", "value": 13 }, "section": null, "line": 5 },
+    { "type": "section", "name": "window", "line": 7 },
+    { "type": "key_value", "key": "initial-window", "value": { "type": "bool", "value": true }, "section": "window", "line": 8 },
+    { "type": "key_value", "key": "window-padding-x", "value": { "type": "integer", "value": 4 }, "section": "window", "line": 9 },
+    { "type": "key_value", "key": "window-padding-y", "value": { "type": "integer", "value": 4 }, "section": "window", "line": 10 },
+    { "type": "key_value", "key": "background-opacity", "value": { "type": "string", "value": "0.92" }, "section": "window", "line": 11 },
+    { "type": "key_value", "key": "background", "value": { "type": "color", "value": "#101010FF" }, "section": "window", "line": 12 },
+    { "type": "key_value", "key": "foreground", "value": { "type": "color", "value": "#FFFFFFFF" }, "section": "window", "line": 13 },
+    { "type": "key_value", "key": "cursor-color", "value": { "type": "color", "value": "#FFCC00FF" }, "section": "window", "line": 14 },
+    { "type": "section", "name": "keyboard", "line": 16 },
+    { "type": "key_value", "key": "keybind", "value": { "type": "string", "value": "ctrl+shift+t=new_tab" }, "section": "keyboard", "line": 17 },
+    { "type": "key_value", "key": "keybind", "value": { "type": "string", "value": "ctrl+shift+w=close_surface" }, "section": "keyboard", "line": 18 },
+    { "type": "key_value", "key": "keybind", "value": { "type": "string", "value": "ctrl+alt+1=goto_tab:1" }, "section": "keyboard", "line": 19 }
+  ]
+}

@@ -1,0 +1,4 @@
+# Minimal Ghostty config — the bare-minimum directives a fresh
+# install needs to be usable.
+font-family = "JetBrains Mono"
+theme = "catppuccin-mocha"

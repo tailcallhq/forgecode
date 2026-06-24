@@ -1,0 +1,13 @@
+{
+  "source": "/Users/kooshapari/CodeProjects/Phenotype/repos/forgecode/crates/ghostty-kit/tests/fixtures/with-includes.ghostty",
+  "includes": [
+    "included-colors.ghostty",
+    "included-keybinds.ghostty"
+  ],
+  "entries": [
+    { "type": "key_value", "key": "font-family", "value": { "type": "string", "value": "JetBrains Mono" }, "section": null, "line": 5 },
+    { "type": "key_value", "key": "font-size", "value": { "type": "integer", "value": 14 }, "section": null, "line": 6 },
+    { "type": "include", "path": "included-colors.ghostty" },
+    { "type": "include", "path": "included-keybinds.ghostty" }
+  ]
+}
