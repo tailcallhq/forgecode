@@ -1,0 +1,14 @@
+{
+  "source": "/Users/kooshapari/CodeProjects/Phenotype/repos/forgecode/crates/ghostty-kit/tests/fixtures/with-variables.ghostty",
+  "includes": [
+  ],
+  "entries": [
+    { "type": "key_value", "key": "font-family", "value": { "type": "string", "value": "$font_dir/JetBrainsMono-Regular.ttf" }, "section": null, "line": 5 },
+    { "type": "key_value", "key": "font-size", "value": { "type": "integer", "value": 14 }, "section": null, "line": 6 },
+    { "type": "key_value", "key": "theme", "value": { "type": "string", "value": "${theme_name}" }, "section": null, "line": 7 },
+    { "type": "key_value", "key": "background", "value": { "type": "color", "value": "#1E1E2EFF" }, "section": null, "line": 9 },
+    { "type": "key_value", "key": "foreground", "value": { "type": "color", "value": "#CDD6F4FF" }, "section": null, "line": 10 },
+    { "type": "key_value", "key": "keybind", "value": { "type": "string", "value": "ctrl+shift+t=new_tab\n         \"in current working directory\"\n         with-launch-cwd=true" }, "section": null, "line": 14 },
+    { "type": "key_value", "key": "mouse-hide-while-typed", "value": { "type": "bool", "value": true }, "section": null, "line": 14 }
+  ]
+}

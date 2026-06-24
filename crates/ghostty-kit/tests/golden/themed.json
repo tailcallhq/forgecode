@@ -1,0 +1,31 @@
+{
+  "source": "/Users/kooshapari/CodeProjects/Phenotype/repos/forgecode/crates/ghostty-kit/tests/fixtures/themed.ghostty",
+  "includes": [
+  ],
+  "entries": [
+    { "type": "key_value", "key": "font-family", "value": { "type": "string", "value": "Iosevka" }, "section": null, "line": 5 },
+    { "type": "key_value", "key": "font-size", "value": { "type": "integer", "value": 14 }, "section": null, "line": 6 },
+    { "type": "key_value", "key": "background", "value": { "type": "color", "value": "#1E1E2EFF" }, "section": null, "line": 8 },
+    { "type": "key_value", "key": "foreground", "value": { "type": "color", "value": "#CDD6F4FF" }, "section": null, "line": 9 },
+    { "type": "key_value", "key": "cursor-color", "value": { "type": "color", "value": "#F5E0DCFF" }, "section": null, "line": 10 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "0=#45475a" }, "section": null, "line": 13 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "1=#f38ba8" }, "section": null, "line": 14 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "2=#a6e3a1" }, "section": null, "line": 15 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "3=#f9e2af" }, "section": null, "line": 16 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "4=#89b4fa" }, "section": null, "line": 17 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "5=#f5c2e7" }, "section": null, "line": 18 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "6=#94e2d5" }, "section": null, "line": 19 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "7=#a6adc8" }, "section": null, "line": 20 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "8=#585b70" }, "section": null, "line": 21 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "9=#f3779e" }, "section": null, "line": 22 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "10=#89d88b" }, "section": null, "line": 23 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "11=#ebd391" }, "section": null, "line": 24 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "12=#74a8fc" }, "section": null, "line": 25 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "13=#f2aede" }, "section": null, "line": 26 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "14=#6fc7c1" }, "section": null, "line": 27 },
+    { "type": "key_value", "key": "palette", "value": { "type": "string", "value": "15=#bac2de" }, "section": null, "line": 28 },
+    { "type": "key_value", "key": "selection-background", "value": { "type": "color", "value": "#585B70FF" }, "section": null, "line": 30 },
+    { "type": "key_value", "key": "selection-foreground", "value": { "type": "color", "value": "#CDD6F4FF" }, "section": null, "line": 31 },
+    { "type": "key_value", "key": "mouse-hide-while-typed", "value": { "type": "bool", "value": true }, "section": null, "line": 33 }
+  ]
+}

@@ -1,0 +1,9 @@
+# Config that pulls in two external files. The fixtures directory
+# ships with `included-colors.ghostty` and `included-keybinds.ghostty`
+# which the include-resolution tests will read.
+
+font-family = "JetBrains Mono"
+font-size = 14
+
+config-file = included-colors.ghostty
+config-file = included-keybinds.ghostty

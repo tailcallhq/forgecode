@@ -1,0 +1,15 @@
+[package]
+name = "ghostty-kit"
+version = "0.1.0"
+description = "Ghostty INI-style config parser used by forgecode's ghostty integration"
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+# Intentionally zero external dependencies: this crate is shared with
+# downstream consumers (e.g. helios-cli) via path-dep and must compile
+# without bringing in any transitive crates.
+[dependencies]
+
+[dev-dependencies]

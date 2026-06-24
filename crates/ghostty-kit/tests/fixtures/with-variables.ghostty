@@ -1,0 +1,20 @@
+# Variable-substitution fixture. `$font_dir` and `${theme_name}` are
+# left as their literal form unless the caller passes a `vars`
+# `HashMap` to `substitute_variables`.
+
+font-family = "$font_dir/JetBrainsMono-Regular.ttf"
+font-size = 14
+theme = "${theme_name}"
+
+background = #1e1e2e
+foreground = #cdd6f4
+
+# Multi-line value via backslash continuation: every line below (until
+# the last one without a trailing `\`) becomes one logical keybind.
+keybind = ctrl+shift+t=new_tab \
+         "in current working directory" \
+         with-launch-cwd=true
+
+# Trailing comment shows the substitution remained intact on the
+# keybind line because there was no variable to expand.
+mouse-hide-while-typed = yes # default
