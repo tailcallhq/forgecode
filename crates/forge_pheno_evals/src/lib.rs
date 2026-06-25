@@ -18,9 +18,11 @@
 use std::time::Instant;
 
 use async_trait::async_trait;
-use forge_pheno_memory::{PhenoMemoryError, PhenoMemoryService};
 use serde::{Deserialize, Serialize};
-use thegent_memory::v2::{MemoryQuery, MemoryScope, MemoryValue};
+use thegent_memory::v2::{
+    adapters::MockAdapter,
+    MemoryPort, MemoryQuery, MemoryScope, MemoryValue,
+};
 
 /// A single evaluation task: a fixture that goes in, a query that runs
 /// against it, and a scorer that turns the result into an `EvalScore`.
@@ -34,10 +36,10 @@ pub trait EvalTask: Send + Sync {
     fn name(&self) -> &str;
 
     /// Stage the fixture: store N key/value pairs under the task's scope.
-    async fn stage(&self, svc: &PhenoMemoryService) -> Result<(), PhenoMemoryError>;
+    async fn stage(&self, svc: &dyn MemoryPort) -> Result<(), MemoryError>;
 
     /// Run the eval query against the staged fixture.
-    async fn query(&self, svc: &PhenoMemoryService) -> Result<Vec<String>, PhenoMemoryError>;
+    async fn query(&self, svc: &dyn MemoryPort) -> Result<Vec<String>, MemoryError>;
 
     /// Score the result (0.0–1.0) given the original fixture.
     fn score(&self, fixture: &[FixtureEntry], result: &[String]) -> f64;
@@ -71,16 +73,22 @@ impl EvalScore {
 
 /// Runner that stages fixtures, runs queries, and scores results.
 pub struct EvalRunner {
-    service: PhenoMemoryService,
+    service: std::sync::Arc<dyn MemoryPort>,
     threshold: f64,
 }
 
 impl EvalRunner {
-    pub fn new(service: PhenoMemoryService) -> Self {
+    /// Construct a runner with an explicit memory adapter.
+    pub fn new(service: std::sync::Arc<dyn MemoryPort>) -> Self {
         Self {
             service,
             threshold: 0.7,
         }
+    }
+
+    /// Construct a runner with the in-process `MockAdapter` (for tests).
+    pub fn mock() -> Self {
+        Self::new(std::sync::Arc::new(MockAdapter::new()))
     }
 
     pub fn with_threshold(mut self, threshold: f64) -> Self {
@@ -92,20 +100,24 @@ impl EvalRunner {
         self
     }
 
-    pub fn service(&self) -> &PhenoMemoryService {
-        &self.service
+    pub fn service(&self) -> &dyn MemoryPort {
+        self.service.as_ref()
+    }
+
+    pub fn threshold(&self) -> f64 {
+        self.threshold
     }
 
     /// Run a single eval task. Returns the score + timing.
-    pub async fn run(&self, task: &dyn EvalTask) -> Result<EvalScore, PhenoMemoryError> {
+    pub async fn run(&self, task: &dyn EvalTask) -> Result<EvalScore, MemoryError> {
         let total_start = Instant::now();
 
         let stage_start = Instant::now();
-        task.stage(&self.service).await?;
+        task.stage(self.service.as_ref()).await?;
         let stage_latency_ms = stage_start.elapsed().as_millis() as u64;
 
         let query_start = Instant::now();
-        let result = task.query(&self.service).await?;
+        let result = task.query(self.service.as_ref()).await?;
         let query_latency_ms = query_start.elapsed().as_millis() as u64;
 
         let total_latency_ms = total_start.elapsed().as_millis() as u64;
@@ -129,7 +141,7 @@ impl EvalRunner {
     pub async fn run_suite(
         &self,
         tasks: &[Box<dyn EvalTask>],
-    ) -> Vec<Result<EvalScore, PhenoMemoryError>> {
+    ) -> Vec<Result<EvalScore, MemoryError>> {
         let mut out = Vec::with_capacity(tasks.len());
         for task in tasks {
             out.push(self.run(task.as_ref()).await);
@@ -137,6 +149,9 @@ impl EvalRunner {
         out
     }
 }
+
+// Re-export the upstream error so callers don't need to import thegent_memory.
+pub use thegent_memory::v2::MemoryError;
 
 // ---------------------------------------------------------------------------
 // Built-in eval tasks
@@ -167,23 +182,24 @@ impl EvalTask for EpisodicRoundtrip {
         "episodic-roundtrip"
     }
 
-    async fn stage(&self, svc: &PhenoMemoryService) -> Result<(), PhenoMemoryError> {
+    async fn stage(&self, svc: &dyn MemoryPort) -> Result<(), MemoryError> {
         for entry in &self.fixture {
-            svc.store(
-                self.scope().into(),
-                &entry.key,
-                MemoryValue::from(entry.value.as_str()),
-            )
-            .await?;
+            let _id = svc
+                .store(
+                    self.scope(),
+                    &entry.key,
+                    MemoryValue::from(entry.value.as_str()),
+                )
+                .await?;
         }
         Ok(())
     }
 
-    async fn query(&self, svc: &PhenoMemoryService) -> Result<Vec<String>, PhenoMemoryError> {
+    async fn query(&self, svc: &dyn MemoryPort) -> Result<Vec<String>, MemoryError> {
         let records = svc
-            .recall(self.scope().into(), MemoryQuery::new(""))
+            .recall(self.scope(), MemoryQuery::new(""))
             .await?;
-        Ok(records.into_iter().map(|r| r.value_text()).collect())
+        Ok(records.into_iter().map(|r| r.value.value_text()).collect())
     }
 
     fn score(&self, fixture: &[FixtureEntry], result: &[String]) -> f64 {
@@ -224,20 +240,22 @@ impl EvalTask for LatencyBudget {
         "latency-budget"
     }
 
-    async fn stage(&self, svc: &PhenoMemoryService) -> Result<(), PhenoMemoryError> {
-        svc.store(
-            self.scope().into(),
-            &self.key,
-            MemoryValue::from(self.value.as_str()),
-        )
-        .await
+    async fn stage(&self, svc: &dyn MemoryPort) -> Result<(), MemoryError> {
+        let _id = svc
+            .store(
+                self.scope(),
+                &self.key,
+                MemoryValue::from(self.value.as_str()),
+            )
+            .await?;
+        Ok(())
     }
 
-    async fn query(&self, svc: &PhenoMemoryService) -> Result<Vec<String>, PhenoMemoryError> {
+    async fn query(&self, svc: &dyn MemoryPort) -> Result<Vec<String>, MemoryError> {
         let records = svc
-            .recall(self.scope().into(), MemoryQuery::new(&self.key))
+            .recall(self.scope(), MemoryQuery::new(&self.key))
             .await?;
-        Ok(records.into_iter().map(|r| r.value_text()).collect())
+        Ok(records.into_iter().map(|r| r.value.value_text()).collect())
     }
 
     fn score(&self, fixture: &[FixtureEntry], result: &[String]) -> f64 {
@@ -275,7 +293,7 @@ pub trait EvalTaskFixture {
     fn fixture_snapshot(&self) -> Vec<FixtureEntry>;
 }
 
-impl EvalTaskFixture for dyn EvalTask {
+impl EvalTaskFixture for dyn EvalTask + '_ {
     fn fixture_snapshot(&self) -> Vec<FixtureEntry> {
         Vec::new()
     }
@@ -304,7 +322,6 @@ impl EvalTaskFixture for LatencyBudget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use forge_pheno_memory::PhenoMemoryScope;
 
     #[test]
     fn episodic_roundtrip_score_is_match_rate() {
@@ -370,6 +387,5 @@ mod tests {
             value: "v".into(),
         }]);
         assert_eq!(task.scope(), MemoryScope::Episodic);
-        let _ = PhenoMemoryScope::Episodic; // type roundtrip via forge_pheno_memory
     }
 }

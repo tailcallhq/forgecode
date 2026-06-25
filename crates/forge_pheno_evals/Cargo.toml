@@ -6,7 +6,6 @@ description = "Eval harness for forgecode memory sidecars (ADR-097) — routes f
 license = "Apache-2.0"
 
 [dependencies]
-forge_pheno_memory = { path = "../forge_pheno_memory" }
 thegent-memory = { path = "../../../thegent/crates/thegent-memory" }
 async-trait = "0.1"
 thiserror = "1"

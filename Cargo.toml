@@ -27,7 +27,8 @@ members = [
   "crates/forge_tracker",
   "crates/forge_walker",
   "crates/forge_pheno_memory",
-  "crates/forge3d"
+  "crates/forge_pheno_evals",
+  "crates/forge3d",
 ]
 resolver = "2"
 
