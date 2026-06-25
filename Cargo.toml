@@ -26,7 +26,8 @@ members = [
   "crates/forge_tool_macros",
   "crates/forge_tracker",
   "crates/forge_walker",
-  "crates/forge_pheno_memory"
+  "crates/forge_pheno_memory",
+  "crates/forge3d"
 ]
 resolver = "2"
 
@@ -167,6 +168,7 @@ gix = "0.85"
 google-cloud-auth = "1.8.0" # Google Cloud authentication with automatic token refresh
 
 # Internal crates
+ghostty-kit = { path = "crates/ghostty-kit" }
 forge_embed = { path = "crates/forge_embed" }
 forge_api = { path = "crates/forge_api" }
 forge_app = { path = "crates/forge_app" }

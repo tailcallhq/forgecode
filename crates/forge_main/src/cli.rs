@@ -123,6 +123,9 @@ pub enum TopLevelCommand {
     /// Manage Model Context Protocol servers.
     Mcp(McpCommandGroup),
 
+    /// Manage the Ghostty terminal emulator integration.
+    Ghostty(GhosttyCommandGroup),
+
     /// Suggest shell commands from natural language.
     Suggest {
         /// Natural language description of the desired command.
@@ -595,6 +598,47 @@ pub struct McpLogoutArgs {
     /// Name of the MCP server to remove credentials for, or "all" to
     /// remove all MCP OAuth credentials.
     pub name: String,
+}
+
+/// Command group for Ghostty terminal emulator integration.
+///
+/// Wraps the `ghostty-kit` crate (config discovery, IPC control socket). Used
+/// to surface Ghostty config and runtime status from the `forge` CLI.
+#[derive(Parser, Debug, Clone)]
+pub struct GhosttyCommandGroup {
+    #[command(subcommand)]
+    pub command: GhosttyCommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum GhosttyCommand {
+    /// Show one-line status summary (binary, config, IPC socket).
+    Status,
+
+    /// Print parsed config as `key = value` pairs.
+    ///
+    /// If `path` is omitted, the discovered config (`GhosttyConfig::discover`)
+    /// is printed instead.
+    Show {
+        /// Path to a Ghostty config file. Omit to discover the active config.
+        path: Option<String>,
+    },
+
+    /// Reload the current Ghostty config via the IPC control socket.
+    ///
+    /// If the socket is not reachable, prints a warning to stderr and exits 0;
+    /// the change will take effect on the next launch.
+    Reload,
+
+    /// Validate a Ghostty config file without applying it.
+    ///
+    /// Prints warnings (unknown keys, type mismatches) to stderr. Exits 0 if
+    /// the config parses successfully (even with warnings), 1 if parsing
+    /// fails.
+    Validate {
+        /// Path to a Ghostty config file.
+        path: String,
+    },
 }
 
 /// Configuration scope for settings.

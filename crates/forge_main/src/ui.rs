@@ -31,8 +31,8 @@ use tokio_stream::StreamExt;
 use url::Url;
 
 use crate::cli::{
-    Cli, CommitCommandGroup, ConversationCommand, ListCommand, McpCommand, SelectCommand,
-    TopLevelCommand,
+    Cli, CommitCommandGroup, ConversationCommand, GhosttyCommand, ListCommand, McpCommand,
+    SelectCommand, TopLevelCommand,
 };
 use crate::conversation_selector::ConversationSelector;
 use crate::display_constants::{CommandType, headers, markers, status};
@@ -792,6 +792,20 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 }
                 McpCommand::Logout(args) => {
                     self.handle_mcp_logout(&args.name).await?;
+                }
+            },
+            TopLevelCommand::Ghostty(ghostty_command) => match ghostty_command.command {
+                GhosttyCommand::Status => {
+                    crate::cmd::ghostty::run_status()?;
+                }
+                GhosttyCommand::Show { path } => {
+                    crate::cmd::ghostty::run_show(path.as_deref().map(std::path::Path::new))?;
+                }
+                GhosttyCommand::Reload => {
+                    crate::cmd::ghostty::run_reload()?;
+                }
+                GhosttyCommand::Validate { path } => {
+                    crate::cmd::ghostty::run_validate(std::path::Path::new(&path))?;
                 }
             },
             TopLevelCommand::Info { porcelain, conversation_id } => {

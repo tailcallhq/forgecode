@@ -1,0 +1,52 @@
+[package]
+name = "forge3d"
+version = "0.1.0"
+description = "Shared UDS + SQLite + JSON-RPC daemon coordinating forgecode agents"
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "forge3d"
+path = "src/lib.rs"
+
+[dependencies]
+# tokio: declared locally because the workspace dep omits `net`, which
+# is required for `tokio::net::UnixListener`. Version pinned to the
+# workspace's `1.51.x` line for lock-file compatibility.
+tokio = { version = "1.51", features = [
+    "net",
+    "macros",
+    "rt-multi-thread",
+    "sync",
+    "time",
+    "io-util",
+    "signal",
+] }
+
+# SQLite (bundled, no system dep). Used synchronously by Store; the
+# async layer wraps calls in spawn_blocking where needed.
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Serde for JSON-RPC framing + drift event payloads.
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Synchronization primitives for AgentRegistry. parking_lot is already
+# transitively in the lock file via forgecode-deps, so this is free.
+parking_lot = "0.12"
+
+# flock(LOCK_EX | LOCK_NB) on the socket file as a single-writer guard.
+fs2 = "0.4"
+
+# Error plumbing — matches the workspace `thiserror = "2"`.
+thiserror = { workspace = true }
+
+# Structured logging — consistent with the rest of forgecode.
+tracing = { workspace = true }
+
+[dev-dependencies]
+# Temp directories for socket + db paths in integration tests.
+tempfile = { workspace = true }
+tokio = { version = "1.51", features = ["macros", "rt-multi-thread", "time"] }

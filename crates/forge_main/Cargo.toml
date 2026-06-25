@@ -64,6 +64,7 @@ humantime.workspace = true
 num-format.workspace = true
 url.workspace = true
 forge_embed.workspace = true
+ghostty-kit.workspace = true
 include_dir.workspace = true
 indexmap.workspace = true
 async-recursion.workspace = true
