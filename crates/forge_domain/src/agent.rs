@@ -504,10 +504,11 @@ mod tests {
     }
 
     /// Builds a Vertex AI Claude Opus agent using **default compaction config**
-    /// (no inflated `token_threshold` override), then derives the threshold from
-    /// the model's context window via the production `compaction_threshold(...)`
-    /// path. This mirrors exactly what a real user runs with the embedded
-    /// default config — which is where the early-compaction bug bites.
+    /// (no inflated `token_threshold` override), then derives the threshold
+    /// from the model's context window via the production
+    /// `compaction_threshold(...)` path. This mirrors exactly what a real
+    /// user runs with the embedded default config — which is where the
+    /// early-compaction bug bites.
     fn vertex_opus_agent_default_config(model_id: &str, context_window: u64) -> (Agent, usize) {
         let opus = model_fixture(model_id, Some(context_window));
         let agent = Agent::new(
@@ -531,9 +532,9 @@ mod tests {
     ///
     /// This reads back the threshold actually derived by `compaction_threshold`
     /// for a default-config Opus agent (no rigged override), then asserts the
-    /// `should_compact` token gate around it: just below → no compaction, at and
-    /// above → compaction. It is faithful to the real trigger logic and passes
-    /// on `main` regardless of the threshold value.
+    /// `should_compact` token gate around it: just below → no compaction, at
+    /// and above → compaction. It is faithful to the real trigger logic and
+    /// passes on `main` regardless of the threshold value.
     #[test]
     fn test_vertex_opus_1m_window_compaction_triggers_at_resolved_threshold() {
         let (agent, threshold) = vertex_opus_agent_default_config("claude-opus-4-8", 1_000_000);
