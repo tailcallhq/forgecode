@@ -502,4 +502,90 @@ mod tests {
              Currently returns early with None, causing unbounded context growth."
         );
     }
+
+    /// Builds a Vertex AI Claude Opus agent using **default compaction config**
+    /// (no inflated `token_threshold` override), then derives the threshold from
+    /// the model's context window via the production `compaction_threshold(...)`
+    /// path. This mirrors exactly what a real user runs with the embedded
+    /// default config — which is where the early-compaction bug bites.
+    fn vertex_opus_agent_default_config(model_id: &str, context_window: u64) -> (Agent, usize) {
+        let opus = model_fixture(model_id, Some(context_window));
+        let agent = Agent::new(
+            AgentId::new("test"),
+            ProviderId::VERTEX_AI_ANTHROPIC,
+            ModelId::new(model_id),
+        )
+        // No `token_threshold` override → uses the realistic default path
+        // (unwrap_or(100_000) inside compaction_threshold).
+        .compaction_threshold(Some(&opus));
+
+        let threshold = agent
+            .compact
+            .token_threshold
+            .expect("compaction_threshold should set a token_threshold");
+        (agent, threshold)
+    }
+
+    /// Vertex AI Claude Opus (1M window): compaction fires only at the right
+    /// boundary around the *resolved* threshold.
+    ///
+    /// This reads back the threshold actually derived by `compaction_threshold`
+    /// for a default-config Opus agent (no rigged override), then asserts the
+    /// `should_compact` token gate around it: just below → no compaction, at and
+    /// above → compaction. It is faithful to the real trigger logic and passes
+    /// on `main` regardless of the threshold value.
+    #[test]
+    fn test_vertex_opus_1m_window_compaction_triggers_at_resolved_threshold() {
+        let (agent, threshold) = vertex_opus_agent_default_config("claude-opus-4-8", 1_000_000);
+        // Assistant-terminated turn so only the token threshold can trigger.
+        let context = crate::MessagePattern::new("ua").build();
+
+        // Below the resolved threshold → no compaction.
+        assert!(
+            !agent.compact.should_compact(&context, threshold - 1),
+            "compaction should NOT trigger at {} tokens (just below the resolved \
+             threshold of {threshold})",
+            threshold - 1
+        );
+
+        // At and above the resolved threshold → compaction.
+        assert!(
+            agent.compact.should_compact(&context, threshold),
+            "compaction SHOULD trigger at the resolved threshold of {threshold} tokens"
+        );
+        assert!(
+            agent.compact.should_compact(&context, threshold + 1),
+            "compaction SHOULD trigger above the resolved threshold of {threshold} tokens"
+        );
+    }
+
+    /// Vertex AI Claude Opus (smaller 200K window): same boundary contract,
+    /// with the threshold derived from the smaller window.
+    #[test]
+    fn test_vertex_opus_200k_window_compaction_triggers_at_resolved_threshold() {
+        let (agent, threshold) = vertex_opus_agent_default_config("claude-opus-4-1", 200_000);
+        let context = crate::MessagePattern::new("ua").build();
+
+        // Well below the threshold → no compaction.
+        assert!(
+            !agent.compact.should_compact(&context, threshold / 2),
+            "compaction should NOT trigger at {} tokens (half the resolved threshold \
+             of {threshold})",
+            threshold / 2
+        );
+        assert!(
+            !agent.compact.should_compact(&context, threshold - 1),
+            "compaction should NOT trigger just below the resolved threshold of {threshold}"
+        );
+
+        // At and above the threshold → compaction.
+        assert!(
+            agent.compact.should_compact(&context, threshold),
+            "compaction SHOULD trigger at the resolved threshold of {threshold} tokens"
+        );
+        assert!(
+            agent.compact.should_compact(&context, threshold + 1),
+            "compaction SHOULD trigger above the resolved threshold of {threshold} tokens"
+        );
+    }
 }
