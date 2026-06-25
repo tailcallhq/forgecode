@@ -573,8 +573,9 @@ mod tests {
         );
     }
 
-    /// BUG-CATCHER: a 1M Opus window must NOT compact at 600K tokens (60% full).
-    /// Without the fix the threshold is 100K, so 600K wrongly triggers compaction.
+    /// BUG-CATCHER: a 1M Opus window must NOT compact at 600K tokens (60%
+    /// full). Without the fix the threshold is 100K, so 600K wrongly
+    /// triggers compaction.
     #[test]
     fn test_vertex_opus_1m_window_below_threshold_does_not_trigger_compaction() {
         let (agent, threshold) = vertex_opus_agent_default_config("claude-opus-4-8", 1_000_000);
@@ -618,7 +619,8 @@ mod tests {
         );
     }
 
-    /// Vertex AI Claude Opus (200K window): does not trigger below the threshold.
+    /// Vertex AI Claude Opus (200K window): does not trigger below the
+    /// threshold.
     #[test]
     fn test_vertex_opus_200k_window_below_threshold_does_not_trigger_compaction() {
         let (agent, threshold) = vertex_opus_agent_default_config("claude-opus-4-1", 200_000);
@@ -633,7 +635,8 @@ mod tests {
         }
     }
 
-    /// Vertex AI Claude Opus (200K window): triggers at and above the threshold.
+    /// Vertex AI Claude Opus (200K window): triggers at and above the
+    /// threshold.
     #[test]
     fn test_vertex_opus_200k_window_at_or_above_threshold_triggers_compaction() {
         let (agent, threshold) = vertex_opus_agent_default_config("claude-opus-4-1", 200_000);
@@ -648,16 +651,16 @@ mod tests {
         }
     }
 
-    /// BUG-CATCHER (the key cross-window guarantee): a 200K-token context (which
-    /// triggers compaction on a 200K window) must NOT trigger compaction on a 1M
-    /// window. Without the fix both windows resolve to a 100K threshold, so the
-    /// 1M window wrongly compacts — and this assertion fails.
+    /// BUG-CATCHER (the key cross-window guarantee): a 200K-token context
+    /// (which triggers compaction on a 200K window) must NOT trigger
+    /// compaction on a 1M window. Without the fix both windows resolve to a
+    /// 100K threshold, so the 1M window wrongly compacts — and this
+    /// assertion fails.
     #[test]
     fn test_vertex_opus_large_window_does_not_compact_at_small_window_threshold() {
         let (large, large_threshold) =
             vertex_opus_agent_default_config("claude-opus-4-8", 1_000_000);
-        let (small, small_threshold) =
-            vertex_opus_agent_default_config("claude-opus-4-1", 200_000);
+        let (small, small_threshold) = vertex_opus_agent_default_config("claude-opus-4-1", 200_000);
         let context = crate::MessagePattern::new("ua").build();
 
         // The two windows must derive different thresholds.
