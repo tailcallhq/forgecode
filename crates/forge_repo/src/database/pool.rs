@@ -26,13 +26,23 @@ pub struct PoolConfig {
 }
 
 impl PoolConfig {
+    /// Defaults tuned for high-concurrency interactive use (96+ parallel
+    /// forge procs sharing one SQLite DB).
+    ///
+    /// * `max_size: 10` — each proc can run ~10 concurrent SQL operations
+    ///   before queueing inside the pool.
+    /// * `connection_timeout: 60s` — must exceed SQLite's `busy_timeout`
+    ///   (30s) plus retry backoff, so a busy SQLite writer doesn't get
+    ///   masked as an r2d2 timeout.
+    /// * `max_retries: 10` — enough retries to absorb transient contention
+    ///   when multiple procs are racing on the WAL writer.
     pub fn new(database_path: PathBuf) -> Self {
         Self {
-            max_size: 5,
-            min_idle: Some(1),
-            connection_timeout: Duration::from_secs(5),
+            max_size: 10,
+            min_idle: Some(2),
+            connection_timeout: Duration::from_secs(60),
             idle_timeout: Some(Duration::from_secs(600)), // 10 minutes
-            max_retries: 5,
+            max_retries: 10,
             database_path,
         }
     }
