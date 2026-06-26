@@ -18,6 +18,7 @@ use forge_services::ForgeServices;
 use forge_stream::MpscStream;
 use futures::stream::BoxStream;
 use url::Url;
+use tracing::{debug, warn};
 
 use crate::API;
 
@@ -42,6 +43,9 @@ impl<A, F> ForgeAPI<A, F> {
 }
 
 impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
+    const FTS_REFRESH_DEFAULT_SECS: u64 = 300;
+    const FTS_REFRESH_STARTUP_DELAY_SECS: u64 = 30;
+
     /// Creates a fully-initialized [`ForgeAPI`] from a pre-read configuration.
     ///
     /// # Arguments
@@ -51,8 +55,34 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
     pub fn init(cwd: PathBuf, config: ForgeConfig) -> Self {
         let infra = Arc::new(ForgeInfra::new(cwd, config));
         let repo = Arc::new(ForgeRepo::new(infra.clone()));
+        Self::spawn_fts_refresh_task(repo.clone(), infra.as_ref());
         let app = Arc::new(ForgeServices::new(repo.clone()));
         ForgeAPI::new(app, repo)
+    }
+
+    fn spawn_fts_refresh_task(repo: Arc<ForgeRepo<ForgeInfra>>, infra: &ForgeInfra) {
+        let refresh_secs = infra
+            .get_env_var("FORGE_FTS_REFRESH_SECS")
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(Self::FTS_REFRESH_DEFAULT_SECS);
+
+        if refresh_secs == 0 {
+            debug!("FTS refresh cadence disabled via FORGE_FTS_REFRESH_SECS=0");
+            return;
+        }
+
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(Self::FTS_REFRESH_STARTUP_DELAY_SECS)).await;
+
+            let interval = Duration::from_secs(refresh_secs);
+            loop {
+                debug!(interval_secs = refresh_secs, "refreshing conversation FTS index");
+                if let Err(error) = repo.refresh_fts_index().await {
+                    warn!(%error, "conversation FTS refresh failed");
+                }
+                tokio::time::sleep(interval).await;
+            }
+        });
     }
 
     pub async fn get_skills_internal(&self) -> Result<Vec<Skill>> {
