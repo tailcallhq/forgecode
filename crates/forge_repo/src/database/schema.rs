@@ -19,5 +19,7 @@ diesel::table! {
         extracted_at -> Nullable<Timestamp>,
         memory_id -> Nullable<Text>,
         intent_hash -> Nullable<Text>,
+        context_zstd -> Nullable<Binary>,
+        is_compressed -> Integer,
     }
 }

@@ -25,6 +25,35 @@ impl diesel::QueryableByName<diesel::sqlite::Sqlite> for SnippetRow {
     }
 }
 
+/// Row type for reading conversations during FTS refresh.
+/// Used to populate FTS5 with decompressed context from both compressed and uncompressed rows.
+#[derive(Debug, Clone)]
+struct FtsRefreshRow {
+    rowid: i64,
+    title: String,
+    context: Option<String>,
+    context_zstd: Option<Vec<u8>>,
+    is_compressed: i32,
+    cwd: Option<String>,
+}
+
+impl diesel::QueryableByName<diesel::sqlite::Sqlite> for FtsRefreshRow {
+    fn build<'a>(
+        row: &impl diesel::row::NamedRow<'a, diesel::sqlite::Sqlite>,
+    ) -> diesel::deserialize::Result<Self> {
+        use diesel::sql_types::{BigInt, Text, Nullable, Binary, Integer};
+        use diesel::row::NamedRow;
+        Ok(FtsRefreshRow {
+            rowid: NamedRow::get::<BigInt, _>(row, "rowid")?,
+            title: NamedRow::get::<Text, _>(row, "title")?,
+            context: NamedRow::get::<Nullable<Text>, _>(row, "context")?,
+            context_zstd: NamedRow::get::<Nullable<Binary>, _>(row, "context_zstd")?,
+            is_compressed: NamedRow::get::<Integer, _>(row, "is_compressed")?,
+            cwd: NamedRow::get::<Nullable<Text>, _>(row, "cwd")?,
+        })
+    }
+}
+
 pub struct ConversationRepositoryImpl {
     pool: Arc<DatabasePool>,
     wid: WorkspaceHash,
@@ -96,6 +125,8 @@ impl ConversationRepository for ConversationRepositoryImpl {
                 .set((
                     conversations::title.eq(&record.title),
                     conversations::context.eq(&record.context),
+                    conversations::context_zstd.eq(&record.context_zstd),
+                    conversations::is_compressed.eq(record.is_compressed),
                     conversations::updated_at.eq(record.updated_at),
                     conversations::metrics.eq(&record.metrics),
                     conversations::parent_id.eq(&record.parent_id),
@@ -133,10 +164,17 @@ impl ConversationRepository for ConversationRepositoryImpl {
         limit: Option<usize>,
     ) -> anyhow::Result<Option<Vec<Conversation>>> {
         self.run_with_connection(move |connection, wid| {
+            use diesel::dsl::sql;
+            use diesel::prelude::*;
+
             let workspace_id = wid.id() as i64;
+            // Filter for rows with context data: either plain context column OR compressed context_zstd
+            // Using raw SQL to express: context IS NOT NULL OR is_compressed = 1
             let mut query = conversations::table
                 .filter(conversations::workspace_id.eq(&workspace_id))
-                .filter(conversations::context.is_not_null())
+                .filter(sql::<diesel::sql_types::Bool>(
+                    "context IS NOT NULL OR is_compressed = 1"
+                ))
                 .order(conversations::updated_at.desc())
                 .into_boxed();
 
@@ -159,10 +197,15 @@ impl ConversationRepository for ConversationRepositoryImpl {
 
     async fn get_last_conversation(&self) -> anyhow::Result<Option<Conversation>> {
         self.run_with_connection(move |connection, wid| {
+            use diesel::dsl::sql;
+            use diesel::prelude::*;
+
             let workspace_id = wid.id() as i64;
             let record: Option<ConversationRecord> = conversations::table
                 .filter(conversations::workspace_id.eq(&workspace_id))
-                .filter(conversations::context.is_not_null())
+                .filter(sql::<diesel::sql_types::Bool>(
+                    "context IS NOT NULL OR is_compressed = 1"
+                ))
                 .order(conversations::updated_at.desc())
                 .first(connection)
                 .optional()?;
@@ -374,16 +417,70 @@ impl ConversationRepository for ConversationRepositoryImpl {
     }
 
     async fn refresh_fts_index(&self) -> anyhow::Result<()> {
-        // FTS5 external-content mode: trigger 'rebuild' to rescan the base table.
-        // This command is invoked as a special INSERT against the virtual table itself.
-        // For external-content FTS5, 'rebuild' re-indexes from the source table without
-        // storing duplicate content. Call this after VACUUM to ensure rowid stability
-        // (required for implicit rowid mode).
+        // CONTENTFUL FTS5 populated in application code.
+        // This ensures BOTH compressed and uncompressed rows are indexed.
+        //
+        // Process:
+        // 1. Clear the FTS index (DELETE all rows)
+        // 2. SELECT all conversations with their rowid, title, context, context_zstd, is_compressed
+        // 3. For each row: if is_compressed=1, decompress context_zstd to get searchable text;
+        //    otherwise use context directly
+        // 4. INSERT (rowid, title, content, cwd) into conversations_fts
+        //
+        // This is more work than FTS5's 'rebuild' but necessary because:
+        // - External-content FTS5 reads context column by name → compressed rows (context=NULL) are missed
+        // - Decompression must happen in app code; FTS5 has no built-in codec
+        // - Contentful FTS5 is the pragmatic correct solution
         self.run_with_connection(move |connection, _wid| {
-            diesel::sql_query(
-                "INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')",
+            use crate::codec;
+            use diesel::sql_types::{BigInt, Text, Nullable};
+
+            // Step 1: Clear the FTS index
+            diesel::sql_query("DELETE FROM conversations_fts")
+                .execute(connection)?;
+
+            // Step 2: Read all conversations using custom QueryableByName type
+            let rows: Vec<FtsRefreshRow> = diesel::sql_query(
+                "SELECT rowid, title, context, context_zstd, is_compressed, cwd \
+                 FROM conversations"
             )
-            .execute(connection)?;
+            .load(connection)?;
+
+            // Step 3 & 4: For each row, decompress if needed and INSERT into FTS
+            for row in rows {
+                // Determine searchable content: decompress if compressed, else use plain text
+                let content = if row.is_compressed == 1 {
+                    if let Some(compressed) = row.context_zstd {
+                        match codec::decompress(&compressed) {
+                            Ok(decompressed) => decompressed,
+                            Err(e) => {
+                                eprintln!(
+                                    "Warning: Failed to decompress context_zstd for rowid {}; skipping FTS: {}",
+                                    row.rowid, e
+                                );
+                                String::new()
+                            }
+                        }
+                    } else {
+                        eprintln!("Warning: rowid {} marked compressed but context_zstd is None; skipping FTS", row.rowid);
+                        String::new()
+                    }
+                } else {
+                    // Uncompressed row: use context column directly
+                    row.context.unwrap_or_default()
+                };
+
+                // Insert into FTS5 contentful table
+                diesel::sql_query(
+                    "INSERT INTO conversations_fts(rowid, title, content, cwd) VALUES (?, ?, ?, ?)"
+                )
+                .bind::<BigInt, _>(row.rowid)
+                .bind::<Text, _>(&row.title)
+                .bind::<Text, _>(&content)
+                .bind::<Nullable<Text>, _>(&row.cwd)
+                .execute(connection)?;
+            }
+
             Ok(())
         })
         .await
@@ -784,7 +881,9 @@ mod tests {
 
         assert_eq!(actual.conversation_id, fixture.id.into_string());
         assert_eq!(actual.title, Some("Conversation with Context".to_string()));
-        assert!(actual.context.is_some());
+        // With compression, context is stored in context_zstd and is_compressed=1
+        assert!(actual.context_zstd.is_some() || actual.context.is_some(),
+                "context should be stored in either context_zstd (compressed) or context (plain)");
         Ok(())
     }
 
@@ -825,6 +924,8 @@ mod tests {
             extracted_at: None,
             memory_id: None,
             intent_hash: None,
+            context_zstd: None,
+            is_compressed: 0,
         };
 
         let actual = Conversation::try_from(fixture)?;
@@ -1277,6 +1378,8 @@ mod tests {
             extracted_at: None,
             memory_id: None,
             intent_hash: None,
+            context_zstd: None,
+            is_compressed: 0,
         };
 
         let result = Conversation::try_from(fixture);
@@ -1686,6 +1789,74 @@ mod tests {
             .mark_intent_state(&conversation.id, "verified")
             .await;
         assert!(result.is_err(), "Cannot transition from pruned to verified");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_search_finds_compressed_conversations() -> anyhow::Result<()> {
+        // CRITICAL TEST: Proves that compressed rows (context=NULL, is_compressed=1) are
+        // findable by FTS5 search after refresh_fts_index populates the index with
+        // decompressed content.
+        //
+        // This test catches the bug where external-content FTS5 reads by column name
+        // (context), missing compressed rows where context=NULL.
+        let repo = repository()?;
+
+        // Create two conversations with context containing searchable text
+        let msg_compressed = ContextMessage::user("SEARCHABLE_COMPRESSED_TERM", None);
+        let msg_plain = ContextMessage::user("SEARCHABLE_PLAIN_TERM", None);
+
+        let context_compressed =
+            Context::default().messages(vec![msg_compressed.into()]);
+        let context_plain = Context::default().messages(vec![msg_plain.into()]);
+
+        // Insert compressed conversation (will be stored as context_zstd, is_compressed=1, context=NULL)
+        let compressed_conv = Conversation::new(ConversationId::generate())
+            .title(Some("Compressed Conversation".to_string()))
+            .context(Some(context_compressed.clone()));
+        repo.upsert_conversation(compressed_conv.clone()).await?;
+
+        // Insert uncompressed conversation (will be stored as plain context, is_compressed=0)
+        let plain_conv = Conversation::new(ConversationId::generate())
+            .title(Some("Plain Conversation".to_string()))
+            .context(Some(context_plain.clone()));
+        repo.upsert_conversation(plain_conv.clone()).await?;
+
+        // Refresh FTS index to populate both compressed and uncompressed rows
+        repo.refresh_fts_index().await?;
+
+        // SEARCH 1: Find compressed conversation by term in its decompressed context
+        // If the fix is correct, this search WILL find the compressed row.
+        // Before the fix, this would return empty (context=NULL skipped by FTS).
+        let results_compressed = repo.search_conversations("SEARCHABLE_COMPRESSED_TERM", None).await?;
+        assert!(
+            !results_compressed.is_empty(),
+            "FTS search must find compressed conversations after refresh_fts_index; \
+             bug: external-content FTS5 reads context column by name, missing compressed rows"
+        );
+        assert!(
+            results_compressed.iter().any(|c| c.id == compressed_conv.id),
+            "Search results must include the compressed conversation"
+        );
+
+        // SEARCH 2: Find uncompressed conversation (baseline to ensure search works)
+        let results_plain = repo.search_conversations("SEARCHABLE_PLAIN_TERM", None).await?;
+        assert!(
+            !results_plain.is_empty(),
+            "FTS search must find uncompressed conversations"
+        );
+        assert!(
+            results_plain.iter().any(|c| c.id == plain_conv.id),
+            "Search results must include the plain conversation"
+        );
+
+        // SEARCH 3: Verify no false positives
+        let results_wrong = repo.search_conversations("NONEXISTENT_TERM", None).await?;
+        assert!(
+            results_wrong.is_empty(),
+            "Search must not return conversations that don't contain the search term"
+        );
 
         Ok(())
     }

@@ -7,6 +7,7 @@
 use anyhow::Context as _;
 use forge_domain::{Context, ConversationId};
 use serde::{Deserialize, Serialize};
+use crate::codec;
 
 /// Repository-specific representation of ModelId
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -964,6 +965,8 @@ pub(super) struct ConversationRecord {
     pub extracted_at: Option<chrono::NaiveDateTime>,
     pub memory_id: Option<String>,
     pub intent_hash: Option<String>,
+    pub context_zstd: Option<Vec<u8>>,
+    pub is_compressed: i32,
 }
 
 impl ConversationRecord {
@@ -972,13 +975,34 @@ impl ConversationRecord {
         conversation: forge_domain::Conversation,
         workspace_id: forge_domain::WorkspaceHash,
     ) -> Self {
-        let context = conversation
+        let context_json = conversation
             .context
             .as_ref()
             .filter(|ctx| !ctx.messages.is_empty() || ctx.initiator.is_some())
             .map(ContextRecord::from)
             .and_then(|ctx_record| serde_json::to_string(&ctx_record).ok());
-        let updated_at = context.as_ref().map(|_| chrono::Utc::now().naive_utc());
+
+        // Compress context on write (transparent zstd compression)
+        let (context, context_zstd, is_compressed) = if let Some(json) = context_json {
+            match codec::compress(&json) {
+                Ok(compressed) => {
+                    // Store compressed data; context remains None for compressed rows
+                    (None, Some(compressed), 1)
+                }
+                Err(_) => {
+                    // Fallback: store uncompressed if compression fails
+                    (Some(json), None, 0)
+                }
+            }
+        } else {
+            (None, None, 0)
+        };
+
+        let updated_at = if context.is_some() || context_zstd.is_some() {
+            Some(chrono::Utc::now().naive_utc())
+        } else {
+            None
+        };
         let metrics_record = MetricsRecord::from(&conversation.metrics);
         let metrics = serde_json::to_string(&metrics_record).ok();
         // `message_count` is a denormalised count of the context's messages,
@@ -1007,6 +1031,8 @@ impl ConversationRecord {
             extracted_at: None,
             memory_id: None,
             intent_hash: None,
+            context_zstd,
+            is_compressed,
         }
     }
 
@@ -1026,13 +1052,34 @@ impl ConversationRecord {
         conversation: &forge_domain::Conversation,
         workspace_id: forge_domain::WorkspaceHash,
     ) -> Self {
-        let context = conversation
+        let context_json = conversation
             .context
             .as_ref()
             .filter(|ctx| !ctx.messages.is_empty() || ctx.initiator.is_some())
             .map(ContextRecord::from)
             .and_then(|ctx_record| serde_json::to_string(&ctx_record).ok());
-        let updated_at = context.as_ref().map(|_| chrono::Utc::now().naive_utc());
+
+        // Compress context on write (transparent zstd compression)
+        let (context, context_zstd, is_compressed) = if let Some(json) = context_json {
+            match codec::compress(&json) {
+                Ok(compressed) => {
+                    // Store compressed data; context remains None for compressed rows
+                    (None, Some(compressed), 1)
+                }
+                Err(_) => {
+                    // Fallback: store uncompressed if compression fails
+                    (Some(json), None, 0)
+                }
+            }
+        } else {
+            (None, None, 0)
+        };
+
+        let updated_at = if context.is_some() || context_zstd.is_some() {
+            Some(chrono::Utc::now().naive_utc())
+        } else {
+            None
+        };
         let metrics_record = MetricsRecord::from(&conversation.metrics);
         let metrics = serde_json::to_string(&metrics_record).ok();
         let message_count = conversation
@@ -1057,6 +1104,8 @@ impl ConversationRecord {
             extracted_at: None,
             memory_id: None,
             intent_hash: None,
+            context_zstd,
+            is_compressed,
         }
     }
 }
@@ -1069,7 +1118,29 @@ impl TryFrom<ConversationRecord> for forge_domain::Conversation {
         let id = ConversationId::parse(conversation_id.clone())
             .with_context(|| format!("Failed to parse conversation ID: {}", conversation_id))?;
 
-        let context = if let Some(context_str) = record.context {
+        // Dual-read path: decompress if is_compressed=1, else fall back to plain context
+        let context_str = if record.is_compressed == 1 {
+            if let Some(compressed) = record.context_zstd {
+                codec::decompress(&compressed)
+                    .with_context(|| {
+                        format!(
+                            "Failed to decompress context_zstd for conversation {}",
+                            conversation_id
+                        )
+                    })?
+            } else {
+                // Corrupted record: is_compressed=1 but context_zstd is None
+                return Err(anyhow::anyhow!(
+                    "Record marked compressed but context_zstd is None for conversation {}",
+                    conversation_id
+                ));
+            }
+        } else {
+            // Fallback: plain context column for old uncompressed rows
+            record.context.unwrap_or_default()
+        };
+
+        let context = if !context_str.is_empty() {
             Some(
                 serde_json::from_str::<ContextRecord>(&context_str)
                     .with_context(|| {

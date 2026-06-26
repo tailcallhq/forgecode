@@ -52,6 +52,7 @@ dirs.workspace = true
 async-openai.workspace = true
 regex.workspace = true
 google-cloud-auth.workspace = true
+zstd.workspace = true
 
 # gRPC for codebase client
 tonic.workspace = true

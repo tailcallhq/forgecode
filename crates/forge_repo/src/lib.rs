@@ -1,5 +1,6 @@
 mod agent;
 mod agent_definition;
+mod codec;
 mod context_engine;
 mod conversation;
 mod database;

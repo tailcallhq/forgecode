@@ -6,7 +6,7 @@
 //! - Prune gate enforcement
 
 #[cfg(test)]
-mod tests {
+mod integration_tests {
     use anyhow::Result;
     use diesel::prelude::*;
     use diesel::sql_types::*;
@@ -97,21 +97,24 @@ mod tests {
 
             assert_eq!(fts_result.name, "conversations_fts");
 
-            // Verify the FTS5 virtual table is external-content by checking schema
+            // Verify the FTS5 virtual table is CONTENTFUL by checking schema
+            // (Changed from external-content to support compressed rows)
             let fts_schema: StringResult = diesel::sql_query(
                 "SELECT sql as name FROM sqlite_master WHERE type='table' AND name='conversations_fts'",
             )
             .get_result(&mut *conn)?;
 
-            // External-content FTS5 tables have 'content=' clause
+            // CONTENTFUL FTS5 tables do NOT have 'content=' clause (P2c fix: compressed rows)
+            // They store a copy of indexed columns in _content table.
             assert!(
-                fts_schema.name.contains("content='conversations'"),
-                "FTS5 should be external-content mode: {}",
+                fts_schema.name.contains("tokenize='porter'"),
+                "FTS5 should have porter tokenizer: {}",
                 fts_schema.name
             );
+            // Should NOT be external-content anymore
             assert!(
-                fts_schema.name.contains("content_rowid='rowid'"),
-                "FTS5 should use implicit rowid: {}",
+                !fts_schema.name.contains("content='conversations'"),
+                "FTS5 should be CONTENTFUL (not external-content) to index compressed rows: {}",
                 fts_schema.name
             );
 
@@ -189,17 +192,22 @@ mod tests {
             .bind::<diesel::sql_types::Text, _>("pending")
             .execute(&mut *conn)?;
 
-            // NOTE: External-content FTS5 tables are empty after migration.
-            // The migration creates the table but doesn't populate it (waiting for first refresh_fts_index call).
-            // Trigger rebuild to populate external-content FTS5 index from base table
-            diesel::sql_query("INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')")
-                .execute(&mut *conn)?;
+            // NOTE: CONTENTFUL FTS5 tables are empty after migration (P2c fix for compressed rows).
+            // The migration creates the table but doesn't populate it.
+            // Manually populate FTS using application-side decompression logic.
+            // (In production, refresh_fts_index() does this; here we mimic it for raw-SQL inserts.)
+            diesel::sql_query("DELETE FROM conversations_fts").execute(&mut *conn)?;
+            diesel::sql_query(
+                "INSERT INTO conversations_fts(rowid, title, content, cwd) \
+                 SELECT rowid, title, context, cwd FROM conversations"
+            )
+            .execute(&mut *conn)?;
 
-            // After rebuild, FTS5 should have 3 entries (the 3 conversations we just inserted)
+            // After populate, FTS5 should have 3 entries (the 3 conversations we just inserted)
             let count_after: CountResult = diesel::sql_query("SELECT COUNT(*) as cnt FROM conversations_fts")
                 .get_result(&mut *conn)?;
 
-            assert_eq!(count_after.cnt, 3, "FTS5 should have 3 entries after rebuild");
+            assert_eq!(count_after.cnt, 3, "FTS5 should have 3 entries after populate");
 
             // Test BM25 search: search for "database" should find conv-002
             let search_sql = "SELECT c.conversation_id FROM conversations c \
@@ -358,8 +366,9 @@ mod tests {
         Ok(())
     }
 
-    /// Test 5: FTS5 external-content schema validation
-    /// Verify that the migration correctly created external-content FTS5 without triggers
+    /// Test 5: FTS5 schema validation (P2c: CONTENTFUL for compressed-row support)
+    /// Verify that the migration correctly created CONTENTFUL FTS5 without triggers
+    /// (Changed from external-content to support compressed rows where context=NULL)
     #[tokio::test]
     async fn test_fts5_external_content_schema() -> Result<()> {
         let pool = DatabasePool::in_memory()?;
@@ -391,10 +400,18 @@ mod tests {
                 fts_schema.name
             );
 
-            // Verify FTS5 indexes the correct columns: title, context, cwd
+            // Verify FTS5 is CONTENTFUL (not external-content) for compressed-row support
+            // CONTENTFUL FTS5 indexes: title, content (decompressed context), cwd
             assert!(
-                fts_schema.name.contains("title") && fts_schema.name.contains("context") && fts_schema.name.contains("cwd"),
-                "FTS5 should index title, context, and cwd columns: {}",
+                fts_schema.name.contains("title") && fts_schema.name.contains("content") && fts_schema.name.contains("cwd"),
+                "FTS5 should index title, content (decompressed), and cwd columns: {}",
+                fts_schema.name
+            );
+
+            // Should NOT have content=' clause (that's external-content)
+            assert!(
+                !fts_schema.name.contains("content='conversations'"),
+                "FTS5 should be CONTENTFUL (not external-content) to index compressed rows: {}",
                 fts_schema.name
             );
 
@@ -416,7 +433,7 @@ mod tests {
             let workspace_id = 1i64;
 
             // Insert conversations in different states
-            for (id, state) in vec![
+            for (id, state) in [
                 ("conv-p1", "pending"),
                 ("conv-p2", "pending"),
                 ("conv-e1", "extracting"),
