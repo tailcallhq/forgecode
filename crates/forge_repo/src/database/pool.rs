@@ -106,7 +106,23 @@ impl DatabasePool {
             .call()
     }
 }
-// Configure SQLite for better concurrency ref: https://docs.diesel.rs/master/diesel/sqlite/struct.SqliteConnection.html#concurrency
+/// Configure SQLite for better concurrency and storage efficiency.
+///
+/// Ref: https://docs.diesel.rs/master/diesel/sqlite/struct.SqliteConnection.html#concurrency
+///
+/// **auto_vacuum=INCREMENTAL:**
+/// - For NEW databases: enables incremental auto_vacuum at creation time, allowing freed pages
+///   to return to the OS continuously without an exclusive-lock full VACUUM.
+/// - For EXISTING databases: this pragma is a no-op and doesn't change the setting. To convert
+///   an existing database to INCREMENTAL auto_vacuum, run a one-time full `VACUUM` (e.g., via
+///   forge-vacuum tool). After that one-time conversion, the background checkpointer's
+///   incremental_vacuum keeps reclaiming freed pages automatically.
+///
+/// **FORGE_INCREMENTAL_VACUUM env var (default: enabled):**
+/// - When enabled, the background checkpoint task periodically runs `PRAGMA incremental_vacuum`
+///   after truncating the WAL, to return freed pages (from P4 prune, zstd compression, deletes)
+///   to the OS.
+/// - Set to "0" or "false" to disable if needed.
 #[derive(Debug)]
 struct SqliteCustomizer;
 
@@ -126,6 +142,12 @@ impl CustomizeConnection<SqliteConnection, diesel::r2d2::Error> for SqliteCustom
         // while still costing writers, so disable it here and move checkpointing
         // to a dedicated background thread (see checkpoint.rs).
         diesel::sql_query("PRAGMA wal_autocheckpoint = 0;")
+            .execute(conn)
+            .map_err(diesel::r2d2::Error::QueryError)?;
+        // Enable incremental auto_vacuum for new databases. On existing DBs, this is a no-op;
+        // they need one full VACUUM to convert, after which incremental_vacuum (spawned in the
+        // background checkpointer) keeps reclaiming pages automatically.
+        diesel::sql_query("PRAGMA auto_vacuum = INCREMENTAL;")
             .execute(conn)
             .map_err(diesel::r2d2::Error::QueryError)?;
         Ok(())

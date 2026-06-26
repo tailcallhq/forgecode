@@ -1,13 +1,17 @@
-//! Phenotype-org addition for WAL contention control in a shared `.forge.db`.
+//! Phenotype-org addition for WAL contention control and incremental vacuum in a shared `.forge.db`.
 //!
 //! Many forge processes can point at the same SQLite database file. Per-connection
-//! passive autocheckpointing tends to no-op under concurrency because readers or
+//! passive autocheckpointing tends to no-op under contention because readers or
 //! writers often keep frames pinned, but every writer still pays the checkpoint
 //! attempt cost. This module dedicates one background thread per process to
 //! periodically probe the WAL and truncate it when it is large enough to matter.
 //!
-//! SQLite serialises checkpoints across processes, so only one process will
-//! successfully truncate at a time while the others observe `busy` and skip.
+//! After each checkpoint, if enabled via `FORGE_INCREMENTAL_VACUUM` (default: enabled),
+//! it also runs `PRAGMA incremental_vacuum` to return freed pages (from P4 prune, zstd
+//! compression, deletes) to the OS without an exclusive-lock full VACUUM.
+//!
+//! SQLite serialises checkpoints and vacuums across processes, so only one process will
+//! successfully truncate/vacuum at a time while the others observe `busy` and skip.
 //! That means we do not need process-wide election or coordination: each process
 //! can own one best-effort checkpointer, and the database file will still be
 //! reclaimed safely.
@@ -172,6 +176,13 @@ fn run_truncate_checkpoint(connection: &mut SqliteConnection) {
                 log_frames = row.log,
                 "checkpoint truncated WAL"
             );
+
+            // If incremental vacuum is enabled, reclaim freed pages after checkpoint.
+            // This returns pages (from P4 prune, zstd compression, deletes) to the OS
+            // without an exclusive-lock full VACUUM.
+            if is_incremental_vacuum_enabled() {
+                run_incremental_vacuum(connection);
+            }
         }
         Err(error) => {
             debug!(error = %error, "failed to truncate WAL checkpoint");
@@ -197,6 +208,28 @@ fn run_final_checkpoint(connection: &mut SqliteConnection) {
         }
         Err(error) => {
             debug!(error = %error, "failed to run final WAL checkpoint");
+        }
+    }
+}
+
+/// Check if incremental vacuum is enabled via env var FORGE_INCREMENTAL_VACUUM.
+/// Defaults to enabled (true) if not set.
+fn is_incremental_vacuum_enabled() -> bool {
+    match std::env::var("FORGE_INCREMENTAL_VACUUM") {
+        Ok(val) => !matches!(val.as_str(), "0" | "false" | "no" | "off"),
+        Err(_) => true, // Default: enabled
+    }
+}
+
+/// Run an incremental vacuum to reclaim freed pages and return them to the OS.
+/// Non-fatal: logs errors and continues if vacuum fails.
+fn run_incremental_vacuum(connection: &mut SqliteConnection) {
+    match connection.batch_execute("PRAGMA incremental_vacuum;") {
+        Ok(()) => {
+            debug!("incremental_vacuum completed successfully");
+        }
+        Err(error) => {
+            debug!(error = %error, "incremental_vacuum failed (non-fatal, will retry in next checkpoint cycle)");
         }
     }
 }
