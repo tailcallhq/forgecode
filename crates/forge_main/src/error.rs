@@ -44,6 +44,8 @@ pub fn is_cursor_error(err: &(impl std::error::Error + ?Sized)) -> bool {
 ///
 /// If the entire error chain consists of cursor position errors, the operation
 /// can be considered successful for practical purposes.
+// Retained: error classification helper, not currently called.
+#[allow(dead_code)]
 pub fn is_cursor_only_error(err: &anyhow::Error) -> bool {
     // Check the main error - anyhow::Error implements AsRef<dyn Error + 'static>
     let main_err: &(dyn std::error::Error + 'static) = err.as_ref();
@@ -70,8 +72,7 @@ mod tests {
     #[test]
     fn test_is_cursor_error_timeout() {
         // Test detection of cursor timeout error
-        let err = std::io::Error::new(
-            std::io::ErrorKind::Other,
+        let err = std::io::Error::other(
             "The cursor position could not be read within a normal duration",
         );
         assert!(is_cursor_error(&err));
@@ -80,8 +81,7 @@ mod tests {
     #[test]
     fn test_is_cursor_error_resource_unavailable() {
         // Test detection of resource unavailable error
-        let err = std::io::Error::new(
-            std::io::ErrorKind::Other,
+        let err = std::io::Error::other(
             "Resource temporarily unavailable (os error 35)",
         );
         assert!(is_cursor_error(&err));
@@ -97,8 +97,7 @@ mod tests {
     #[test]
     fn test_is_cursor_error_partial_match() {
         // Test that partial matches don't trigger (need both parts)
-        let err = std::io::Error::new(
-            std::io::ErrorKind::Other,
+        let err = std::io::Error::other(
             "Resource temporarily unavailable (but not the cursor one)",
         );
         assert!(!is_cursor_error(&err));

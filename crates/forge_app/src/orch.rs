@@ -518,8 +518,8 @@ where
         // Best-effort final persist on panic/cancellation. Uses block_in_place
         // because Drop cannot be async; the underlying SQLite write is fast
         // (a single statement), so this is acceptable.
-        if self.dirty {
-            if let Some(conversation) = self.conversation.take() {
+        if self.dirty
+            && let Some(conversation) = self.conversation.take() {
                 let services = self.services.clone();
                 tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(async {
@@ -527,6 +527,5 @@ where
                     })
                 });
             }
-        }
     }
 }

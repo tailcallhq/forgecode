@@ -27,6 +27,8 @@ pub struct UIState {
     /// Live status bar state (model, tokens, current tool, etc.).
     /// Wrapped in `Arc<Mutex<_>>` so the chat loop can update fields
     /// from the rendering thread without holding a `&mut` on `UI`.
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     pub status_bar: StatusBar,
     /// Global toggle for the compressed tool-output view.
     /// When `false` (the default), tool outputs are truncated to the
@@ -55,6 +57,8 @@ impl Default for UIState {
 
 /// Snapshot of `StatusBar` used by the renderer. All fields are
 /// `Clone` and the snapshot is cheap to take (single `Mutex` lock).
+// WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct StatusBarSnapshot {
     pub last_action: Option<String>,
@@ -68,11 +72,15 @@ pub struct StatusBarSnapshot {
 
 impl StatusBarSnapshot {
     /// Elapsed time since the active tool started, if any.
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     pub fn active_tool_elapsed(&self) -> Option<Duration> {
         self.active_tool_started.map(|t| t.elapsed())
     }
 
     /// True when there is at least one in-flight tool call.
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     pub fn has_tool_in_flight(&self) -> bool {
         self.tool_in_flight > 0
     }
@@ -82,31 +90,43 @@ impl StatusBarSnapshot {
 /// renderer. Use `snapshot()` to take a `StatusBarSnapshot` for display.
 #[derive(Debug, Default)]
 pub struct StatusBar {
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     inner: Mutex<StatusBarSnapshot>,
 }
 
 impl StatusBar {
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
     }
 
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     pub fn snapshot(&self) -> StatusBarSnapshot {
         self.inner.lock().expect("StatusBar mutex poisoned").clone()
     }
 
     /// Set the last user-visible action (e.g. "edit: ui.rs:474").
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     pub fn set_last_action(&self, action: impl Into<String>) {
         let mut g = self.inner.lock().expect("StatusBar mutex poisoned");
         g.last_action = Some(action.into());
     }
 
     /// Set the current model id (e.g. "claude-sonnet-4").
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     pub fn set_model(&self, model: impl Into<String>) {
         self.set_last_action(format!("model: {}", model.into()));
     }
 
     /// Record a tool call start. Bumps `tool_in_flight` and records
     /// the active tool name and start time.
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     pub fn begin_tool(&self, name: impl Into<String>) {
         let mut g = self.inner.lock().expect("StatusBar mutex poisoned");
         g.active_tool = Some(name.into());
@@ -117,6 +137,8 @@ impl StatusBar {
 
     /// Record a tool call finish. Decrements `tool_in_flight`; if it
     /// hits zero, clears the active tool.
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     pub fn end_tool(&self) {
         let mut g = self.inner.lock().expect("StatusBar mutex poisoned");
         g.tool_in_flight = g.tool_in_flight.saturating_sub(1);
@@ -128,6 +150,8 @@ impl StatusBar {
     }
 
     /// Update the token usage counters and derived context percentage.
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     pub fn set_tokens(&self, tokens_used: u64, context_pct: u8) {
         let mut g = self.inner.lock().expect("StatusBar mutex poisoned");
         g.tokens_used = tokens_used;
@@ -135,6 +159,8 @@ impl StatusBar {
     }
 
     /// Mark the agent as busy (model thinking, no tool in flight).
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     pub fn set_busy(&self, busy: bool) {
         let mut g = self.inner.lock().expect("StatusBar mutex poisoned");
         g.is_busy = busy;

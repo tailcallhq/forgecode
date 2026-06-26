@@ -12,14 +12,14 @@
 #[derive(Debug, Clone)]
 pub struct AdaptiveEvictionConfig {
     /// Headroom thresholds for adjustment tiers
-    pub high_headroom_threshold: f64,  // Default: 0.85 (85% headroom = 15% used)
+    pub high_headroom_threshold: f64, // Default: 0.85 (85% headroom = 15% used)
     pub medium_headroom_threshold: f64, // Default: 0.70
     pub low_headroom_threshold: f64,    // Default: 0.85
 
     /// Eviction percentages for each tier
-    pub high_headroom_eviction: f64,   // Default: 0.10 (10%)
-    pub medium_headroom_eviction: f64, // Default: 0.20 (20%)
-    pub low_headroom_eviction: f64,    // Default: 0.35 (35%)
+    pub high_headroom_eviction: f64, // Default: 0.10 (10%)
+    pub medium_headroom_eviction: f64,   // Default: 0.20 (20%)
+    pub low_headroom_eviction: f64,      // Default: 0.35 (35%)
     pub critical_headroom_eviction: f64, // Default: 0.50 (50%)
 
     /// Minimum eviction percentage (safety floor)
@@ -35,12 +35,12 @@ impl Default for AdaptiveEvictionConfig {
             high_headroom_threshold: 0.85,
             medium_headroom_threshold: 0.70,
             low_headroom_threshold: 0.50,
-            high_headroom_eviction: 0.10,   // Conservative when far from threshold
+            high_headroom_eviction: 0.10, // Conservative when far from threshold
             medium_headroom_eviction: 0.20, // Default behavior
-            low_headroom_eviction: 0.35,    // Aggressive when approaching threshold
+            low_headroom_eviction: 0.35,  // Aggressive when approaching threshold
             critical_headroom_eviction: 0.50, // Maximum when near overflow
-            min_eviction: 0.05,  // Never evict less than 5%
-            max_eviction: 0.60,  // Never evict more than 60%
+            min_eviction: 0.05,           // Never evict less than 5%
+            max_eviction: 0.60,           // Never evict more than 60%
         }
     }
 }
@@ -92,10 +92,7 @@ impl AdaptiveEviction {
 
     /// Create with custom configuration
     pub fn with_config(config: AdaptiveEvictionConfig) -> Self {
-        Self {
-            config,
-            enabled: true,
-        }
+        Self { config, enabled: true }
     }
 
     /// Enable or disable adaptive eviction
@@ -213,9 +210,11 @@ mod tests {
 
     #[test]
     fn test_safety_bounds() {
-        let mut config = AdaptiveEvictionConfig::default();
-        config.min_eviction = 0.08;
-        config.max_eviction = 0.45;
+        let config = AdaptiveEvictionConfig {
+            min_eviction: 0.08,
+            max_eviction: 0.45,
+            ..Default::default()
+        };
 
         // Should be clamped to max
         let eviction = config.calculate_eviction(95_000, 100_000);
@@ -258,9 +257,9 @@ mod tests {
         let eviction = AdaptiveEviction::new();
 
         // headroom = 1.0 - (tokens/threshold)
-        assert_eq!(eviction.current_tier(10_000, 100_000), "high");     // 90% headroom
-        assert_eq!(eviction.current_tier(30_000, 100_000), "medium");  // 70% headroom
-        assert_eq!(eviction.current_tier(50_000, 100_000), "low");     // 50% headroom
+        assert_eq!(eviction.current_tier(10_000, 100_000), "high"); // 90% headroom
+        assert_eq!(eviction.current_tier(30_000, 100_000), "medium"); // 70% headroom
+        assert_eq!(eviction.current_tier(50_000, 100_000), "low"); // 50% headroom
         assert_eq!(eviction.current_tier(80_000, 100_000), "critical"); // 20% headroom
         assert_eq!(eviction.current_tier(95_000, 100_000), "critical"); // 5% headroom
     }
@@ -270,8 +269,8 @@ mod tests {
         let eviction = AdaptiveEviction::new();
 
         // At exact threshold boundaries
-        assert_eq!(eviction.current_tier(15_000, 100_000), "high");     // 85% headroom
-        assert_eq!(eviction.current_tier(30_000, 100_000), "medium");  // 70% headroom
-        assert_eq!(eviction.current_tier(50_000, 100_000), "low");     // 50% headroom
+        assert_eq!(eviction.current_tier(15_000, 100_000), "high"); // 85% headroom
+        assert_eq!(eviction.current_tier(30_000, 100_000), "medium"); // 70% headroom
+        assert_eq!(eviction.current_tier(50_000, 100_000), "low"); // 50% headroom
     }
 }

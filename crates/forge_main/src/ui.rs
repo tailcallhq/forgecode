@@ -136,6 +136,8 @@ pub struct UI<A: ConsoleWriter, F: Fn(ForgeConfig) -> A> {
     cache_generation: std::sync::atomic::AtomicU64,
     /// Soft interrupt flag for the prompt loop. Set when the user issues
     /// a cancellation keystroke; cleared at the top of the next iteration.
+    // WIP: Claude-style status bar / prompt-loop plumbing (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     interrupt_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     #[allow(dead_code)] // The guard is kept alive by being held in the struct
     _guard: forge_tracker::Guard,
@@ -165,6 +167,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     ///   ⠋  <active_tool> · <context_pct>% ctx · <last_action>
     /// Format (when idle):
     ///   ✓  <last_action> · <context_pct>% ctx
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     fn render_status_bar(&mut self) -> anyhow::Result<()> {
         let snap = self.state.status_bar.snapshot();
         // ANSI: ESC[2K = erase entire line, ESC[1A = move up one line (to
@@ -553,6 +557,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     /// Replaces the hydration task handles. Called by `init_state` after
     /// `hydrate_caches` to install the newly-spawned handles so the next
     /// call to `hydrate_caches` can abort them.
+    // WIP: Claude-style status bar / cache hydration plumbing (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     fn replace_hydration_handles(&mut self, handles: Vec<tokio::task::JoinHandle<()>>) {
         for handle in &self.hydration_handles {
             handle.abort();
@@ -562,6 +568,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     /// Spawns a tracked hydration task. Used by `init_state` so that
     /// subsequent `hydrate_caches` calls can abort stale tasks.
+    // WIP: Claude-style status bar / cache hydration plumbing (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     fn spawn_tracked<Fut>(&self, fut: Fut) -> tokio::task::JoinHandle<()>
     where
         Fut: std::future::Future<Output = ()> + Send + 'static,
@@ -573,6 +581,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     /// Returns the current cache generation. Used by the conversation
     /// preview pipeline to discard stale fetches.
+    // WIP: Claude-style status bar / cache hydration plumbing (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
     fn current_generation(&self) -> u64 {
         self.cache_generation
             .load(std::sync::atomic::Ordering::Relaxed)

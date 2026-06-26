@@ -168,19 +168,13 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
             .await
     }
 
-    async fn delete_conversation(
-        &self,
-        conversation_id: &ConversationId,
-    ) -> anyhow::Result<()> {
+    async fn delete_conversation(&self, conversation_id: &ConversationId) -> anyhow::Result<()> {
         self.conversation_repository
             .delete_conversation(conversation_id)
             .await
     }
 
-    async fn upsert_conversation_ref(
-        &self,
-        conversation: &Conversation,
-    ) -> anyhow::Result<()> {
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> anyhow::Result<()> {
         self.conversation_repository
             .upsert_conversation_ref(conversation)
             .await
@@ -198,6 +192,10 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
 
     async fn optimize_fts_index(&self) -> anyhow::Result<()> {
         self.conversation_repository.optimize_fts_index().await
+    }
+
+    async fn refresh_fts_index(&self) -> anyhow::Result<()> {
+        self.conversation_repository.refresh_fts_index().await
     }
 
     async fn update_parent_id(

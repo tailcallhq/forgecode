@@ -121,7 +121,6 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
                 let outputs = join_all(task_input.tasks.into_iter().map(|task| {
                     let agent_id = agent_id.clone();
                     let executor = executor.clone();
-                    let parent_id = parent_id;
                     async move {
                         executor
                             .execute(AgentId::new(&agent_id), task, context, conversation_id, parent_id)
@@ -176,7 +175,6 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
             let outputs = join_all(agent_input.tasks.into_iter().map(|task| {
                 let agent_name = agent_name.clone();
                 let executor = executor.clone();
-                let parent_id = parent_id;
                 async move {
                     executor
                         .execute(AgentId::new(&agent_name), task, context, None, parent_id)

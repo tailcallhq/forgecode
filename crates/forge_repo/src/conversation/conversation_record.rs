@@ -1091,7 +1091,11 @@ impl TryFrom<ConversationRecord> for forge_domain::Conversation {
             .context(context)
             .title(record.title)
             .metrics(metrics)
-            .parent_id(record.parent_id.and_then(|id| ConversationId::parse(id).ok()))
+            .parent_id(
+                record
+                    .parent_id
+                    .and_then(|id| ConversationId::parse(id).ok()),
+            )
             .source(record.source)
             .cwd(record.cwd)
             .message_count(record.message_count)

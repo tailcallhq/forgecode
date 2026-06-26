@@ -492,7 +492,8 @@ mod tests {
         let strategy = CompactionStrategy::retain(1);
         let importance_strategy = ImportanceEvictionStrategy::default();
 
-        let with_importance = strategy.eviction_range_with_importance(&context, &importance_strategy);
+        let with_importance =
+            strategy.eviction_range_with_importance(&context, &importance_strategy);
         let without_importance = strategy.eviction_range(&context);
 
         assert_eq!(with_importance, without_importance);
@@ -511,7 +512,8 @@ mod tests {
         assert_eq!(base_range, Some((1, 2)));
 
         // With very low threshold, even user messages (30) are protected
-        let protected_range = strategy.eviction_range_with_importance(&context, &importance_strategy);
+        let protected_range =
+            strategy.eviction_range_with_importance(&context, &importance_strategy);
         // Index 1 (assistant) has score 50 which is > 5, so protected
         assert!(protected_range.is_none());
     }

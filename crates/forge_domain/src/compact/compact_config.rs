@@ -7,9 +7,7 @@ use tracing::debug;
 use crate::{Context, ModelId, Role};
 
 /// Strategy for generating summaries during compaction.
-#[derive(
-    Default, Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq,
-)]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SummarizationStrategy {
     /// Pure structural extraction - extracts tool calls, file paths, and commands

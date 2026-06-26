@@ -16,7 +16,9 @@ struct SnippetRow {
 }
 
 impl diesel::QueryableByName<diesel::sqlite::Sqlite> for SnippetRow {
-    fn build<'a>(row: &impl diesel::row::NamedRow<'a, diesel::sqlite::Sqlite>) -> diesel::deserialize::Result<Self> {
+    fn build<'a>(
+        row: &impl diesel::row::NamedRow<'a, diesel::sqlite::Sqlite>,
+    ) -> diesel::deserialize::Result<Self> {
         let s = diesel::row::NamedRow::get::<diesel::sql_types::Text, _>(row, "s")?;
         Ok(SnippetRow { s })
     }
@@ -59,10 +61,7 @@ impl ConversationRepositoryImpl {
 
 #[async_trait::async_trait]
 impl ConversationRepository for ConversationRepositoryImpl {
-    async fn upsert_conversation_ref(
-        &self,
-        conversation: &Conversation,
-    ) -> anyhow::Result<()> {
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> anyhow::Result<()> {
         let conversation = conversation.clone();
         self.run_with_connection(move |connection, wid| {
             let record = ConversationRecord::new_ref(&conversation, wid);
@@ -321,11 +320,9 @@ impl ConversationRepository for ConversationRepositoryImpl {
             }
 
             let raw_rows: Vec<ConversationRecord> = q.load(connection)?;
-            let conversations: Result<Vec<Conversation>, _> = raw_rows
-                .into_iter()
-                .map(Conversation::try_from)
-                .collect();
-            Ok(conversations?)
+            let conversations: Result<Vec<Conversation>, _> =
+                raw_rows.into_iter().map(Conversation::try_from).collect();
+            conversations
         })
         .await
     }
@@ -369,9 +366,35 @@ impl ConversationRepository for ConversationRepositoryImpl {
         // we use a raw sql_query. This is the canonical pattern from the
         // SQLite FTS5 docs: https://sqlite.org/fts5.html#the_optimize_command
         self.run_with_connection(move |connection, _wid| {
-            diesel::sql_query("INSERT INTO conversations_fts(conversations_fts) VALUES('optimize')")
-                .execute(connection)?;
+            diesel::sql_query(
+                "INSERT INTO conversations_fts(conversations_fts) VALUES('optimize')",
+            )
+            .execute(connection)?;
             Ok(())
+        })
+        .await
+    }
+
+    async fn refresh_fts_index(&self) -> anyhow::Result<()> {
+        // FTS5's "delete-all" command is invoked as a special INSERT against
+        // the virtual table itself. We then repopulate the contentful index
+        // from `conversations` inside a single transaction so callers can run
+        // this on a cadence without touching the hot write path.
+        self.run_with_connection(move |connection, _wid| {
+            connection.transaction(|connection| {
+                diesel::sql_query(
+                    "INSERT INTO conversations_fts(conversations_fts) VALUES('delete-all')",
+                )
+                .execute(connection)?;
+                diesel::sql_query(
+                    "INSERT INTO conversations_fts(conversation_id, title, content, cwd) \
+                     SELECT conversation_id, COALESCE(title,''), COALESCE(context,''), COALESCE(cwd,'') \
+                     FROM conversations \
+                     WHERE context IS NOT NULL",
+                )
+                .execute(connection)?;
+                Ok(())
+            })
         })
         .await
     }
@@ -384,14 +407,14 @@ impl ConversationRepository for ConversationRepositoryImpl {
         // The `Option<&ConversationId>` is borrowed for the duration of the
         // move into `run_with_connection`. We materialise the inner string
         // here so the closure becomes `'static`.
-        let new_parent_id_str: Option<String> =
-            new_parent_id.map(|id| id.into_string());
+        let new_parent_id_str: Option<String> = new_parent_id.map(|id| id.into_string());
         let conversation_id_str = conversation_id.into_string();
         let now: chrono::NaiveDateTime = chrono::Utc::now().naive_utc();
         self.run_with_connection(move |connection, _wid| {
-            diesel::update(conversations::table.filter(
-                conversations::conversation_id.eq(&conversation_id_str),
-            ))
+            diesel::update(
+                conversations::table
+                    .filter(conversations::conversation_id.eq(&conversation_id_str)),
+            )
             .set((
                 conversations::parent_id.eq(new_parent_id_str),
                 conversations::updated_at.eq(Some(now)),

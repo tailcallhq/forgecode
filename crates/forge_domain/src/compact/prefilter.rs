@@ -105,7 +105,9 @@ impl PreCompactionFilter {
         context.messages.retain(|msg| {
             if let ContextMessage::Tool(result) = &msg.message {
                 let output = result.output.as_str().unwrap_or("");
-                !debug_patterns.iter().any(|pattern| output.contains(pattern))
+                !debug_patterns
+                    .iter()
+                    .any(|pattern| output.contains(pattern))
             } else {
                 true
             }
@@ -115,9 +117,7 @@ impl PreCompactionFilter {
     fn remove_empty_messages(&self, context: &mut Context) {
         context.messages.retain(|msg| {
             match &msg.message {
-                ContextMessage::Text(text) => {
-                    !text.content.trim().is_empty()
-                }
+                ContextMessage::Text(text) => !text.content.trim().is_empty(),
                 ContextMessage::Tool(_) => {
                     // Keep tool results even if empty (for atomicity)
                     true
@@ -141,11 +141,7 @@ impl PreCompactionFilter {
                     let key = format!("{}:{}", tool.name, tool.output.as_str().unwrap_or(""));
                     if seen_tools.contains(&key) {
                         // Already seen this exact tool call - skip unless it's an error
-                        if tool.is_error() {
-                            true
-                        } else {
-                            false
-                        }
+                        tool.is_error()
                     } else {
                         seen_tools.insert(key);
                         true
@@ -195,24 +191,17 @@ mod tests {
     }
 
     fn short_tool_result() -> ContextMessage {
-        ContextMessage::Tool(
-            ToolResult::new("shell")
-                .success("err")
-        )
+        ContextMessage::Tool(ToolResult::new("shell").success("err"))
     }
 
     fn long_tool_result() -> ContextMessage {
         ContextMessage::Tool(
-            ToolResult::new("shell")
-                .success("This is a longer output with actual content")
+            ToolResult::new("shell").success("This is a longer output with actual content"),
         )
     }
 
     fn debug_tool_result() -> ContextMessage {
-        ContextMessage::Tool(
-            ToolResult::new("shell")
-                .success("console.log('debug message')")
-        )
+        ContextMessage::Tool(ToolResult::new("shell").success("console.log('debug message')"))
     }
 
     #[test]
@@ -223,8 +212,8 @@ mod tests {
         });
 
         let mut ctx = make_context(vec![
-            short_tool_result(),  // Will be removed (3 chars < 10)
-            long_tool_result(),    // Will be kept (43 chars > 10)
+            short_tool_result(), // Will be removed (3 chars < 10)
+            long_tool_result(),  // Will be kept (43 chars > 10)
         ]);
 
         filter.remove_short_tool_results(&mut ctx);
@@ -243,13 +232,12 @@ mod tests {
             ..Default::default()
         });
 
-        let error_result = ContextMessage::Tool(
-            ToolResult::new("shell").failure(anyhow::anyhow!("error"))
-        );
+        let error_result =
+            ContextMessage::Tool(ToolResult::new("shell").failure(anyhow::anyhow!("error")));
 
         let mut ctx = make_context(vec![
-            error_result,  // Will be kept even though short (it's an error)
-            short_tool_result(),  // Will be removed
+            error_result,        // Will be kept even though short (it's an error)
+            short_tool_result(), // Will be removed
         ]);
 
         filter.remove_short_tool_results(&mut ctx);
@@ -265,8 +253,8 @@ mod tests {
         });
 
         let mut ctx = make_context(vec![
-            debug_tool_result(),  // Will be removed
-            long_tool_result(),   // Will be kept
+            debug_tool_result(), // Will be removed
+            long_tool_result(),  // Will be kept
         ]);
 
         filter.remove_debug_output(&mut ctx);
@@ -282,7 +270,7 @@ mod tests {
         });
 
         let mut ctx = make_context(vec![
-            ContextMessage::user("   ", None),  // Will be removed
+            ContextMessage::user("   ", None),   // Will be removed
             ContextMessage::user("Hello", None), // Will be kept
         ]);
 
@@ -298,19 +286,13 @@ mod tests {
             ..Default::default()
         });
 
-        let tool1 = ContextMessage::Tool(
-            ToolResult::new("read")
-                .success("file content")
-        );
-        let tool2 = ContextMessage::Tool(
-            ToolResult::new("read")
-                .success("same content")
-        );
+        let tool1 = ContextMessage::Tool(ToolResult::new("read").success("file content"));
+        let tool2 = ContextMessage::Tool(ToolResult::new("read").success("same content"));
 
         let mut ctx = make_context(vec![
             tool1.clone(),
-            tool2,   // Duplicate - will be removed
-            tool1,   // Different position, will be kept
+            tool2, // Duplicate - will be removed
+            tool1, // Different position, will be kept
         ]);
 
         filter.collapse_duplicate_operations(&mut ctx);
@@ -323,10 +305,10 @@ mod tests {
         let filter = PreCompactionFilter::default_filter();
 
         let mut ctx = make_context(vec![
-            short_tool_result(),  // Will be removed (short)
-            debug_tool_result(),   // Will be removed (debug)
-            ContextMessage::user("   ", None),  // Will be removed (empty)
-            long_tool_result(),    // Will be kept
+            short_tool_result(),               // Will be removed (short)
+            debug_tool_result(),               // Will be removed (debug)
+            ContextMessage::user("   ", None), // Will be removed (empty)
+            long_tool_result(),                // Will be kept
         ]);
 
         filter.filter(&mut ctx);

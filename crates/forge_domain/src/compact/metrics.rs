@@ -211,7 +211,10 @@ impl CompactionMetrics {
 
     /// Get count by event type
     pub fn count_by_event_type(&self, event_type: CompactionEventType) -> usize {
-        self.event_type_counts.get(&event_type).copied().unwrap_or(0)
+        self.event_type_counts
+            .get(&event_type)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Get strategy with most usage
@@ -229,7 +232,10 @@ impl CompactionMetrics {
 
     /// Get events by strategy
     pub fn events_by_strategy(&self, strategy: SummaryStrategy) -> Vec<&CompactionEvent> {
-        self.events.iter().filter(|e| e.summary_strategy == strategy).collect()
+        self.events
+            .iter()
+            .filter(|e| e.summary_strategy == strategy)
+            .collect()
     }
 
     /// Clear all metrics

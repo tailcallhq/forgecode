@@ -205,6 +205,17 @@ pub trait ConversationRepository: Send + Sync {
     /// Returns an error if the optimize statement fails to execute.
     async fn optimize_fts_index(&self) -> Result<()>;
 
+    /// Rebuilds the contentful FTS5 index from the current conversation
+    /// rows without touching the hot write path.
+    ///
+    /// The refresh uses the FTS5-native `delete-all` command to clear the
+    /// index, then repopulates it from `conversations` in a single
+    /// transaction so callers can run it on a maintenance cadence.
+    ///
+    /// # Errors
+    /// Returns an error if either FTS5 statement fails to execute.
+    async fn refresh_fts_index(&self) -> Result<()>;
+
     /// Re-binds a subagent conversation to a different parent. Pass `None`
     /// for `new_parent_id` to detach the conversation entirely (promotes it
     /// to a top-level session).

@@ -41,6 +41,7 @@ impl PoolConfig {
 pub struct DatabasePool {
     pool: DbPool,
     max_retries: usize,
+    _checkpointer: Option<crate::database::checkpoint::WalCheckpointer>,
 }
 
 impl DatabasePool {
@@ -65,7 +66,7 @@ impl DatabasePool {
             .run_pending_migrations(MIGRATIONS)
             .map_err(|e| anyhow::anyhow!("Failed to run database migrations: {e}"))?;
 
-        Ok(Self { pool, max_retries: 5 })
+        Ok(Self { pool, max_retries: 5, _checkpointer: None })
     }
 
     pub fn get_connection(&self) -> Result<PooledSqliteConnection> {
@@ -120,7 +121,11 @@ impl CustomizeConnection<SqliteConnection, diesel::r2d2::Error> for SqliteCustom
         diesel::sql_query("PRAGMA synchronous = NORMAL;")
             .execute(conn)
             .map_err(diesel::r2d2::Error::QueryError)?;
-        diesel::sql_query("PRAGMA wal_autocheckpoint = 1000;")
+        // Phenotype-org change: many forge processes share one .forge.db.
+        // Per-connection PASSIVE autocheckpoint mostly no-ops under contention
+        // while still costing writers, so disable it here and move checkpointing
+        // to a dedicated background thread (see checkpoint.rs).
+        diesel::sql_query("PRAGMA wal_autocheckpoint = 0;")
             .execute(conn)
             .map_err(diesel::r2d2::Error::QueryError)?;
         Ok(())
@@ -183,7 +188,14 @@ impl DatabasePool {
             anyhow::anyhow!("Failed to run database migrations: {e}")
         })?;
 
+        let checkpointer =
+            crate::database::checkpoint::WalCheckpointer::spawn(config.database_path.clone());
+
         debug!(database_path = %config.database_path.display(), "created connection pool");
-        Ok(Self { pool, max_retries: config.max_retries })
+        Ok(Self {
+            pool,
+            max_retries: config.max_retries,
+            _checkpointer: checkpointer,
+        })
     }
 }

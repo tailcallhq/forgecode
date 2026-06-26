@@ -64,10 +64,7 @@ impl MessageImportance {
 
 impl Default for MessageImportance {
     fn default() -> Self {
-        Self {
-            score: BASE_SCORE,
-            factors: Vec::new(),
-        }
+        Self { score: BASE_SCORE, factors: Vec::new() }
     }
 }
 
@@ -109,9 +106,10 @@ impl From<&ContextMessage> for MessageImportance {
                                     score += 5;
                                     factors.push(ImportanceFactor::HasShellExecution);
                                 }
-                                if calls.iter().any(|c| {
-                                    matches!(c.name.as_str(), "fs_search" | "sem_search")
-                                }) {
+                                if calls
+                                    .iter()
+                                    .any(|c| matches!(c.name.as_str(), "fs_search" | "sem_search"))
+                                {
                                     score += 5;
                                     factors.push(ImportanceFactor::HasSearchOperations);
                                 }
@@ -218,10 +216,7 @@ pub struct ImportanceEvictionStrategy {
 impl ImportanceEvictionStrategy {
     /// Creates a new strategy with the given protection threshold
     pub fn new(protection_threshold: u8) -> Self {
-        Self {
-            protection_threshold,
-            enabled: true,
-        }
+        Self { protection_threshold, enabled: true }
     }
 
     /// Returns true if the message should be protected from eviction
@@ -274,7 +269,11 @@ mod tests {
         let importance = MessageImportance::from(&msg);
 
         assert!(importance.should_survive());
-        assert!(importance.factors.contains(&ImportanceFactor::HasUserIntent));
+        assert!(
+            importance
+                .factors
+                .contains(&ImportanceFactor::HasUserIntent)
+        );
     }
 
     #[test]
@@ -289,7 +288,11 @@ mod tests {
 
         assert!(importance.should_survive());
         assert!(importance.factors.contains(&ImportanceFactor::HasToolCalls));
-        assert!(importance.factors.contains(&ImportanceFactor::HasFileChanges));
+        assert!(
+            importance
+                .factors
+                .contains(&ImportanceFactor::HasFileChanges)
+        );
         assert!(importance.score > BASE_SCORE);
     }
 
