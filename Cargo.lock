@@ -2320,6 +2320,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "forge_dbd"
+version = "2.9.9"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "dirs",
+ "forge_domain",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "forge_display"
 version = "0.1.1"
 dependencies = [

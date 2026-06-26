@@ -4,6 +4,7 @@ members = [
   "crates/forge_app",
   "crates/forge_ci",
   "crates/forge_config",
+  "crates/forge_dbd",
   "crates/forge_display",
   "crates/forge_domain",
   "crates/forge_embed",
