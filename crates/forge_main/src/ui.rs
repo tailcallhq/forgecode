@@ -2853,6 +2853,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let cwd = self.state.cwd.clone();
                 self.on_workspace_init(cwd, false).await?;
             }
+            AppCommand::ConversationTree => {
+                // Show nested conversations spawned by the current conversation
+                // Reuse list_conversations for now; upstream may have more specific logic
+                self.list_conversations().await?;
+            }
         }
 
         self.state.last_activity = std::time::Instant::now();
