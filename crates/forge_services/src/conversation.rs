@@ -151,4 +151,13 @@ impl<S: ConversationRepository> ConversationService for ForgeConversationService
             .get_conversations_by_cwd(cwd, limit)
             .await
     }
+
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> Result<Option<Conversation>> {
+        self.conversation_repository
+            .rewind_conversation(conversation_id)
+            .await
+    }
 }

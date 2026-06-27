@@ -2588,6 +2588,83 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    async fn handle_clear_screen(&mut self) -> anyhow::Result<()> {
+        // CC parity: /clear — clear the visible terminal area (does NOT drop history)
+        self.console.clear_screen()?;
+        self.writeln_title(TitleFormat::info("Screen cleared".to_string()))?;
+        Ok(())
+    }
+
+    async fn handle_init_agents_md(&mut self) -> anyhow::Result<()> {
+        // CC parity: /init — write an AGENTS.md at the cwd if one doesn't exist
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let agents_path = cwd.join("AGENTS.md");
+        if agents_path.exists() {
+            self.writeln_title(TitleFormat::error(format!(
+                "{} already exists — refusing to overwrite",
+                "AGENTS.md".bold()
+            )))?;
+            return Ok(());
+        }
+        let template = "# AGENTS.md\n\n\
+            Project-specific instructions for forge agents working in this repository.\n\n\
+            ## What this file is\n\n\
+            Forge reads this file at session start. Put any conventions, gotchas, or non-obvious\n\
+            requirements here so the agent doesn't have to rediscover them every session.\n\n\
+            ## Sections to fill in (delete ones that don't apply)\n\n\
+            ### Build & test\n\
+            - How to build the project\n\
+            - How to run the test suite (single-file and full)\n\
+            - Lint / format / typecheck commands\n\n\
+            ### Repo conventions\n\
+            - Branch naming, commit message style, PR labels\n\
+            - Code style (formatter, linter, naming)\n\
+            - File layout (where to put new code, tests, docs)\n\n\
+            ### Tooling\n\
+            - Required tools and their versions\n\
+            - How to run the agent (forge-dev path, build flags)\n\
+            - Any env vars that must be set\n\n\
+            ### Subagent policy\n\
+            - When to spawn a subagent (multi-file refactor, deep investigation, parallel work)\n\
+            - When NOT to spawn a subagent (small edits, in-session work)\n\
+            - Which model to use for which kind of subtask\n";
+        std::fs::write(&agents_path, template).map_err(|e| {
+            anyhow::anyhow!("Failed to write {}: {}", agents_path.display(), e)
+        })?;
+        self.writeln_title(TitleFormat::info(format!(
+            "Wrote {} — review and edit before the next session",
+            "AGENTS.md".bold()
+        )))?;
+        Ok(())
+    }
+
+    async fn handle_rewind(&mut self) -> anyhow::Result<()> {
+        // CC parity: /rewind — rollback the active conversation to the last compaction anchor
+        // (or to its creation if no compaction exists). Backs up the current state first so
+        // a second /rewind reverts the rollback.
+        if let Some(cid) = self.state.conversation_id {
+            match self.api.rewind_conversation(&cid).await {
+                Ok(_) => {
+                    self.writeln_title(TitleFormat::info(format!(
+                        "Rewound conversation {} to last compaction",
+                        cid.into_string().bold()
+                    )))?;
+                }
+                Err(e) => {
+                    self.writeln_title(TitleFormat::error(format!(
+                        "Rewind failed: {}",
+                        e.to_string().red()
+                    )))?;
+                }
+            }
+        } else {
+            self.writeln_title(TitleFormat::error(
+                "No active conversation to rewind".to_string(),
+            ))?;
+        }
+        Ok(())
+    }
+
     fn user_initiated_conversations(conversations: Vec<Conversation>) -> Vec<Conversation> {
         let related_ids: HashSet<ConversationId> = conversations
             .iter()
@@ -2657,6 +2734,15 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             AppCommand::Compact => {
                 self.spinner.start(Some("Compacting"))?;
                 self.on_compaction().await?;
+            }
+            AppCommand::Clear => {
+                self.handle_clear_screen().await?;
+            }
+            AppCommand::Init => {
+                self.handle_init_agents_md().await?;
+            }
+            AppCommand::Rewind => {
+                self.handle_rewind().await?;
             }
             AppCommand::OutputCompact => {
                 self.apply_output_mode(OutputMode::Compact).await?;

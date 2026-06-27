@@ -282,6 +282,15 @@ impl<
             .await
     }
 
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> Result<Option<Conversation>> {
+        self.services
+            .rewind_conversation(conversation_id)
+            .await
+    }
+
     async fn get_conversations_by_cwd(
         &self,
         cwd: &str,

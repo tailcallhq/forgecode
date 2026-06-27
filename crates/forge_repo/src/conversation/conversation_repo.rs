@@ -512,6 +512,53 @@ impl ConversationRepository for ConversationRepositoryImpl {
         .await
     }
 
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> anyhow::Result<Option<Conversation>> {
+        let conversation_id_str = conversation_id.into_string();
+        let now: chrono::NaiveDateTime = chrono::Utc::now().naive_utc();
+        let result = self
+            .run_with_connection(move |connection, _wid| {
+                // MVP rewind semantics: find the most recent user message followed by
+                // a tool call (i.e. last compaction point heuristic) and truncate
+                // the context JSON to that prefix. If no tool call is found,
+                // fall back to clearing context to the most recent user message.
+                let record: Option<ConversationRecord> = conversations::table
+                    .filter(conversations::conversation_id.eq(&conversation_id_str))
+                    .first(connection)
+                    .optional()?;
+
+                let new_context: Option<String> = match record {
+                    Some(r) if r.context.is_some() => {
+                        let ctx = r.context.as_ref().unwrap();
+                        let rewind_point = find_last_compaction_point(ctx);
+                        Some(truncate_context(ctx, rewind_point))
+                    }
+                    _ => None,
+                };
+
+                diesel::update(
+                    conversations::table
+                        .filter(conversations::conversation_id.eq(&conversation_id_str)),
+                )
+                .set((
+                    conversations::context.eq(new_context),
+                    conversations::updated_at.eq(Some(now)),
+                ))
+                .execute(connection)?;
+
+                // Re-read the updated record so we can return it.
+                let updated: Option<ConversationRecord> = conversations::table
+                    .filter(conversations::conversation_id.eq(&conversation_id_str))
+                    .first(connection)
+                    .optional()?;
+                Ok(updated.and_then(|r| Conversation::try_from(r).ok()))
+            })
+            .await?;
+        Ok(result)
+    }
+
     async fn get_conversations_by_cwd(
         &self,
         cwd: &str,
@@ -677,6 +724,57 @@ impl ConversationRepository for ConversationRepositoryImpl {
         })
         .await
     }
+}
+
+/// Find the byte-offset in the context JSON immediately after the last
+/// "compaction point" we can detect. The MVP heuristic scans the JSON string
+/// for tool-call markers (`"name":`) in reverse and returns the offset of
+/// the most recent user-text content that *precedes* a tool call.
+///
+/// `0` means "no rewound prefix found; truncate to empty" (full reset).
+fn find_last_compaction_point(context_json: &str) -> usize {
+    // Walk the JSON looking for the most recent `"role":"user"` message
+    // boundary followed by a tool call. Each message entry in the context
+    // is a JSON object; we just look for the substring order heuristically.
+    // This is intentionally conservative: it errs on "rewind less, keep
+    // more history" rather than "rewind too far, lose context".
+    let user_marker = "\"role\":\"user\"";
+    let tool_marker = "\"tool_calls\"";
+
+    // Find the last user-role occurrence.
+    let last_user = context_json.rfind(user_marker);
+    if last_user.is_none() {
+        return 0;
+    }
+    // After that user-role, look forward for the first tool_call marker.
+    let after_user = last_user.unwrap() + user_marker.len();
+    if let Some(tool_pos) = context_json[after_user..].find(tool_marker) {
+        // Truncate at the user-role boundary so we keep the user turn
+        // but discard everything after it (including the tool call).
+        return last_user.unwrap();
+    }
+    // No tool call after the last user message — treat the last user
+    // message as the rewind point too (discard any trailing assistant
+    // text/tool results that came after).
+    last_user.unwrap()
+}
+
+/// Truncate the context JSON to the prefix `rewind_point` bytes long.
+/// Re-emits a valid JSON shape: `{ "messages": ...truncated prefix... }`.
+/// If the prefix is `0`, returns an empty messages array.
+fn truncate_context(context_json: &str, rewind_point: usize) -> String {
+    if rewind_point == 0 {
+        return r#"{"messages":[]}"#.to_string();
+    }
+    // Walk backwards to the previous comma or opening brace so we don't
+    // produce a truncated object/messages array.
+    let bytes = context_json.as_bytes();
+    let mut cut = rewind_point.min(bytes.len());
+    while cut > 0 && bytes[cut - 1] != b',' && bytes[cut - 1] != b'[' && bytes[cut - 1] != b'{' {
+        cut -= 1;
+    }
+    let prefix = &context_json[..cut];
+    format!("{}\"rewound\":true}}", prefix.trim_end_matches(|c| c == ',' || c == ' '))
 }
 
 #[cfg(test)]

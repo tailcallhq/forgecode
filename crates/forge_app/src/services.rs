@@ -326,6 +326,15 @@ pub trait ConversationService: Send + Sync {
         query: &str,
         token_count: usize,
     ) -> anyhow::Result<Option<String>>;
+
+    /// Roll the conversation back to its last compaction point — the most
+    /// recent user-turn boundary in the context. Used by the `/rewind`
+    /// slash command. Returns the rewound conversation, or `None` if no
+    /// compaction anchor exists (i.e. nothing to rewind to).
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> anyhow::Result<Option<Conversation>>;
 }
 
 #[async_trait::async_trait]
@@ -780,6 +789,15 @@ impl<I: Services> ConversationService for I {
     ) -> anyhow::Result<Option<String>> {
         self.conversation_service()
             .get_conversation_snippet(conversation_id, query, token_count)
+            .await
+    }
+
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> anyhow::Result<Option<Conversation>> {
+        self.conversation_service()
+            .rewind_conversation(conversation_id)
             .await
     }
 }

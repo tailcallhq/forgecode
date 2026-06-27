@@ -254,6 +254,17 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
             .prune_conversation(conversation_id)
             .await
     }
+
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> anyhow::Result<Option<Conversation>> {
+        self.conversation_repository
+            .rewind_conversation(conversation_id)
+            .await
+    }
+            .await
+    }
 }
 
 #[async_trait::async_trait]

@@ -551,6 +551,26 @@ pub enum AppCommand {
     #[strum(props(usage = "Compact the conversation context"))]
     Compact,
 
+    /// Clear the screen (does not affect conversation history).
+    /// This can be triggered with the '/clear' command (alias: cls).
+    #[strum(props(usage = "Clear the screen [alias: cls]"))]
+    #[command(alias = "cls")]
+    Clear,
+
+    /// Write project memory (AGENTS.md) for the current workspace.
+    /// This can be triggered with the '/init' command.
+    #[strum(props(usage = "Initialize project memory (AGENTS.md) for the current workspace"))]
+    Init,
+
+    /// Rewind the conversation to a previous checkpoint.
+    /// This can be triggered with the '/rewind' command.
+    /// Rolls back the conversation to the last compaction point (or the start
+    /// of the session if no compaction has occurred). The undone turns are
+    /// preserved in history but the current context is reset to the
+    /// checkpoint, freeing context window space.
+    #[strum(props(usage = "Rewind to the last checkpoint (or session start)"))]
+    Rewind,
+
     /// Start a new conversation while preserving history.
     /// This can be triggered with the '/new' command.
     #[strum(props(usage = "Start a new conversation"))]
@@ -860,6 +880,9 @@ impl AppCommand {
             AppCommand::OutputCompact => "output-compact",
             AppCommand::OutputConcise => "output-concise",
             AppCommand::OutputVerbose => "output-verbose",
+            AppCommand::Clear => "clear",
+            AppCommand::Init => "init",
+            AppCommand::Rewind => "rewind",
         }
     }
 

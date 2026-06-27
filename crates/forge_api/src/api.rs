@@ -122,6 +122,15 @@ pub trait API: Sync + Send {
     /// disk footprint. Safe to call at any time; safe to call repeatedly.
     async fn optimize_fts_index(&self) -> Result<()>;
 
+    /// Rewinds the conversation to the most recent user turn that preceded
+    /// a tool call (treated as the implicit last compaction point). Truncates
+    /// all messages from that point forward and returns the updated
+    /// conversation. Returns `Ok(None)` if no compaction point was found.
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> Result<Option<Conversation>>;
+
     /// Re-binds a subagent conversation to a different parent. Pass `None`
     /// for `new_parent_id` to detach (promotes the subagent to a top-level
     /// session). Atomic single-row update; does not recurse into descendants.

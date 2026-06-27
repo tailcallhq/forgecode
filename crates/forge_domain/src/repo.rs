@@ -311,6 +311,34 @@ pub trait ConversationRepository: Send + Sync {
     /// - Current intent_state != 'verified' (safety guard)
     /// - The database update fails
     async fn prune_conversation(&self, conversation_id: &ConversationId) -> Result<()>;
+
+    /// Rewinds a conversation to the snapshot recorded at the last
+    /// compaction point. Used by the `/rewind` slash command (Claude
+    /// Code parity) to roll back the conversation to its pre-compaction
+    /// state.
+    ///
+    /// Implementation strategy: persists a `compaction_anchor` row
+    /// whenever the user runs `/compact` (a copy of the conversation
+    /// JSON before compaction). On rewind, the repo reads the most
+    /// recent anchor for `conversation_id` and replaces the live
+    /// conversation's content with it.
+    ///
+    /// # Arguments
+    /// * `conversation_id` - The conversation to rewind.
+    ///
+    /// # Returns
+    /// * `Ok(Some(Conversation))` with the restored conversation if an
+    ///   anchor exists.
+    /// * `Ok(None)` if no anchor has ever been recorded (rewind is a
+    ///   no-op in that case).
+    ///
+    /// # Errors
+    /// Returns an error if the anchor read or the conversation update
+    /// fails.
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> Result<Option<Conversation>>;
 }
 
 #[async_trait::async_trait]
