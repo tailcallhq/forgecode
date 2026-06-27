@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::Utc;
 use forge_api::Conversation;
-use forge_domain::ConversationId;
+use forge_domain::{ConversationId, ConversationSort};
 use forge_select::{ForgeWidget, PreviewLayout, PreviewPlacement, SelectRow};
 
 use crate::display_constants::markers;
@@ -24,12 +24,22 @@ impl<'a> FastConversationRow<'a> {
 
 impl<'a> std::fmt::Display for FastConversationRow<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let id = self.conv.id.to_string();
-        let short_id = &id[..8.min(id.len())];
         let title = self.conv
             .title
             .as_deref()
             .unwrap_or(markers::EMPTY);
+
+        // Truncate title to fixed width (50 chars) with ellipsis if longer
+        let max_title_width = 50;
+        let title_display = if title.len() > max_title_width {
+            format!("{}…", &title[..max_title_width])
+        } else {
+            title.to_string()
+        };
+
+        // Pad title to fixed width for alignment
+        let title_padded = format!("{:<width$}", title_display, width = max_title_width + 1);
+
         let duration = self.now.signed_duration_since(
             self.conv.metadata.updated_at.unwrap_or(self.conv.metadata.created_at),
         );
@@ -42,7 +52,9 @@ impl<'a> std::fmt::Display for FastConversationRow<'a> {
         } else {
             format!("{}d ago", duration.num_days())
         };
-        write!(f, "[{}] {} ({})", short_id, title, time_ago)
+
+        // Fixed-column date alignment (right-aligned in 10-char field)
+        write!(f, "{} {:>10}", title_padded, time_ago)
     }
 }
 
@@ -57,33 +69,118 @@ impl ConversationSelector {
     /// `forge conversation show` to display the selected conversation's
     /// metadata and last message side-by-side with the picker list.
     ///
+    /// The `query` parameter filters/searches conversations if provided (enables FTS).
+    /// The `sort` parameter controls the display order (updated, created, turns, title, cwd).
+    ///
     /// Returns the selected conversation, or None if the user cancelled.
     pub async fn select_conversation(
         conversations: &[Conversation],
         _current_conversation_id: Option<ConversationId>,
         query: Option<String>,
+        sort: ConversationSort,
     ) -> Result<Option<Conversation>> {
         if conversations.is_empty() {
             return Ok(None);
         }
 
-        // Filter to conversations with titles and context
-        let valid_conversations: Vec<&Conversation> = conversations
+        // Build the list of conversations to display, optionally filtered by query
+        let mut final_conversations: Vec<&Conversation> = conversations
             .iter()
             .filter(|c| c.context.is_some())
+            .filter(|c| {
+                // Apply query filter if provided
+                if let Some(ref q) = query {
+                    let q_lower = q.to_lowercase();
+                    c.title
+                        .as_ref()
+                        .map(|t| t.to_lowercase().contains(&q_lower))
+                        .unwrap_or(false)
+                } else {
+                    true
+                }
+            })
             .collect();
 
-        if valid_conversations.is_empty() {
+        if final_conversations.is_empty() {
             return Ok(None);
         }
+
+        // Apply sorting based on the current sort order
+        final_conversations.sort_by(|a, b| {
+            match sort {
+                ConversationSort::Updated => {
+                    // Most recent first (DESC)
+                    let a_time = a.metadata.updated_at.unwrap_or(a.metadata.created_at);
+                    let b_time = b.metadata.updated_at.unwrap_or(b.metadata.created_at);
+                    b_time.cmp(&a_time)
+                }
+                ConversationSort::Created => {
+                    // Newest first (DESC)
+                    b.metadata.created_at.cmp(&a.metadata.created_at)
+                }
+                ConversationSort::Turns => {
+                    // By message count (DESC), then by updated_at (DESC)
+                    match (b.message_count, a.message_count) {
+                        (Some(b_count), Some(a_count)) => {
+                            let count_cmp = b_count.cmp(&a_count);
+                            if count_cmp != std::cmp::Ordering::Equal {
+                                count_cmp
+                            } else {
+                                let a_time = a.metadata.updated_at.unwrap_or(a.metadata.created_at);
+                                let b_time = b.metadata.updated_at.unwrap_or(b.metadata.created_at);
+                                b_time.cmp(&a_time)
+                            }
+                        }
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => {
+                            let a_time = a.metadata.updated_at.unwrap_or(a.metadata.created_at);
+                            let b_time = b.metadata.updated_at.unwrap_or(b.metadata.created_at);
+                            b_time.cmp(&a_time)
+                        }
+                    }
+                }
+                ConversationSort::Title => {
+                    // Alphabetical ASC, nulls last
+                    match (&a.title, &b.title) {
+                        (Some(a_title), Some(b_title)) => a_title.cmp(b_title),
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => std::cmp::Ordering::Equal,
+                    }
+                }
+                ConversationSort::Cwd => {
+                    // By cwd ASC, nulls last; then by updated_at DESC
+                    match (&a.cwd, &b.cwd) {
+                        (Some(a_cwd), Some(b_cwd)) => {
+                            let cwd_cmp = a_cwd.cmp(b_cwd);
+                            if cwd_cmp != std::cmp::Ordering::Equal {
+                                cwd_cmp
+                            } else {
+                                let a_time = a.metadata.updated_at.unwrap_or(a.metadata.created_at);
+                                let b_time = b.metadata.updated_at.unwrap_or(b.metadata.created_at);
+                                b_time.cmp(&a_time)
+                            }
+                        }
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => {
+                            let a_time = a.metadata.updated_at.unwrap_or(a.metadata.created_at);
+                            let b_time = b.metadata.updated_at.unwrap_or(b.metadata.created_at);
+                            b_time.cmp(&a_time)
+                        }
+                    }
+                }
+            }
+        });
 
         // Build SelectRow items directly — no Info/Porcelain overhead.
         // This keeps the selector fast even with thousands of conversations.
         let now = Utc::now();
-        let mut rows: Vec<SelectRow> = Vec::with_capacity(valid_conversations.len() + 1);
-        rows.push(SelectRow::header("ID       Title                          Updated"));
+        let mut rows: Vec<SelectRow> = Vec::with_capacity(final_conversations.len() + 1);
+        rows.push(SelectRow::header("Title                                          Updated   "));
 
-        for conv in &valid_conversations {
+        for conv in &final_conversations {
             let uuid = conv.id.to_string();
             let display = FastConversationRow::new(conv, now).to_string();
             rows.push(SelectRow {
@@ -97,7 +194,7 @@ impl ConversationSelector {
         // Build a lookup map from UUID to Arc<Conversation> for the result.
         // Using Arc avoids cloning every Conversation twice (once for the row
         // raw UUID and once for the lookup map) — big win on 6k+ lists.
-        let conv_map: HashMap<String, Arc<Conversation>> = valid_conversations
+        let conv_map: HashMap<String, Arc<Conversation>> = final_conversations
             .iter()
             .map(|c| (c.id.to_string(), Arc::new((*c).clone())))
             .collect::<HashMap<_, _>>();
@@ -151,7 +248,7 @@ mod tests {
     #[tokio::test]
     async fn test_select_conversation_empty_list() {
         let conversations = vec![];
-        let result = ConversationSelector::select_conversation(&conversations, None, None)
+        let result = ConversationSelector::select_conversation(&conversations, None, None, ConversationSort::Updated)
             .await
             .unwrap();
         assert!(result.is_none());

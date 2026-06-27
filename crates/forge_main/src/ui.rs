@@ -1022,6 +1022,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                                 &conversations,
                                 self.state.conversation_id,
                                 query.clone(),
+                                self.state.sort,
                             )
                             .await?
                         {
@@ -2188,6 +2189,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             &conversations,
             self.state.conversation_id,
             None,
+            self.state.sort,
         )
         .await?
         {
@@ -2235,6 +2237,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             &conversations,
             self.state.conversation_id,
             None,
+            self.state.sort,
         )
         .await?
         {
@@ -2416,6 +2419,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             &conversations,
             self.state.conversation_id,
             None,
+            self.state.sort,
         )
         .await?
         {
@@ -3149,6 +3153,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 &conversations,
                 self.state.conversation_id,
                 None,
+                self.state.sort,
             )
             .await?;
 
@@ -3226,6 +3231,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 &conversations,
                 self.state.conversation_id,
                 None,
+                self.state.sort,
             )
             .await?;
 
