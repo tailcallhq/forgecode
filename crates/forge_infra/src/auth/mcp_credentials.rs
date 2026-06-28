@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 /// MCP OAuth tokens for a single server.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct McpOAuthTokens {
     pub access_token: String,
     pub refresh_token: Option<String>,
@@ -20,12 +20,34 @@ pub struct McpOAuthTokens {
 }
 
 /// Client registration info (for dynamic registration)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct McpClientRegistration {
     pub client_id: String,
     pub client_secret: Option<String>,
     pub client_id_issued_at: Option<u64>,
     pub client_secret_expires_at: Option<u64>,
+}
+
+impl std::fmt::Debug for McpOAuthTokens {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("McpOAuthTokens")
+            .field("access_token", &"<redacted>")
+            .field("refresh_token", &self.refresh_token.as_ref().map(|_| "<redacted>"))
+            .field("expires_at", &self.expires_at)
+            .field("scope", &self.scope)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for McpClientRegistration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("McpClientRegistration")
+            .field("client_id", &self.client_id)
+            .field("client_secret", &self.client_secret.as_ref().map(|_| "<redacted>"))
+            .field("client_id_issued_at", &self.client_id_issued_at)
+            .field("client_secret_expires_at", &self.client_secret_expires_at)
+            .finish()
+    }
 }
 
 /// Complete credential entry for an MCP server
@@ -135,6 +157,36 @@ mod tests {
             shell: "bash".to_string(),
             base_path,
         }
+    }
+
+
+    #[test]
+    fn test_mcp_oauth_tokens_debug_redacts_secrets() {
+        let tokens = McpOAuthTokens {
+            access_token: "super_secret_mcp_access_token".to_string(),
+            refresh_token: Some("super_secret_mcp_refresh_token".to_string()),
+            expires_at: Some(9999999999),
+            scope: Some("read".to_string()),
+        };
+        let debug = format!("{:?}", tokens);
+        assert!(!debug.contains("super_secret_mcp_access_token"), "access_token must be redacted in Debug");
+        assert!(!debug.contains("super_secret_mcp_refresh_token"), "refresh_token must be redacted in Debug");
+        assert!(debug.contains("<redacted>"), "Debug must contain <redacted>");
+        assert!(debug.contains("9999999999"), "expires_at should be visible in Debug");
+    }
+
+    #[test]
+    fn test_mcp_client_registration_debug_redacts_client_secret() {
+        let reg = McpClientRegistration {
+            client_id: "public_client_id_123".to_string(),
+            client_secret: Some("super_secret_client_secret".to_string()),
+            client_id_issued_at: Some(1234567890),
+            client_secret_expires_at: None,
+        };
+        let debug = format!("{:?}", reg);
+        assert!(!debug.contains("super_secret_client_secret"), "client_secret must be redacted in Debug");
+        assert!(debug.contains("<redacted>"), "Debug must contain <redacted>");
+        assert!(debug.contains("public_client_id_123"), "client_id should remain visible in Debug");
     }
 
     #[tokio::test]
