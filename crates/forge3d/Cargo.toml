@@ -20,6 +20,7 @@ forge_infra.workspace = true
 forge_snaps.workspace = true
 fs2 = "0.4"
 libc = "0.2"
+tokio-util.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

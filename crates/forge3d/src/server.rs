@@ -14,15 +14,19 @@
 //! ```ignore
 //! use std::path::Path;
 //! use std::sync::Arc;
+//! use tokio_util::sync::CancellationToken;
 //!
+//! let shutdown = CancellationToken::new();
 //! let server = Arc::new(Server::new().with_clock(system_clock()));
-//! server.serve(Path::new("/tmp/forge3d.sock")).await?;
+//! server.serve(Path::new("/tmp/forge3d.sock"), shutdown).await?;
 //! ```
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::net::UnixListener;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::error::{Forge3Error, Result};
@@ -100,7 +104,7 @@ impl Sockets {
 ///         .with_drift_detector(detector)
 ///         .with_clock(my_clock),
 /// );
-/// server.serve(&socket_path).await?;
+/// server.serve(&socket_path, shutdown).await?;
 /// ```
 pub struct Server {
     registry: Registry,
@@ -206,14 +210,18 @@ impl Server {
     // -- UDS serve loop ------------------------------------------------------
 
     /// Bind to `socket_path` and accept incoming frame-based connections
-    /// forever.
+    /// until `shutdown` is cancelled.
     ///
-    /// Each connection is handled in a spawned Tokio task so that multiple
-    /// clients can interact with the registry concurrently.
+    /// # Task-lifecycle convention (P2.4)
+    ///
+    /// - The accept loop `select!`s on the `shutdown` token so it exits cleanly
+    ///   without waiting for the next client.
+    /// - Each per-connection task is tracked in a [`JoinSet`]; on shutdown the
+    ///   set is aborted and awaited so no orphaned tasks remain.
     ///
     /// **Note**: `self` must be wrapped in an `Arc` because `tokio::spawn`
     /// requires `'static` lifetimes.
-    pub async fn serve(self: &Arc<Self>, socket_path: &Path) -> Result<()> {
+    pub async fn serve(self: &Arc<Self>, socket_path: &Path, shutdown: CancellationToken) -> Result<()> {
         // Remove any stale socket file from a previous run.
         if socket_path.exists() {
             std::fs::remove_file(socket_path)?;
@@ -222,21 +230,39 @@ impl Server {
         let listener = UnixListener::bind(socket_path)?;
         info!("forge3d listening on {}", socket_path.display());
 
-        loop {
-            let (stream, _addr) = match listener.accept().await {
-                Ok(pair) => pair,
-                Err(e) => {
-                    error!("accept error: {e}");
-                    return Err(e.into());
-                }
-            };
+        // Track all per-connection tasks so we can await/abort them on exit.
+        let mut tasks: JoinSet<()> = JoinSet::new();
 
-            let server = self.clone();
-            tokio::spawn(async move {
-                if let Err(e) = handle_connection(&server, stream).await {
-                    warn!("connection error: {e}");
+        loop {
+            tokio::select! {
+                // Clean shutdown: cancel all in-flight connection tasks.
+                _ = shutdown.cancelled() => {
+                    info!("forge3d shutting down; aborting {} in-flight connection(s)", tasks.len());
+                    tasks.abort_all();
+                    while tasks.join_next().await.is_some() {}
+                    return Ok(());
                 }
-            });
+
+                accept_result = listener.accept() => {
+                    let (stream, _addr) = match accept_result {
+                        Ok(pair) => pair,
+                        Err(e) => {
+                            error!("accept error: {e}");
+                            return Err(e.into());
+                        }
+                    };
+
+                    let server = self.clone();
+                    tasks.spawn(async move {
+                        if let Err(e) = handle_connection(&server, stream).await {
+                            warn!("connection error: {e}");
+                        }
+                    });
+                }
+            }
+
+            // Reap any tasks that have already finished to keep the set bounded.
+            while let Some(_result) = tasks.try_join_next() {}
         }
     }
 
@@ -539,5 +565,43 @@ mod tests {
         let req = mk_req("drift.observe", json!({"agent_id": "a", "prompt": "hello"}), 1);
         let resp = srv.dispatch(&req).await;
         assert_error(&resp, -32600);
+    }
+
+    // ------------------------------------------------------------------
+    // Serve cancellation test (P2.4)
+    // ------------------------------------------------------------------
+
+    /// Verify that `serve` exits cleanly when the `CancellationToken` is
+    /// triggered, without waiting for a new connection to arrive.
+    #[tokio::test]
+    async fn serve_exits_on_cancellation() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("test.sock");
+
+        let shutdown = CancellationToken::new();
+        let server = Arc::new(Server::new().with_clock(fixed_clock(0)));
+
+        // Spawn serve in a task; cancel it immediately after it has bound the socket.
+        let srv = server.clone();
+        let sock_path = socket.clone();
+        let token = shutdown.clone();
+        let serve_task = tokio::spawn(async move {
+            srv.serve(&sock_path, token).await
+        });
+
+        // Give the task time to bind, then cancel.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        shutdown.cancel();
+
+        // The task should return Ok(()) promptly.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            serve_task,
+        )
+        .await
+        .expect("serve did not exit within 2s after cancellation")
+        .expect("task panicked");
+
+        assert!(result.is_ok(), "serve returned an error: {:?}", result);
     }
 }

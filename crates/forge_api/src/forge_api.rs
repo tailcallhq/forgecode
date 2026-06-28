@@ -17,6 +17,8 @@ use forge_repo::ForgeRepo;
 use forge_services::ForgeServices;
 use forge_stream::MpscStream;
 use futures::stream::BoxStream;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use url::Url;
 use tracing::{debug, warn};
 
@@ -25,11 +27,14 @@ use crate::API;
 pub struct ForgeAPI<S, F> {
     services: Arc<S>,
     infra: Arc<F>,
+    /// Holds cancellation token + join handles for background tasks owned by
+    /// this instance.  Tasks are aborted when `ForgeAPI` is dropped.
+    _background: Option<BackgroundTasks>,
 }
 
 impl<A, F> ForgeAPI<A, F> {
     pub fn new(services: Arc<A>, infra: Arc<F>) -> Self {
-        Self { services, infra }
+        Self { services, infra, _background: None }
     }
 
     /// Creates a ForgeApp instance with the current services and latest config.
@@ -42,25 +47,90 @@ impl<A, F> ForgeAPI<A, F> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Task-lifecycle convention (P2.4)
+// ---------------------------------------------------------------------------
+// All long-lived background tasks MUST:
+//   1. Accept a `CancellationToken` and `select!` on it so they can be stopped
+//      cleanly (no orphaned tasks on shutdown).
+//   2. Return a `JoinHandle` (or be tracked in a `JoinSet`) so the owner can
+//      `await` or `abort` the task on drop / shutdown.
+//   3. Never be spawned fire-and-forget without tracking.
+// ---------------------------------------------------------------------------
+
+/// Owned handles for background tasks started by [`ForgeAPI::init`].
+///
+/// Drop this value (or call [`BackgroundTasks::shutdown`]) to cancel all tasks
+/// and wait for them to finish.
+pub struct BackgroundTasks {
+    cancel: CancellationToken,
+    handles: Vec<JoinHandle<()>>,
+}
+
+impl BackgroundTasks {
+    fn new(cancel: CancellationToken, handles: Vec<JoinHandle<()>>) -> Self {
+        Self { cancel, handles }
+    }
+
+    /// Cancel all background tasks and wait for them to finish.
+    pub async fn shutdown(mut self) {
+        self.cancel.cancel();
+        for handle in self.handles.drain(..) {
+            // Ignore JoinErrors (task panicked / already finished).
+            let _ = handle.await;
+        }
+    }
+}
+
+impl Drop for BackgroundTasks {
+    fn drop(&mut self) {
+        // Best-effort cancellation on drop; callers should prefer `shutdown`.
+        self.cancel.cancel();
+        for handle in self.handles.drain(..) {
+            handle.abort();
+        }
+    }
+}
+
 impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
     const FTS_REFRESH_DEFAULT_SECS: u64 = 300;
     const FTS_REFRESH_STARTUP_DELAY_SECS: u64 = 30;
 
     /// Creates a fully-initialized [`ForgeAPI`] from a pre-read configuration.
     ///
+    /// Background tasks (e.g. FTS refresh loop) are started here and owned by
+    /// the returned instance.  They are cancelled automatically when the
+    /// `ForgeAPI` is dropped.
+    ///
     /// # Arguments
     /// * `cwd` - The working directory path for environment and file resolution
     /// * `config` - Pre-read application configuration (from startup)
-    /// * `services_url` - Pre-validated URL for the gRPC workspace server
     pub fn init(cwd: PathBuf, config: ForgeConfig) -> Self {
         let infra = Arc::new(ForgeInfra::new(cwd, config));
         let repo = Arc::new(ForgeRepo::new(infra.clone()));
-        Self::spawn_fts_refresh_task(repo.clone(), infra.as_ref());
+        let cancel = CancellationToken::new();
+        let fts_handle = Self::spawn_fts_refresh_task(repo.clone(), infra.as_ref(), cancel.clone());
         let app = Arc::new(ForgeServices::new(repo.clone()));
-        ForgeAPI::new(app, repo)
+        let bg = BackgroundTasks::new(cancel, fts_handle.into_iter().collect());
+        Self {
+            services: app,
+            infra: repo,
+            _background: Some(bg),
+        }
     }
 
-    fn spawn_fts_refresh_task(repo: Arc<ForgeRepo<ForgeInfra>>, infra: &ForgeInfra) {
+    /// Spawn the FTS refresh loop.
+    ///
+    /// The loop wakes on a timer or on `shutdown` cancellation, whichever
+    /// comes first, so there is no delay on clean shutdown.
+    ///
+    /// Returns `None` when the refresh cadence is disabled via
+    /// `FORGE_FTS_REFRESH_SECS=0`.
+    fn spawn_fts_refresh_task(
+        repo: Arc<ForgeRepo<ForgeInfra>>,
+        infra: &ForgeInfra,
+        shutdown: CancellationToken,
+    ) -> Option<JoinHandle<()>> {
         let refresh_secs = infra
             .get_env_var("FORGE_FTS_REFRESH_SECS")
             .and_then(|value| value.parse::<u64>().ok())
@@ -68,11 +138,15 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
 
         if refresh_secs == 0 {
             debug!("FTS refresh cadence disabled via FORGE_FTS_REFRESH_SECS=0");
-            return;
+            return None;
         }
 
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(Self::FTS_REFRESH_STARTUP_DELAY_SECS)).await;
+        let handle = tokio::spawn(async move {
+            // Initial startup delay — abort immediately if cancelled.
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(Self::FTS_REFRESH_STARTUP_DELAY_SECS)) => {}
+                _ = shutdown.cancelled() => return,
+            }
 
             let interval = Duration::from_secs(refresh_secs);
             loop {
@@ -80,9 +154,18 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
                 if let Err(error) = repo.refresh_fts_index().await {
                     warn!(%error, "conversation FTS refresh failed");
                 }
-                tokio::time::sleep(interval).await;
+                // Wait for next tick or shutdown — whichever comes first.
+                tokio::select! {
+                    _ = tokio::time::sleep(interval) => {}
+                    _ = shutdown.cancelled() => {
+                        debug!("FTS refresh task cancelled");
+                        return;
+                    }
+                }
             }
         });
+
+        Some(handle)
     }
 
     pub async fn get_skills_internal(&self) -> Result<Vec<Skill>> {
