@@ -231,16 +231,20 @@ impl Agent {
         self
     }
 
-    /// Applies a safe `token_threshold` by taking the minimum of an absolute
-    /// token cap and a percentage-based context-window cap.
+    /// Applies a safe `token_threshold` derived from the selected model's
+    /// context window.
     ///
-    /// The absolute cap comes from `compact.token_threshold`, or falls back to
-    /// a default of 100,000 tokens. The context-window cap comes from
-    /// `compact.token_threshold_percentage`, or falls back to 70%
-    /// of the selected model's context window. If model metadata is
-    /// unavailable, a default 128K context window is used. The lower of
-    /// these two values is used to preserve headroom for tool outputs and
-    /// follow-up messages.
+    /// The percentage-based cap comes from
+    /// `compact.token_threshold_percentage`, or falls back to 70% of the
+    /// selected model's context window. If model metadata is unavailable, a
+    /// default 128K context window is used.
+    ///
+    /// When `compact.token_threshold` is explicitly configured, it is treated
+    /// as an absolute cap and the lower of it and the percentage-based cap is
+    /// used, preserving headroom for tool outputs and follow-up messages on
+    /// small context windows. When it is unset, the threshold is derived purely
+    /// from the context window (the percentage-based cap) so that large windows
+    /// (e.g. 1M-token models) are not capped to a small hardcoded value.
     ///
     /// # Arguments
     /// * `selected_model` - The model that will be used for this agent
@@ -249,7 +253,6 @@ impl Agent {
     /// The agent with a safe token_threshold configured
     pub fn compaction_threshold(mut self, selected_model: Option<&Model>) -> Self {
         const DEFAULT_CONTEXT_WINDOW: usize = 128_000;
-        const DEFAULT_TOKEN_THRESHOLD: usize = 100_000;
         const DEFAULT_CONTEXT_WINDOW_PERCENTAGE: f64 = 0.7;
 
         let context_window = selected_model
@@ -257,10 +260,6 @@ impl Agent {
             .and_then(|context_window| usize::try_from(context_window).ok())
             .unwrap_or(DEFAULT_CONTEXT_WINDOW);
 
-        let configured_threshold = self
-            .compact
-            .token_threshold
-            .unwrap_or(DEFAULT_TOKEN_THRESHOLD);
         let context_window_percentage = self
             .compact
             .token_threshold_percentage
@@ -268,7 +267,17 @@ impl Agent {
         let context_window_threshold =
             ((context_window as f64) * context_window_percentage).floor() as usize;
 
-        self.compact.token_threshold = Some(configured_threshold.min(context_window_threshold));
+        // By default the threshold is derived from the model's context window so
+        // that large windows (e.g. 1M-token models) are used fully instead of
+        // being capped to a small hardcoded value. When the user explicitly
+        // configures a `token_threshold` it is treated as an absolute upper
+        // bound, capped to the context-window-derived value for safety headroom.
+        let token_threshold = match self.compact.token_threshold {
+            Some(configured_threshold) => configured_threshold.min(context_window_threshold),
+            None => context_window_threshold,
+        };
+
+        self.compact.token_threshold = Some(token_threshold);
 
         self
     }
@@ -375,17 +384,42 @@ mod tests {
     }
 
     #[test]
-    fn test_compaction_threshold_uses_hardcoded_cap_when_context_window_cap_is_higher() {
+    fn test_compaction_threshold_uses_configured_cap_when_context_window_cap_is_higher() {
+        // When `token_threshold` is explicitly configured, it acts as an absolute
+        // upper bound: with a 200K window (70% = 140K) and a configured 100K cap,
+        // the lower configured value wins.
         let fixture = Agent::new(
             AgentId::new("test"),
             ProviderId::OPENAI,
             ModelId::new("selected-model"),
-        );
+        )
+        .compact(Compact::new().token_threshold(100_000_usize));
 
         let selected_model = model_fixture("selected-model", Some(200_000));
 
         let actual = fixture.compaction_threshold(Some(&selected_model));
         let expected = Some(100_000);
+
+        assert_eq!(actual.compact.token_threshold, expected);
+    }
+
+    #[test]
+    fn test_compaction_threshold_derives_from_window_when_threshold_unset() {
+        // BUG FIX: With `token_threshold` unset (the realistic default), the
+        // threshold must be derived purely from the context window (70%) so large
+        // windows are not capped to a small hardcoded value. For a 200K window
+        // that is 140K (NOT the old buggy 100K hardcoded cap).
+        let fixture = Agent::new(
+            AgentId::new("test"),
+            ProviderId::OPENAI,
+            ModelId::new("selected-model"),
+        );
+        assert_eq!(fixture.compact.token_threshold, None);
+
+        let selected_model = model_fixture("selected-model", Some(200_000));
+
+        let actual = fixture.compaction_threshold(Some(&selected_model));
+        let expected = Some(140_000);
 
         assert_eq!(actual.compact.token_threshold, expected);
     }
@@ -500,6 +534,152 @@ mod tests {
             actual.compact.token_threshold.is_some(),
             "BUG: compaction_threshold should set a default threshold even when model context_length is unknown. \
              Currently returns early with None, causing unbounded context growth."
+        );
+    }
+
+    /// Builds a Vertex AI Claude Opus agent using **default compaction config**
+    /// (no inflated `token_threshold` override), then derives the threshold
+    /// from the model's context window via the production
+    /// `compaction_threshold(...)` path. This mirrors exactly what a real
+    /// user runs with the embedded default config — which is where the
+    /// early-compaction bug bites.
+    fn vertex_opus_agent_default_config(model_id: &str, context_window: u64) -> (Agent, usize) {
+        let opus = model_fixture(model_id, Some(context_window));
+        let agent = Agent::new(
+            AgentId::new("test"),
+            ProviderId::VERTEX_AI_ANTHROPIC,
+            ModelId::new(model_id),
+        )
+        // No `token_threshold` override → uses the realistic default path.
+        .compaction_threshold(Some(&opus));
+
+        let threshold = agent
+            .compact
+            .token_threshold
+            .expect("compaction_threshold should set a token_threshold");
+        (agent, threshold)
+    }
+
+    /// BUG-CATCHER: Vertex AI Claude Opus (1M window) under default config must
+    /// derive a 700K threshold (70% of the window), NOT the old hardcoded 100K
+    /// cap. Without the fix this resolves to 100K and the assertion fails.
+    #[test]
+    fn test_vertex_opus_1m_window_default_config_derives_seven_hundred_k_threshold() {
+        let (_agent, threshold) = vertex_opus_agent_default_config("claude-opus-4-8", 1_000_000);
+        assert_eq!(
+            threshold, 700_000,
+            "Opus 1M window should derive a 700K compaction threshold (70% of window), \
+             got {threshold}. A value of 100K indicates the early-compaction bug."
+        );
+    }
+
+    /// BUG-CATCHER: a 1M Opus window must NOT compact at 600K tokens (60%
+    /// full). Without the fix the threshold is 100K, so 600K wrongly
+    /// triggers compaction.
+    #[test]
+    fn test_vertex_opus_1m_window_below_threshold_does_not_trigger_compaction() {
+        let (agent, threshold) = vertex_opus_agent_default_config("claude-opus-4-8", 1_000_000);
+        // Assistant-terminated turn so only the token threshold can trigger.
+        let context = crate::MessagePattern::new("ua").build();
+
+        for tokens in [0_usize, 100_000, 600_000, threshold - 1] {
+            assert!(
+                !agent.compact.should_compact(&context, tokens),
+                "compaction should NOT trigger at {tokens} tokens (below the resolved \
+                 threshold of {threshold} for a 1M Opus window)"
+            );
+        }
+    }
+
+    /// Vertex AI Claude Opus (1M window): compaction fires at and above the
+    /// resolved threshold.
+    #[test]
+    fn test_vertex_opus_1m_window_at_or_above_threshold_triggers_compaction() {
+        let (agent, threshold) = vertex_opus_agent_default_config("claude-opus-4-8", 1_000_000);
+        let context = crate::MessagePattern::new("ua").build();
+
+        for tokens in [threshold, threshold + 1, 950_000, 1_000_000] {
+            assert!(
+                agent.compact.should_compact(&context, tokens),
+                "compaction SHOULD trigger at {tokens} tokens (at/above the resolved \
+                 threshold of {threshold} for a 1M Opus window)"
+            );
+        }
+    }
+
+    /// BUG-CATCHER: Vertex AI Claude Opus (smaller 200K window) under default
+    /// config derives a proportional 140K threshold (70% of window).
+    #[test]
+    fn test_vertex_opus_200k_window_default_config_derives_proportional_threshold() {
+        let (_agent, threshold) = vertex_opus_agent_default_config("claude-opus-4-1", 200_000);
+        assert_eq!(
+            threshold, 140_000,
+            "Opus 200K window should derive a 140K compaction threshold (70% of window), \
+             got {threshold}."
+        );
+    }
+
+    /// Vertex AI Claude Opus (200K window): does not trigger below the
+    /// threshold.
+    #[test]
+    fn test_vertex_opus_200k_window_below_threshold_does_not_trigger_compaction() {
+        let (agent, threshold) = vertex_opus_agent_default_config("claude-opus-4-1", 200_000);
+        let context = crate::MessagePattern::new("ua").build();
+
+        for tokens in [0_usize, threshold / 2, threshold - 1] {
+            assert!(
+                !agent.compact.should_compact(&context, tokens),
+                "compaction should NOT trigger at {tokens} tokens (below the resolved \
+                 threshold of {threshold} for a 200K Opus window)"
+            );
+        }
+    }
+
+    /// Vertex AI Claude Opus (200K window): triggers at and above the
+    /// threshold.
+    #[test]
+    fn test_vertex_opus_200k_window_at_or_above_threshold_triggers_compaction() {
+        let (agent, threshold) = vertex_opus_agent_default_config("claude-opus-4-1", 200_000);
+        let context = crate::MessagePattern::new("ua").build();
+
+        for tokens in [threshold, threshold + 1, 180_000, 200_000] {
+            assert!(
+                agent.compact.should_compact(&context, tokens),
+                "compaction SHOULD trigger at {tokens} tokens (at/above the resolved \
+                 threshold of {threshold} for a 200K Opus window)"
+            );
+        }
+    }
+
+    /// BUG-CATCHER (the key cross-window guarantee): a 200K-token context
+    /// (which triggers compaction on a 200K window) must NOT trigger
+    /// compaction on a 1M window. Without the fix both windows resolve to a
+    /// 100K threshold, so the 1M window wrongly compacts — and this
+    /// assertion fails.
+    #[test]
+    fn test_vertex_opus_large_window_does_not_compact_at_small_window_threshold() {
+        let (large, large_threshold) =
+            vertex_opus_agent_default_config("claude-opus-4-8", 1_000_000);
+        let (small, small_threshold) = vertex_opus_agent_default_config("claude-opus-4-1", 200_000);
+        let context = crate::MessagePattern::new("ua").build();
+
+        // The two windows must derive different thresholds.
+        assert!(
+            large_threshold > small_threshold,
+            "1M window threshold ({large_threshold}) must exceed the 200K window \
+             threshold ({small_threshold}); equal values indicate the bug."
+        );
+
+        // 200K tokens fills the small window past its threshold...
+        assert!(
+            small.compact.should_compact(&context, 200_000),
+            "200K tokens should compact on the 200K window"
+        );
+        // ...but is only 20% of the large window and must NOT compact there.
+        assert!(
+            !large.compact.should_compact(&context, 200_000),
+            "200K tokens (20% of a 1M window) must NOT compact on the large window; \
+             if it does, the large window is being capped to the small hardcoded threshold"
         );
     }
 }
