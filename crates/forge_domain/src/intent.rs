@@ -105,7 +105,8 @@ pub trait IntentExtractor: Send + Sync {
 /// Noop implementation of IntentExtractor
 ///
 /// Used as a placeholder when thegent-memory v2 is not available.
-/// All operations return Err(unimplemented).
+/// Both operations succeed with empty/identity results so callers
+/// can run without a real memory integration wired in.
 pub struct NoopIntentExtractor;
 
 #[async_trait::async_trait]
@@ -115,9 +116,11 @@ impl IntentExtractor for NoopIntentExtractor {
         _conversation_id: &str,
         _context: &str,
     ) -> anyhow::Result<ExtractedIntent> {
-        Err(anyhow::anyhow!(
-            "IntentExtractor not implemented. TODO: integrate thegent-memory v2"
-        ))
+        Ok(ExtractedIntent {
+            episodic: serde_json::Value::Null,
+            identity: serde_json::Value::Null,
+            project_knowledge: serde_json::Value::Null,
+        })
     }
 
     async fn verify_extraction(
@@ -125,8 +128,6 @@ impl IntentExtractor for NoopIntentExtractor {
         _conversation_id: &str,
         _intent_hash: &str,
     ) -> anyhow::Result<bool> {
-        Err(anyhow::anyhow!(
-            "IntentExtractor not implemented. TODO: integrate thegent-memory v2"
-        ))
+        Ok(false)
     }
 }
