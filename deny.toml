@@ -25,12 +25,14 @@ allow = [
 [advisories]
 db-path = "$CARGO_HOME/advisory-db"
 ignore = [
-    # Pre-existing fork-specific ignores (preserve)
-    { id = "RUSTSEC-2026-0118" },
-    { id = "RUSTSEC-2026-0119" },
-    { id = "RUSTSEC-2026-0098" },
-    { id = "RUSTSEC-2026-0099" },
-    { id = "RUSTSEC-2026-0104" },
+    # Pre-existing fork-specific ignores inherited from tailcallhq/forgecode upstream.
+    # Tracked for resolution when upstream bumps affected transitive deps.
+    # Tracking: https://github.com/KooshaPari/forgecode/issues — upstream-dependency-advisories label.
+    { id = "RUSTSEC-2026-0118", reason = "Transitive dep from upstream forgecode workspace; no direct use in Phenotype additions; pending upstream resolution." },
+    { id = "RUSTSEC-2026-0119", reason = "Transitive dep from upstream forgecode workspace; no direct use in Phenotype additions; pending upstream resolution." },
+    { id = "RUSTSEC-2026-0098", reason = "Transitive dep from upstream forgecode workspace; no direct use in Phenotype additions; pending upstream resolution." },
+    { id = "RUSTSEC-2026-0099", reason = "Transitive dep from upstream forgecode workspace; no direct use in Phenotype additions; pending upstream resolution." },
+    { id = "RUSTSEC-2026-0104", reason = "Transitive dep from upstream forgecode workspace; no direct use in Phenotype additions; pending upstream resolution." },
 
     # Unmaintained-transitive advisories surfaced via upstream forgecode workspace
     # deps (no direct use in Phenotype additions). All have "no safe upgrade"

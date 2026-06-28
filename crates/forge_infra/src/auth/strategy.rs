@@ -627,18 +627,38 @@ impl CodexDeviceStrategy {
 }
 
 /// Response from the OpenAI device auth usercode endpoint
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize)]
 struct CodexDeviceAuthResponse {
     device_auth_id: String,
     user_code: String,
+    /// Non-secret polling interval in seconds.
     interval: String,
 }
 
+impl std::fmt::Debug for CodexDeviceAuthResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CodexDeviceAuthResponse")
+            .field("device_auth_id", &"<redacted>")
+            .field("user_code", &"<redacted>")
+            .field("interval", &self.interval)
+            .finish()
+    }
+}
+
 /// Response from the OpenAI device auth token polling endpoint
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize)]
 struct CodexDeviceTokenResponse {
     authorization_code: String,
     code_verifier: String,
+}
+
+impl std::fmt::Debug for CodexDeviceTokenResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CodexDeviceTokenResponse")
+            .field("authorization_code", &"<redacted>")
+            .field("code_verifier", &"<redacted>")
+            .finish()
+    }
 }
 
 #[async_trait::async_trait]
@@ -1485,5 +1505,32 @@ mod tests {
 
         let expected = fixture_url_params;
         assert_eq!(actual.url_params, expected);
+    }
+
+    #[test]
+    fn test_codex_device_auth_response_debug_redacts_secrets() {
+        let resp = CodexDeviceAuthResponse {
+            device_auth_id: "secret_device_auth_id_12345".to_string(),
+            user_code: "SECRET-USER-CODE".to_string(),
+            interval: "5".to_string(),
+        };
+        let debug = format!("{:?}", resp);
+        assert!(!debug.contains("secret_device_auth_id_12345"), "CodexDeviceAuthResponse Debug must not expose device_auth_id");
+        assert!(!debug.contains("SECRET-USER-CODE"), "CodexDeviceAuthResponse Debug must not expose user_code");
+        assert!(debug.contains("<redacted>"), "CodexDeviceAuthResponse Debug must contain <redacted>");
+        // Non-secret interval must remain visible
+        assert!(debug.contains("5"), "CodexDeviceAuthResponse Debug must expose interval");
+    }
+
+    #[test]
+    fn test_codex_device_token_response_debug_redacts_secrets() {
+        let resp = CodexDeviceTokenResponse {
+            authorization_code: "secret_auth_code_abcde".to_string(),
+            code_verifier: "secret_verifier_xyz789".to_string(),
+        };
+        let debug = format!("{:?}", resp);
+        assert!(!debug.contains("secret_auth_code_abcde"), "CodexDeviceTokenResponse Debug must not expose authorization_code");
+        assert!(!debug.contains("secret_verifier_xyz789"), "CodexDeviceTokenResponse Debug must not expose code_verifier");
+        assert!(debug.contains("<redacted>"), "CodexDeviceTokenResponse Debug must contain <redacted>");
     }
 }

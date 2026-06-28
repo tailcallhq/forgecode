@@ -271,6 +271,15 @@ mod tests {
         assert!(!debug.contains("state_with_pkce_verifier_value"), "State Debug must not expose plaintext");
         assert!(debug.contains("<redacted>"), "State Debug must contain <redacted>");
     }
+
+    #[test]
+    fn test_device_code_debug_redacts_secret() {
+        let code = DeviceCode::from("dev_code_very_secret_12345".to_string());
+        let debug = format!("{:?}", code);
+        assert!(!debug.contains("dev_code_very_secret_12345"), "DeviceCode Debug must not expose plaintext");
+        assert!(debug.contains("<redacted>"), "DeviceCode Debug must contain <redacted>");
+    }
+
     #[test]
     fn test_truncate_key_long_ascii_key() {
         let fixture = "sk-1234567890abcdefghijklmnop";
