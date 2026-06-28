@@ -4906,6 +4906,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // Add conversation ID
         info = info.add_key_value("ID", conversation.id.to_string());
 
+        // Subagent breadcrumb — show parent if this is a spawned session
+        if let Some(parent_id) = &conversation.parent_id {
+            info = info.add_key_value(
+                "Spawned by",
+                format!("{} (use /parent to jump)", parent_id),
+            );
+        }
+
         // Calculate duration
         let created_at = conversation.metadata.created_at;
         let updated_at = conversation.metadata.updated_at.unwrap_or(created_at);
