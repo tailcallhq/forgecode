@@ -32,7 +32,6 @@ members = [
   "crates/forge_drift",
   "crates/forge_similarity",
   "crates/forge_mux",
-  "crates/ghostty-kit",
 ]
 resolver = "2"
 
@@ -205,4 +204,3 @@ forge3d = { path = "crates/forge3d" }
 forge_drift = { path = "crates/forge_drift" }
 forge_similarity = { path = "crates/forge_similarity" }
 forge_mux = { path = "crates/forge_mux" }
-ghostty-kit = { path = "crates/ghostty-kit" }
