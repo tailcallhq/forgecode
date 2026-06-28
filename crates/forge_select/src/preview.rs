@@ -351,6 +351,7 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
     let mut queued_indices = BTreeSet::new();
     let mut preview_cache = String::new();
     let mut last_preview_key = String::new();
+    let mut last_preview_time = Instant::now();
     let mut last_query = query.clone();
 
     let mut needs_render = true;
@@ -398,9 +399,13 @@ fn run_select_ui_values(options: SelectUiOptions) -> anyhow::Result<Option<Vec<S
             .map(|row| format!("{}\0{}", row.raw, query))
             .unwrap_or_default();
         if preview_key != last_preview_key {
-            preview_cache = selected_row
-                .map(|row| render_preview(&preview_command, row))
-                .unwrap_or_else(|| "No matches".to_string());
+            let now = Instant::now();
+            if now.duration_since(last_preview_time) >= Duration::from_millis(150) {
+                preview_cache = selected_row
+                    .map(|row| render_preview(&preview_command, row))
+                    .unwrap_or_else(|| "No matches".to_string());
+                last_preview_time = now;
+            }
             preview_scroll_offset = 0;
             last_preview_key = preview_key;
             needs_render = true;
