@@ -2686,6 +2686,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    async fn handle_fts_optimize(&mut self) -> anyhow::Result<()> {
+        self.writeln_title(TitleFormat::info("Optimizing FTS5 search index..."))?;
+        match self.api.optimize_fts_index().await {
+            Ok(()) => self.writeln_title(TitleFormat::info("FTS5 index optimized."))?,
+            Err(e) => self.writeln_title(TitleFormat::error(&format!(
+                "FTS5 optimize failed: {e}"
+            )))?,
+        }
+        Ok(())
+    }
+
     fn user_initiated_conversations(conversations: Vec<Conversation>) -> Vec<Conversation> {
         let related_ids: HashSet<ConversationId> = conversations
             .iter()
@@ -2773,6 +2784,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
             AppCommand::Think => {
                 self.handle_think().await?;
+            }
+            AppCommand::FtsOptimize => {
+                self.handle_fts_optimize().await?;
             }
             AppCommand::OutputCompact => {
                 self.apply_output_mode(OutputMode::Compact).await?;

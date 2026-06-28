@@ -586,6 +586,11 @@ pub enum AppCommand {
     #[strum(props(usage = "Think about a problem before acting"))]
     Think,
 
+    /// Optimize the FTS5 search index to reclaim shadow data.
+    /// This can be triggered with the '/fts-optimize' command.
+    #[strum(props(usage = "Optimize FTS5 search index (reclaims shadow data)"))]
+    FtsOptimize,
+
     /// Start a new conversation while preserving history.
     /// This can be triggered with the '/new' command.
     #[strum(props(usage = "Start a new conversation"))]
@@ -901,6 +906,7 @@ impl AppCommand {
             AppCommand::Review => "review",
             AppCommand::Test => "test",
             AppCommand::Think => "think",
+            AppCommand::FtsOptimize => "fts-optimize",
         }
     }
 
