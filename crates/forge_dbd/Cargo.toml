@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+description = "WIP: SQLite daemon for persistent conversation storage (not yet wired into forge_app)"
 
 [dependencies]
 anyhow = { workspace = true }

@@ -3404,17 +3404,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ghostty-kit"
-version = "2.9.9"
-dependencies = [
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
 name = "gif"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
