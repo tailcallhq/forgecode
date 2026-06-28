@@ -569,8 +569,8 @@ mod tests {
             Ok(request.send().await?)
         }
 
-        async fn http_delete(&self, _url: &reqwest::Url) -> anyhow::Result<reqwest::Response> {
-            unimplemented!()
+        async fn http_delete(&self, url: &reqwest::Url) -> anyhow::Result<reqwest::Response> {
+            Ok(self.client.delete(url.clone()).send().await?)
         }
 
         async fn http_eventsource(
