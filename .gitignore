@@ -71,3 +71,6 @@ pnpm-debug.log*
 Thumbs.db
 yarn-debug.log*
 yarn-error.log*
+
+# Local credential store (0o600, never commit)
+.credentials.json

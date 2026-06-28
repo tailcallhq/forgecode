@@ -1,34 +1,38 @@
-# ForgeCode Justfile
+# forgecode Justfile — Rust Cargo workspace
 set shell := ["bash", "-cu"]
 
 # Show available commands
 default:
     @just --list
 
-# Install dependencies
-install:
-    npm install
+# Build the workspace
+build:
+    cargo build
 
-# Run evaluation
-_eval:
-    npm run eval
+# Build optimized release
+release:
+    cargo build --release
 
-# Run bounty tests
+# Run the forge CLI
+run *ARGS:
+    cargo run --bin forge -- {{ARGS}}
+
+# Run tests (prefer nextest, fall back to cargo test)
 test:
-    npm run test:bounty
+    @if command -v cargo-nextest >/dev/null 2>&1; then cargo nextest run; else cargo test; fi
 
-# Run linting (eslint + prettier check)
+# Lint: clippy (deny warnings) + format check
 lint:
-    npx eslint . --ext .ts
-    npx prettier --check "**/*.ts"
+    cargo clippy --all-targets --all-features -- -D warnings
+    cargo fmt --all -- --check
 
 # Auto-format code
 fmt:
-    npx prettier --write "**/*.ts"
+    cargo fmt --all
 
-# CI-like run (install + eval + test + lint)
-ci: install test lint
+# CI-like run (build + test + lint)
+ci: build test lint
 
-# Clean artifacts
+# Clean build artifacts
 clean:
-    rm -rf node_modules dist
+    cargo clean
