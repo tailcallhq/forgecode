@@ -46,9 +46,7 @@ pub fn truncate_key(key: &str) -> String {
     }
 }
 
-#[derive(
-    Clone, Serialize, Deserialize, derive_more::From, derive_more::Deref, PartialEq, Eq,
-)]
+#[derive(Clone, Serialize, Deserialize, derive_more::From, derive_more::Deref, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct AuthorizationCode(String);
 
@@ -58,9 +56,7 @@ impl std::fmt::Debug for AuthorizationCode {
     }
 }
 
-#[derive(
-    Clone, Serialize, Deserialize, derive_more::From, derive_more::Deref, PartialEq, Eq,
-)]
+#[derive(Clone, Serialize, Deserialize, derive_more::From, derive_more::Deref, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct DeviceCode(String);
 
@@ -70,9 +66,7 @@ impl std::fmt::Debug for DeviceCode {
     }
 }
 
-#[derive(
-    Clone, Serialize, Deserialize, derive_more::From, derive_more::Deref, PartialEq, Eq,
-)]
+#[derive(Clone, Serialize, Deserialize, derive_more::From, derive_more::Deref, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct PkceVerifier(String);
 
@@ -166,9 +160,7 @@ impl From<String> for URLParamSpec {
 #[serde(transparent)]
 pub struct UserCode(String);
 
-#[derive(
-    Clone, Serialize, Deserialize, derive_more::From, derive_more::Deref, PartialEq, Eq,
-)]
+#[derive(Clone, Serialize, Deserialize, derive_more::From, derive_more::Deref, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct State(String);
 
@@ -178,9 +170,7 @@ impl std::fmt::Debug for State {
     }
 }
 
-#[derive(
-    Clone, Serialize, Deserialize, derive_more::From, derive_more::Deref, PartialEq, Eq,
-)]
+#[derive(Clone, Serialize, Deserialize, derive_more::From, derive_more::Deref, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct RefreshToken(String);
 
@@ -223,61 +213,102 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-
     #[test]
     fn test_api_key_debug_redacts_secret() {
         let key = ApiKey::from("sk-super-secret-api-key-1234567890".to_string());
         let debug = format!("{:?}", key);
-        assert!(!debug.contains("sk-super-secret-api-key-1234567890"), "ApiKey Debug must not expose plaintext");
-        assert!(debug.contains("<redacted>"), "ApiKey Debug must contain <redacted>");
+        assert!(
+            !debug.contains("sk-super-secret-api-key-1234567890"),
+            "ApiKey Debug must not expose plaintext"
+        );
+        assert!(
+            debug.contains("<redacted>"),
+            "ApiKey Debug must contain <redacted>"
+        );
     }
 
     #[test]
     fn test_access_token_debug_redacts_secret() {
         let token = AccessToken::from("gho_supersecrettoken12345".to_string());
         let debug = format!("{:?}", token);
-        assert!(!debug.contains("gho_supersecrettoken12345"), "AccessToken Debug must not expose plaintext");
-        assert!(debug.contains("<redacted>"), "AccessToken Debug must contain <redacted>");
+        assert!(
+            !debug.contains("gho_supersecrettoken12345"),
+            "AccessToken Debug must not expose plaintext"
+        );
+        assert!(
+            debug.contains("<redacted>"),
+            "AccessToken Debug must contain <redacted>"
+        );
     }
 
     #[test]
     fn test_refresh_token_debug_redacts_secret() {
         let token = RefreshToken::from("ghr_supersecretrefresh12345".to_string());
         let debug = format!("{:?}", token);
-        assert!(!debug.contains("ghr_supersecretrefresh12345"), "RefreshToken Debug must not expose plaintext");
-        assert!(debug.contains("<redacted>"), "RefreshToken Debug must contain <redacted>");
+        assert!(
+            !debug.contains("ghr_supersecretrefresh12345"),
+            "RefreshToken Debug must not expose plaintext"
+        );
+        assert!(
+            debug.contains("<redacted>"),
+            "RefreshToken Debug must contain <redacted>"
+        );
     }
 
     #[test]
     fn test_pkce_verifier_debug_redacts_secret() {
         let verifier = PkceVerifier::from("pkce_verifier_super_secret_value".to_string());
         let debug = format!("{:?}", verifier);
-        assert!(!debug.contains("pkce_verifier_super_secret_value"), "PkceVerifier Debug must not expose plaintext");
-        assert!(debug.contains("<redacted>"), "PkceVerifier Debug must contain <redacted>");
+        assert!(
+            !debug.contains("pkce_verifier_super_secret_value"),
+            "PkceVerifier Debug must not expose plaintext"
+        );
+        assert!(
+            debug.contains("<redacted>"),
+            "PkceVerifier Debug must contain <redacted>"
+        );
     }
 
     #[test]
     fn test_authorization_code_debug_redacts_secret() {
         let code = AuthorizationCode::from("auth_code_very_secret_12345".to_string());
         let debug = format!("{:?}", code);
-        assert!(!debug.contains("auth_code_very_secret_12345"), "AuthorizationCode Debug must not expose plaintext");
-        assert!(debug.contains("<redacted>"), "AuthorizationCode Debug must contain <redacted>");
+        assert!(
+            !debug.contains("auth_code_very_secret_12345"),
+            "AuthorizationCode Debug must not expose plaintext"
+        );
+        assert!(
+            debug.contains("<redacted>"),
+            "AuthorizationCode Debug must contain <redacted>"
+        );
     }
 
     #[test]
     fn test_state_debug_redacts_secret() {
         let state = State::from("state_with_pkce_verifier_value".to_string());
         let debug = format!("{:?}", state);
-        assert!(!debug.contains("state_with_pkce_verifier_value"), "State Debug must not expose plaintext");
-        assert!(debug.contains("<redacted>"), "State Debug must contain <redacted>");
+        assert!(
+            !debug.contains("state_with_pkce_verifier_value"),
+            "State Debug must not expose plaintext"
+        );
+        assert!(
+            debug.contains("<redacted>"),
+            "State Debug must contain <redacted>"
+        );
     }
 
     #[test]
     fn test_device_code_debug_redacts_secret() {
         let code = DeviceCode::from("dev_code_very_secret_12345".to_string());
         let debug = format!("{:?}", code);
-        assert!(!debug.contains("dev_code_very_secret_12345"), "DeviceCode Debug must not expose plaintext");
-        assert!(debug.contains("<redacted>"), "DeviceCode Debug must contain <redacted>");
+        assert!(
+            !debug.contains("dev_code_very_secret_12345"),
+            "DeviceCode Debug must not expose plaintext"
+        );
+        assert!(
+            debug.contains("<redacted>"),
+            "DeviceCode Debug must contain <redacted>"
+        );
     }
 
     #[test]

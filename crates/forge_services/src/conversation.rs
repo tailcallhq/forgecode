@@ -125,10 +125,7 @@ impl<S: ConversationRepository> ConversationService for ForgeConversationService
     }
 
     async fn optimize_fts_index(&self) -> Result<()> {
-        let _ = self
-            .conversation_repository
-            .optimize_fts_index()
-            .await?;
+        let _ = self.conversation_repository.optimize_fts_index().await?;
         Ok(())
     }
 

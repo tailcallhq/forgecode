@@ -12,9 +12,7 @@ use serde::{Deserialize, Serialize};
 ///   aggressive line folding for terminal-friendly display.
 /// - `Verbose`: Full output including all metadata, reasoning traces, and
 ///   intermediate computation steps. Useful for debugging.
-#[derive(
-    Default, Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Dummy,
-)]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Dummy)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputMode {
     /// Minimal output (default).
@@ -126,50 +124,35 @@ mod tests {
 
     #[test]
     fn test_output_settings_verbose_render_is_passthrough() {
-        let s = OutputSettings {
-            mode: OutputMode::Verbose,
-            trailing_newline: true,
-        };
+        let s = OutputSettings { mode: OutputMode::Verbose, trailing_newline: true };
         let input = "  hello  \n\n  world  \n";
         assert_eq!(s.render(input), input);
     }
 
     #[test]
     fn test_output_settings_compact_trims_lines() {
-        let s = OutputSettings {
-            mode: OutputMode::Compact,
-            trailing_newline: true,
-        };
+        let s = OutputSettings { mode: OutputMode::Compact, trailing_newline: true };
         let input = "  hello  \n  world  \n";
         assert_eq!(s.render(input), "hello\nworld\n");
     }
 
     #[test]
     fn test_output_settings_compact_collapses_blank_lines() {
-        let s = OutputSettings {
-            mode: OutputMode::Compact,
-            trailing_newline: true,
-        };
+        let s = OutputSettings { mode: OutputMode::Compact, trailing_newline: true };
         let input = "a\n\n\n\nb\n";
         assert_eq!(s.render(input), "a\nb\n");
     }
 
     #[test]
     fn test_output_settings_concise_does_not_add_trailing_newline_when_disabled() {
-        let s = OutputSettings {
-            mode: OutputMode::Concise,
-            trailing_newline: false,
-        };
+        let s = OutputSettings { mode: OutputMode::Concise, trailing_newline: false };
         let input = "hello";
         assert_eq!(s.render(input), "hello");
     }
 
     #[test]
     fn test_output_settings_round_trip() {
-        let fixture = OutputSettings {
-            mode: OutputMode::Verbose,
-            trailing_newline: false,
-        };
+        let fixture = OutputSettings { mode: OutputMode::Verbose, trailing_newline: false };
 
         let toml = toml_edit::ser::to_string_pretty(&fixture).unwrap();
 

@@ -21,3 +21,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures-retry = "0.6"
 pin-utils = "0.1"
 rocket = "0.5.0"
+criterion.workspace = true
+
+[[bench]]
+name = "eventsource_bench"
+harness = false

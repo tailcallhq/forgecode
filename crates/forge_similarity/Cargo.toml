@@ -24,3 +24,8 @@ hosted = ["reqwest"]
 [dev-dependencies]
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
+criterion.workspace = true
+
+[[bench]]
+name = "similarity_bench"
+harness = false

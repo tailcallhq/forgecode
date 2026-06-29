@@ -1,15 +1,15 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
-use crate::protocol::{read_frame, write_frame, HealthStatus, Request, Response};
+use crate::protocol::{HealthStatus, Request, Response, read_frame, write_frame};
 
 // ---------------------------------------------------------------------------
 // Shared daemon state (cheap to clone; wraps Arcs internally)
@@ -175,7 +175,11 @@ impl DbServer {
         loop {
             let request = {
                 let mut guard = stream.lock().await;
-                match timeout(Duration::from_secs(30), read_frame::<_, Request>(&mut *guard)).await
+                match timeout(
+                    Duration::from_secs(30),
+                    read_frame::<_, Request>(&mut *guard),
+                )
+                .await
                 {
                     Ok(Ok(req)) => req,
                     Ok(Err(e)) => {
@@ -296,11 +300,11 @@ impl DbServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{read_frame, write_frame, Request, Response};
-    use std::path::PathBuf;
+    use crate::protocol::{Request, Response, read_frame, write_frame};
+    use std::path::{Path, PathBuf};
     use tempfile::TempDir;
     use tokio::net::UnixStream;
-    use tokio::time::{sleep, Duration};
+    use tokio::time::{Duration, sleep};
 
     fn tmp_paths(dir: &TempDir) -> (PathBuf, PathBuf) {
         let sock = dir.path().join("test.sock");
@@ -309,13 +313,16 @@ mod tests {
     }
 
     /// Spawn the server in the background and return a handle + socket path.
-    async fn spawn_server(sock: PathBuf, db: PathBuf) -> tokio::task::JoinHandle<anyhow::Result<()>> {
+    async fn spawn_server(
+        sock: PathBuf,
+        db: PathBuf,
+    ) -> tokio::task::JoinHandle<anyhow::Result<()>> {
         let server = DbServer::new(sock, db);
         tokio::spawn(server.run())
     }
 
     /// Wait until the socket file appears (server is ready to accept).
-    async fn wait_for_socket(sock: &PathBuf) {
+    async fn wait_for_socket(sock: &Path) {
         for _ in 0..50 {
             if sock.exists() {
                 return;
@@ -337,7 +344,9 @@ mod tests {
         wait_for_socket(&sock).await;
 
         let mut stream = UnixStream::connect(&sock).await.expect("connect");
-        write_frame(&mut stream, &Request::Ping).await.expect("write ping");
+        write_frame(&mut stream, &Request::Ping)
+            .await
+            .expect("write ping");
         let resp: Response = read_frame(&mut stream).await.expect("read health");
 
         match resp {
@@ -383,7 +392,10 @@ mod tests {
             }
         }
 
-        assert_eq!(acks, n, "all writes should be acknowledged (drain verified)");
+        assert_eq!(
+            acks, n,
+            "all writes should be acknowledged (drain verified)"
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -401,7 +413,9 @@ mod tests {
         wait_for_socket(&sock).await;
 
         let mut stream = UnixStream::connect(&sock).await.expect("connect");
-        write_frame(&mut stream, &Request::Ping).await.expect("write ping");
+        write_frame(&mut stream, &Request::Ping)
+            .await
+            .expect("write ping");
         let resp: Response = read_frame(&mut stream).await.expect("read health");
         assert!(matches!(resp, Response::Health(_)));
     }

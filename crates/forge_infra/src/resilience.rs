@@ -79,11 +79,7 @@ struct BreakerInner {
 
 impl BreakerInner {
     fn new(config: CircuitBreakerConfig) -> Self {
-        Self {
-            state: BreakerState::Closed,
-            consecutive_failures: 0,
-            config,
-        }
+        Self { state: BreakerState::Closed, consecutive_failures: 0, config }
     }
 
     /// Returns `true` if the call should be allowed through.
@@ -104,7 +100,10 @@ impl BreakerInner {
     }
 
     fn on_success(&mut self) {
-        if matches!(self.state, BreakerState::HalfOpen | BreakerState::Open { .. }) {
+        if matches!(
+            self.state,
+            BreakerState::HalfOpen | BreakerState::Open { .. }
+        ) {
             debug!(name = %self.config.name, "circuit breaker closing after probe success");
         }
         self.state = BreakerState::Closed;
@@ -140,9 +139,7 @@ pub struct CircuitBreaker {
 
 impl CircuitBreaker {
     pub fn new(config: CircuitBreakerConfig) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(BreakerInner::new(config))),
-        }
+        Self { inner: Arc::new(Mutex::new(BreakerInner::new(config))) }
     }
 
     /// Execute `f`, tracking success/failure for the breaker.
@@ -217,11 +214,8 @@ impl Bulkhead {
     /// Try to acquire a permit. Returns immediately with an error if saturated.
     pub fn try_acquire(&self) -> anyhow::Result<SemaphorePermit<'_>> {
         self.semaphore.try_acquire().map_err(|_| {
-            BulkheadFullError {
-                name: self.name.clone(),
-                max_concurrent: self.max_concurrent,
-            }
-            .into()
+            BulkheadFullError { name: self.name.clone(), max_concurrent: self.max_concurrent }
+                .into()
         })
     }
 

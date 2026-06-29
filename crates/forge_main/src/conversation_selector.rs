@@ -24,10 +24,7 @@ impl<'a> FastConversationRow<'a> {
 
 impl<'a> std::fmt::Display for FastConversationRow<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let title = self.conv
-            .title
-            .as_deref()
-            .unwrap_or(markers::EMPTY);
+        let title = self.conv.title.as_deref().unwrap_or(markers::EMPTY);
 
         // Truncate title to fixed width (50 chars) with ellipsis if longer
         let max_title_width = 50;
@@ -41,7 +38,10 @@ impl<'a> std::fmt::Display for FastConversationRow<'a> {
         let title_padded = format!("{:<width$}", title_display, width = max_title_width + 1);
 
         let duration = self.now.signed_duration_since(
-            self.conv.metadata.updated_at.unwrap_or(self.conv.metadata.created_at),
+            self.conv
+                .metadata
+                .updated_at
+                .unwrap_or(self.conv.metadata.created_at),
         );
         let time_ago = if duration.num_seconds() < 60 {
             "now".to_string()
@@ -54,7 +54,11 @@ impl<'a> std::fmt::Display for FastConversationRow<'a> {
         };
 
         // Subagent breadcrumb: show ↳ prefix when conversation has a parent
-        let breadcrumb = if self.conv.parent_id.is_some() { "↳ " } else { "" };
+        let breadcrumb = if self.conv.parent_id.is_some() {
+            "↳ "
+        } else {
+            ""
+        };
 
         // Fixed-column date alignment (right-aligned in 10-char field)
         write!(f, "{}{} {:>10}", breadcrumb, title_padded, time_ago)
@@ -181,7 +185,9 @@ impl ConversationSelector {
         // This keeps the selector fast even with thousands of conversations.
         let now = Utc::now();
         let mut rows: Vec<SelectRow> = Vec::with_capacity(final_conversations.len() + 1);
-        rows.push(SelectRow::header("Title                                          Updated   "));
+        rows.push(SelectRow::header(
+            "Title                                          Updated   ",
+        ));
 
         for conv in &final_conversations {
             let uuid = conv.id.to_string();
@@ -211,10 +217,7 @@ impl ConversationSelector {
                 .query(query)
                 .header_lines(1_usize)
                 .preview(Some(preview_command))
-                .preview_layout(PreviewLayout {
-                    placement: PreviewPlacement::Bottom,
-                    percent: 60,
-                })
+                .preview_layout(PreviewLayout { placement: PreviewPlacement::Bottom, percent: 60 })
                 .prompt()?
                 .map(|row| row.raw))
         })
@@ -251,9 +254,14 @@ mod tests {
     #[tokio::test]
     async fn test_select_conversation_empty_list() {
         let conversations = vec![];
-        let result = ConversationSelector::select_conversation(&conversations, None, None, ConversationSort::Updated)
-            .await
-            .unwrap();
+        let result = ConversationSelector::select_conversation(
+            &conversations,
+            None,
+            None,
+            ConversationSort::Updated,
+        )
+        .await
+        .unwrap();
         assert!(result.is_none());
     }
 

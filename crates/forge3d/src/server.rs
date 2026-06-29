@@ -80,10 +80,7 @@ impl Sockets {
     pub fn new(base_dir: &Path) -> Self {
         let socket_dir = base_dir.to_path_buf();
         let socket_path = base_dir.join("forge3d.sock");
-        Self {
-            socket_dir,
-            socket_path,
-        }
+        Self { socket_dir, socket_path }
     }
 }
 
@@ -182,20 +179,14 @@ impl Server {
         };
 
         match out {
-            Ok(value) => Response::Success(SuccessResponse {
-                jsonrpc: "2.0".into(),
-                result: value,
-                id,
-            }),
+            Ok(value) => {
+                Response::Success(SuccessResponse { jsonrpc: "2.0".into(), result: value, id })
+            }
             Err(e) => {
                 let (code, message) = match &e {
                     Forge3Error::Protocol(msg) => (-32600, msg.clone()),
-                    Forge3Error::UnknownAgent(a) => {
-                        (-32010, format!("unknown agent: {a}"))
-                    }
-                    Forge3Error::UnknownAlert(a) => {
-                        (-32011, format!("unknown alert: {a}"))
-                    }
+                    Forge3Error::UnknownAgent(a) => (-32010, format!("unknown agent: {a}")),
+                    Forge3Error::UnknownAlert(a) => (-32011, format!("unknown alert: {a}")),
                     _ => (-32603, e.to_string()),
                 };
                 Response::Error(ErrorResponse {
@@ -221,7 +212,11 @@ impl Server {
     ///
     /// **Note**: `self` must be wrapped in an `Arc` because `tokio::spawn`
     /// requires `'static` lifetimes.
-    pub async fn serve(self: &Arc<Self>, socket_path: &Path, shutdown: CancellationToken) -> Result<()> {
+    pub async fn serve(
+        self: &Arc<Self>,
+        socket_path: &Path,
+        shutdown: CancellationToken,
+    ) -> Result<()> {
         // Remove any stale socket file from a previous run.
         if socket_path.exists() {
             std::fs::remove_file(socket_path)?;
@@ -333,9 +328,10 @@ impl Server {
         &self,
         params: &serde_json::Value,
     ) -> std::result::Result<serde_json::Value, Forge3Error> {
-        let detector = self.drift_detector.as_ref().ok_or_else(|| {
-            Forge3Error::Protocol("drift detection not configured".into())
-        })?;
+        let detector = self
+            .drift_detector
+            .as_ref()
+            .ok_or_else(|| Forge3Error::Protocol("drift detection not configured".into()))?;
         let agent_id = params["agent_id"]
             .as_str()
             .ok_or_else(|| Forge3Error::Protocol("missing agent_id".into()))?;
@@ -353,9 +349,10 @@ impl Server {
         &self,
         params: &serde_json::Value,
     ) -> std::result::Result<serde_json::Value, Forge3Error> {
-        let detector = self.drift_detector.as_ref().ok_or_else(|| {
-            Forge3Error::Protocol("drift detection not configured".into())
-        })?;
+        let detector = self
+            .drift_detector
+            .as_ref()
+            .ok_or_else(|| Forge3Error::Protocol("drift detection not configured".into()))?;
         let alert_id: AlertId = serde_json::from_value(params["alert_id"].clone())
             .map_err(|_| Forge3Error::Protocol("missing or invalid alert_id".into()))?;
         let reason: OverrideReason = serde_json::from_value(params["reason"].clone())
@@ -487,7 +484,11 @@ mod tests {
         let srv = test_server();
 
         // Register
-        let req = mk_req("agent.register", json!({"agent_id": "alice", "pid": 100, "lane": "building"}), 1);
+        let req = mk_req(
+            "agent.register",
+            json!({"agent_id": "alice", "pid": 100, "lane": "building"}),
+            1,
+        );
         let resp = srv.dispatch(&req).await;
         let val = assert_success(&resp);
         assert_eq!(val["agent"]["agent_id"], "alice");
@@ -508,7 +509,11 @@ mod tests {
     #[tokio::test]
     async fn dispatch_register_and_deregister() {
         let srv = test_server();
-        let req = mk_req("agent.register", json!({"agent_id": "bob", "pid": 200, "lane": "exploring"}), 1);
+        let req = mk_req(
+            "agent.register",
+            json!({"agent_id": "bob", "pid": 200, "lane": "exploring"}),
+            1,
+        );
         srv.dispatch(&req).await;
 
         let req = mk_req("agent.deregister", json!({"agent_id": "bob"}), 2);
@@ -526,13 +531,17 @@ mod tests {
     #[tokio::test]
     async fn dispatch_list() {
         let srv = test_server();
-        srv.dispatch(
-            &mk_req("agent.register", json!({"agent_id": "a", "pid": 1, "lane": "building"}), 1),
-        )
+        srv.dispatch(&mk_req(
+            "agent.register",
+            json!({"agent_id": "a", "pid": 1, "lane": "building"}),
+            1,
+        ))
         .await;
-        srv.dispatch(
-            &mk_req("agent.register", json!({"agent_id": "b", "pid": 2, "lane": "shipped"}), 2),
-        )
+        srv.dispatch(&mk_req(
+            "agent.register",
+            json!({"agent_id": "b", "pid": 2, "lane": "shipped"}),
+            2,
+        ))
         .await;
 
         // List at a time where both should be alive (now = 1000, lease = 60s)
@@ -562,7 +571,11 @@ mod tests {
     #[tokio::test]
     async fn dispatch_drift_not_configured() {
         let srv = test_server(); // no drift detector
-        let req = mk_req("drift.observe", json!({"agent_id": "a", "prompt": "hello"}), 1);
+        let req = mk_req(
+            "drift.observe",
+            json!({"agent_id": "a", "prompt": "hello"}),
+            1,
+        );
         let resp = srv.dispatch(&req).await;
         assert_error(&resp, -32600);
     }
@@ -585,22 +598,17 @@ mod tests {
         let srv = server.clone();
         let sock_path = socket.clone();
         let token = shutdown.clone();
-        let serve_task = tokio::spawn(async move {
-            srv.serve(&sock_path, token).await
-        });
+        let serve_task = tokio::spawn(async move { srv.serve(&sock_path, token).await });
 
         // Give the task time to bind, then cancel.
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         shutdown.cancel();
 
         // The task should return Ok(()) promptly.
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            serve_task,
-        )
-        .await
-        .expect("serve did not exit within 2s after cancellation")
-        .expect("task panicked");
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), serve_task)
+            .await
+            .expect("serve did not exit within 2s after cancellation")
+            .expect("task panicked");
 
         assert!(result.is_ok(), "serve returned an error: {:?}", result);
     }

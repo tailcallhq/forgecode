@@ -172,6 +172,13 @@ gix = "0.85"
 google-cloud-auth = "1.8.0" # Google Cloud authentication with automatic token refresh
 zstd = "0.13"
 
+# Benchmarking & profiling
+criterion = { version = "0.5", features = ["html_reports"] }
+dhat = "0.3"
+
+# Allocator
+tikv-jemallocator = "0.6"
+
 # Internal crates
 forge_embed = { path = "crates/forge_embed" }
 forge_api = { path = "crates/forge_api" }

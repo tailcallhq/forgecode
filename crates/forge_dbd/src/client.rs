@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use tokio::net::UnixStream;
 
-use crate::protocol::{read_frame, write_frame, HealthStatus, Request, Response};
+use crate::protocol::{HealthStatus, Request, Response, read_frame, write_frame};
 
 /// Client for the `forge_dbd` Unix-socket daemon.
 ///
@@ -33,15 +33,19 @@ impl DbClient {
         let mut stream = UnixStream::connect(&self.socket_path)
             .await
             .with_context(|| {
-                format!("failed to connect to forge_dbd at {}", self.socket_path.display())
+                format!(
+                    "failed to connect to forge_dbd at {}",
+                    self.socket_path.display()
+                )
             })?;
 
         write_frame(&mut stream, &request)
             .await
             .context("failed to write request frame")?;
 
-        let response: Response =
-            read_frame(&mut stream).await.context("failed to read response frame")?;
+        let response: Response = read_frame(&mut stream)
+            .await
+            .context("failed to read response frame")?;
 
         Ok(response)
     }

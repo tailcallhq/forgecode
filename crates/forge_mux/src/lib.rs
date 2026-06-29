@@ -58,11 +58,7 @@ mod tests {
         let session = MuxSession {
             id: "$0".into(),
             name: "work".into(),
-            windows: vec![MuxWindow {
-                id: "@1".into(),
-                name: "editor".into(),
-                active: true,
-            }],
+            windows: vec![MuxWindow { id: "@1".into(), name: "editor".into(), active: true }],
         };
 
         let json = serde_json::to_string(&session).unwrap();
@@ -78,7 +74,10 @@ mod tests {
     /// Display impls for MuxError.
     #[test]
     fn test_mux_error_display() {
-        let io_err = MuxError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "tmux not found"));
+        let io_err = MuxError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "tmux not found",
+        ));
         assert!(io_err.to_string().contains("tmux not found"));
 
         let parse_err = MuxError::Parse("bad format".into());

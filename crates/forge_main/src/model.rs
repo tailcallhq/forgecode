@@ -755,7 +755,9 @@ pub enum AppCommand {
     /// Sort the conversation selector. Usage: `:sort <key>` where key is
     /// one of `updated`, `created`, `turns`, `title`. Persists in
     /// `UIState.sort` until the session exits or another `:sort` is run.
-    #[strum(props(usage = "Sort the conversation selector. Usage: :sort <key> (updated|created|turns|title)"))]
+    #[strum(props(
+        usage = "Sort the conversation selector. Usage: :sort <key> (updated|created|turns|title)"
+    ))]
     #[command(alias = "so")]
     Sort {
         /// Sort key: `updated` (default), `created`, `turns`, or `title`.
@@ -823,9 +825,7 @@ pub enum AppCommand {
 
     /// Switch tool output to compact mode. Trims whitespace and folds blank
     /// lines for terminal-friendly display. Triggered with `:output-compact`.
-    #[strum(props(
-        usage = "Switch tool output to compact mode (trim whitespace, fold blanks)"
-    ))]
+    #[strum(props(usage = "Switch tool output to compact mode (trim whitespace, fold blanks)"))]
     OutputCompact,
 
     /// Switch tool output to concise mode (default). Minimal output without

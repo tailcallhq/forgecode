@@ -32,7 +32,10 @@ impl std::fmt::Debug for McpOAuthTokens {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("McpOAuthTokens")
             .field("access_token", &"<redacted>")
-            .field("refresh_token", &self.refresh_token.as_ref().map(|_| "<redacted>"))
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "<redacted>"),
+            )
             .field("expires_at", &self.expires_at)
             .field("scope", &self.scope)
             .finish()
@@ -43,7 +46,10 @@ impl std::fmt::Debug for McpClientRegistration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("McpClientRegistration")
             .field("client_id", &self.client_id)
-            .field("client_secret", &self.client_secret.as_ref().map(|_| "<redacted>"))
+            .field(
+                "client_secret",
+                &self.client_secret.as_ref().map(|_| "<redacted>"),
+            )
             .field("client_id_issued_at", &self.client_id_issued_at)
             .field("client_secret_expires_at", &self.client_secret_expires_at)
             .finish()
@@ -159,7 +165,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_mcp_oauth_tokens_debug_redacts_secrets() {
         let tokens = McpOAuthTokens {
@@ -169,10 +174,22 @@ mod tests {
             scope: Some("read".to_string()),
         };
         let debug = format!("{:?}", tokens);
-        assert!(!debug.contains("super_secret_mcp_access_token"), "access_token must be redacted in Debug");
-        assert!(!debug.contains("super_secret_mcp_refresh_token"), "refresh_token must be redacted in Debug");
-        assert!(debug.contains("<redacted>"), "Debug must contain <redacted>");
-        assert!(debug.contains("9999999999"), "expires_at should be visible in Debug");
+        assert!(
+            !debug.contains("super_secret_mcp_access_token"),
+            "access_token must be redacted in Debug"
+        );
+        assert!(
+            !debug.contains("super_secret_mcp_refresh_token"),
+            "refresh_token must be redacted in Debug"
+        );
+        assert!(
+            debug.contains("<redacted>"),
+            "Debug must contain <redacted>"
+        );
+        assert!(
+            debug.contains("9999999999"),
+            "expires_at should be visible in Debug"
+        );
     }
 
     #[test]
@@ -184,9 +201,18 @@ mod tests {
             client_secret_expires_at: None,
         };
         let debug = format!("{:?}", reg);
-        assert!(!debug.contains("super_secret_client_secret"), "client_secret must be redacted in Debug");
-        assert!(debug.contains("<redacted>"), "Debug must contain <redacted>");
-        assert!(debug.contains("public_client_id_123"), "client_id should remain visible in Debug");
+        assert!(
+            !debug.contains("super_secret_client_secret"),
+            "client_secret must be redacted in Debug"
+        );
+        assert!(
+            debug.contains("<redacted>"),
+            "Debug must contain <redacted>"
+        );
+        assert!(
+            debug.contains("public_client_id_123"),
+            "client_id should remain visible in Debug"
+        );
     }
 
     #[tokio::test]

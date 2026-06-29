@@ -2,6 +2,11 @@ use std::io::{IsTerminal, Read};
 use std::panic;
 use std::path::PathBuf;
 
+// Use jemalloc as the global allocator for lower fragmentation and higher
+// throughput in long-running streaming workloads.
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use anyhow::{Context, Result};
 use clap::Parser;
 use forge_api::ForgeAPI;

@@ -6,7 +6,6 @@
 /// | `threshold`       | 0.80     | similarity above this triggers OverlapAlert |
 /// | `approval_mode`   | Alert    | Alert | Auto | Off                          |
 /// | `concurrent_limit`| 4        | maximum similar jobs to auto-insert          |
-
 pub use forge_similarity::config::{ApprovalMode, Tier};
 
 #[derive(Debug, Clone)]

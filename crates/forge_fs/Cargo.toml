@@ -19,3 +19,9 @@ forge_domain.workspace = true
 [dev-dependencies]
 tempfile = "3.27.0"
 pretty_assertions = "1.4.0"
+criterion.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[[bench]]
+name = "fs_bench"
+harness = false

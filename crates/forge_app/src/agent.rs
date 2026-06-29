@@ -146,17 +146,17 @@ impl AgentExt for Agent {
                 model: workflow_compact.model.as_deref().map(ModelId::new),
                 on_turn_end: workflow_compact.on_turn_end,
                 summarization_strategy: match workflow_compact.summarization_strategy {
-                    forge_config::SummarizationStrategy::Extract =>
-                        forge_domain::SummarizationStrategy::Extract,
-                    forge_config::SummarizationStrategy::Llm =>
-                        forge_domain::SummarizationStrategy::Llm,
-                    forge_config::SummarizationStrategy::Hybrid =>
-                        forge_domain::SummarizationStrategy::Hybrid,
+                    forge_config::SummarizationStrategy::Extract => {
+                        forge_domain::SummarizationStrategy::Extract
+                    }
+                    forge_config::SummarizationStrategy::Llm => {
+                        forge_domain::SummarizationStrategy::Llm
+                    }
+                    forge_config::SummarizationStrategy::Hybrid => {
+                        forge_domain::SummarizationStrategy::Hybrid
+                    }
                 },
-                summary_model: workflow_compact
-                    .summary_model
-                    .as_deref()
-                    .map(ModelId::new),
+                summary_model: workflow_compact.summary_model.as_deref().map(ModelId::new),
                 summary_max_tokens: workflow_compact.summary_max_tokens,
                 summary_timeout_secs: workflow_compact.summary_timeout_secs,
                 enable_prefilter: workflow_compact.enable_prefilter,

@@ -31,6 +31,7 @@ merge.workspace = true
 nucleo.workspace = true
 nucleo-picker.workspace = true
 libc = "0.2"
+tikv-jemallocator.workspace = true
 forge_fs.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true

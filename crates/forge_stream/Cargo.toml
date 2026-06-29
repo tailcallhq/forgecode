@@ -11,3 +11,9 @@ tokio.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
+criterion.workspace = true
+futures.workspace = true
+
+[[bench]]
+name = "stream_bench"
+harness = false

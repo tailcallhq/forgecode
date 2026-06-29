@@ -210,11 +210,8 @@ mod tests {
 
     #[test]
     fn test_safety_bounds() {
-        let config = AdaptiveEvictionConfig {
-            min_eviction: 0.08,
-            max_eviction: 0.45,
-            ..Default::default()
-        };
+        let config =
+            AdaptiveEvictionConfig { min_eviction: 0.08, max_eviction: 0.45, ..Default::default() };
 
         // Should be clamped to max
         let eviction = config.calculate_eviction(95_000, 100_000);

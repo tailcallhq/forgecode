@@ -4,10 +4,10 @@
 //! `forge_domain` counterparts for compile-time safety while keeping the
 //! storage layer independent from domain model changes.
 
+use crate::codec;
 use anyhow::Context as _;
 use forge_domain::{Context, ConversationId};
 use serde::{Deserialize, Serialize};
-use crate::codec;
 
 /// Repository-specific representation of ModelId
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1121,13 +1121,12 @@ impl TryFrom<ConversationRecord> for forge_domain::Conversation {
         // Dual-read path: decompress if is_compressed=1, else fall back to plain context
         let context_str = if record.is_compressed == 1 {
             if let Some(compressed) = record.context_zstd {
-                codec::decompress(&compressed)
-                    .with_context(|| {
-                        format!(
-                            "Failed to decompress context_zstd for conversation {}",
-                            conversation_id
-                        )
-                    })?
+                codec::decompress(&compressed).with_context(|| {
+                    format!(
+                        "Failed to decompress context_zstd for conversation {}",
+                        conversation_id
+                    )
+                })?
             } else {
                 // Corrupted record: is_compressed=1 but context_zstd is None
                 return Err(anyhow::anyhow!(

@@ -631,10 +631,7 @@ impl ForgeMcpClient {
 
         // Circuit breaker wraps the (possibly retried) call
         circuit_breaker
-            .call(|| {
-                call.retry(&strategy)
-                    .when(|err| self.mcp_should_retry(err))
-            })
+            .call(|| call.retry(&strategy).when(|err| self.mcp_should_retry(err)))
             .await
     }
 }

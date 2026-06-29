@@ -261,10 +261,6 @@ impl DatabasePool {
             crate::database::checkpoint::WalCheckpointer::spawn(config.database_path.clone());
 
         debug!(database_path = %config.database_path.display(), "created connection pool");
-        Ok(Self {
-            pool,
-            retry_config,
-            _checkpointer: checkpointer,
-        })
+        Ok(Self { pool, retry_config, _checkpointer: checkpointer })
     }
 }

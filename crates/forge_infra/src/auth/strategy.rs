@@ -1515,11 +1515,23 @@ mod tests {
             interval: "5".to_string(),
         };
         let debug = format!("{:?}", resp);
-        assert!(!debug.contains("secret_device_auth_id_12345"), "CodexDeviceAuthResponse Debug must not expose device_auth_id");
-        assert!(!debug.contains("SECRET-USER-CODE"), "CodexDeviceAuthResponse Debug must not expose user_code");
-        assert!(debug.contains("<redacted>"), "CodexDeviceAuthResponse Debug must contain <redacted>");
+        assert!(
+            !debug.contains("secret_device_auth_id_12345"),
+            "CodexDeviceAuthResponse Debug must not expose device_auth_id"
+        );
+        assert!(
+            !debug.contains("SECRET-USER-CODE"),
+            "CodexDeviceAuthResponse Debug must not expose user_code"
+        );
+        assert!(
+            debug.contains("<redacted>"),
+            "CodexDeviceAuthResponse Debug must contain <redacted>"
+        );
         // Non-secret interval must remain visible
-        assert!(debug.contains("5"), "CodexDeviceAuthResponse Debug must expose interval");
+        assert!(
+            debug.contains("5"),
+            "CodexDeviceAuthResponse Debug must expose interval"
+        );
     }
 
     #[test]
@@ -1529,8 +1541,17 @@ mod tests {
             code_verifier: "secret_verifier_xyz789".to_string(),
         };
         let debug = format!("{:?}", resp);
-        assert!(!debug.contains("secret_auth_code_abcde"), "CodexDeviceTokenResponse Debug must not expose authorization_code");
-        assert!(!debug.contains("secret_verifier_xyz789"), "CodexDeviceTokenResponse Debug must not expose code_verifier");
-        assert!(debug.contains("<redacted>"), "CodexDeviceTokenResponse Debug must contain <redacted>");
+        assert!(
+            !debug.contains("secret_auth_code_abcde"),
+            "CodexDeviceTokenResponse Debug must not expose authorization_code"
+        );
+        assert!(
+            !debug.contains("secret_verifier_xyz789"),
+            "CodexDeviceTokenResponse Debug must not expose code_verifier"
+        );
+        assert!(
+            debug.contains("<redacted>"),
+            "CodexDeviceTokenResponse Debug must contain <redacted>"
+        );
     }
 }

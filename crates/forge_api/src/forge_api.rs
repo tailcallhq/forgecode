@@ -19,8 +19,8 @@ use forge_stream::MpscStream;
 use futures::stream::BoxStream;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use url::Url;
 use tracing::{debug, warn};
+use url::Url;
 
 use crate::API;
 
@@ -112,11 +112,7 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
         let fts_handle = Self::spawn_fts_refresh_task(repo.clone(), infra.as_ref(), cancel.clone());
         let app = Arc::new(ForgeServices::new(repo.clone()));
         let bg = BackgroundTasks::new(cancel, fts_handle.into_iter().collect());
-        Self {
-            services: app,
-            infra: repo,
-            _background: Some(bg),
-        }
+        Self { services: app, infra: repo, _background: Some(bg) }
     }
 
     /// Spawn the FTS refresh loop.
@@ -150,7 +146,10 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
 
             let interval = Duration::from_secs(refresh_secs);
             loop {
-                debug!(interval_secs = refresh_secs, "refreshing conversation FTS index");
+                debug!(
+                    interval_secs = refresh_secs,
+                    "refreshing conversation FTS index"
+                );
                 if let Err(error) = repo.refresh_fts_index().await {
                     warn!(%error, "conversation FTS refresh failed");
                 }
@@ -305,10 +304,7 @@ impl<
         self.services.delete_conversation(conversation_id).await
     }
 
-    async fn get_subagents(
-        &self,
-        parent_id: &ConversationId,
-    ) -> Result<Vec<Conversation>> {
+    async fn get_subagents(&self, parent_id: &ConversationId) -> Result<Vec<Conversation>> {
         Ok(self
             .services
             .get_conversations_by_parent(parent_id)
@@ -316,10 +312,7 @@ impl<
             .unwrap_or_default())
     }
 
-    async fn get_parent_conversations(
-        &self,
-        limit: Option<usize>,
-    ) -> Result<Vec<Conversation>> {
+    async fn get_parent_conversations(&self, limit: Option<usize>) -> Result<Vec<Conversation>> {
         Ok(self
             .services
             .get_parent_conversations(limit)
@@ -369,9 +362,7 @@ impl<
         &self,
         conversation_id: &ConversationId,
     ) -> Result<Option<Conversation>> {
-        self.services
-            .rewind_conversation(conversation_id)
-            .await
+        self.services.rewind_conversation(conversation_id).await
     }
 
     async fn get_conversations_by_cwd(

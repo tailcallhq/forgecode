@@ -36,7 +36,10 @@ impl std::fmt::Debug for OAuthTokenResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OAuthTokenResponse")
             .field("access_token", &"<redacted>")
-            .field("refresh_token", &self.refresh_token.as_ref().map(|_| "<redacted>"))
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "<redacted>"),
+            )
             .field("expires_in", &self.expires_in)
             .field("expires_at", &self.expires_at)
             .field("token_type", &self.token_type)
@@ -66,12 +69,30 @@ mod tests {
             id_token: Some("super_secret_id_token_xyz".to_string()),
         };
         let debug = format!("{:?}", response);
-        assert!(!debug.contains("super_secret_access_token_xyz"), "access_token must be redacted in Debug");
-        assert!(!debug.contains("super_secret_refresh_token_xyz"), "refresh_token must be redacted in Debug");
-        assert!(!debug.contains("super_secret_id_token_xyz"), "id_token must be redacted in Debug");
-        assert!(debug.contains("<redacted>"), "Debug output must contain <redacted>");
+        assert!(
+            !debug.contains("super_secret_access_token_xyz"),
+            "access_token must be redacted in Debug"
+        );
+        assert!(
+            !debug.contains("super_secret_refresh_token_xyz"),
+            "refresh_token must be redacted in Debug"
+        );
+        assert!(
+            !debug.contains("super_secret_id_token_xyz"),
+            "id_token must be redacted in Debug"
+        );
+        assert!(
+            debug.contains("<redacted>"),
+            "Debug output must contain <redacted>"
+        );
         // Non-secret fields should remain visible
-        assert!(debug.contains("Bearer"), "token_type should remain visible in Debug");
-        assert!(debug.contains("3600"), "expires_in should remain visible in Debug");
+        assert!(
+            debug.contains("Bearer"),
+            "token_type should remain visible in Debug"
+        );
+        assert!(
+            debug.contains("3600"),
+            "expires_in should remain visible in Debug"
+        );
     }
 }

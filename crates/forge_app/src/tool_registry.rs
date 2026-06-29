@@ -124,7 +124,13 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
                     let executor = executor.clone();
                     async move {
                         executor
-                            .execute(AgentId::new(&agent_id), task, context, conversation_id, parent_id)
+                            .execute(
+                                AgentId::new(&agent_id),
+                                task,
+                                context,
+                                conversation_id,
+                                parent_id,
+                            )
                             .await
                     }
                 }))

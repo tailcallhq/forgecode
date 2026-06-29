@@ -83,7 +83,10 @@ impl LlmSummarizer {
             }
             forge_domain::SummarizationStrategy::Hybrid => {
                 // Try LLM first, fall back to template on error
-                match self.generate_llm_summary(context_summary, services, provider).await {
+                match self
+                    .generate_llm_summary(context_summary, services, provider)
+                    .await
+                {
                     Ok(summary) => Ok(summary),
                     Err(e) => {
                         warn!("LLM summarization failed, falling back to template: {}", e);
@@ -95,7 +98,10 @@ impl LlmSummarizer {
     }
 
     /// Generate a summary using template-based extraction.
-    fn generate_template_summary(&self, context_summary: &ContextSummary) -> anyhow::Result<String> {
+    fn generate_template_summary(
+        &self,
+        context_summary: &ContextSummary,
+    ) -> anyhow::Result<String> {
         self.template_engine.render(
             "forge-partial-summary-frame.md",
             &serde_json::json!({"messages": context_summary.messages}),
@@ -129,8 +135,7 @@ impl LlmSummarizer {
         let prompt = self.build_summarization_prompt(context_summary);
 
         // Create a minimal context with just the prompt
-        let prompt_context = Context::default()
-            .add_message(ContextMessage::user(prompt, None));
+        let prompt_context = Context::default().add_message(ContextMessage::user(prompt, None));
 
         // Make the LLM call with timeout
         let summary = tokio::time::timeout(

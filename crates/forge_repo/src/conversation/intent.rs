@@ -48,24 +48,24 @@ impl IntentState {
     pub fn can_transition_to(&self, next: IntentState) -> bool {
         match (self, next) {
             // Pending transitions
-            (Self::Pending, Self::Extracting) => true,   // Normal: start extraction
-            (Self::Pending, Self::Extracted) => true,    // Skip extracting (edge case)
-            (Self::Pending, Self::Verified) => true,     // Manual override
-            (Self::Pending, Self::Pending) => true,      // Idempotent
+            (Self::Pending, Self::Extracting) => true, // Normal: start extraction
+            (Self::Pending, Self::Extracted) => true,  // Skip extracting (edge case)
+            (Self::Pending, Self::Verified) => true,   // Manual override
+            (Self::Pending, Self::Pending) => true,    // Idempotent
             // Extracting transitions
             (Self::Extracting, Self::Extracted) => true, // Extraction succeeded
             (Self::Extracting, Self::Pending) => true,   // Revert on failure
             (Self::Extracting, Self::Extracting) => true, // Idempotent (extend lock)
             // Extracted transitions
-            (Self::Extracted, Self::Verified) => true,   // Verification succeeded
-            (Self::Extracted, Self::Pending) => true,    // Revert on verification failure
-            (Self::Extracted, Self::Extracted) => true,  // Idempotent
+            (Self::Extracted, Self::Verified) => true, // Verification succeeded
+            (Self::Extracted, Self::Pending) => true,  // Revert on verification failure
+            (Self::Extracted, Self::Extracted) => true, // Idempotent
             // Verified transitions
-            (Self::Verified, Self::Pruned) => true,      // Normal: prune
-            (Self::Verified, Self::Pending) => true,     // Manual revert (operator approval)
-            (Self::Verified, Self::Verified) => true,    // Idempotent
+            (Self::Verified, Self::Pruned) => true, // Normal: prune
+            (Self::Verified, Self::Pending) => true, // Manual revert (operator approval)
+            (Self::Verified, Self::Verified) => true, // Idempotent
             // Pruned transitions (no forward; final state)
-            (Self::Pruned, Self::Pruned) => true,        // Idempotent
+            (Self::Pruned, Self::Pruned) => true, // Idempotent
             // All other transitions are forbidden
             _ => false,
         }
@@ -108,14 +108,26 @@ mod tests {
 
     #[test]
     fn test_intent_state_from_str() {
-        assert_eq!(IntentState::from_str("pending").unwrap(), IntentState::Pending);
+        assert_eq!(
+            IntentState::from_str("pending").unwrap(),
+            IntentState::Pending
+        );
         assert_eq!(
             IntentState::from_str("extracting").unwrap(),
             IntentState::Extracting
         );
-        assert_eq!(IntentState::from_str("extracted").unwrap(), IntentState::Extracted);
-        assert_eq!(IntentState::from_str("verified").unwrap(), IntentState::Verified);
-        assert_eq!(IntentState::from_str("pruned").unwrap(), IntentState::Pruned);
+        assert_eq!(
+            IntentState::from_str("extracted").unwrap(),
+            IntentState::Extracted
+        );
+        assert_eq!(
+            IntentState::from_str("verified").unwrap(),
+            IntentState::Verified
+        );
+        assert_eq!(
+            IntentState::from_str("pruned").unwrap(),
+            IntentState::Pruned
+        );
         assert!(IntentState::from_str("invalid").is_err());
     }
 

@@ -70,10 +70,7 @@ pub enum DriftEvent {
         prompt_excerpt: String,
     },
     /// An alert was overridden (dismissed, acked, or auto-inserted).
-    OverrideApplied {
-        id: AlertId,
-        reason: OverrideReason,
-    },
+    OverrideApplied { id: AlertId, reason: OverrideReason },
     /// In Auto mode, a system-note prompt was injected on the target agent.
     AutoInsert {
         target_agent: String,
@@ -84,7 +81,9 @@ pub enum DriftEvent {
 impl DriftEvent {
     pub fn alert_id(&self) -> Option<AlertId> {
         match self {
-            DriftEvent::OverlapAlert { id, .. } | DriftEvent::OverrideApplied { id, .. } => Some(*id),
+            DriftEvent::OverlapAlert { id, .. } | DriftEvent::OverrideApplied { id, .. } => {
+                Some(*id)
+            }
             DriftEvent::AutoInsert { .. } => None,
         }
     }

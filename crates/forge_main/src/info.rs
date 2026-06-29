@@ -75,7 +75,7 @@ impl Section {
 /// # Output Format
 ///
 /// ```text
-/// 
+///
 /// CONFIGURATION
 ///   model gpt-4
 /// provider openai
@@ -716,10 +716,7 @@ impl From<&Conversation> for Info {
 
         // Subagent breadcrumb — show parent if this is a spawned session
         if let Some(parent_id) = &conversation.parent_id {
-            info = info.add_key_value(
-                "Spawned by",
-                format!("{} (use /parent to jump)", parent_id),
-            );
+            info = info.add_key_value("Spawned by", format!("{} (use /parent to jump)", parent_id));
         }
 
         if let Some(title) = &conversation.title {

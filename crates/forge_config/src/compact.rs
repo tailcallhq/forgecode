@@ -8,9 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::Percentage;
 
 /// Strategy for generating summaries during compaction.
-#[derive(
-    Default, Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Dummy,
-)]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Dummy)]
 #[serde(rename_all = "snake_case")]
 pub enum SummarizationStrategy {
     /// Pure structural extraction - extracts tool calls, file paths, and commands
@@ -355,7 +353,10 @@ mod tests {
 
     #[test]
     fn test_summarization_strategy_default_is_extract() {
-        assert_eq!(SummarizationStrategy::default(), SummarizationStrategy::Extract);
+        assert_eq!(
+            SummarizationStrategy::default(),
+            SummarizationStrategy::Extract
+        );
     }
 
     #[test]
@@ -398,7 +399,10 @@ mod tests {
     #[test]
     fn test_compact_new_has_default_values() {
         let compact = Compact::new();
-        assert_eq!(compact.summarization_strategy, SummarizationStrategy::Extract);
+        assert_eq!(
+            compact.summarization_strategy,
+            SummarizationStrategy::Extract
+        );
         assert_eq!(compact.summary_timeout_secs, 3);
         assert!(!compact.enable_prefilter);
         assert!(!compact.enable_adaptive_eviction);

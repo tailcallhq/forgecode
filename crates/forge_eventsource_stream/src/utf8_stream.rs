@@ -11,6 +11,11 @@ use futures_core::stream::Stream;
 use futures_core::task::{Context, Poll};
 use pin_project_lite::pin_project;
 
+/// Maximum number of bytes buffered for a single partial UTF-8 sequence.
+/// Sequences can be at most 4 bytes; this cap prevents unbounded growth on
+/// malformed or adversarial input streams.
+const MAX_UTF8_BUFFER: usize = 4 * 1024; // 4 KiB — far more than any valid sequence
+
 pin_project! {
 pub struct Utf8Stream<S> {
     #[pin]
@@ -60,6 +65,15 @@ where
                         let valid_size = err.utf8_error().valid_up_to();
                         let mut bytes = err.into_bytes();
                         let rem = bytes.split_off(valid_size);
+                        // A valid UTF-8 partial-sequence remainder is at most 3
+                        // bytes. If the remainder exceeds MAX_UTF8_BUFFER, the
+                        // stream is malformed; emit an error and clear the
+                        // buffer to prevent unbounded accumulation.
+                        if rem.len() > MAX_UTF8_BUFFER {
+                            return Poll::Ready(Some(Err(Utf8StreamError::Utf8(
+                                String::from_utf8(rem).unwrap_err(),
+                            ))));
+                        }
                         *this.buffer = rem;
                         // SAFETY: `bytes` contains exactly the validated UTF-8
                         // prefix of the original slice; `valid_up_to()` guarantees

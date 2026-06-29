@@ -11,8 +11,8 @@ mod integration_tests {
     use diesel::prelude::*;
     use diesel::sql_types::*;
 
-    use crate::database::pool::DatabasePool;
     use crate::conversation::intent::IntentState;
+    use crate::database::pool::DatabasePool;
 
     // Helper structs for diesel sql_query results
     #[derive(QueryableByName)]
