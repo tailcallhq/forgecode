@@ -23,12 +23,24 @@ pub struct InputBuilder {
     pub(crate) allow_empty: bool,
     pub(crate) default: Option<String>,
     pub(crate) default_display: Option<String>,
+    pub(crate) header: Option<String>,
 }
 
 impl InputBuilder {
     /// Allow empty input.
     pub fn allow_empty(mut self, allow: bool) -> Self {
         self.allow_empty = allow;
+        self
+    }
+
+    /// Set header text rendered above the input prompt.
+    ///
+    /// The header is printed inside the alternate screen so it remains visible
+    /// while the user types. This is used to keep important context (such as an
+    /// authorization URL) on screen even though the alternate screen clears any
+    /// output printed before the prompt was shown.
+    pub fn with_header<T: Into<String>>(mut self, header: T) -> Self {
+        self.header = Some(header.into());
         self
     }
 
@@ -71,6 +83,14 @@ impl InputBuilder {
         // redraw causes the viewport to jump back to the cursor position,
         // scrolling the prompt out of view.
         let _guard = AlternateScreenGuard::enter();
+
+        // Re-print any header context inside the alternate screen so it stays
+        // visible while the user types (the alternate screen clears anything
+        // printed before this point, e.g. an authorization URL).
+        if let Some(ref header) = self.header {
+            println!("{header}");
+            println!();
+        }
 
         let mut rl = DefaultEditor::new()?;
 
@@ -154,6 +174,12 @@ mod tests {
     fn test_input_builder_allow_empty() {
         let builder = ForgeWidget::input("Enter").allow_empty(true);
         assert_eq!(builder.allow_empty, true);
+    }
+
+    #[test]
+    fn test_input_builder_with_header() {
+        let builder = ForgeWidget::input("Paste code").with_header("Please visit: https://x");
+        assert_eq!(builder.header, Some("Please visit: https://x".to_string()));
     }
 
     #[test]

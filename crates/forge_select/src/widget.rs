@@ -38,6 +38,7 @@ impl ForgeWidget {
             allow_empty: false,
             default: None,
             default_display: None,
+            header: None,
         }
     }
 

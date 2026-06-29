@@ -3348,9 +3348,18 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let code = if let Some(server) = callback_server {
             server.wait_for_code().await?
         } else {
-            // Prompt user to paste authorization code
+            // Prompt user to paste authorization code. Pass the authorization URL
+            // as header context so it stays visible inside the input prompt's
+            // alternate screen — otherwise the URL printed above is cleared and
+            // the user cannot see or copy it.
+            let header = format!(
+                "{} Please visit: {}",
+                "→".blue(),
+                request.authorization_url.as_str().blue().underline()
+            );
             let code =
                 ForgeWidget::input(format!("Paste the authorization code for {provider_id}"))
+                    .with_header(header)
                     .prompt()?
                     .ok_or_else(|| anyhow::anyhow!("Authorization code input cancelled"))?;
 

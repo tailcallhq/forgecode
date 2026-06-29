@@ -51,6 +51,7 @@ impl ConfirmBuilder {
                 allow_empty: true,
                 default: None,
                 default_display: None,
+                header: None,
             };
 
             let result = input_builder.prompt()?;
