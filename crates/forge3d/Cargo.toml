@@ -27,7 +27,7 @@ tokio = { version = "1.51", features = [
 
 # SQLite (bundled, no system dep). Used synchronously by Store; the
 # async layer wraps calls in spawn_blocking where needed.
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 
 # Serde for JSON-RPC framing + drift event payloads.
 serde = { workspace = true }

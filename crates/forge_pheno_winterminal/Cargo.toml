@@ -1,0 +1,22 @@
+[package]
+name = "forge_pheno_winterminal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "Windows Terminal profile/palette/scheme management for forgecode"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+dirs = { workspace = true }
+regex = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+
+[dev-dependencies]
+tempfile = { workspace = true }
