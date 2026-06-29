@@ -2,10 +2,12 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::{Arc, OnceLock, RwLock};
+use std::time::Duration;
 
 use backon::{ExponentialBuilder, Retryable};
 use bstr::ByteSlice;
 use forge_app::McpClientInfra;
+use forge_config::RetryConfig;
 use forge_domain::{
     Environment, Image, McpHttpServer, McpServerConfig, ToolDefinition, ToolName, ToolOutput,
 };
@@ -21,11 +23,19 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 use crate::error::Error;
+use crate::resilience::{Bulkhead, CircuitBreaker, CircuitBreakerConfig};
 
 const VERSION: &str = match option_env!("APP_VERSION") {
     Some(val) => val,
     None => env!("CARGO_PKG_VERSION"),
 };
+
+/// Default max concurrent MCP calls per client when no config is provided.
+const DEFAULT_MCP_MAX_CONCURRENT: usize = 16;
+/// Default retry attempts for MCP transport errors when no `RetryConfig` is
+/// provided.  Mirrors the previously hardcoded value so behaviour is unchanged
+/// for callers that have not opted in to config-driven retry.
+const DEFAULT_MCP_MAX_RETRIES: usize = 5;
 
 type RmcpClient = RunningService<RoleClient, InitializeRequestParams>;
 
@@ -36,6 +46,14 @@ pub struct ForgeMcpClient {
     env_vars: BTreeMap<String, String>,
     environment: Environment,
     resolved_config: Arc<OnceLock<anyhow::Result<McpServerConfig>>>,
+    /// Retry configuration that governs how many times transport errors are
+    /// retried and with what backoff.  Driven by the global [`RetryConfig`]
+    /// so that all retry behaviour in the system is controlled from one place.
+    retry_config: RetryConfig,
+    /// Circuit breaker shared across all calls on this client instance.
+    circuit_breaker: CircuitBreaker,
+    /// Concurrency bulkhead — prevents stampeding a struggling MCP server.
+    bulkhead: Bulkhead,
 }
 
 impl ForgeMcpClient {
@@ -44,12 +62,44 @@ impl ForgeMcpClient {
         env_vars: &BTreeMap<String, String>,
         environment: Environment,
     ) -> Self {
+        Self::with_retry_config(config, env_vars, environment, RetryConfig::default())
+    }
+
+    /// Constructs a client with an explicit [`RetryConfig`].  All retry and
+    /// backoff behaviour is driven by `retry_config`; circuit-breaker and
+    /// bulkhead thresholds are derived from it.
+    pub fn with_retry_config(
+        config: McpServerConfig,
+        env_vars: &BTreeMap<String, String>,
+        environment: Environment,
+        retry_config: RetryConfig,
+    ) -> Self {
+        // Derive circuit-breaker threshold from retry config: open after the
+        // same number of attempts that the retry layer would exhaust.
+        let failure_threshold = if retry_config.max_attempts > 0 {
+            retry_config.max_attempts as u32
+        } else {
+            DEFAULT_MCP_MAX_RETRIES as u32
+        };
+
+        let circuit_breaker = CircuitBreaker::new(CircuitBreakerConfig {
+            failure_threshold,
+            reset_timeout: retry_config
+                .max_delay_secs
+                .map(Duration::from_secs)
+                .unwrap_or(Duration::from_secs(30)),
+            name: "mcp_client".to_string(),
+        });
+
         Self {
             client: Default::default(),
             config,
             env_vars: env_vars.clone(),
             environment,
             resolved_config: Arc::new(OnceLock::new()),
+            retry_config,
+            circuit_breaker,
+            bulkhead: Bulkhead::new("mcp_client", DEFAULT_MCP_MAX_CONCURRENT),
         }
     }
 
@@ -490,33 +540,75 @@ impl ForgeMcpClient {
             .is_error(result.is_error.unwrap_or_default()))
     }
 
+    /// Returns a predicate that decides whether an MCP error is worth retrying.
+    /// When a transport error is detected the cached client handle is cleared so
+    /// the next attempt reconnects.
+    fn mcp_should_retry(&self, err: &anyhow::Error) -> bool {
+        let is_transport = err
+            .downcast_ref::<rmcp::ServiceError>()
+            .map(|e| {
+                matches!(
+                    e,
+                    rmcp::ServiceError::TransportSend(_) | rmcp::ServiceError::TransportClosed
+                )
+            })
+            .unwrap_or(false);
+
+        if is_transport && let Ok(mut guard) = self.client.write() {
+            guard.take();
+        }
+
+        is_transport
+    }
+
+    /// Executes `call` with:
+    ///
+    /// 1. A **bulkhead** that limits concurrency to `DEFAULT_MCP_MAX_CONCURRENT`.
+    /// 2. A **circuit breaker** that short-circuits after repeated failures.
+    /// 3. **Retry with exponential backoff** driven by the global
+    ///    [`RetryConfig`] (falls back to `DEFAULT_MCP_MAX_RETRIES` if the
+    ///    config has `max_attempts == 0`).
     async fn attempt_with_retry<T, F>(&self, call: impl Fn() -> F) -> anyhow::Result<T>
     where
         F: Future<Output = anyhow::Result<T>>,
     {
-        call.retry(
-            ExponentialBuilder::default()
-                .with_max_times(5)
-                .with_jitter(),
-        )
-        .when(|err| {
-            let is_transport = err
-                .downcast_ref::<rmcp::ServiceError>()
-                .map(|e| {
-                    matches!(
-                        e,
-                        rmcp::ServiceError::TransportSend(_) | rmcp::ServiceError::TransportClosed
-                    )
-                })
-                .unwrap_or(false);
+        let max_times = if self.retry_config.max_attempts > 0 {
+            self.retry_config.max_attempts
+        } else {
+            DEFAULT_MCP_MAX_RETRIES
+        };
 
-            if is_transport && let Ok(mut guard) = self.client.write() {
-                guard.take();
-            }
+        let min_delay = if self.retry_config.min_delay_ms > 0 {
+            Duration::from_millis(self.retry_config.min_delay_ms)
+        } else {
+            Duration::from_millis(100)
+        };
 
-            is_transport
-        })
-        .await
+        let factor = if self.retry_config.backoff_factor > 0 {
+            self.retry_config.backoff_factor as f32
+        } else {
+            2.0_f32
+        };
+
+        let strategy = ExponentialBuilder::default()
+            .with_max_times(max_times)
+            .with_min_delay(min_delay)
+            .with_factor(factor)
+            .with_jitter();
+
+        let bulkhead = &self.bulkhead;
+        let circuit_breaker = &self.circuit_breaker;
+
+        // Bulkhead: reject immediately if at capacity
+        let _permit = bulkhead.try_acquire()?;
+
+        // Circuit breaker wraps the (possibly retried) call
+        circuit_breaker
+            .call(|| {
+                call.retry(&strategy)
+                    .when(|err| self.mcp_should_retry(err))
+            })
+            .await
     }
 }
 

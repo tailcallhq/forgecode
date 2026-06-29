@@ -8,6 +8,7 @@ use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, CustomizeConnection, Pool, PooledConnection};
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
+use forge_config::RetryConfig;
 use tracing::{debug, warn};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migrations");
@@ -15,14 +16,22 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migra
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 pub type PooledSqliteConnection = PooledConnection<ConnectionManager<SqliteConnection>>;
 
+/// Fallback max retries for pool operations when no `RetryConfig` is supplied.
+const DEFAULT_POOL_MAX_RETRIES: usize = 5;
+/// Fallback minimum delay between pool-connection retries.
+const DEFAULT_POOL_MIN_DELAY: Duration = Duration::from_secs(1);
+
 #[derive(Debug, Clone)]
 pub struct PoolConfig {
     pub max_size: u32,
     pub min_idle: Option<u32>,
     pub connection_timeout: Duration,
     pub idle_timeout: Option<Duration>,
-    pub max_retries: usize,
     pub database_path: PathBuf,
+    /// Retry/backoff configuration for transient pool-creation and
+    /// connection-acquisition failures.  When `None` the pool falls back to
+    /// hard-coded defaults (`DEFAULT_POOL_MAX_RETRIES`, `DEFAULT_POOL_MIN_DELAY`).
+    pub retry_config: Option<RetryConfig>,
 }
 
 impl PoolConfig {
@@ -32,15 +41,22 @@ impl PoolConfig {
             min_idle: Some(1),
             connection_timeout: Duration::from_secs(5),
             idle_timeout: Some(Duration::from_secs(600)), // 10 minutes
-            max_retries: 5,
             database_path,
+            retry_config: None,
         }
+    }
+
+    /// Attach a [`RetryConfig`] so pool-level retries honour the unified
+    /// system-wide settings rather than the hard-coded defaults.
+    pub fn with_retry_config(mut self, config: RetryConfig) -> Self {
+        self.retry_config = Some(config);
+        self
     }
 }
 
 pub struct DatabasePool {
     pool: DbPool,
-    max_retries: usize,
+    retry_config: RetryConfig,
     _checkpointer: Option<crate::database::checkpoint::WalCheckpointer>,
 }
 
@@ -66,12 +82,16 @@ impl DatabasePool {
             .run_pending_migrations(MIGRATIONS)
             .map_err(|e| anyhow::anyhow!("Failed to run database migrations: {e}"))?;
 
-        Ok(Self { pool, max_retries: 5, _checkpointer: None })
+        Ok(Self {
+            pool,
+            retry_config: RetryConfig::default(),
+            _checkpointer: None,
+        })
     }
 
     pub fn get_connection(&self) -> Result<PooledSqliteConnection> {
         Self::retry_with_backoff(
-            self.max_retries,
+            &self.retry_config,
             "Failed to get connection from pool, retrying",
             || {
                 self.pool
@@ -81,17 +101,43 @@ impl DatabasePool {
         )
     }
 
-    /// Retries a blocking database pool operation with exponential backoff.
-    fn retry_with_backoff<T>(
-        max_retries: usize,
+    /// Retries a blocking database pool operation with exponential backoff
+    /// driven by the provided [`RetryConfig`].
+    ///
+    /// `RetryConfig` fields map to the backoff strategy as follows:
+    /// - `max_attempts`      → `with_max_times`
+    /// - `min_delay_ms`      → `with_min_delay` (falls back to
+    ///   [`DEFAULT_POOL_MIN_DELAY`] when zero)
+    /// - `backoff_factor`    → `with_factor` (falls back to `2.0` when zero)
+    pub(crate) fn retry_with_backoff<T>(
+        retry_config: &RetryConfig,
         message: &'static str,
         operation: impl FnMut() -> Result<T>,
     ) -> Result<T> {
+        let max_times = if retry_config.max_attempts > 0 {
+            retry_config.max_attempts
+        } else {
+            DEFAULT_POOL_MAX_RETRIES
+        };
+
+        let min_delay = if retry_config.min_delay_ms > 0 {
+            Duration::from_millis(retry_config.min_delay_ms)
+        } else {
+            DEFAULT_POOL_MIN_DELAY
+        };
+
+        let factor = if retry_config.backoff_factor > 0 {
+            retry_config.backoff_factor as f32
+        } else {
+            2.0_f32
+        };
+
         operation
             .retry(
                 ExponentialBuilder::default()
-                    .with_min_delay(Duration::from_secs(1))
-                    .with_max_times(max_retries)
+                    .with_min_delay(min_delay)
+                    .with_max_times(max_times)
+                    .with_factor(factor)
                     .with_jitter(),
             )
             .sleep(std::thread::sleep)
@@ -168,17 +214,18 @@ impl TryFrom<PoolConfig> for DatabasePool {
         // Retry pool creation with exponential backoff to handle transient
         // failures such as another process holding an exclusive lock on the
         // SQLite database file.
+        let retry_config = config.retry_config.clone().unwrap_or_default();
         DatabasePool::retry_with_backoff(
-            config.max_retries,
+            &retry_config,
             "Failed to create database pool, retrying",
-            || Self::build_pool(&config),
+            || Self::build_pool(&config, retry_config.clone()),
         )
     }
 }
 
 impl DatabasePool {
     /// Builds the connection pool and runs migrations.
-    fn build_pool(config: &PoolConfig) -> Result<Self> {
+    fn build_pool(config: &PoolConfig, retry_config: RetryConfig) -> Result<Self> {
         let database_url = config.database_path.to_string_lossy().to_string();
         let manager = ConnectionManager::<SqliteConnection>::new(&database_url);
 
@@ -216,7 +263,7 @@ impl DatabasePool {
         debug!(database_path = %config.database_path.display(), "created connection pool");
         Ok(Self {
             pool,
-            max_retries: config.max_retries,
+            retry_config,
             _checkpointer: checkpointer,
         })
     }
