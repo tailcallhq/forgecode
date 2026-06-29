@@ -84,6 +84,16 @@ fn get_context_length(model_id: &str) -> Option<u64> {
         return Some(1_000_000);
     }
 
+    // Claude Opus 4.6 / 4.7 / 4.8 (1M context). Must be checked before the
+    // generic `claude-opus-4-` branch below, which would otherwise cap these
+    // 1M-token models at 200K.
+    if model_id.starts_with("claude-opus-4-6")
+        || model_id.starts_with("claude-opus-4-7")
+        || model_id.starts_with("claude-opus-4-8")
+    {
+        return Some(1_000_000);
+    }
+
     // Current models (200K context)
     if model_id.starts_with("claude-sonnet-4-5-")
         || model_id.starts_with("claude-haiku-4-5-")
@@ -707,6 +717,21 @@ mod tests {
             get_context_length("claude-opus-4-1-20250805"),
             Some(200_000)
         );
+    }
+
+    #[test]
+    fn test_get_context_length_opus_1m_models() {
+        // Claude Opus 4.6 / 4.7 / 4.8 are 1M-token models and must not be
+        // captured by the generic `claude-opus-4-` 200K branch.
+        assert_eq!(get_context_length("claude-opus-4-6"), Some(1_000_000));
+        assert_eq!(get_context_length("claude-opus-4-7"), Some(1_000_000));
+        assert_eq!(get_context_length("claude-opus-4-8"), Some(1_000_000));
+        // Older Opus 4.x models remain at 200K.
+        assert_eq!(
+            get_context_length("claude-opus-4-1-20250805"),
+            Some(200_000)
+        );
+        assert_eq!(get_context_length("claude-opus-4-20250514"), Some(200_000));
     }
 
     #[test]

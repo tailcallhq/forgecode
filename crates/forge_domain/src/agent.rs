@@ -231,16 +231,20 @@ impl Agent {
         self
     }
 
-    /// Applies a safe `token_threshold` by taking the minimum of an absolute
-    /// token cap and a percentage-based context-window cap.
+    /// Applies a safe `token_threshold` derived from the selected model's
+    /// context window.
     ///
-    /// The absolute cap comes from `compact.token_threshold`, or falls back to
-    /// a default of 100,000 tokens. The context-window cap comes from
-    /// `compact.token_threshold_percentage`, or falls back to 70%
-    /// of the selected model's context window. If model metadata is
-    /// unavailable, a default 128K context window is used. The lower of
-    /// these two values is used to preserve headroom for tool outputs and
-    /// follow-up messages.
+    /// The percentage-based cap comes from
+    /// `compact.token_threshold_percentage`, or falls back to 70% of the
+    /// selected model's context window. If model metadata is unavailable, a
+    /// default 128K context window is used.
+    ///
+    /// When `compact.token_threshold` is explicitly configured, it is treated
+    /// as an absolute cap and the lower of it and the percentage-based cap is
+    /// used, preserving headroom for tool outputs and follow-up messages on
+    /// small context windows. When it is unset, the threshold is derived purely
+    /// from the context window (the percentage-based cap) so that large windows
+    /// (e.g. 1M-token models) are not capped to a small hardcoded value.
     ///
     /// # Arguments
     /// * `selected_model` - The model that will be used for this agent
@@ -249,7 +253,6 @@ impl Agent {
     /// The agent with a safe token_threshold configured
     pub fn compaction_threshold(mut self, selected_model: Option<&Model>) -> Self {
         const DEFAULT_CONTEXT_WINDOW: usize = 128_000;
-        const DEFAULT_TOKEN_THRESHOLD: usize = 100_000;
         const DEFAULT_CONTEXT_WINDOW_PERCENTAGE: f64 = 0.7;
 
         let context_window = selected_model
@@ -257,10 +260,6 @@ impl Agent {
             .and_then(|context_window| usize::try_from(context_window).ok())
             .unwrap_or(DEFAULT_CONTEXT_WINDOW);
 
-        let configured_threshold = self
-            .compact
-            .token_threshold
-            .unwrap_or(DEFAULT_TOKEN_THRESHOLD);
         let context_window_percentage = self
             .compact
             .token_threshold_percentage
@@ -268,7 +267,17 @@ impl Agent {
         let context_window_threshold =
             ((context_window as f64) * context_window_percentage).floor() as usize;
 
-        self.compact.token_threshold = Some(configured_threshold.min(context_window_threshold));
+        // By default the threshold is derived from the model's context window so
+        // that large windows (e.g. 1M-token models) are used fully instead of
+        // being capped to a small hardcoded value. When the user explicitly
+        // configures a `token_threshold` it is treated as an absolute upper
+        // bound, capped to the context-window-derived value for safety headroom.
+        let token_threshold = match self.compact.token_threshold {
+            Some(configured_threshold) => configured_threshold.min(context_window_threshold),
+            None => context_window_threshold,
+        };
+
+        self.compact.token_threshold = Some(token_threshold);
 
         self
     }
@@ -375,7 +384,10 @@ mod tests {
     }
 
     #[test]
-    fn test_compaction_threshold_uses_hardcoded_cap_when_context_window_cap_is_higher() {
+    fn test_compaction_threshold_uses_context_window_percentage_when_unset() {
+        // With no configured token_threshold, the threshold is derived purely
+        // from the model's context window (70%), so large windows aren't capped
+        // to a small hardcoded value.
         let fixture = Agent::new(
             AgentId::new("test"),
             ProviderId::OPENAI,
@@ -385,7 +397,26 @@ mod tests {
         let selected_model = model_fixture("selected-model", Some(200_000));
 
         let actual = fixture.compaction_threshold(Some(&selected_model));
-        let expected = Some(100_000);
+        // 70% of 200K = 140K
+        let expected = Some(140_000);
+
+        assert_eq!(actual.compact.token_threshold, expected);
+    }
+
+    #[test]
+    fn test_compaction_threshold_large_window_not_capped_to_hardcoded_default() {
+        // Regression: a 1M-token model with no configured threshold should get a
+        // threshold of 70% of the window (700K), not a small hardcoded default.
+        let fixture = Agent::new(
+            AgentId::new("test"),
+            ProviderId::OPENAI,
+            ModelId::new("selected-model"),
+        );
+
+        let selected_model = model_fixture("selected-model", Some(1_000_000));
+
+        let actual = fixture.compaction_threshold(Some(&selected_model));
+        let expected = Some(700_000);
 
         assert_eq!(actual.compact.token_threshold, expected);
     }
