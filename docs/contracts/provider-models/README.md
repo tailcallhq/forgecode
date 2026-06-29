@@ -1,7 +1,21 @@
 # Provider-Model Contract
 
 **Version:** 1.0.0
-**Status:** Reference artifact — not yet a published package.
+**Status:** Vendored pin — CANONICAL SSOT is `KooshaPari/phenotype-contracts`.
+
+## Canonical Home
+
+> **The authoritative source for these schemas is
+> [KooshaPari/phenotype-contracts](https://github.com/KooshaPari/phenotype-contracts).**
+>
+> The copies in this directory (`docs/contracts/provider-models/`) are a **vendored pin**
+> of that SSOT. Do not edit them here; open a PR against `phenotype-contracts` instead
+> and then re-vendor the updated files.
+
+**Pinned ref:** `cc8f34ed34a3f1ae2ba7edd6810a902e51738693`
+(phenotype-contracts `main` HEAD at time of pin — 2026-06-28)
+
+---
 
 ## Purpose
 
@@ -23,6 +37,8 @@ the contract is a **JSON Schema** that each repo aligns its native types against
 | File | Description |
 |------|-------------|
 | `provider-model.schema.json` | JSON Schema 2020-12 for `Model`, `ProviderConfig`, `SseStopRule`, `OAuthRefreshPolicy` |
+| `oauth-refresh-policy.schema.json` | JSON Schema 2020-12 for OAuth token refresh timing contract |
+| `resilience-policy.schema.json` | JSON Schema 2020-12 for retry/backoff parameters and retryable-error taxonomy |
 | `README.md` | This file |
 
 ## How to use this contract
@@ -32,6 +48,10 @@ the contract is a **JSON Schema** that each repo aligns its native types against
 `forge_domain::Model` and `forge_domain::Provider` are the reference implementation.
 `forge_eventsource::is_sse_terminal` is the reference implementation of `SseStopRule`.
 When the domain types change, update the schema to stay in sync.
+
+A conformance test in `crates/forge_eventsource/tests/contract_conformance.rs` asserts
+that forgecode's runtime constants match the contract values declared in these schemas.
+Run it with `cargo test contract_conformance`.
 
 ### OmniRoute (TypeScript)
 
@@ -82,12 +102,29 @@ now + refresh_lead >= token.expires_at
 ```
 
 Default `refresh_lead` is **300 seconds (5 minutes)**, matching:
-- forgecode: `chrono::Duration::minutes(5)`
+- forgecode: `OAUTH_REFRESH_LEAD = chrono::Duration::minutes(5)` (`forge_services::provider_auth`)
 - OmniRoute: `TOKEN_EXPIRY_BUFFER = 5 * 60 * 1000`
 - cliproxy: `5 * time.Minute` (most providers)
 
 Per-provider overrides are valid (e.g. cliproxy codebuddy uses 86400 s).
 The contract requires the lead to be *parameterized*, not hardcoded.
+
+## Retryable HTTP status codes (normative)
+
+The following HTTP status codes MUST trigger a retry (source: `resilience-policy.schema.json`):
+
+`408, 429, 500, 502, 503, 504, 520, 522, 524, 529`
+
+forgecode reference: `forge_config::RetryConfig` default `status_codes`.
+
+## Re-vendoring
+
+When `KooshaPari/phenotype-contracts` merges a schema change:
+
+1. Copy the updated `*.schema.json` files here.
+2. Update the **Pinned ref** SHA at the top of this README.
+3. Run `cargo test contract_conformance` to verify forgecode's constants still match.
+4. Commit with message `chore(contracts): re-vendor phenotype-contracts@<sha>`.
 
 ## Versioning
 
@@ -95,6 +132,3 @@ Contract changes follow semver:
 - **Patch** — clarifications, description-only updates, no field changes.
 - **Minor** — new optional fields; existing fields unchanged.
 - **Major** — field renames, type changes, or removal of fields.
-
-Each consuming repo should record the contract version it was aligned against in its
-own changelog or a `docs/contracts/VERSION` pin file.

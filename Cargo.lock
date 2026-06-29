@@ -2760,6 +2760,7 @@ dependencies = [
 name = "forge_eventsource"
 version = "0.1.1"
 dependencies = [
+ "chrono",
  "criterion",
  "forge_eventsource_stream",
  "futures",
