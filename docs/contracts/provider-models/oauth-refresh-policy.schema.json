@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/KooshaPari/forgecode/docs/contracts/provider-models/oauth-refresh-policy.schema.json",
+  "title": "OAuthRefreshPolicy",
+  "description": "Contract v1.0.0. Parameterized OAuth2 token refresh policy shared across forgecode (Rust), OmniRoute (TypeScript), and cliproxy (Go). The refresh_lead is a per-provider parameter, not a global constant: while the canonical default is 300 s (5 min), per-provider overrides are explicitly valid (e.g. codebuddy 86400 s in cliproxy).",
+  "version": "1.0.0",
+  "type": "object",
+  "required": [],
+  "properties": {
+    "default_refresh_lead_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 300,
+      "description": "Default lead window (seconds) before token expiry at which a proactive refresh must be triggered. Canonical equivalents across repos: forgecode `OAUTH_REFRESH_LEAD = chrono::Duration::minutes(5)` (provider_auth.rs); OmniRoute `TOKEN_EXPIRY_BUFFER = 5 * 60 * 1000` (tokenHealthCheck.ts); cliproxy `5 * time.Minute` (most per-provider RefreshLead() implementations). This field MUST be treated as a parameter, not a constant; per-provider overrides are valid."
+    },
+    "per_provider_refresh_lead_seconds": {
+      "type": "object",
+      "description": "Per-provider overrides of the refresh lead (seconds). Keys are ProviderId values (snake_case). When present, the per-provider value supersedes default_refresh_lead_seconds for that provider. Example: codebuddy uses 86400 s (24 h) in cliproxy.",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "examples": [
+        { "codebuddy": 86400, "copilot": 300 }
+      ]
+    },
+    "needs_refresh_predicate": {
+      "type": "string",
+      "const": "now + refresh_lead >= token.expires_at",
+      "description": "Boolean predicate (normative): a token needs refresh when the current wall-clock time plus the effective refresh lead (default or per-provider override) meets or exceeds the token's expiry timestamp. Implementations MUST use >= (not >) so a token whose lead window starts exactly at 'now' is immediately refreshed. Reference: forge_domain::auth::credentials::OAuthTokens::needs_refresh."
+    },
+    "expiry_fields": {
+      "type": "object",
+      "description": "Normative field names for expiry metadata across repo implementations.",
+      "properties": {
+        "expires_at_field": {
+          "type": "string",
+          "const": "expires_at",
+          "description": "UTC timestamp (ISO 8601 / Unix epoch) at which the token expires. forgecode: OAuthTokens.expires_at (DateTime<Utc>). OmniRoute: token.expiresAt (number, ms since epoch). cliproxy: ExpiresAt (time.Time)."
+        },
+        "expires_in_field": {
+          "type": "string",
+          "const": "expires_in",
+          "description": "Token lifetime in seconds as returned by the OAuth2 token endpoint (RFC 6749 §5.1). Implementations derive expires_at = now + expires_in. Reference: forge_infra::auth::util::calculate_token_expiry."
+        }
+      },
+      "additionalProperties": false
+    },
+    "token_types": {
+      "type": "object",
+      "description": "Token type taxonomy (normative).",
+      "properties": {
+        "access_token": {
+          "type": "string",
+          "const": "access_token",
+          "description": "Short-lived bearer token sent in Authorization headers. Subject to the refresh-lead policy."
+        },
+        "refresh_token": {
+          "type": "string",
+          "const": "refresh_token",
+          "description": "Long-lived token used to obtain a new access_token. Not subject to the refresh-lead policy; implementations MUST NOT pre-emptively rotate refresh_tokens."
+        }
+      },
+      "additionalProperties": false
+    },
+    "refresh_semantics": {
+      "type": "object",
+      "description": "Behavioral guarantees for the refresh flow (normative).",
+      "properties": {
+        "proactive_refresh": {
+          "type": "boolean",
+          "const": true,
+          "description": "Implementations MUST proactively refresh tokens before expiry (using refresh_lead), not reactively on 401 response only."
+        },
+        "fallback_on_refresh_failure": {
+          "type": "string",
+          "enum": ["continue_with_existing", "propagate_error"],
+          "default": "continue_with_existing",
+          "description": "What to do when a proactive refresh attempt fails. 'continue_with_existing': use the existing (still-valid) token and log the error — this is the forgecode behavior (provider_auth.rs refresh error path). 'propagate_error': fail the request immediately. Implementations SHOULD default to 'continue_with_existing' for non-expired tokens."
+        },
+        "device_flow_out_of_scope": {
+          "type": "boolean",
+          "const": true,
+          "description": "The device authorization flow (RFC 8628) is explicitly OUT OF SCOPE for this contract. Each repo implements its own device flow. This contract covers only the token-refresh decision (needs_refresh predicate) and expiry math."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$comment": "Cross-repo alignment notes: (1) forgecode hardcodes `chrono::Duration::minutes(5)` inline in provider_auth.rs — this should be a named const OAUTH_REFRESH_LEAD; the const was introduced in this P5.2 pass. (2) OmniRoute's TOKEN_EXPIRY_BUFFER is in ms (5*60*1000); all other repos use seconds — callers must convert units. (3) cliproxy RefreshLead() varies per provider (codebuddy 86400s); per_provider_refresh_lead_seconds captures this. (4) The needs_refresh predicate uses >= to match all three existing implementations."
+}

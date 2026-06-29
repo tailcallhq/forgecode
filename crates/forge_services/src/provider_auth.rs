@@ -6,6 +6,12 @@ use forge_domain::{
     AuthContextRequest, AuthContextResponse, AuthMethod, Provider, ProviderId, ProviderRepository,
 };
 
+/// Default lead window before token expiry at which a proactive OAuth refresh is triggered.
+/// Matches the cross-repo contract default (300 s): OmniRoute `TOKEN_EXPIRY_BUFFER = 5*60*1000`,
+/// cliproxy `5 * time.Minute` for most providers.
+/// See: docs/contracts/provider-models/oauth-refresh-policy.schema.json
+const OAUTH_REFRESH_LEAD: chrono::Duration = chrono::Duration::minutes(5);
+
 /// Forge Provider Authentication Service
 #[derive(Clone)]
 pub struct ForgeProviderAuthService<I> {
@@ -147,64 +153,63 @@ where
         &self,
         mut provider: Provider<url::Url>,
     ) -> anyhow::Result<Provider<url::Url>> {
-        // Check if credential needs refresh (5 minute buffer before expiry)
-        if let Some(credential) = &provider.credential {
-            let buffer = chrono::Duration::minutes(5);
+        // Check if credential needs refresh using the contract-defined refresh lead
+        if let Some(credential) = &provider.credential
+            && credential.needs_refresh(OAUTH_REFRESH_LEAD)
+        {
+            // Iterate through auth methods and try to refresh
+            for auth_method in &provider.auth_methods {
+                match auth_method {
+                    AuthMethod::OAuthDevice(_)
+                    | AuthMethod::OAuthCode(_)
+                    | AuthMethod::CodexDevice(_)
+                    | AuthMethod::GoogleAdc => {
+                        // Get existing credential
+                        let existing_credential = self
+                            .infra
+                            .get_credential(&provider.id)
+                            .await?
+                            .ok_or_else(|| forge_domain::Error::ProviderNotAvailable {
+                                provider: provider.id.clone(),
+                            })?;
 
-            if credential.needs_refresh(buffer) {
-                // Iterate through auth methods and try to refresh
-                for auth_method in &provider.auth_methods {
-                    match auth_method {
-                        AuthMethod::OAuthDevice(_)
-                        | AuthMethod::OAuthCode(_)
-                        | AuthMethod::CodexDevice(_)
-                        | AuthMethod::GoogleAdc => {
-                            // Get existing credential
-                            let existing_credential =
-                                self.infra.get_credential(&provider.id).await?.ok_or_else(
-                                    || forge_domain::Error::ProviderNotAvailable {
-                                        provider: provider.id.clone(),
-                                    },
-                                )?;
+                        // Get required params (only used for API key, but needed for factory)
+                        let required_params = if matches!(auth_method, AuthMethod::ApiKey) {
+                            provider.url_params.clone()
+                        } else {
+                            vec![]
+                        };
 
-                            // Get required params (only used for API key, but needed for factory)
-                            let required_params = if matches!(auth_method, AuthMethod::ApiKey) {
-                                provider.url_params.clone()
-                            } else {
-                                vec![]
-                            };
-
-                            // Create strategy and refresh credential
-                            if let Ok(strategy) = self.infra.create_auth_strategy(
-                                provider.id.clone(),
-                                auth_method.clone(),
-                                required_params,
-                            ) {
-                                match strategy.refresh(&existing_credential).await {
-                                    Ok(refreshed) => {
-                                        // Store refreshed credential
-                                        if self
-                                            .infra
-                                            .upsert_credential(refreshed.clone())
-                                            .await
-                                            .is_err()
-                                        {
-                                            continue;
-                                        }
-
-                                        // Update provider with refreshed credential
-                                        provider.credential = Some(refreshed);
-                                        break; // Success, stop trying other methods
+                        // Create strategy and refresh credential
+                        if let Ok(strategy) = self.infra.create_auth_strategy(
+                            provider.id.clone(),
+                            auth_method.clone(),
+                            required_params,
+                        ) {
+                            match strategy.refresh(&existing_credential).await {
+                                Ok(refreshed) => {
+                                    // Store refreshed credential
+                                    if self
+                                        .infra
+                                        .upsert_credential(refreshed.clone())
+                                        .await
+                                        .is_err()
+                                    {
+                                        continue;
                                     }
-                                    Err(_) => {
-                                        // If refresh fails, continue with
-                                        // existing credentials
-                                    }
+
+                                    // Update provider with refreshed credential
+                                    provider.credential = Some(refreshed);
+                                    break; // Success, stop trying other methods
+                                }
+                                Err(_) => {
+                                    // If refresh fails, continue with
+                                    // existing credentials
                                 }
                             }
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
             }
         }
