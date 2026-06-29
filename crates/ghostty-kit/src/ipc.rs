@@ -86,6 +86,9 @@ pub enum JsonValue {
     String(String),
     /// JSON array of [`JsonValue`].
     Array(Vec<JsonValue>),
+    /// JSON object with string keys and [`JsonValue`] values.
+    /// Pairs are stored in insertion order for deterministic output.
+    Object(Vec<(String, JsonValue)>),
 }
 
 /// Errors produced by the IPC client.
@@ -210,6 +213,32 @@ impl GhosttyControl {
     pub fn get_window_size(&self) -> Result<WindowSize, IpcError> {
         let response = self.send("get_window_size", JsonObject::new())?;
         parse_window_size(&response)
+    }
+
+    /// Validate a GLSL shader fragment against Ghostty's GPU renderer.
+    ///
+    /// Ghostty validates the shader on the GPU side (if running) and
+    /// returns a report of syntax and semantic errors. The `source`
+    /// should be a complete GLSL fragment or vertex shader body.
+    pub fn shader_lint(&self, source: &str) -> Result<Response, IpcError> {
+        let args = JsonObject::new().insert("source", JsonValue::String(source.to_owned()));
+        self.send("shader_lint", args)
+    }
+
+    /// Request the list of fonts currently available to Ghostty.
+    ///
+    /// The reply contains font family, style, and path entries that
+    /// Ghostty discovered at startup.
+    pub fn font_list(&self) -> Result<Response, IpcError> {
+        self.send("font_list", JsonObject::new())
+    }
+
+    /// Request an introspection snapshot of the running Ghostty instance.
+    ///
+    /// The reply contains version, configuration paths, runtime state,
+    /// and shader details.
+    pub fn inspect(&self) -> Result<Response, IpcError> {
+        self.send("inspect", JsonObject::new())
     }
 
     /// Send a single request and read the single reply.

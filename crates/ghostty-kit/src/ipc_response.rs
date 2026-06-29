@@ -164,6 +164,7 @@ fn parse_json_value(src: &str) -> Option<JsonValue> {
         b'f' if trimmed == "false" => Some(JsonValue::Bool(false)),
         b'n' if trimmed == "null" => Some(JsonValue::Null),
         b'0'..=b'9' | b'-' => parse_int_value(trimmed).map(JsonValue::Int),
+        b'{' => parse_object_value(trimmed),
         _ => None,
     }
 }
@@ -218,6 +219,38 @@ fn parse_array_value(src: &str) -> Option<JsonValue> {
         rest = &trimmed[end..];
     }
     Some(JsonValue::Array(items))
+}
+
+/// Parse a JSON object `{"key": value, ...}` into [`JsonValue::Object`].
+fn parse_object_value(src: &str) -> Option<JsonValue> {
+    let bytes = src.as_bytes();
+    if bytes.first()? != &b'{' || bytes.last()? != &b'}' {
+        return None;
+    }
+    let inner = &src[1..src.len() - 1];
+    let mut entries = Vec::new();
+    let mut rest = inner;
+    while !rest.trim().is_empty() {
+        // Skip whitespace and commas.
+        let trimmed = rest.trim_start();
+        // Parse the key (must be a JSON string).
+        let key_end = scan_one_value(trimmed.as_bytes(), 0)?;
+        let key_src = &trimmed[..key_end];
+        let key = parse_string_value(key_src)?;
+        // Skip colon.
+        let after_key = &trimmed[key_end..].trim_start();
+        if !after_key.starts_with(':') {
+            return None;
+        }
+        let after_colon = after_key[1..].trim_start();
+        // Parse the value.
+        let val_end = scan_one_value(after_colon.as_bytes(), 0)?;
+        let val_src = &after_colon[..val_end];
+        let value = parse_json_value(val_src)?;
+        entries.push((key, value));
+        rest = &after_colon[val_end..];
+    }
+    Some(JsonValue::Object(entries))
 }
 
 fn parse_int_value(src: &str) -> Option<i64> {

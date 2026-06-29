@@ -154,6 +154,18 @@ fn push_json_value(out: &mut String, v: &JsonValue) {
             }
             out.push(']');
         }
+        JsonValue::Object(entries) => {
+            out.push('{');
+            for (i, (k, v)) in entries.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                push_json_string(out, k);
+                out.push(':');
+                push_json_value(out, v);
+            }
+            out.push('}');
+        }
     }
 }
 
@@ -171,6 +183,18 @@ fn json_value_serialized_len(v: &JsonValue) -> usize {
                     len += 1;
                 }
                 len += json_value_serialized_len(item);
+            }
+            len
+        }
+        JsonValue::Object(entries) => {
+            let mut len = 2; // braces
+            for (i, (k, v)) in entries.iter().enumerate() {
+                if i > 0 {
+                    len += 1; // comma
+                }
+                len += 2 + k.len() + k.chars().filter(|c| *c == '"' || *c == '\\').count();
+                len += 1; // ':'
+                len += json_value_serialized_len(v);
             }
             len
         }
