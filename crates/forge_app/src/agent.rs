@@ -39,6 +39,7 @@ pub trait AgentService: Send + Sync + 'static {
 /// Blanket implementation of AgentService for any type that implements Services
 #[async_trait::async_trait]
 impl<T: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentService for T {
+    #[tracing::instrument(skip(self, context), fields(model = %id, provider = ?provider_id))]
     async fn chat_agent(
         &self,
         id: &ModelId,

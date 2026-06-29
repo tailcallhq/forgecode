@@ -27,6 +27,10 @@ pub struct Orchestrator<S> {
     hook: Arc<Hook>,
     config: forge_config::ForgeConfig,
     dirty: bool,
+    /// Pluggable telemetry sink — no-op by default, zero overhead unless
+    /// replaced with a real implementation via `.metrics_sink(sink)`.
+    #[setters(skip)]
+    metrics_sink: Arc<dyn MetricsSink>,
 }
 
 impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orchestrator<S> {
@@ -47,7 +51,17 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             error_tracker: Default::default(),
             hook: Arc::new(Hook::default()),
             dirty: false,
+            metrics_sink: Arc::new(NoopMetricsSink),
         }
+    }
+
+    /// Replace the no-op telemetry sink with a real implementation.
+    ///
+    /// Call this once during setup; the orchestrator keeps an `Arc` so the sink
+    /// can be shared cheaply across clones.
+    pub fn with_metrics_sink(mut self, sink: Arc<dyn MetricsSink>) -> Self {
+        self.metrics_sink = sink;
+        self
     }
 
     /// Get a reference to the internal conversation
@@ -56,6 +70,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
     }
 
     // Helper function to get all tool results from a vector of tool calls
+    #[tracing::instrument(skip(self, tool_calls, tool_context), fields(tool_count = tool_calls.len()))]
     #[async_recursion]
     async fn execute_tool_calls(
         &mut self,
@@ -195,6 +210,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         Ok(tool_supported)
     }
 
+    #[tracing::instrument(skip(self, context), fields(model = %model_id, reasoning = reasoning_supported))]
     async fn execute_chat_turn(
         &self,
         model_id: &ModelId,
@@ -239,6 +255,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
     }
 
     // Create a helper method with the core functionality
+    #[tracing::instrument(skip(self), fields(agent = %self.agent.id, conversation = %self.conversation.id))]
     pub async fn run(&mut self) -> anyhow::Result<()> {
         let model_id = self.get_model();
 
@@ -299,6 +316,9 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .handle(&request_event, &mut self.conversation)
                 .await?;
 
+            // Telemetry: count each outgoing request
+            self.metrics_sink.increment(metric_names::REQUEST, 1);
+
             let message = crate::retry::retry_with_config(
                 &self.config.clone().retry.unwrap_or_default(),
                 || {
@@ -312,6 +332,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                     let sender = sender.clone();
                     let agent_id = self.agent.id.clone();
                     let model_id = model_id.clone();
+                    let metrics_sink = self.metrics_sink.clone();
                     move |error: &anyhow::Error, duration: Duration| {
                         let root_cause = error.root_cause();
                         // Log retry attempts - critical for debugging API failures
@@ -321,6 +342,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                             model = %model_id,
                             "Retry attempt due to error"
                         );
+                        metrics_sink.increment(metric_names::RETRY, 1);
                         let retry_event =
                             ChatResponse::RetryAttempt { cause: error.into(), duration };
                         let _ = sender.try_send(Ok(retry_event));
@@ -328,6 +350,9 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 }),
             )
             .await?;
+
+            // Telemetry: model execution completed
+            self.metrics_sink.increment(metric_names::MODEL_EXEC, 1);
 
             // Fire the Response lifecycle event
             let response_event = LifecycleEvent::Response(EventData::new(

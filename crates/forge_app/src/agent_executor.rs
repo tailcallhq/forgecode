@@ -39,6 +39,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentEx
     /// specified agent. If conversation_id is provided, the agent will reuse
     /// that conversation, maintaining context across invocations. Otherwise,
     /// a new conversation is created.
+    #[tracing::instrument(skip(self, task, ctx), fields(agent = %agent_id, conversation = ?conversation_id))]
     pub async fn execute(
         &self,
         agent_id: AgentId,

@@ -90,6 +90,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
         Ok(false)
     }
 
+    #[tracing::instrument(skip(self, agent, context), fields(tool = %input.name))]
     async fn call_inner(
         &self,
         agent: &Agent,
@@ -212,6 +213,7 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
         }
     }
 
+    #[tracing::instrument(skip(self, agent, context), fields(tool = %call.name))]
     pub async fn call(
         &self,
         agent: &Agent,
@@ -221,7 +223,9 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
         let call_id = call.call_id.clone();
         let tool_name = call.name.clone();
         let output = self.call_inner(agent, call, context).await;
-
+        if output.is_err() {
+            tracing::warn!(tool = %tool_name, "tool call produced an error");
+        }
         ToolResult::new(tool_name).call_id(call_id).output(output)
     }
 
