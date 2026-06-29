@@ -27,7 +27,9 @@ mod error;
 mod event_source;
 mod reqwest_ext;
 pub mod retry;
+mod stop_signal;
 
 pub use error::{CannotCloneRequestError, Error};
 pub use event_source::{Event, EventSource, ReadyState};
 pub use reqwest_ext::RequestBuilderExt;
+pub use stop_signal::is_sse_terminal;

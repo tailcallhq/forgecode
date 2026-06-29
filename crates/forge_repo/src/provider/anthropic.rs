@@ -11,6 +11,7 @@ use forge_app::dto::anthropic::{
 };
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider, ProviderId};
+use forge_eventsource::is_sse_terminal;
 use forge_eventsource_stream::Eventsource;
 use futures::StreamExt;
 use reqwest::Url;
@@ -217,7 +218,7 @@ impl<T: HttpInfra> Anthropic<T> {
                 let request_url = request_url.clone();
                 async move {
                     match event_result {
-                        Ok(event) if ["[DONE]", ""].contains(&event.data.as_str()) => None,
+                        Ok(event) if is_sse_terminal(&event.data) => None,
                         Ok(event) => Some(
                             serde_json::from_str::<EventData>(&event.data)
                                 .with_context(|| {
