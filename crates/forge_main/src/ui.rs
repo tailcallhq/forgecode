@@ -10,8 +10,9 @@ use console::style;
 use convert_case::{Case, Casing};
 use forge_api::{
     API, AgentId, AnyProvider, ApiKeyRequest, AuthContextRequest, AuthContextResponse, ChatRequest,
-    ChatResponse, CodeRequest, ConfigOperation, Conversation, ConversationId, DeviceCodeRequest,
-    Event, InterruptionReason, ModelId, Provider, ProviderId, TextMessage, UserPrompt,
+    ChatResponse, CodeRequest, ConfigOperation, Conversation, ConversationId, ConversationSummary,
+    DeviceCodeRequest, Event, InterruptionReason, ModelId, Provider, ProviderId, TextMessage,
+    UserPrompt,
 };
 use forge_app::utils::{format_display_path, truncate_key};
 use forge_app::{CommitResult, ToolResolver};
@@ -1015,20 +1016,20 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         let max_conversations = self.config.max_conversations;
                         let conversations = self
                             .api
-                            .get_parent_conversations(Some(max_conversations))
+                            .get_parent_conversations_lite(Some(max_conversations))
                             .await?;
-                        let conversations = Self::user_initiated_conversations(conversations);
 
                         if !conversations.is_empty()
-                            && let Some(conversation) = ConversationSelector::select_conversation(
-                                &conversations,
-                                self.state.conversation_id,
-                                query.clone(),
-                                self.state.sort,
-                            )
-                            .await?
+                            && let Some(conversation_id) =
+                                ConversationSelector::select_conversation(
+                                    &conversations,
+                                    self.state.conversation_id,
+                                    query.clone(),
+                                    self.state.sort,
+                                )
+                                .await?
                         {
-                            self.writeln(conversation.id)?;
+                            self.writeln(conversation_id)?;
                         }
                     }
                 }
@@ -2178,9 +2179,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let max_conversations = self.config.max_conversations;
         let conversations = self
             .api
-            .get_parent_conversations(Some(max_conversations))
+            .get_parent_conversations_lite(Some(max_conversations))
             .await?;
-        let conversations = Self::user_initiated_conversations(conversations);
         self.spinner.stop(None)?;
 
         if conversations.is_empty() {
@@ -2190,7 +2190,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             return Ok(());
         }
 
-        if let Some(conversation) = ConversationSelector::select_conversation(
+        if let Some(conversation_id) = ConversationSelector::select_conversation(
             &conversations,
             self.state.conversation_id,
             None,
@@ -2198,8 +2198,16 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         )
         .await?
         {
-            let conversation_id = conversation.id;
             self.state.conversation_id = Some(conversation_id);
+
+            // Lazy-load the full conversation (with context) only when the
+            // user opens or interacts with it — avoids decompressing the
+            // multi-MB context blob for every conversation in the list.
+            let conversation = self
+                .api
+                .conversation(&conversation_id)
+                .await?
+                .context("Conversation not found")?;
 
             // Show conversation content
             self.on_show_last_message(conversation, false).await?;
@@ -2236,16 +2244,27 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             return Ok(());
         }
 
-        if let Some(conversation) = ConversationSelector::select_conversation(
-            &conversations,
+        // Convert to summaries for the list selector (only metadata needed).
+        // Full context will be lazy-loaded when the user opens a subagent.
+        let summaries: Vec<ConversationSummary> =
+            conversations.into_iter().map(Into::into).collect();
+
+        if let Some(conversation_id) = ConversationSelector::select_conversation(
+            &summaries,
             self.state.conversation_id,
             None,
             self.state.sort,
         )
         .await?
         {
-            let conversation_id = conversation.id;
             self.state.conversation_id = Some(conversation_id);
+
+            // Lazy-load the full conversation only when opened.
+            let conversation = self
+                .api
+                .conversation(&conversation_id)
+                .await?
+                .context("Conversation not found")?;
 
             // Show conversation content
             self.on_show_last_message(conversation, false).await?;
@@ -2428,16 +2447,18 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             conversations.len()
         )))?;
 
-        if let Some(conversation) = ConversationSelector::select_conversation(
-            &conversations,
+        // Convert to summaries for the list selector (only metadata needed).
+        let summaries: Vec<ConversationSummary> =
+            conversations.into_iter().map(Into::into).collect();
+
+        if let Some(conversation_id) = ConversationSelector::select_conversation(
+            &summaries,
             self.state.conversation_id,
             None,
             self.state.sort,
         )
         .await?
         {
-            let conversation_id = conversation.id;
-
             // Fetch a short FTS5 snippet (~32 tokens) so the user can see
             // *why* this conversation matched. `None` means no preview —
             // fall through silently (the title is already shown above).
@@ -2453,6 +2474,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
 
             self.state.conversation_id = Some(conversation_id);
+
+            // Lazy-load the full conversation only when opened.
+            let conversation = self
+                .api
+                .conversation(&conversation_id)
+                .await?
+                .context("Conversation not found")?;
+
             self.on_show_last_message(conversation, false).await?;
             self.writeln_title(TitleFormat::info(format!(
                 "Switched to conversation {}",
@@ -3278,13 +3307,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             ConversationId::parse(&id_str)
                 .map_err(|_| anyhow::anyhow!("Invalid conversation ID: {id_str}"))?
         } else {
-            // Show conversation picker
-            let conversations = self
+            // Show conversation picker with lightweight metadata query
+            let summaries = self
                 .api
-                .get_parent_conversations(Some(self.config.max_conversations))
+                .get_parent_conversations_lite(Some(self.config.max_conversations))
                 .await?;
 
-            if conversations.is_empty() {
+            if summaries.is_empty() {
                 self.writeln_title(TitleFormat::error(
                     "No conversations found. Start a conversation first.",
                 ))?;
@@ -3292,7 +3321,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
 
             let selected = ConversationSelector::select_conversation(
-                &conversations,
+                &summaries,
                 self.state.conversation_id,
                 None,
                 self.state.sort,
@@ -3300,7 +3329,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .await?;
 
             match selected {
-                Some(conv) => conv.id,
+                Some(id) => id,
                 None => return Ok(()),
             }
         };
@@ -3359,31 +3388,31 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             )))?;
         } else {
             // Interactive: show picker then prompt for new name
-            let conversations = self
+            let summaries = self
                 .api
-                .get_parent_conversations(Some(self.config.max_conversations))
+                .get_parent_conversations_lite(Some(self.config.max_conversations))
                 .await?;
 
-            if conversations.is_empty() {
+            if summaries.is_empty() {
                 self.writeln_title(TitleFormat::error("No conversations found."))?;
                 return Ok(());
             }
 
             let selected = ConversationSelector::select_conversation(
-                &conversations,
+                &summaries,
                 self.state.conversation_id,
                 None,
                 self.state.sort,
             )
             .await?;
 
-            if let Some(conv) = selected {
+            if let Some(conv_id) = selected {
                 let name_result = ForgeWidget::input("New name").allow_empty(false).prompt()?;
 
                 if let Some(name) = name_result
                     && !name.is_empty()
                 {
-                    self.api.rename_conversation(&conv.id, name.clone()).await?;
+                    self.api.rename_conversation(&conv_id, name.clone()).await?;
                     self.writeln_title(TitleFormat::info(format!(
                         "Conversation renamed to '{}'",
                         name.bold()

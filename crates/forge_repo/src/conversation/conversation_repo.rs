@@ -2,9 +2,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use diesel::prelude::*;
-use forge_domain::{Conversation, ConversationId, ConversationRepository, WorkspaceHash};
+use forge_domain::{
+    Conversation, ConversationId, ConversationRepository, ConversationSummary, WorkspaceHash,
+};
 
-use crate::conversation::conversation_record::ConversationRecord;
+use crate::conversation::conversation_record::{ConversationRecord, ConversationRecordLite};
 use crate::database::schema::conversations;
 use crate::database::{DatabasePool, PooledSqliteConnection};
 
@@ -285,6 +287,44 @@ impl ConversationRepository for ConversationRepositoryImpl {
             let conversations: Result<Vec<Conversation>, _> =
                 records.into_iter().map(Conversation::try_from).collect();
             Ok(Some(conversations?))
+        })
+        .await
+    }
+
+    async fn get_parent_conversations_lite(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<ConversationSummary>>> {
+        self.run_with_connection(move |connection, wid| {
+            let workspace_id = wid.id() as i64;
+            let mut query = conversations::table
+                .filter(conversations::workspace_id.eq(&workspace_id))
+                .filter(conversations::parent_id.is_null())
+                .select((
+                    conversations::conversation_id,
+                    conversations::title,
+                    conversations::created_at,
+                    conversations::updated_at,
+                    conversations::parent_id,
+                    conversations::cwd,
+                    conversations::message_count,
+                ))
+                .order(conversations::updated_at.desc())
+                .into_boxed();
+
+            if let Some(limit_value) = limit {
+                query = query.limit(limit_value as i64);
+            }
+
+            let records: Vec<ConversationRecordLite> = query.load(connection)?;
+
+            if records.is_empty() {
+                return Ok(None);
+            }
+
+            let summaries: Vec<ConversationSummary> =
+                records.into_iter().map(ConversationSummary::from).collect();
+            Ok(Some(summaries))
         })
         .await
     }

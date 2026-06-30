@@ -85,6 +85,14 @@ pub trait API: Sync + Send {
     /// Lists all top-level (parent) conversations, excluding subagents
     async fn get_parent_conversations(&self, limit: Option<usize>) -> Result<Vec<Conversation>>;
 
+    /// Lite variant that returns only metadata columns (no context blobs).
+    /// Use for the TUI conversation list selector to avoid loading multi-MB
+    /// context data for every conversation.
+    async fn get_parent_conversations_lite(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Vec<ConversationSummary>>;
+
     /// Lists conversations by source (e.g., "interactive", "headless", "forge-p")
     async fn get_conversations_by_source(
         &self,

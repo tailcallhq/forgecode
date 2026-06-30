@@ -5,8 +5,8 @@ use url::Url;
 
 use crate::{
     AnyProvider, AuthCredential, ChatCompletionMessage, Context, Conversation, ConversationId,
-    MigrationResult, Model, ModelId, Provider, ProviderId, ProviderTemplate, ResultStream,
-    SearchMatch, Skill, Snapshot, WorkspaceAuth, WorkspaceId,
+    ConversationSummary, MigrationResult, Model, ModelId, Provider, ProviderId, ProviderTemplate,
+    ResultStream, SearchMatch, Skill, Snapshot, WorkspaceAuth, WorkspaceId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,6 +133,27 @@ pub trait ConversationRepository: Send + Sync {
         &self,
         limit: Option<usize>,
     ) -> Result<Option<Vec<Conversation>>>;
+
+    /// Lightweight variant of [`get_parent_conversations`] that selects only
+    /// metadata columns (`conversation_id`, `title`, `created_at`,
+    /// `updated_at`, `parent_id`, `message_count`, `cwd`) and returns
+    /// [`ConversationSummary`] items. This avoids loading the multi-MB
+    /// `context` / `context_zstd` blobs and the subsequent zstd
+    /// decompression + JSON deserialisation of every conversation row.
+    ///
+    /// Use this for the TUI conversation list selector; use
+    /// [`get_parent_conversations`] only when the full `Context` is needed
+    /// (e.g. conversation open / clone).
+    ///
+    /// # Arguments
+    /// * `limit` - Optional maximum number of conversations to retrieve
+    ///
+    /// # Errors
+    /// Returns an error if the operation fails
+    async fn get_parent_conversations_lite(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<ConversationSummary>>>;
 
     /// Retrieves conversations by source (e.g., "interactive", "headless", "forge-p")
     ///

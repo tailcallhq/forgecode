@@ -11,9 +11,9 @@ use forge_app::{
 use forge_config::ForgeConfig;
 use forge_domain::{
     AnyProvider, AuthCredential, ChatCompletionMessage, ChatRepository, CommandOutput, Context,
-    Conversation, ConversationId, ConversationRepository, Environment, FileInfo,
-    FuzzySearchRepository, McpServerConfig, MigrationResult, Model, ModelId, Provider, ProviderId,
-    ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository, Snapshot,
+    Conversation, ConversationId, ConversationRepository, ConversationSummary, Environment,
+    FileInfo, FuzzySearchRepository, McpServerConfig, MigrationResult, Model, ModelId, Provider,
+    ProviderId, ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository, Snapshot,
     SnapshotRepository, TextPatchBlock, TextPatchRepository,
 };
 use forge_eventsource::EventSource;
@@ -155,6 +155,15 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
     ) -> anyhow::Result<Option<Vec<Conversation>>> {
         self.conversation_repository
             .get_parent_conversations(limit)
+            .await
+    }
+
+    async fn get_parent_conversations_lite(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<ConversationSummary>>> {
+        self.conversation_repository
+            .get_parent_conversations_lite(limit)
             .await
     }
 

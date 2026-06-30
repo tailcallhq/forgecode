@@ -1110,6 +1110,42 @@ impl ConversationRecord {
     }
 }
 
+/// Lightweight Diesel record for conversation list queries.
+///
+/// Selects only metadata columns — no `context` / `context_zstd` blobs.
+/// Used by [`super::conversation_repo::ConversationRepositoryImpl::get_parent_conversations_lite`].
+#[derive(Debug, diesel::Queryable, diesel::Selectable)]
+#[diesel(table_name = crate::database::schema::conversations)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub(super) struct ConversationRecordLite {
+    pub conversation_id: String,
+    pub title: Option<String>,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: Option<chrono::NaiveDateTime>,
+    pub parent_id: Option<String>,
+    pub cwd: Option<String>,
+    pub message_count: Option<i32>,
+}
+
+impl From<ConversationRecordLite> for forge_domain::ConversationSummary {
+    fn from(record: ConversationRecordLite) -> Self {
+        let id = ConversationId::parse(&record.conversation_id)
+            .unwrap_or_else(|_| ConversationId::generate());
+
+        forge_domain::ConversationSummary {
+            id,
+            title: record.title,
+            parent_id: record
+                .parent_id
+                .and_then(|pid| ConversationId::parse(pid).ok()),
+            created_at: record.created_at.and_utc(),
+            updated_at: record.updated_at.map(|u| u.and_utc()),
+            message_count: record.message_count,
+            cwd: record.cwd,
+        }
+    }
+}
+
 impl TryFrom<ConversationRecord> for forge_domain::Conversation {
     type Error = anyhow::Error;
 

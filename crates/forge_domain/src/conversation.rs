@@ -62,6 +62,38 @@ pub struct Conversation {
     pub message_count: Option<i32>,
 }
 
+/// Lightweight conversation summary for list selectors.
+///
+/// Contains only the metadata columns needed by the TUI conversation
+/// picker (id, title, timestamps, message_count, cwd, parent_id).
+/// Unlike [`Conversation`], this type does **not** include the `context`
+/// blob, so it can be fetched without decompressing/deserialising the
+/// full conversation history — a >100x reduction in per-row memory cost.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationSummary {
+    pub id: ConversationId,
+    pub title: Option<String>,
+    pub parent_id: Option<ConversationId>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: Option<DateTime<Utc>>,
+    pub message_count: Option<i32>,
+    pub cwd: Option<String>,
+}
+
+impl From<Conversation> for ConversationSummary {
+    fn from(c: Conversation) -> Self {
+        Self {
+            id: c.id,
+            title: c.title,
+            parent_id: c.parent_id,
+            created_at: c.metadata.created_at,
+            updated_at: c.metadata.updated_at,
+            message_count: c.message_count,
+            cwd: c.cwd,
+        }
+    }
+}
+
 #[derive(Debug, Setters, Serialize, Deserialize, Clone)]
 #[setters(into)]
 pub struct MetaData {

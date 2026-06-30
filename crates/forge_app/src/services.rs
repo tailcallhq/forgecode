@@ -5,10 +5,10 @@ use bytes::Bytes;
 use derive_setters::Setters;
 use forge_domain::{
     AgentId, AnyProvider, Attachment, AuthContextRequest, AuthContextResponse, AuthMethod,
-    ChatCompletionMessage, CommandOutput, Context, Conversation, ConversationId, File, FileInfo,
-    FileStatus, Image, McpConfig, McpServers, Model, ModelId, Node, Provider, ProviderId,
-    ResultStream, Scope, SearchParams, SyncProgress, SyntaxError, Template, ToolCallFull,
-    ToolOutput, WorkspaceAuth, WorkspaceId, WorkspaceInfo,
+    ChatCompletionMessage, CommandOutput, Context, Conversation, ConversationId,
+    ConversationSummary, File, FileInfo, FileStatus, Image, McpConfig, McpServers, Model, ModelId,
+    Node, Provider, ProviderId, ResultStream, Scope, SearchParams, SyncProgress, SyntaxError,
+    Template, ToolCallFull, ToolOutput, WorkspaceAuth, WorkspaceId, WorkspaceInfo,
 };
 use forge_eventsource::EventSource;
 use reqwest::Response;
@@ -269,6 +269,13 @@ pub trait ConversationService: Send + Sync {
         &self,
         limit: Option<usize>,
     ) -> anyhow::Result<Option<Vec<Conversation>>>;
+
+    /// Lightweight variant that returns only metadata columns
+    /// (no context blobs). Use for the TUI conversation list selector.
+    async fn get_parent_conversations_lite(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<ConversationSummary>>>;
 
     /// Find conversations by source (e.g., "interactive", "headless", "forge-p")
     async fn get_conversations_by_source(
@@ -728,6 +735,15 @@ impl<I: Services> ConversationService for I {
     ) -> anyhow::Result<Option<Vec<Conversation>>> {
         self.conversation_service()
             .get_parent_conversations(limit)
+            .await
+    }
+
+    async fn get_parent_conversations_lite(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<ConversationSummary>>> {
+        self.conversation_service()
+            .get_parent_conversations_lite(limit)
             .await
     }
 

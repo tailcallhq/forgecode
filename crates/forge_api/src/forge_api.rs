@@ -320,6 +320,17 @@ impl<
             .unwrap_or_default())
     }
 
+    async fn get_parent_conversations_lite(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Vec<ConversationSummary>> {
+        Ok(self
+            .services
+            .get_parent_conversations_lite(limit)
+            .await?
+            .unwrap_or_default())
+    }
+
     async fn get_conversations_by_source(
         &self,
         source: &str,
