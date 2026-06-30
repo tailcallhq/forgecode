@@ -49,7 +49,11 @@ static CACHED_PATH: LazyLock<Option<String>> = LazyLock::new(|| {
         .ok()
         .and_then(|path| path.to_str().map(|s| s.to_string()))
 });
-static CACHED_ARGS: LazyLock<Vec<String>> = LazyLock::new(|| std::env::args().skip(1).collect());
+// Phenotype-org security hardening (audit #58): CLI args are redacted before
+// caching to prevent command strings from leaking into telemetry. Arg count is
+// preserved for diagnostics; content is replaced with a placeholder.
+static CACHED_ARGS: LazyLock<Vec<String>> =
+    LazyLock::new(|| redact_args(std::env::args().skip(1).collect()));
 
 /// Maximum number of events that can be dispatched per minute.
 ///
@@ -57,6 +61,27 @@ static CACHED_ARGS: LazyLock<Vec<String>> = LazyLock::new(|| std::env::args().sk
 /// stdout/stderr is closed and every write error triggers another error event)
 /// while allowing normal tracking to continue for long-running sessions.
 const MAX_EVENTS_PER_MINUTE: usize = 1_000;
+
+/// Redact CLI argument values while preserving the argument count.
+///
+/// Flag names (starting with `-`) are kept as-is for diagnostic value; their
+/// values and any positional arguments are replaced with `<redacted>`.
+fn redact_args(args: Vec<String>) -> Vec<String> {
+    args.into_iter()
+        .map(|arg| {
+            if arg.starts_with('-') {
+                // Keep flag names (e.g. `--verbose`, `--model`) but strip any
+                // inline `=value` portion to avoid leaking parameter values.
+                match arg.split_once('=') {
+                    Some((flag, _value)) => flag.to_string(),
+                    None => arg,
+                }
+            } else {
+                "<redacted>".to_string()
+            }
+        })
+        .collect()
+}
 
 #[derive(Clone)]
 pub struct Tracker {
@@ -110,6 +135,12 @@ impl Tracker {
             return Ok(());
         }
 
+        // Phenotype-org security hardening (audit #58): telemetry is opt-in.
+        // Dispatch is a no-op unless the user has explicitly enabled tracking.
+        if !tracking_enabled() {
+            return Ok(());
+        }
+
         if !self.rate_limiter.lock().await.inc_and_check() {
             return Ok(()); // Drop event if rate limit exceeded
         }
@@ -118,7 +149,10 @@ impl Tracker {
         let email = self.system_info().await;
         let event = Event {
             event_name: event_kind.name(),
-            event_value: event_kind.value(),
+            // Phenotype-org security hardening (audit #58): redact content from
+            // Prompt and Error events before sending to PostHog so user text and
+            // stack traces are never transmitted.
+            event_value: redact_event_value(&event_kind),
             start_time: self.start_time,
             cores: cores(),
             client_id: client_id(),
@@ -164,10 +198,30 @@ impl Tracker {
     }
 }
 
+/// Returns whether the user has opted in to telemetry.
+///
+/// Phenotype-org security hardening (audit #58): telemetry is **opt-in**.
+/// The `FORGE_TRACKER` environment variable must be explicitly set to `"true"`
+/// (case-insensitive) to enable tracking. Absent or any other value means
+/// tracking is disabled. This inverts the previous default-on behaviour.
 fn tracking_enabled() -> bool {
     std::env::var(TRACKING_ENV_VAR_NAME)
-        .map(|value| !value.eq_ignore_ascii_case("false"))
-        .unwrap_or(true)
+        .map(|value| value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// Redact sensitive content from event values before telemetry dispatch.
+///
+/// `Prompt` events carry raw user-supplied text which must never be sent to
+/// PostHog. `Error` events may contain stack traces or file paths; replace
+/// content with a constant placeholder. Other event types are already safe
+/// (tool-name only, trace bytes, start signal).
+fn redact_event_value(event_kind: &EventKind) -> String {
+    match event_kind {
+        EventKind::Prompt(_) => "<redacted>".to_string(),
+        EventKind::Error(_) => "<redacted>".to_string(),
+        other => other.value(),
+    }
 }
 
 // Get the email address
@@ -283,13 +337,16 @@ mod tests {
 
     static TRACKER: LazyLock<Tracker> = LazyLock::new(Tracker::default);
 
+    // --- Existing tests (updated for opt-in semantics) ---
+
     #[test]
     fn test_tracking_fixture() {
         unsafe {
             std::env::remove_var(TRACKING_ENV_VAR_NAME);
         }
+        // Opt-in: absent env var means disabled
         let actual = tracking_enabled();
-        let expected = true;
+        let expected = false;
         assert_eq!(actual, expected);
 
         unsafe {
@@ -326,5 +383,116 @@ mod tests {
         {
             panic!("Tracker dispatch error: {e:?}");
         }
+    }
+
+    // --- Security regression tests (Phenotype-org audit #58) ---
+
+    #[test]
+    fn test_tracking_disabled_by_default_when_env_absent() {
+        // Arrange: ensure the env var is not set
+        unsafe {
+            std::env::remove_var(TRACKING_ENV_VAR_NAME);
+        }
+
+        // Act
+        let actual = tracking_enabled();
+
+        // Assert: must be false (opt-in — not opt-out)
+        let expected = false;
+        assert_eq!(actual, expected);
+
+        // Cleanup
+        unsafe {
+            std::env::remove_var(TRACKING_ENV_VAR_NAME);
+        }
+    }
+
+    #[test]
+    fn test_tracking_enabled_only_when_explicitly_true() {
+        // Arrange: set to "true"
+        unsafe {
+            std::env::set_var(TRACKING_ENV_VAR_NAME, "true");
+        }
+        let actual = tracking_enabled();
+        let expected = true;
+        assert_eq!(actual, expected);
+
+        // Cleanup
+        unsafe {
+            std::env::remove_var(TRACKING_ENV_VAR_NAME);
+        }
+    }
+
+    #[test]
+    fn test_prompt_event_value_is_redacted() {
+        // Arrange: a Prompt event carrying sensitive user text
+        let setup = EventKind::Prompt("my secret prompt text".to_string());
+
+        // Act
+        let actual = redact_event_value(&setup);
+
+        // Assert: content must be replaced, not transmitted
+        let expected = "<redacted>".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_error_event_value_is_redacted() {
+        // Arrange: an Error event that may carry a stack trace or file path
+        let setup = EventKind::Error("panicked at src/main.rs:42".to_string());
+
+        // Act
+        let actual = redact_event_value(&setup);
+
+        // Assert: content must be replaced
+        let expected = "<redacted>".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_non_sensitive_event_value_is_not_redacted() {
+        // Arrange: a Start event (no payload)
+        let setup = EventKind::Start;
+
+        // Act
+        let actual = redact_event_value(&setup);
+
+        // Assert: non-sensitive events pass through unchanged
+        let expected = "".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_redact_args_replaces_positional_values() {
+        // Arrange: positional args carry user-supplied text
+        let setup = vec!["run".to_string(), "some prompt text".to_string()];
+
+        // Act
+        let actual = redact_args(setup);
+
+        // Assert: positional values are replaced
+        let expected = vec!["<redacted>".to_string(), "<redacted>".to_string()];
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_redact_args_keeps_flag_names_strips_inline_values() {
+        // Arrange: flags with inline values
+        let setup = vec![
+            "--model=claude-opus".to_string(),
+            "--verbose".to_string(),
+            "my prompt".to_string(),
+        ];
+
+        // Act
+        let actual = redact_args(setup);
+
+        // Assert: flag names kept, inline values and positional args redacted
+        let expected = vec![
+            "--model".to_string(),
+            "--verbose".to_string(),
+            "<redacted>".to_string(),
+        ];
+        assert_eq!(actual, expected);
     }
 }
