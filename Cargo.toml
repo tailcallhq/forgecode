@@ -28,6 +28,7 @@ members = [
   "crates/forge_tool_macros",
   "crates/forge_tracker",
   "crates/forge_walker",
+  "crates/forge_repo_map",
   "crates/forge3d",
   "crates/forge_drift",
   "crates/forge_similarity",
