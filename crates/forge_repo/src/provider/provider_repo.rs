@@ -802,6 +802,53 @@ mod tests {
         assert!(&config.url.contains("{{OPENAI_URL}}"));
     }
 
+    // ClinePass: openai-compatible pass-through to https://api.cline.bot/api/v1.
+    // Sourced from cline/cline clinepass.mdx docs and PR #11986. Tracks
+    // tailcallhq/forgecode#3599.
+    #[test]
+    fn test_cline_pass_config() {
+        let configs = get_provider_configs();
+        let config = configs
+            .iter()
+            .find(|c| c.id == ProviderId::CLINE_PASS)
+            .unwrap();
+        assert_eq!(config.id, ProviderId::CLINE_PASS);
+        assert_eq!(config.api_key_vars, Some("CLINE_API_KEY".to_string()));
+        assert!(config.url_param_vars.is_empty());
+        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(
+            config.url,
+            Url::parse("https://api.cline.bot/api/v1/chat/completions").unwrap()
+        );
+        assert_eq!(
+            config.models_url,
+            Some(Url::parse("https://api.cline.bot/api/v1/models").unwrap())
+        );
+        let model_ids: Vec<&str> = match config
+            .models
+            .as_ref()
+            .expect("cline_pass must ship with a seed model catalog")
+        {
+            Models::Hardcoded(models) => models.iter().map(|m| m.id.as_str()).collect(),
+            Models::Url(_) => panic!("Expected Models::Hardcoded variant"),
+        };
+        assert_eq!(
+            model_ids,
+            vec![
+                "cline-pass/glm-5.2",
+                "cline-pass/kimi-k2.7-code",
+                "cline-pass/kimi-k2.6",
+                "cline-pass/deepseek-v4-pro",
+                "cline-pass/deepseek-v4-flash",
+                "cline-pass/mimo-v2.5",
+                "cline-pass/mimo-v2.5-pro",
+                "cline-pass/minimax-m3",
+                "cline-pass/qwen3.7-max",
+                "cline-pass/qwen3.7-plus",
+            ]
+        );
+    }
+
     #[test]
     fn test_openai_responses_compatible_config() {
         let configs = get_provider_configs();

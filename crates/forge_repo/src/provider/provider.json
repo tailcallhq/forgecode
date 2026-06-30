@@ -3839,5 +3839,26 @@
     "url": "https://api.ambient.xyz/v1/chat/completions",
     "models": "https://api.ambient.xyz/v1/models",
     "auth_methods": ["api_key"]
+  },
+  {
+    "id": "cline_pass",
+    "api_key_vars": "CLINE_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.cline.bot/api/v1/chat/completions",
+    "auth_methods": ["api_key"],
+    "models": [
+      { "id": "cline-pass/glm-5.2",                  "name": "GLM 5.2" },
+      { "id": "cline-pass/kimi-k2.7-code",           "name": "Kimi K2.7 Code" },
+      { "id": "cline-pass/kimi-k2.6",                "name": "Kimi K2.6" },
+      { "id": "cline-pass/deepseek-v4-pro",          "name": "DeepSeek V4 Pro" },
+      { "id": "cline-pass/deepseek-v4-flash",        "name": "DeepSeek V4 Flash" },
+      { "id": "cline-pass/mimo-v2.5",                "name": "Mimo V2.5" },
+      { "id": "cline-pass/mimo-v2.5-pro",            "name": "Mimo V2.5 Pro" },
+      { "id": "cline-pass/minimax-m3",               "name": "MiniMax M3" },
+      { "id": "cline-pass/qwen3.7-max",              "name": "Qwen3.7 Max" },
+      { "id": "cline-pass/qwen3.7-plus",             "name": "Qwen3.7 Plus" }
+    ],
+    "models_url": "https://api.cline.bot/api/v1/models"
   }
 ]

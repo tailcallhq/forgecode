@@ -74,6 +74,10 @@ impl ProviderId {
     pub const FIREWORKS_AI: ProviderId = ProviderId(Cow::Borrowed("fireworks-ai"));
     pub const FIREWORKS_AI_FIREPASS: ProviderId =
         ProviderId(Cow::Borrowed("fireworks-ai-firepass"));
+    // ClinePass: openai-compatible pass-through to https://api.cline.bot/api/v1.
+    // Sourced from cline/cline clinepass.mdx (PR #11986). Envs that ship this
+    // provider expose it as `cline`; here we keep the canonical `cline_pass` id.
+    pub const CLINE_PASS: ProviderId = ProviderId(Cow::Borrowed("cline_pass"));
     pub const NOVITA: ProviderId = ProviderId(Cow::Borrowed("novita"));
     pub const VIVGRID: ProviderId = ProviderId(Cow::Borrowed("vivgrid"));
     pub const GOOGLE_AI_STUDIO: ProviderId = ProviderId(Cow::Borrowed("google_ai_studio"));
@@ -115,6 +119,7 @@ impl ProviderId {
             ProviderId::OPENCODE_GO,
             ProviderId::FIREWORKS_AI,
             ProviderId::FIREWORKS_AI_FIREPASS,
+            ProviderId::CLINE_PASS,
             ProviderId::NOVITA,
             ProviderId::VIVGRID,
             ProviderId::GOOGLE_AI_STUDIO,
@@ -150,6 +155,7 @@ impl ProviderId {
             "opencode_go" => "OpenCode Go".to_string(),
             "fireworks-ai" => "FireworksAI".to_string(),
             "fireworks-ai-firepass" => "FireworksAIFirepass".to_string(),
+            "cline_pass" => "ClinePass".to_string(),
             "novita" => "Novita".to_string(),
             "vivgrid" => "Vivgrid".to_string(),
             "google_ai_studio" => "GoogleAIStudio".to_string(),
@@ -203,6 +209,8 @@ impl std::str::FromStr for ProviderId {
             "opencode_go" => ProviderId::OPENCODE_GO,
             "fireworks-ai" => ProviderId::FIREWORKS_AI,
             "fireworks-ai-firepass" => ProviderId::FIREWORKS_AI_FIREPASS,
+            // ClinePass: see tailcallhq/forgecode#3599
+            "cline_pass" => ProviderId::CLINE_PASS,
             "novita" => ProviderId::NOVITA,
             "vertex_ai_anthropic" => ProviderId::VERTEX_AI_ANTHROPIC,
             "bedrock" => ProviderId::BEDROCK,
@@ -842,6 +850,25 @@ mod tests {
     fn test_fireworks_ai_firepass_in_built_in_providers() {
         let built_in = ProviderId::built_in_providers();
         assert!(built_in.contains(&ProviderId::FIREWORKS_AI_FIREPASS));
+    }
+
+    // ClinePass: see tailcallhq/forgecode#3599
+    #[test]
+    fn test_cline_pass_from_str() {
+        let actual = ProviderId::from_str("cline_pass").unwrap();
+        let expected = ProviderId::CLINE_PASS;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_cline_pass_display_name() {
+        assert_eq!(ProviderId::CLINE_PASS.to_string(), "ClinePass");
+    }
+
+    #[test]
+    fn test_cline_pass_in_built_in_providers() {
+        let built_in = ProviderId::built_in_providers();
+        assert!(built_in.contains(&ProviderId::CLINE_PASS));
     }
 
     #[test]
