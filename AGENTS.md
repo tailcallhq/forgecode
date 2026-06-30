@@ -2,6 +2,82 @@
 
 This document contains guidelines and best practices for AI agents working with this codebase.
 
+## Custom Commands (Slash Commands)
+
+User-defined slash commands live as YAML-frontmatter `.md` files in `.forge/commands/`.
+Built-in commands live in `commands/`. Commands are loaded by `CommandLoaderService`
+(`crates/forge_services/src/command.rs`) and exposed via `/command_name` in the TUI/REPL.
+
+**Resolution priority**:
+
+1. User-defined (`.forge/commands/`) overrides built-in
+2. Built-in (`commands/`)
+
+**Built-in commands**:
+
+- `github-pr-description` — Generate a PR description from git diff
+
+**User-defined commands (`.forge/commands/`)**:
+
+| Command      | Description                                     |
+| ------------ | ----------------------------------------------- |
+| `review`     | Request code review of selected files           |
+| `test`       | Author or run tests for selected code           |
+| `think`      | Extended analysis / deep-think mode             |
+| `exec`       | Execute a shell command and capture output      |
+| `pipe`       | Pipe input/output between tools                 |
+| `capture`    | Capture command output for context              |
+| `check`      | Run lint/type checks                            |
+| `fixme`      | Show and resolve fixme/todo comments            |
+| `parent`     | Send message to parent conversation             |
+| `subagents`  | Delegate work to sub-agents                     |
+
+Each command file uses YAML frontmatter (`name`, `description`, optional `parameters`)
+with a Markdown body as the prompt template. The `Command` domain model is in
+`forge_domain::command::Command`.
+
+## Resilience & Stability Patterns
+
+### Retry Policy
+
+Defined in `docs/contracts/provider-models/resilience-policy.schema.json`.
+Implemented in `forge_config::RetryConfig` + `forge_app::retry` (backon crate).
+
+| Parameter            | Default | Description                           |
+| -------------------- | ------- | ------------------------------------- |
+| `max_attempts`       | 8       | Total attempts (initial + 7 retries)  |
+| `initial_backoff_ms` | 200     | Base delay before first retry         |
+| `min_delay_ms`       | 1000    | Floor on computed backoff             |
+| `backoff_factor`     | 2.0     | Exponential multiplier per attempt    |
+| `max_delay_secs`     | null    | Optional cap on backoff               |
+| `jitter`             | true    | Uniform random jitter                 |
+| `suppress_errors`    | false   | Suppress logging for non-critical ops |
+
+**Retryable HTTP codes**: 408, 429, 500, 502, 503, 504, 520, 522, 524, 529.
+**Non-retryable**: 400, 401, 403, 404, 405, 409, 410, 413, 422, 451.
+
+### Circuit Breaker (Tool Error Tracker)
+
+`ToolErrorTracker` in the orchestrator tolerates up to `max_tool_failure_per_turn`
+(default 3) errors per agent turn before propagating failure. Prevents cascading
+tool errors from crashing the agent loop.
+
+### Doom-Loop Detection
+
+`crates/forge_app/src/hooks/doom_loop.rs`: detects repetitive tool-call patterns
+and injects a reminder prompt to break the cycle.
+
+### Compaction Strategy
+
+`forge_domain::compact/`: sliding-window summarization with adaptive eviction and
+importance scoring. Configurable per agent with `CompactionConfig`.
+
+### Hook Chain
+
+Chainable lifecycle hooks: `on_start`, `on_request`, `on_response`, `on_toolcall_start`,
+`on_toolcall_end`, `on_end`. Built-in handlers include CompactionHandler,
+DoomLoopDetector, PendingTodosHandler, TitleGenerationHandler, TracingHandler.
+
 ## Error Management
 
 - Use `anyhow::Result` for error handling in services and repositories.
