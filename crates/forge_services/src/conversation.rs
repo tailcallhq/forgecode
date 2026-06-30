@@ -166,4 +166,10 @@ impl<S: ConversationRepository> ConversationService for ForgeConversationService
             .rewind_conversation(conversation_id)
             .await
     }
+
+    async fn compress_uncompressed_contexts(&self) -> Result<(usize, usize, usize)> {
+        self.conversation_repository
+            .compress_uncompressed_contexts()
+            .await
+    }
 }

@@ -162,6 +162,32 @@ pub enum TopLevelCommand {
 
     /// Interactive fuzzy item picker.
     Select(SelectCommandGroup),
+
+    /// Database maintenance commands. Safe to run at any time; idempotent.
+    Maintenance(MaintenanceCommandGroup),
+}
+
+/// Command group for `forge maintenance` sub-commands.
+///
+/// All maintenance operations are idempotent and safe to run while forge is
+/// otherwise idle. They do not modify conversation content — only the storage
+/// layout of context blobs.
+#[derive(Parser, Debug, Clone)]
+pub struct MaintenanceCommandGroup {
+    #[command(subcommand)]
+    pub command: MaintenanceSubcommand,
+}
+
+/// Sub-commands for `forge maintenance`.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum MaintenanceSubcommand {
+    /// zstd-compress all conversation context blobs that are still stored as
+    /// plain text (`is_compressed = 0`). Safe to interrupt and re-run.
+    ///
+    /// Reports: rows compressed, rows skipped (already compressed or no
+    /// context), and rows that failed compression. Titles and timestamps
+    /// remain queryable throughout — only the raw blob column is rewritten.
+    Compress,
 }
 
 /// Command group for the `forge select` interactive picker.

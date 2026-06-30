@@ -342,6 +342,12 @@ pub trait ConversationService: Send + Sync {
         &self,
         conversation_id: &ConversationId,
     ) -> anyhow::Result<Option<Conversation>>;
+
+    /// Idempotent maintenance command: zstd-compress all uncompressed context
+    /// blobs (`is_compressed = 0, context IS NOT NULL`).
+    ///
+    /// Returns `(compressed, skipped, errors)` counts.
+    async fn compress_uncompressed_contexts(&self) -> anyhow::Result<(usize, usize, usize)>;
 }
 
 #[async_trait::async_trait]
@@ -814,6 +820,12 @@ impl<I: Services> ConversationService for I {
     ) -> anyhow::Result<Option<Conversation>> {
         self.conversation_service()
             .rewind_conversation(conversation_id)
+            .await
+    }
+
+    async fn compress_uncompressed_contexts(&self) -> anyhow::Result<(usize, usize, usize)> {
+        self.conversation_service()
+            .compress_uncompressed_contexts()
             .await
     }
 }

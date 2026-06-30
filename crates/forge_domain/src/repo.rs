@@ -360,6 +360,24 @@ pub trait ConversationRepository: Send + Sync {
         &self,
         conversation_id: &ConversationId,
     ) -> Result<Option<Conversation>>;
+
+    /// Idempotent maintenance command: zstd-compresses all rows where
+    /// `is_compressed = 0` and `context IS NOT NULL`.
+    ///
+    /// Safe to run at any time — rows already compressed (`is_compressed = 1`)
+    /// are skipped. Rows with a NULL context column are skipped. Progress is
+    /// reported per-row via the returned `(compressed, skipped, errors)` tuple.
+    ///
+    /// **Not** run automatically on startup; invoke explicitly via
+    /// `forge maintenance compress`.
+    ///
+    /// # Returns
+    /// `(compressed, skipped, errors)` counts.
+    ///
+    /// # Errors
+    /// Returns an error only if the batch query itself fails. Per-row
+    /// compression errors are counted in `errors` and do not abort the batch.
+    async fn compress_uncompressed_contexts(&self) -> Result<(usize, usize, usize)>;
 }
 
 #[async_trait::async_trait]

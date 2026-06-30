@@ -347,4 +347,10 @@ pub trait API: Sync + Send {
 
     /// Check the OAuth authentication status of an MCP server
     async fn mcp_auth_status(&self, server_url: &str) -> Result<String>;
+
+    /// Idempotent maintenance command: zstd-compress all conversation rows
+    /// where `is_compressed = 0` and `context IS NOT NULL`.
+    ///
+    /// Returns `(compressed, skipped, errors)` counts.
+    async fn compress_uncompressed_contexts(&self) -> Result<(usize, usize, usize)>;
 }

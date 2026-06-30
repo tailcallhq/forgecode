@@ -642,6 +642,10 @@ impl<
         Ok(forge_infra::mcp_auth_status(server_url, &env).await)
     }
 
+    async fn compress_uncompressed_contexts(&self) -> Result<(usize, usize, usize)> {
+        self.services.compress_uncompressed_contexts().await
+    }
+
     fn hydrate_channel(&self) -> Result<()> {
         self.infra.hydrate();
         Ok(())

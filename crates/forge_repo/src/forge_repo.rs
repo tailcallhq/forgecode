@@ -272,6 +272,14 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
             .rewind_conversation(conversation_id)
             .await
     }
+
+    async fn compress_uncompressed_contexts(
+        &self,
+    ) -> anyhow::Result<(usize, usize, usize)> {
+        self.conversation_repository
+            .compress_uncompressed_contexts()
+            .await
+    }
 }
 
 #[async_trait::async_trait]

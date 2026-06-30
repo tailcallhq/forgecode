@@ -32,8 +32,8 @@ use tokio_stream::StreamExt;
 use url::Url;
 
 use crate::cli::{
-    Cli, CommitCommandGroup, ConversationCommand, ListCommand, McpCommand, SelectCommand,
-    TopLevelCommand,
+    Cli, CommitCommandGroup, ConversationCommand, ListCommand, MaintenanceSubcommand, McpCommand,
+    SelectCommand, TopLevelCommand,
 };
 use crate::conversation_selector::ConversationSelector;
 use crate::display_constants::{CommandType, headers, markers, status};
@@ -1031,6 +1031,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         {
                             self.writeln(conversation_id)?;
                         }
+                    }
+                }
+                return Ok(());
+            }
+            TopLevelCommand::Maintenance(maintenance_group) => {
+                match maintenance_group.command {
+                    MaintenanceSubcommand::Compress => {
+                        self.spinner.start(Some("Compressing"))?;
+                        let (compressed, skipped, errors) =
+                            self.api.compress_uncompressed_contexts().await?;
+                        self.spinner.stop()?;
+                        self.writeln(format!(
+                            "zstd compression complete: {} compressed, {} skipped, {} errors",
+                            compressed, skipped, errors
+                        ))?;
                     }
                 }
                 return Ok(());
