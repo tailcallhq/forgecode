@@ -665,6 +665,16 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-sonnet-4-6",
         "name": "Claude Sonnet 4.6",
         "description": "Most balanced model for building agents and coding",
@@ -1452,6 +1462,46 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text"]
+      },
+      {
+        "id": "global.anthropic.claude-sonnet-5",
+        "name": "Claude Sonnet 5 (Global)",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "us.anthropic.claude-sonnet-5",
+        "name": "Claude Sonnet 5 (US)",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "eu.anthropic.claude-sonnet-5",
+        "name": "Claude Sonnet 5 (EU)",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "anthropic.claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       },
       {
         "id": "global.anthropic.claude-sonnet-4-6",
@@ -2306,6 +2356,16 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-sonnet-4-6",
         "name": "Claude Sonnet 4.6",
         "description": "Most balanced Claude model with excellent performance and speed",
@@ -2842,6 +2902,16 @@
         "name": "Claude Opus 4.1",
         "description": "Powerful Claude model for complex tasks",
         "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
