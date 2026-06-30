@@ -69,12 +69,36 @@ fn should_check_for_updates(frequency: &UpdateFrequency) -> bool {
     !matches!(frequency, UpdateFrequency::Never)
 }
 
+// Phenotype-org: detect non-interactive (agent/CI) invocations to skip the
+// update check entirely.  Avoids a ~220ms GitHub API round-trip on every
+// agent spawn; see profiling notes in perf/profile-zig-hotpath-2026-06-30.
+fn is_non_interactive() -> bool {
+    use std::io::IsTerminal;
+    // CI env vars (standard subset)
+    if std::env::var_os("CI").is_some()
+        || std::env::var_os("FORGE_NON_INTERACTIVE").is_some()
+        || std::env::var_os("FORGE_AGENT_MODE").is_some()
+    {
+        return true;
+    }
+    // stdin is not a TTY — running in a pipe or scripted context
+    !std::io::stdin().is_terminal()
+}
+
 /// Checks if there is an update available
 pub async fn on_update(api: Arc<impl API>, update: Option<&Update>) {
     let update = update.cloned().unwrap_or_default();
     let frequency = update.frequency.unwrap_or_default();
 
     if !should_check_for_updates(&frequency) {
+        return;
+    }
+
+    // Phenotype-org: skip update check in CI / non-TTY / agent-batch mode.
+    // Each forge process pays ~220ms for a GitHub API call when `frequency`
+    // is `Always`; agent fleets spawn many short-lived processes and this
+    // dominates per-invocation overhead.
+    if is_non_interactive() {
         return;
     }
 

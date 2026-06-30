@@ -27,13 +27,19 @@ pub enum SummarizationStrategy {
 }
 
 /// Frequency at which forge checks for updates
+//
+// Phenotype-org: changed default from `Always` (network round-trip on every
+// invocation, ~220ms) to `Daily` (cached by update_informer interval, 0ms
+// after first check).  `Always` is kept for opt-in via config.  In CI or
+// non-TTY environments `on_update` skips the check entirely regardless of
+// this setting (see `crates/forge_main/src/update.rs`).
 #[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, fake::Dummy)]
 #[serde(rename_all = "snake_case")]
 pub enum UpdateFrequency {
+    #[default]
     Daily,
     Weekly,
     Never,
-    #[default]
     Always,
 }
 
