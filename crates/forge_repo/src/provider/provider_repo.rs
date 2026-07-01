@@ -917,6 +917,21 @@ mod tests {
             config.url.as_str(),
             "https://api.neuralwatt.com/v1/chat/completions"
         );
+        // Neuralwatt exposes a non-standard /models schema, so models are
+        // hardcoded in provider.json instead of fetched from the URL.
+        match config.models.as_ref().expect("models should be present") {
+            Models::Hardcoded(models) => {
+                assert!(
+                    models.iter().any(|m| m.id.as_str() == "glm-5.2"),
+                    "expected glm-5.2 to be present in hardcoded models"
+                );
+                assert!(
+                    models.iter().any(|m| m.id.as_str() == "qwen3.5-397b"),
+                    "expected qwen3.5-397b to be present in hardcoded models"
+                );
+            }
+            other => panic!("expected hardcoded models, got {other:?}"),
+        }
     }
 
     #[test]
