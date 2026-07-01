@@ -82,6 +82,7 @@ impl ProviderId {
     pub const XIAOMI_MIMO: ProviderId = ProviderId(Cow::Borrowed("xiaomi_mimo"));
     pub const NVIDIA: ProviderId = ProviderId(Cow::Borrowed("nvidia"));
     pub const AMBIENT: ProviderId = ProviderId(Cow::Borrowed("ambient"));
+    pub const NEURALWATT: ProviderId = ProviderId(Cow::Borrowed("neuralwatt"));
 
     /// Returns all built-in provider IDs
     ///
@@ -123,6 +124,7 @@ impl ProviderId {
             ProviderId::XIAOMI_MIMO,
             ProviderId::NVIDIA,
             ProviderId::AMBIENT,
+            ProviderId::NEURALWATT,
         ]
     }
 
@@ -158,6 +160,7 @@ impl ProviderId {
             "xiaomi_mimo" => "XiaomiMimo".to_string(),
             "nvidia" => "NVIDIA".to_string(),
             "ambient" => "Ambient".to_string(),
+            "neuralwatt" => "Neuralwatt".to_string(),
             _ => {
                 // For other providers, use UpperCamelCase conversion
                 use convert_case::{Case, Casing};
@@ -214,6 +217,7 @@ impl std::str::FromStr for ProviderId {
             "xiaomi_mimo" => ProviderId::XIAOMI_MIMO,
             "nvidia" => ProviderId::NVIDIA,
             "ambient" => ProviderId::AMBIENT,
+            "neuralwatt" => ProviderId::NEURALWATT,
             // For custom providers, use Cow::Owned to avoid memory leaks
             custom => ProviderId(Cow::Owned(custom.to_string())),
         };
@@ -711,6 +715,24 @@ mod tests {
     fn test_ambient_in_built_in_providers() {
         let built_in = ProviderId::built_in_providers();
         assert!(built_in.contains(&ProviderId::AMBIENT));
+    }
+
+    #[test]
+    fn test_neuralwatt_from_str() {
+        let actual = ProviderId::from_str("neuralwatt").unwrap();
+        let expected = ProviderId::NEURALWATT;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_neuralwatt_display_name() {
+        assert_eq!(ProviderId::NEURALWATT.to_string(), "Neuralwatt");
+    }
+
+    #[test]
+    fn test_neuralwatt_in_built_in_providers() {
+        let built_in = ProviderId::built_in_providers();
+        assert!(built_in.contains(&ProviderId::NEURALWATT));
     }
 
     #[test]

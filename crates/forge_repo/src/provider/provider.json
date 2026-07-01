@@ -821,6 +821,15 @@
     "auth_methods": ["api_key"]
   },
   {
+    "id": "neuralwatt",
+    "api_key_vars": "NEURALWATT_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.neuralwatt.com/v1/chat/completions",
+    "models": "https://api.neuralwatt.com/v1/models",
+    "auth_methods": ["api_key"]
+  },
+  {
     "id": "zai",
     "api_key_vars": "ZAI_API_KEY",
     "url_param_vars": [],
