@@ -44,8 +44,8 @@ pub struct Model {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Architecture {
-    pub modality: String,
-    pub tokenizer: String,
+    pub modality: Option<String>,
+    pub tokenizer: Option<String>,
     pub instruct_type: Option<String>,
     pub input_modalities: Option<Vec<String>>,
     pub output_modalities: Option<Vec<String>>,
@@ -264,6 +264,35 @@ mod tests {
         assert_eq!(actual.pricing.as_ref().unwrap().prompt, Some(0.0015));
         assert_eq!(actual.pricing.as_ref().unwrap().completion, Some(0.0002));
     }
+    #[tokio::test]
+    async fn test_lmstudio_model_list() {
+        // LM Studio's /v1/models returns minimal entries with no `architecture`
+        // field.
+        let fixture = load_fixture("lmstudio_models_response.json").await;
+
+        let actual = serde_json::from_value::<ListModelResponse>(fixture).unwrap();
+
+        assert_eq!(actual.data.len(), 4);
+        assert_eq!(actual.data[0].id.as_str(), "nvidia/nemotron-3-nano-omni");
+        // LM Studio omits `architecture` entirely, so it must stay optional.
+        assert!(actual.data[0].architecture.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_llamacpp_model_list() {
+        // llama-server's /v1/models returns an "architecture" object that only has
+        // input_modalities/output_modalities, without "modality"/"tokenizer".
+        let fixture = load_fixture("llamacpp_models_response.json").await;
+
+        let actual = serde_json::from_value::<ListModelResponse>(fixture).unwrap();
+
+        assert_eq!(actual.data.len(), 2);
+        assert_eq!(actual.data[0].id.as_str(), "GLM-4.7-Flash-GGUF");
+        // An `architecture` object missing `modality`/`tokenizer` still
+        // deserializes, since those fields are optional.
+        assert!(actual.data[0].architecture.is_some());
+    }
+
     #[tokio::test]
     async fn test_model_conversion_without_supported_parameters() {
         let model = Model {
