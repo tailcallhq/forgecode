@@ -83,6 +83,7 @@ impl ProviderId {
     pub const NVIDIA: ProviderId = ProviderId(Cow::Borrowed("nvidia"));
     pub const AMBIENT: ProviderId = ProviderId(Cow::Borrowed("ambient"));
     pub const NEURALWATT: ProviderId = ProviderId(Cow::Borrowed("neuralwatt"));
+    pub const ORCA_ROUTER: ProviderId = ProviderId(Cow::Borrowed("orca_router"));
 
     /// Returns all built-in provider IDs
     ///
@@ -125,6 +126,7 @@ impl ProviderId {
             ProviderId::NVIDIA,
             ProviderId::AMBIENT,
             ProviderId::NEURALWATT,
+            ProviderId::ORCA_ROUTER,
         ]
     }
 
@@ -161,6 +163,7 @@ impl ProviderId {
             "nvidia" => "NVIDIA".to_string(),
             "ambient" => "Ambient".to_string(),
             "neuralwatt" => "Neuralwatt".to_string(),
+            "orca_router" => "OrcaRouter".to_string(),
             _ => {
                 // For other providers, use UpperCamelCase conversion
                 use convert_case::{Case, Casing};
@@ -218,6 +221,7 @@ impl std::str::FromStr for ProviderId {
             "nvidia" => ProviderId::NVIDIA,
             "ambient" => ProviderId::AMBIENT,
             "neuralwatt" => ProviderId::NEURALWATT,
+            "orca_router" => ProviderId::ORCA_ROUTER,
             // For custom providers, use Cow::Owned to avoid memory leaks
             custom => ProviderId(Cow::Owned(custom.to_string())),
         };
@@ -595,6 +599,7 @@ mod tests {
         assert_eq!(ProviderId::GOOGLE_AI_STUDIO.to_string(), "GoogleAIStudio");
         assert_eq!(ProviderId::NVIDIA.to_string(), "NVIDIA");
         assert_eq!(ProviderId::AMBIENT.to_string(), "Ambient");
+        assert_eq!(ProviderId::ORCA_ROUTER.to_string(), "OrcaRouter");
     }
 
     #[test]
@@ -636,6 +641,7 @@ mod tests {
         assert!(built_in.contains(&ProviderId::GOOGLE_AI_STUDIO));
         assert!(built_in.contains(&ProviderId::NVIDIA));
         assert!(built_in.contains(&ProviderId::AMBIENT));
+        assert!(built_in.contains(&ProviderId::ORCA_ROUTER));
     }
 
     #[test]
@@ -733,6 +739,24 @@ mod tests {
     fn test_neuralwatt_in_built_in_providers() {
         let built_in = ProviderId::built_in_providers();
         assert!(built_in.contains(&ProviderId::NEURALWATT));
+    }
+
+    #[test]
+    fn test_orca_router_from_str() {
+        let actual = ProviderId::from_str("orca_router").unwrap();
+        let expected = ProviderId::ORCA_ROUTER;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_orca_router_display_name() {
+        assert_eq!(ProviderId::ORCA_ROUTER.to_string(), "OrcaRouter");
+    }
+
+    #[test]
+    fn test_orca_router_in_built_in_providers() {
+        let built_in = ProviderId::built_in_providers();
+        assert!(built_in.contains(&ProviderId::ORCA_ROUTER));
     }
 
     #[test]
