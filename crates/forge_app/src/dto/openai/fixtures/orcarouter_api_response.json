@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "id": "openai/gpt-4o-mini",
+      "object": "model",
+      "created": 1626777600,
+      "owned_by": "OpenAI",
+      "supported_endpoint_types": ["openai", "openai-response"],
+      "name": "OpenAI: GPT-4o-mini",
+      "description": "GPT-4o mini is OpenAI's most advanced small model, supporting both text and image inputs with text outputs.",
+      "context_length": 128000,
+      "max_completion_tokens": 16384,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"],
+        "output_modalities": ["text"]
+      },
+      "top_provider": {
+        "context_length": 128000,
+        "max_completion_tokens": 16384
+      },
+      "pricing": {
+        "prompt": "0.0000001500",
+        "completion": "0.0000006000",
+        "prompt_per_million": "0.150000",
+        "completion_per_million": "0.600000"
+      }
+    }
+  ],
+  "object": "list",
+  "success": true
+}

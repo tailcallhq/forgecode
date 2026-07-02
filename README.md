@@ -581,6 +581,16 @@ NEURALWATT_API_KEY=<your_neuralwatt_api_key>
 </details>
 
 <details>
+<summary><strong>OrcaRouter</strong></summary>
+
+```bash
+# .env
+ORCAROUTER_API_KEY=<your_orcarouter_api_key>
+```
+
+</details>
+
+<details>
 <summary><strong>IO Intelligence</strong></summary>
 
 ```bash
