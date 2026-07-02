@@ -1041,7 +1041,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                         self.spinner.start(Some("Compressing"))?;
                         let (compressed, skipped, errors) =
                             self.api.compress_uncompressed_contexts().await?;
-                        self.spinner.stop()?;
+                        self.spinner.stop(None)?;
                         self.writeln(format!(
                             "zstd compression complete: {} compressed, {} skipped, {} errors",
                             compressed, skipped, errors

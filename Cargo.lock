@@ -2658,6 +2658,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "forge_daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "forge_daemon_bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "forge_daemon",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "forge_dbd"
 version = "2.9.9"
 dependencies = [
@@ -2913,6 +2937,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "merge",
+ "mimalloc",
  "nu-ansi-term",
  "nucleo",
  "nucleo-picker",
@@ -5691,6 +5716,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "libmimalloc-sys"
+version = "0.1.49"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a45a52f43e1c16f667ccfe4dd8c85b7f7c204fd5e3bf46c5b0db9a5c3c0b8e9"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "libredox"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6001,6 +6035,15 @@ dependencies = [
  "migrations_internals",
  "proc-macro2",
  "quote",
+]
+
+[[package]]
+name = "mimalloc"
+version = "0.1.52"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d4139bb28d14ad1facf21d5eb8825051b326e172d216b39f6d31df53cc97862"
+dependencies = [
+ "libmimalloc-sys",
 ]
 
 [[package]]
@@ -6887,6 +6930,19 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "perf_harness"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "forge_daemon",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "pest"

@@ -45,10 +45,7 @@ unsafe extern "C" {
 
     /// Write the active socket path into `out` (capacity `cap`, NUL-terminated).
     /// Returns bytes written (excl. NUL), or -1 if not started.
-    fn forge_daemon_socket_path(
-        out: *mut std::os::raw::c_char,
-        cap: usize,
-    ) -> std::os::raw::c_int;
+    fn forge_daemon_socket_path(out: *mut std::os::raw::c_char, cap: usize) -> std::os::raw::c_int;
 
     /// Dispatch one forge task via posix_spawn (hot path).
     /// Returns exit code; -1 on spawn failure.
@@ -100,10 +97,17 @@ impl DaemonDispatch {
         };
 
         // Find the NUL terminator to get the actual output length.
-        let nul_pos = result_buf.iter().position(|&b| b == 0).unwrap_or(result_buf.len());
+        let nul_pos = result_buf
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(result_buf.len());
         result_buf.truncate(nul_pos);
 
-        debug!(exit_code, output_bytes = nul_pos, "forge_daemon_dispatch returned");
+        debug!(
+            exit_code,
+            output_bytes = nul_pos,
+            "forge_daemon_dispatch returned"
+        );
         Ok((exit_code, result_buf))
     }
 }
@@ -143,10 +147,7 @@ pub struct DaemonClient {
 impl DaemonClient {
     /// Create a client for the given socket path.
     pub fn new(socket_path: impl Into<String>) -> Self {
-        Self {
-            socket_path: socket_path.into(),
-            next_id: 1,
-        }
+        Self { socket_path: socket_path.into(), next_id: 1 }
     }
 
     /// Create a client using the default socket path (/tmp/forge-daemon-<uid>.sock).
@@ -171,12 +172,7 @@ impl DaemonClient {
     }
 
     /// Send a task to the daemon and wait for the response.
-    pub async fn run(
-        &mut self,
-        prompt: &str,
-        model: &str,
-        cwd: &str,
-    ) -> Result<DaemonResponse> {
+    pub async fn run(&mut self, prompt: &str, model: &str, cwd: &str) -> Result<DaemonResponse> {
         let id = self.next_id();
         self.send_recv(&DaemonRequest {
             id,
@@ -216,15 +212,24 @@ impl DaemonClient {
 
         let payload = serde_json::to_vec(req).context("serialize request")?;
         let len = payload.len() as u32;
-        stream.write_all(&len.to_le_bytes()).await.context("write len")?;
+        stream
+            .write_all(&len.to_le_bytes())
+            .await
+            .context("write len")?;
         stream.write_all(&payload).await.context("write payload")?;
 
         let mut len_buf = [0u8; 4];
-        stream.read_exact(&mut len_buf).await.context("read response len")?;
+        stream
+            .read_exact(&mut len_buf)
+            .await
+            .context("read response len")?;
         let resp_len = u32::from_le_bytes(len_buf) as usize;
 
         let mut resp_buf = vec![0u8; resp_len];
-        stream.read_exact(&mut resp_buf).await.context("read response")?;
+        stream
+            .read_exact(&mut resp_buf)
+            .await
+            .context("read response")?;
 
         serde_json::from_slice(&resp_buf).context("deserialize response")
     }
@@ -243,10 +248,7 @@ pub struct DaemonGuard {
 impl DaemonGuard {
     /// Launch the standalone forge-daemon binary; wait until the socket appears.
     pub async fn start(daemon_bin: &Path, forge_bin: &Path) -> Result<Self> {
-        let socket_path = format!(
-            "/tmp/forge-daemon-{}.sock",
-            libc_getuid()
-        );
+        let socket_path = format!("/tmp/forge-daemon-{}.sock", libc_getuid());
 
         info!(daemon_bin = %daemon_bin.display(), %socket_path, "starting forge-daemon");
 
@@ -336,6 +338,9 @@ mod tests {
         unsafe { forge_daemon_stop() };
         assert_eq!(unsafe { forge_daemon_is_running() }, 0);
         // Socket file should be cleaned up.
-        assert!(!Path::new(&path).exists(), "socket file not removed after stop");
+        assert!(
+            !Path::new(&path).exists(),
+            "socket file not removed after stop"
+        );
     }
 }

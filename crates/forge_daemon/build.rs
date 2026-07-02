@@ -3,23 +3,22 @@
 // The Zig core lives in ../../forge-daemon/ relative to this crate.  We run
 // `zig build` there, then tell Cargo where the .a lives and which linker
 // flags to pass.  Only re-runs when Zig source files change.
-use std::{
-    env,
-    path::PathBuf,
-    process::Command,
-};
+use std::{env, path::PathBuf, process::Command};
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     // forge-daemon/ is two levels up from crates/forge_daemon/
     let zig_dir = manifest_dir
-        .parent()   // crates/
+        .parent() // crates/
         .and_then(|p| p.parent()) // workspace root
         .map(|p| p.join("forge-daemon"))
         .expect("could not resolve forge-daemon/ path");
 
     println!("cargo:rerun-if-changed={}", zig_dir.join("src").display());
-    println!("cargo:rerun-if-changed={}", zig_dir.join("build.zig").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        zig_dir.join("build.zig").display()
+    );
 
     // Detect target; map Cargo triple → Zig target.
     let zig_target = zig_target_from_cargo();

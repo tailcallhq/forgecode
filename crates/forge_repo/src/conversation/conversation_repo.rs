@@ -760,9 +760,7 @@ impl ConversationRepository for ConversationRepositoryImpl {
         .await
     }
 
-    async fn compress_uncompressed_contexts(
-        &self,
-    ) -> anyhow::Result<(usize, usize, usize)> {
+    async fn compress_uncompressed_contexts(&self) -> anyhow::Result<(usize, usize, usize)> {
         self.run_with_connection(move |connection, _wid| {
             // Fetch all rows where context is plain-text and not yet compressed.
             // We select only the id + context column to avoid loading unrelated data.
@@ -2111,7 +2109,10 @@ mod tests {
         // Run the maintenance command.
         let (compressed, _skipped, errors) = repo.compress_uncompressed_contexts().await?;
         assert_eq!(errors, 0, "no compression errors expected");
-        assert!(compressed >= 1, "at least one row should have been compressed");
+        assert!(
+            compressed >= 1,
+            "at least one row should have been compressed"
+        );
 
         // Verify the row is now flagged compressed and the context column is NULL.
         repo.run_with_connection(move |conn, _wid| {
@@ -2129,7 +2130,10 @@ mod tests {
             .load(conn)?;
             let row = rows.first().expect("row should exist");
             assert_eq!(row.is_compressed, 1, "row must be flagged compressed");
-            assert!(row.context.is_none(), "plain context must be cleared to NULL");
+            assert!(
+                row.context.is_none(),
+                "plain context must be cleared to NULL"
+            );
             Ok(())
         })
         .await?;

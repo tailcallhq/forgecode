@@ -65,8 +65,10 @@ async fn main() -> Result<()> {
     println!("forge-daemon benchmark (M={m_values:?}, iters={iters})");
     println!("forge_bin = /usr/bin/true  (measures spawn overhead, no LLM wait)");
     println!();
-    println!("{:<6}  {:<12}  {:<14}  {:<12}  {:<14}  {:<10}",
-        "M", "fork+exec(ms)", "fork+exec(a/s)", "daemon(ms)", "daemon(a/s)", "speedup×");
+    println!(
+        "{:<6}  {:<12}  {:<14}  {:<12}  {:<14}  {:<10}",
+        "M", "fork+exec(ms)", "fork+exec(a/s)", "daemon(ms)", "daemon(a/s)", "speedup×"
+    );
     println!("{}", "-".repeat(80));
 
     for &m in &m_values {
@@ -133,12 +135,7 @@ fn bench_daemon_dispatch(m: usize, iters: usize) -> Result<f64> {
         // The posix_spawn overhead is what we're measuring; thread parallelism
         // is outside the scope of this benchmark (daemon handles concurrency).
         for _ in 0..m {
-            let _ = DaemonDispatch::dispatch(
-                "/usr/bin/true",
-                "bench-prompt",
-                "bench-model",
-                &cwd,
-            )?;
+            let _ = DaemonDispatch::dispatch("/usr/bin/true", "bench-prompt", "bench-model", &cwd)?;
         }
 
         total += start.elapsed();

@@ -273,9 +273,7 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
             .await
     }
 
-    async fn compress_uncompressed_contexts(
-        &self,
-    ) -> anyhow::Result<(usize, usize, usize)> {
+    async fn compress_uncompressed_contexts(&self) -> anyhow::Result<(usize, usize, usize)> {
         self.conversation_repository
             .compress_uncompressed_contexts()
             .await
