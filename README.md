@@ -571,6 +571,16 @@ CEREBRAS_API_KEY=<your_cerebras_api_key>
 </details>
 
 <details>
+<summary><strong>Neuralwatt</strong></summary>
+
+```bash
+# .env
+NEURALWATT_API_KEY=<your_neuralwatt_api_key>
+```
+
+</details>
+
+<details>
 <summary><strong>IO Intelligence</strong></summary>
 
 ```bash

@@ -14,12 +14,12 @@
     "bounty:sync-all-issues": "tsx .github/scripts/bounty/src/sync-all-issues.ts"
   },
   "dependencies": {
-    "@ai-sdk/google-vertex": "^4.0.47",
+    "@ai-sdk/google-vertex": "^5.0.0",
     "@types/handlebars": "^4.0.40",
     "@types/node": "^24.10.1",
     "@types/tmp": "^0.2.6",
     "@types/yargs": "^17.0.35",
-    "ai": "^6.0.77",
+    "ai": "^7.0.0",
     "chalk": "^5.6.2",
     "csv-parse": "^7.0.0",
     "handlebars": "^4.7.9",
