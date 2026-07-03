@@ -31,6 +31,7 @@ members = [
   "crates/forge_repo_map",
   "crates/forge3d",
   "crates/forge_drift",
+  "crates/forge_tui",
   "crates/forge_similarity",
   "crates/forge_mux",
   "crates/forge_daemon",
