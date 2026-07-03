@@ -39,14 +39,28 @@ crates/
 
 See `docs/SSOT.md` for the authoritative state-of-the-repo and `CLAUDE.md`/`AGENTS.md` for contributor governance.
 
+## Install forge-dev
+
+Grab the latest `forge-dev` binary for your platform:
+
+```sh
+curl -sSfL https://github.com/KooshaPari/forgecode/releases/latest/download/install.sh | sh
+```
+
+This downloads the correct binary for your OS and architecture (macOS ARM/Intel,
+Linux x86_64/ARM64, Windows x86_64), installs it to `/usr/local/bin/forge-dev`
+(or `~/.local/bin/forge-dev` if `/usr/local/bin` is not writable), and makes it
+executable.
+
+> **Source builds:** To build from source instead, use `cargo build --release
+> --features dev-binary --bin forge-dev`. The `forge-dev` binary is the
+> fork-specific build of the CLI with Phenotype enhancements.
+
 ## Quick Start
 
 ```sh
-# Build the workspace
-cargo build --release
-
 # Run the CLI
-cargo run --bin forge
+cargo run --bin forge-dev --features dev-binary
 
 # Tests (prefers cargo-nextest; falls back to cargo test)
 cargo nextest run    # or: cargo test
