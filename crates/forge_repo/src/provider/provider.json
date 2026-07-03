@@ -665,6 +665,16 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-sonnet-4-6",
         "name": "Claude Sonnet 4.6",
         "description": "Most balanced model for building agents and coding",
@@ -808,6 +818,126 @@
     "response_type": "OpenAI",
     "url": "https://api.cerebras.ai/v1/chat/completions",
     "models": "https://api.cerebras.ai/v1/models",
+    "auth_methods": ["api_key"]
+  },
+  {
+    "id": "neuralwatt",
+    "api_key_vars": "NEURALWATT_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.neuralwatt.com/v1/chat/completions",
+    "models": [
+      {
+        "id": "qwen3.5-397b",
+        "name": "Qwen3.5 397B",
+        "description": "Qwen3.5 397B-A17B — quant-agnostic canonical name for the Qwen3.5 397B family.",
+        "context_length": 262128,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "qwen3.5-397b-fast",
+        "name": "Qwen3.5 397B Fast",
+        "description": "Qwen3.5 397B with thinking mode disabled for faster, lower-latency responses. Ideal for straightforward tasks where extended reasoning is unnecessary.",
+        "context_length": 262128,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": false,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "kimi-k2.7-code",
+        "name": "Kimi K2.7 Code",
+        "description": "Kimi K2.7 Code — quant-agnostic canonical name for the Kimi K2.7 Code family.",
+        "context_length": 262128,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k2.6",
+        "name": "Kimi K2.6",
+        "description": "Kimi K2.6 — quant-agnostic canonical name for the Kimi K2.6 family.",
+        "context_length": 262128,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k2.6-fast",
+        "name": "Kimi K2.6 Fast",
+        "description": "Moonshot Kimi K2.6 with thinking mode disabled for instant, lower-latency responses.",
+        "context_length": 262128,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": false,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "qwen3.6-35b",
+        "name": "Qwen3.6 35B",
+        "description": "Qwen3.6 35B-A3B — quant-agnostic canonical name for the Qwen3.6 35B family.",
+        "context_length": 131056,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "qwen3.6-35b-fast",
+        "name": "Qwen3.6 35B Fast",
+        "description": "Qwen3.6 35B with thinking mode disabled for instant responses. A lightweight, fast model for rapid iteration.",
+        "context_length": 131056,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": false,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "glm-5.2",
+        "name": "GLM-5.2",
+        "description": "Private GLM-5.2 test canary",
+        "context_length": 1048560,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "glm-5.2-fast",
+        "name": "GLM-5.2 (fast)",
+        "description": "GLM-5.2 with thinking skipped (reasoning_effort=none). Non-thinking tier, mirrors glm-5.1-fast.",
+        "context_length": 1048560,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": false,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "glm-5.2-short",
+        "name": "GLM-5.2 (short)",
+        "description": "GLM-5.2 with a 200K context window and a bounded reasoning budget — faster, lower-energy serving for everyday coding, agentic, and chat workloads under 200K tokens. Private preview (grant-gated).",
+        "context_length": 199984,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "glm-5.2-short-fast",
+        "name": "GLM-5.2 (short, fast)",
+        "description": "GLM-5.2 short with reasoning OFF — the fastest, lowest-energy variant of the 200K pool, for latency-sensitive coding, chat, and tool-use that does not need chain-of-thought. Private preview (grant-gated).",
+        "context_length": 199984,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": false,
+        "input_modalities": ["text"]
+      }
+    ],
     "auth_methods": ["api_key"]
   },
   {
@@ -1442,6 +1572,46 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text"]
+      },
+      {
+        "id": "global.anthropic.claude-sonnet-5",
+        "name": "Claude Sonnet 5 (Global)",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "us.anthropic.claude-sonnet-5",
+        "name": "Claude Sonnet 5 (US)",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "eu.anthropic.claude-sonnet-5",
+        "name": "Claude Sonnet 5 (EU)",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "anthropic.claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       },
       {
         "id": "global.anthropic.claude-sonnet-4-6",
@@ -2296,6 +2466,16 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-sonnet-4-6",
         "name": "Claude Sonnet 4.6",
         "description": "Most balanced Claude model with excellent performance and speed",
@@ -2842,6 +3022,16 @@
         "name": "Claude Opus 4.1",
         "description": "Powerful Claude model for complex tasks",
         "context_length": 200000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,

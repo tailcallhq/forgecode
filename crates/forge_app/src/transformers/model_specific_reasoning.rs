@@ -40,6 +40,7 @@ impl ModelSpecificReasoning {
             AnthropicModelFamily::AdaptiveOnly
         } else if id.contains("opus-4-6")
             || id.contains("46-opus")
+            || id.contains("sonnet-5")
             || id.contains("sonnet-4-6")
             || id.contains("46-sonnet")
         {
