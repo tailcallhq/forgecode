@@ -30,27 +30,59 @@ use forge3d::pidfile::PidFile;
 use forge3d::server::Server;
 
 /// Forge3 daemon — agent registry and drift detection over UDS.
+///
+/// Acquires an exclusive pidfile+flock slot, starts the drift detector, and
+/// serves JSON-RPC requests over a Unix domain socket. Exits cleanly on
+/// SIGTERM or SIGINT.
 #[derive(Parser, Debug)]
 #[command(
     name = "forge3d",
-    about = "Forge3 daemon — agent registry and drift detection"
+    version = env!("CARGO_PKG_VERSION"),
+    about = "Forge3 daemon — agent registry and drift detection over UDS",
+    long_about = "Forge3 daemon: agent registry and drift detection.\n\n\
+        On startup the daemon:\n\
+          1. Acquires an exclusive pidfile+flock in --pidfile-dir.\n\
+          2. Initialises an in-memory drift detector (T0/Alert mode).\n\
+          3. Binds a Unix domain socket at --socket-path and begins serving\n\
+             JSON-RPC 2.0 requests (agent.register, agent.heartbeat,\n\
+             agent.deregister, agent.list, drift.observe, drift.override).\n\n\
+        If another instance already holds the lock and --forge3-client is\n\
+        supplied, the binary delegates a `forge3_client ping` to the running\n\
+        daemon and exits with code 0.  If no --forge3-client is given in that\n\
+        situation, the binary exits silently with code 0 as well.\n\n\
+        The daemon shuts down gracefully on SIGTERM or SIGINT, draining\n\
+        in-flight connections before releasing the socket and pidfile."
 )]
 struct Args {
-    /// Directory for drift storage (currently reserved for future state).
+    /// Directory used for drift storage.
+    ///
+    /// Currently reserved for future persistent state. The directory must
+    /// exist and be writable by the daemon process.
     #[arg(long)]
     drift_dir: PathBuf,
 
     /// Path to the Unix domain socket the daemon listens on.
+    ///
+    /// Any stale socket file from a previous run is removed before the daemon
+    /// binds. Ensure the parent directory exists and is writable.
     #[arg(long)]
     socket_path: PathBuf,
 
-    /// Directory for the PID file and daemon lock.
+    /// Directory for the PID file and exclusive daemon lock.
+    ///
+    /// The daemon creates `forge3d.pid` and acquires an `flock` in this
+    /// directory. If the lock is already held by another process the daemon
+    /// either delegates a ping (see --forge3-client) or exits with code 0.
     #[arg(long)]
     pidfile_dir: PathBuf,
 
-    /// Path to the `forge3_client` binary. When provided and the daemon is
-    /// already running, the binary runs `forge3_client ping` against the
-    /// existing instance and exits.
+    /// Path to the `forge3_client` binary for daemon-already-running checks.
+    ///
+    /// When provided and the daemon is already running (lock held), the binary
+    /// executes `forge3_client ping` against the existing instance to confirm
+    /// liveness, prints the result, and exits with code 0.  If the daemon is
+    /// not running this argument has no effect and the current process becomes
+    /// the daemon.
     #[arg(long)]
     forge3_client: Option<String>,
 }
