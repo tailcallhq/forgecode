@@ -6,7 +6,9 @@ use derive_setters::Setters;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{Context, Error, Metrics, Result, TokenCount};
+use crate::{
+    ChatRequest, Context, ContextMessage, Error, Event, EventValue, Metrics, Result, TokenCount,
+};
 
 #[derive(Debug, Default, Display, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 #[serde(transparent)]
@@ -106,11 +108,27 @@ impl Conversation {
 
     /// Returns a vector of user messages, selecting the first message from
     /// each consecutive sequence of user messages.
-    pub fn first_user_messages(&self) -> Vec<&crate::ContextMessage> {
+    pub fn first_user_messages(&self) -> Vec<&ContextMessage> {
         self.context
             .as_ref()
             .map(|ctx| ctx.first_user_messages())
             .unwrap_or_default()
+    }
+
+    /// Rebuilds the request for the most recent user turn.
+    ///
+    /// This uses the first message in the last consecutive user block so that
+    /// retries replay the original prompt instead of trailing attachment or
+    /// context messages.
+    pub fn retry_request(&self) -> Option<ChatRequest> {
+        let message = self.first_user_messages().into_iter().last()?;
+        let event = match message.as_value() {
+            Some(EventValue::Text(user_prompt)) => Event::new(user_prompt.as_str()),
+            Some(EventValue::Command(command)) => Event::from(command.clone()),
+            None => message.content().map(Event::new)?,
+        };
+
+        Some(ChatRequest::new(event, self.id))
     }
 
     /// Returns the total token usage across all messages in the conversation.
@@ -207,7 +225,9 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::{Context, ContextMessage, ToolOutput, ToolResult, ToolValue};
+    use crate::{
+        Context, ContextMessage, EventValue, Role, TextMessage, ToolOutput, ToolResult, ToolValue,
+    };
 
     #[test]
     fn test_related_conversation_ids_empty() {
@@ -354,5 +374,45 @@ mod tests {
         let expected = Some(0.05);
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_retry_request_uses_first_message_from_last_user_block() {
+        let context = Context::default()
+            .add_message(ContextMessage::user("Original task", None))
+            .add_message(ContextMessage::user("Attachment context", None))
+            .add_message(ContextMessage::assistant("Working on it", None, None, None))
+            .add_message(ContextMessage::user("Second task", None))
+            .add_message(ContextMessage::user("More context", None));
+
+        let conversation = Conversation::generate().context(context);
+        let request = conversation.retry_request().expect("retry request");
+
+        let prompt = request
+            .event
+            .value
+            .as_ref()
+            .and_then(|value| value.as_user_prompt())
+            .map(|prompt| prompt.as_str());
+
+        assert_eq!(prompt, Some("Second task"));
+    }
+
+    #[test]
+    fn test_retry_request_prefers_raw_content() {
+        let message = TextMessage::new(Role::User, "Rendered prompt")
+            .raw_content(EventValue::text("Original prompt"));
+        let context = Context::default().add_message(ContextMessage::Text(message));
+        let conversation = Conversation::generate().context(context);
+        let request = conversation.retry_request().expect("retry request");
+
+        let prompt = request
+            .event
+            .value
+            .as_ref()
+            .and_then(|value| value.as_user_prompt())
+            .map(|prompt| prompt.as_str());
+
+        assert_eq!(prompt, Some("Original prompt"));
     }
 }

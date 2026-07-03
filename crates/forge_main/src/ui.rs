@@ -951,15 +951,19 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 self.on_conversation_delete(conversation_id).await?;
             }
             ConversationCommand::Retry { id } => {
-                self.validate_conversation_exists(&id).await?;
-
+                let conversation = self.validate_conversation_exists(&id).await?;
+                let chat = conversation.retry_request().ok_or_else(|| {
+                    anyhow::anyhow!("Conversation '{id}' has no user message to retry.")
+                })?;
                 let original_id = self.state.conversation_id;
-                self.state.conversation_id = Some(id);
 
-                self.spinner.start(None)?;
-                self.on_message(None).await?;
+                self.writeln_title(TitleFormat::action("Retrying"))?;
+                self.spinner.start(Some("Retrying"))?;
+                self.state.conversation_id = Some(id);
+                let result = self.on_chat(chat).await;
 
                 self.state.conversation_id = original_id;
+                result?;
             }
             ConversationCommand::Resume { id } => {
                 self.validate_conversation_exists(&id).await?;
@@ -2289,8 +2293,19 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 return self.handle_provider_logout(None).await;
             }
             AppCommand::Retry => {
-                self.spinner.start(None)?;
-                self.on_message(None).await?;
+                let conversation_id = self.state.conversation_id.ok_or_else(|| {
+                    anyhow::anyhow!("No conversation available to retry.")
+                })?;
+                let conversation = self.validate_conversation_exists(&conversation_id).await?;
+                let chat = conversation.retry_request().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Conversation '{conversation_id}' has no user message to retry."
+                    )
+                })?;
+
+                self.writeln_title(TitleFormat::action("Retrying"))?;
+                self.spinner.start(Some("Retrying"))?;
+                self.on_chat(chat).await?;
             }
             AppCommand::Index => {
                 let working_dir = self.state.cwd.clone();
@@ -4000,7 +4015,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     }
 
     async fn on_chat(&mut self, chat: ChatRequest) -> Result<()> {
-        let mut stream = self.api.chat(chat).await?;
+        let mut stream = match self.api.chat(chat).await {
+            Ok(stream) => stream,
+            Err(err) => {
+                self.spinner.stop(None)?;
+                self.spinner.reset();
+                return Err(err);
+            }
+        };
 
         // Always use streaming content writer
         let mut writer = StreamingWriter::new(self.spinner.clone(), self.api.clone());

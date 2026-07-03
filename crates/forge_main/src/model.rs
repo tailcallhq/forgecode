@@ -1526,6 +1526,13 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_retry_command() {
+        let fixture = ForgeCommandManager::default();
+        let actual = fixture.parse("/retry").unwrap();
+        assert!(matches!(actual, AppCommand::Retry));
+    }
+
+    #[test]
     fn test_parse_tool_command() {
         // Setup
         let fixture = ForgeCommandManager::default();
