@@ -331,16 +331,21 @@ fn parse_email(text: String) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{LazyLock, Mutex};
+
     use pretty_assertions::assert_eq;
 
     use super::*;
 
     static TRACKER: LazyLock<Tracker> = LazyLock::new(Tracker::default);
+    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     // --- Existing tests (updated for opt-in semantics) ---
 
     #[test]
     fn test_tracking_fixture() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
         unsafe {
             std::env::remove_var(TRACKING_ENV_VAR_NAME);
         }
@@ -389,6 +394,8 @@ mod tests {
 
     #[test]
     fn test_tracking_disabled_by_default_when_env_absent() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
         // Arrange: ensure the env var is not set
         unsafe {
             std::env::remove_var(TRACKING_ENV_VAR_NAME);
@@ -409,6 +416,8 @@ mod tests {
 
     #[test]
     fn test_tracking_enabled_only_when_explicitly_true() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
         // Arrange: set to "true"
         unsafe {
             std::env::set_var(TRACKING_ENV_VAR_NAME, "true");

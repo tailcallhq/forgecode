@@ -2531,6 +2531,7 @@ name = "forge3d"
 version = "2.9.9"
 dependencies = [
  "chrono",
+ "clap",
  "forge_drift",
  "forge_infra",
  "forge_similarity",
@@ -2546,6 +2547,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 

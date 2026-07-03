@@ -1,0 +1,125 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.3",
+  "version": 1,
+  "serialNumber": "urn:uuid:71797886-08e7-445d-b7cf-c5c4c6ea50fa",
+  "metadata": {
+    "timestamp": "2026-06-28T19:27:15.500044000Z",
+    "tools": [
+      {
+        "vendor": "CycloneDX",
+        "name": "cargo-cyclonedx",
+        "version": "0.5.9"
+      }
+    ],
+    "component": {
+      "type": "library",
+      "bom-ref": "path+file:///Users/kooshapari/CodeProjects/Phenotype/repos/forgecode/crates/forge_template#0.1.1",
+      "name": "forge_template",
+      "version": "0.1.1",
+      "scope": "required",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:cargo/forge_template@0.1.1?download_url=file://.",
+      "components": [
+        {
+          "type": "library",
+          "bom-ref": "path+file:///Users/kooshapari/CodeProjects/Phenotype/repos/forgecode/crates/forge_template#0.1.1 bin-target-0",
+          "name": "forge_template",
+          "version": "0.1.1",
+          "purl": "pkg:cargo/forge_template@0.1.1?download_url=file://.#src/lib.rs"
+        }
+      ]
+    },
+    "properties": [
+      {
+        "name": "cdx:rustc:sbom:target:triple",
+        "value": "aarch64-apple-darwin"
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#html-escape@0.2.13",
+      "author": "Magic Len <len@magiclen.org>",
+      "name": "html-escape",
+      "version": "0.2.13",
+      "description": "This library is for encoding/escaping special characters in HTML and decoding/unescaping HTML entities as well.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6d1ad449764d627e22bfd7cd5e8868264fc9236e07c752972b4080cd351cb476"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:cargo/html-escape@0.2.13",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://magiclen.org/html-escape"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/magiclen/html-escape"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#utf8-width@0.1.8",
+      "author": "Magic Len <len@magiclen.org>",
+      "name": "utf8-width",
+      "version": "0.1.8",
+      "description": "To determine the width of a UTF-8 character by providing its first byte.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1292c0d970b54115d14f2492fe0170adf21d68a1de108eebc51c1df4f346a091"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:cargo/utf8-width@0.1.8",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://magiclen.org/utf8-width"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/magiclen/utf8-width"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "path+file:///Users/kooshapari/CodeProjects/Phenotype/repos/forgecode/crates/forge_template#0.1.1",
+      "dependsOn": [
+        "registry+https://github.com/rust-lang/crates.io-index#html-escape@0.2.13"
+      ]
+    },
+    {
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#html-escape@0.2.13",
+      "dependsOn": [
+        "registry+https://github.com/rust-lang/crates.io-index#utf8-width@0.1.8"
+      ]
+    },
+    {
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#utf8-width@0.1.8"
+    }
+  ]
+}
