@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  forgecode brand icon — Animated motion variant (vision-pillar L101).
+  Companion to the static forgecode-icon.svg.
+  Animation: a horizontal scanline shimmer sweeps top→bottom every 4s,
+  plus the magenta spark pulses softly.
+  Loop: 4s seamless (scanline resets off-frame).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="forgecode (animated)">
+  <title>forgecode — animated</title>
+  <desc>Terminal-Forge mark with scanline shimmer sweeping the panel.</desc>
+
+  <defs>
+    <radialGradient id="forge-panel" cx="50%" cy="50%" r="65%">
+      <stop offset="0%" stop-color="#1c1c1f" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#0e0e10" stop-opacity="1"/>
+    </radialGradient>
+    <radialGradient id="forge-amber-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f5a623" stop-opacity="1"/>
+      <stop offset="50%" stop-color="#f5a623" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#f5a623" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="forge-magenta-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#d946a8" stop-opacity="1"/>
+      <stop offset="55%" stop-color="#d946a8" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#d946a8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="forge-scanline" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f5a623" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#f5a623" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#f5a623" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="forge-terminal-clip">
+      <rect x="120" y="200" width="784" height="624" rx="24"/>
+    </clipPath>
+  </defs>
+
+  <!-- Charcoal panel -->
+  <rect width="1024" height="1024" rx="184" ry="184" fill="url(#forge-panel)"/>
+
+  <!-- Terminal window frame -->
+  <rect x="120" y="200" width="784" height="624" rx="24" fill="#0e0e10" stroke="#1c1c1f" stroke-width="6"/>
+  <!-- Title bar dots -->
+  <circle cx="160" cy="240" r="10" fill="#f5a623" opacity="0.4"/>
+  <circle cx="190" cy="240" r="10" fill="#d946a8" opacity="0.4"/>
+  <circle cx="220" cy="240" r="10" fill="#6ee7b7" opacity="0.4"/>
+
+  <!-- Prompt -->
+  <text x="180" y="380" font-family="Menlo,Consolas,monospace" font-size="64" font-weight="700" fill="#f5a623">F&gt;</text>
+  <line x1="280" y1="380" x2="380" y2="380" stroke="#6ee7b7" stroke-width="6" stroke-linecap="round">
+    <animate attributeName="x2" values="280;420;280" dur="1.2s" repeatCount="indefinite"/>
+  </line>
+
+  <!-- Spark / waveform (static shape, magenta pulsing opacity) -->
+  <path d="M 180 560 L 260 560 L 290 500 L 320 620 L 360 480 L 400 580 L 480 540 L 540 600 L 600 520 L 680 580 L 760 540 L 820 600"
+        fill="none" stroke="#d946a8" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <animate attributeName="stroke-opacity" values="0.55;1;0.55" dur="4s" repeatCount="indefinite"/>
+  </path>
+
+  <!-- Scanline shimmer sweeping top→bottom (clipped to terminal window) -->
+  <g clip-path="url(#forge-terminal-clip)">
+    <rect x="120" y="0" width="784" height="80" fill="url(#forge-scanline)">
+      <animate attributeName="y" values="-80;820;-80" dur="4s" repeatCount="indefinite"/>
+    </rect>
+  </g>
+</svg>

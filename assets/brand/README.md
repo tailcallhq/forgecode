@@ -20,6 +20,7 @@ Source of truth: [`forgecode-icon.svg`](forgecode-icon.svg) (1024×1024, Termina
 | `assets/icons/forgecode.iconset/` | PNG 16/32/48/64/128/256/512/1024 + @2x | macOS `.icns` source |
 | `assets/icons/forgecode.ico` | ICO multi-res 16/32/48/64/128/256 | Windows app icon |
 | `assets/icons/forgecode-256x256.png` | PNG 256×256 | Linux app icon |
+| `assets/brand/forgecode-icon-animated.svg` | SVG 1024×1024 (SMIL) | L101 motion variant — scanline shimmer + caret blink + magenta spark pulse (no JS) |
 
 ## Mark
 
@@ -68,4 +69,17 @@ resources = []
 category = "DeveloperTool"
 short_description = "AI-enhanced terminal development environment"
 long_description = "Agentic coding CLI/TUI with ZSH plugin support."
+
+## Motion variant (L101)
+
+`forgecode-icon-animated.svg` ships a 4-second loop:
+
+- A horizontal amber `#f5a623` scanline shimmer sweeps top → bottom across the terminal window
+  (clipped to the terminal rectangle).
+- The terminal caret blinks (1.2s oscillation).
+- The magenta spark waveform `#d946a8` softly pulses opacity 0.55 → 1 → 0.55.
+- Loop is seamless: last frame == first frame.
+
+All animation is SVG-native SMIL — no JavaScript, no external CSS. Safe to inline in HTML, SVG
+`<img src>`, and README previews.
 ```
