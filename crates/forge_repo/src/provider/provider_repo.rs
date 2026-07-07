@@ -110,6 +110,11 @@ fn legacy_env_var_fallback(new_name: &str) -> Option<&'static str> {
         "LM_STUDIO_HOST" => Some("LM_STUDIO_URL"),
         "LLAMA_CPP_HOST" => Some("LLAMA_CPP_URL"),
         "JAN_AI_HOST" => Some("JAN_AI_URL"),
+        // HeliosLite rename (2026-07-06): FORGE_API_KEY -> HELIOSLITE_API_KEY.
+        // Users on the legacy KooshaPari/forgecode pre-rename build keep working
+        // until they rotate their env. Symmetric with the OLLAMA/VLLM/LM_STUDIO
+        // fallbacks above. Will be removed in a future major.
+        "HELIOSLITE_API_KEY" => Some("FORGE_API_KEY"),
         _ => None,
     }
 }

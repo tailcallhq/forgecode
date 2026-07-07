@@ -1,0 +1,79 @@
+# helios-lite-nightly — Gate 5b
+#
+# Coordinates the nightly reset/dev-publish path on the renamed-binary
+# surface. Runs every day at 06:30 UTC after the Omniroute nightly
+# (`argismonitor-nightly.yml`) so the rename cycles stay deterministic.
+#
+# Cron:
+#   cron: '30 6 * * *'
+
+name: helios-lite-nightly
+
+on:
+  schedule:
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild-nightly-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      HELIOSLITE_REPO: ${{ github.repository }}
+      HELIOSLITE_RELEASES_BACKEND: "github"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry/target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: helios-nightly-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: cargo fmt + clippy
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: cargo test (workspace)
+        run: |
+          cargo test --workspace --all-features --quiet
+
+      - name: Build renamed binary
+        run: |
+          cargo build --release -p forge_main --bin helioslite
+          cargo build --release -p forge_main --bin forge-dev
+
+      - name: Smoke-test renamed binary
+        run: ./target/release/helioslite --version
+
+      - name: Upload named artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: helioslite-nightly-${{ github.run_number }}
+          path: |
+            target/release/helioslite
+            target/release/forge-dev
+
+  notify-track:
+    runs-on: ubuntu-latest
+    needs: rebuild-nightly-container
+    if: always()
+    steps:
+      - name: Emit GitHub event
+        run: |
+          echo "helios-lite-nightly: ${{ needs.rebuild-nightly-container.result }}"
+          echo "ship-to-tracker: phenomonitor://nightly?project=helioslite&date=$(date -u +%Y-%m-%d)"

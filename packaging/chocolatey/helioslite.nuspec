@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Chocolatey package for HeliosLite. Renamed from "forge" (upstream
+  tailcallhq/forgecode fork). Install via:
+    choco install helioslite --source=https://chocolatey.org/api/v2/
+
+  See docs/NOTICE.md for fork attribution and CHANGELOG.md for the
+  upstream-merging history.
+-->
+<package id="helioslite"
+         version="0.1.0.1"
+         publishDate="<set at release>"
+         publisher="KooshaPari">
+  <metadata>
+    <id>helioslite</id>
+    <title>HeliosLite</title>
+    <version>0.1.0.1</version>
+    <authors>KooshaPari (Phenotype.)</authors>
+    <owners>kooshapari</owners>
+    <projectUrl>https://github.com/KooshaPari/heliosLite</projectUrl>
+    <projectSourceUrl>https://github.com/KooshaPari/heliosLite</projectSourceUrl>
+    <packageSourceUrl>https://github.com/KooshaPari/heliosLite</packageSourceUrl>
+    <iconUrl>https://raw.githubusercontent.com/KooshaPari/heliosLite/main/packaging/chocolatey/icon.png</iconUrl>
+    <docsUrl>https://helioslite.dev/docs</docsUrl>
+    <bugTrackerUrl>https://github.com/KooshaPari/heliosLite/issues</bugTrackerUrl>
+    <licenseUrl>https://github.com/KooshaPari/heliosLite/blob/main/LICENSE-MIT</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <summary>AI-DD/HITL-less coding agent CLI. Fork of tailcallhq/forgecode.</summary>
+    <description>
+HeliosLite is the renamed CLI of the KooshaPari/forgecode fork.
+
+Upstream is tailcallhq/forgecode (MIT). The KooshaPari fork ships
+additive renames, AI-DD/HITL-less operating modes, and an in-house
+update chain that resolves GitHub releases for `KooshaPari/heliosLite`
+with a fallback to `KooshaPari/forgecode`.
+
+The legacy binaries (forge, forge-dev) remain installed and continue
+to publish to npm/crates.io under their existing names; `helioslite`
+is the canonical name going forward.
+    </description>
+    <copyright>(c) KooshaPari 2024-2026</copyright>
+    <licenseUrl>https://github.com/KooshaPari/heliosLite/blob/main/LICENSE-MIT</licenseUrl>
+    <tags>cli ai coding agent rust cross-platform foss admin fenix</tags>
+    <dependencies>
+      <dependency id="vcredist140" version="[14.0,)" />
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+    <file src="legal\**" target="legal" />
+  </files>
+</package>

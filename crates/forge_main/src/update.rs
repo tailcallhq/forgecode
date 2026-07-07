@@ -10,11 +10,25 @@ use update_informer::{Check, Version, registry};
 /// Runs the official installation script to update Forge, failing silently.
 /// When `auto_update` is true, exits immediately after a successful update
 /// without prompting the user.
+///
+/// Phenotype rename: by default we hit `helioslite.dev/cli`; if that
+/// endpoint is unreachable we fall back to the upstream `forgecode.dev/cli`
+/// URL so users running pre-rename builds keep working.
 async fn execute_update_command(api: Arc<impl API>, auto_update: bool) {
-    // Spawn a new task that won't block the main application
-    let output = api
-        .execute_shell_command_raw("curl -fsSL https://forgecode.dev/cli | sh")
-        .await;
+    let primary = std::env::var("HELIOSLITE_UPDATE_URL")
+        .unwrap_or_else(|_| "https://helioslite.dev/cli".to_string());
+    let fallback = "https://forgecode.dev/cli";
+
+    let output = match api
+        .execute_shell_command_raw(&format!("curl -fsSL {primary} | sh"))
+        .await
+    {
+        Ok(o) => o,
+        Err(_) => api
+            .execute_shell_command_raw(&format!("curl -fsSL {fallback} | sh"))
+            .await
+            .unwrap_or_else(|e| e),
+    };
 
     match output {
         Err(err) => {
@@ -111,10 +125,30 @@ pub async fn on_update(api: Arc<impl API>, update: Option<&Update>) {
         return;
     }
 
-    let informer = update_informer::new(registry::GitHub, "KooshaPari/forgecode", VERSION)
+    // Phenotype rename: prefer the renamed-binary GitHub repo (`KooshaPari/heliosLite`).
+    // In flight, the `KooshaPari/forgecode` releases are kept as the canonical
+    // source for both name chains; `HELIOSLITE_REPO` overrides the lookup so
+    // nightlies can target a third-party fork without recompiling.
+    //
+    // Tombstone: until the rename is pushed to remote (Gate 4b), `KooshaPari/heliosLite`
+    // doesn't exist and the lookup 404s. We swallow that case and try the
+    // legacy `KooshaPari/forgecode` releases so users on pre-rename builds
+    // keep getting notified. This branch will be removed once the rename is
+    // permanent.
+    let primary_repo =
+        std::env::var("HELIOSLITE_REPO").unwrap_or_else(|_| "KooshaPari/heliosLite".to_string());
+    let legacy_repo = "KooshaPari/forgecode";
+    let informer_primary =
+        update_informer::new(registry::GitHub, primary_repo.as_str(), VERSION)
+            .interval(frequency.into());
+    let informer_legacy = update_informer::new(registry::GitHub, legacy_repo, VERSION)
         .interval(frequency.into());
 
-    if let Some(version) = informer.check_version().ok().flatten()
+    if let Some(version) = informer_primary
+        .check_version()
+        .ok()
+        .flatten()
+        .or_else(|| informer_legacy.check_version().ok().flatten())
         && (auto_update || confirm_update(version).await)
     {
         execute_update_command(api, auto_update).await;

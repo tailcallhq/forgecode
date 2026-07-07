@@ -1,4 +1,4 @@
-# forgecode
+# helioslite (formerly `forgecode` / `forge-dev`)
 
 <p align="center">
   <a href="assets/brand/forgecode-icon.svg"><img src="assets/brand/forgecode-icon.svg" alt="forgecode" width="160" height="160"></a>
@@ -9,6 +9,34 @@
 ---
 
 An AI-enhanced terminal development environment — an agentic coding CLI/TUI with ZSH plugin support, built in Rust.
+
+> **📣 This project is now distributed as `helioslite`.**
+>
+> `Forgecode` is the upstream (`tailcallhq/forgecode`, MIT/Apache-2.0). This
+> fork (`KooshaPari/forgecode`) is published under the new name
+> **`helioslite`** on crates.io / npm and the **`KooshaPari/heliosLite`**
+> GitHub repo. The internal crate identifier `forgecode` and binary name
+> `forge-dev` are preserved as deprecated aliases for upstream-merge safety;
+> new installs should use `helioslite`.
+>
+> |  | old (deprecated) | new (canonical) |
+> |--|------------------|-----------------|
+> | binary | `forge-dev`, `forge` | `helioslite` (alias kept) |
+> | crates | `forgecode` workspace | `helioslite` workspace |
+> | env vars | `FORGE_*`, `FORGE_DEV_*` | `HELIOSLITE_*` (legacy aliased) |
+> | repo | `KooshaPari/forgecode` | `KooshaPari/heliosLite` |
+> | install URL | `forgecode.dev/cli` | `helioslite.dev/cli` (legacy alias kept) |
+>
+> ```bash
+> # Migrate in 30 seconds
+> cargo install helioslite --locked
+> helioslite --version          # canonical
+> FORGE_LEGACY=1 forge-dev --version   # legacy alias still works
+> ```
+>
+> Removal window for the legacy aliases is **6 months** after `helioslite` is
+> published as `latest` on crates.io. See `docs/RENAMES-STRATEGY.md` for the
+> full migration matrix and `docs/FORK.md` for fork attribution.
 
 > **Fork of [tailcallhq/forgecode](https://github.com/tailcallhq/forgecode).** This fork (`forge-dev`) adds Phenotype-specific features (SQLite session store with WAL checkpointing + zstd compression, conversation FTS/vector search, subagent breadcrumbs) on top of upstream.
 

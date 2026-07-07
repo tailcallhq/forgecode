@@ -1,7 +1,7 @@
 [
   {
     "id": "forge",
-    "api_key_vars": "FORGE_API_KEY",
+    "api_key_vars": "HELIOSLITE_API_KEY",
     "url_param_vars": [],
     "response_type": "OpenAI",
     "url": "https://antinomy.ai/api/v1/chat/completions",

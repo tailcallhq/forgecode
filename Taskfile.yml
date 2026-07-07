@@ -1,0 +1,111 @@
+# HeliosLite (forgecode-derivative) developer Taskfile.
+#
+# Cross-project contract: every project in the KooshaPari/phenotype
+# family shares the same canonical task names so that operators don't
+# have to remember per-project task names. The Taskfile is the simple
+# layer; clap-driven subcommands live under `forge_main` (cli layer).
+#
+#   Modes (positional, last-vas-wins):
+#     hot | cold | dry       — what kind of run/state we touch
+#     prod | dev | local     — what kind of environment to use
+#
+# Usage:
+#   task test [mode=hot]   [env=local]
+#   task deploy env=prod
+#   task serve env=dev mode=cold
+#   task start env=local
+#   task status
+#   task lint
+#   task fmt
+#   task doctor
+#
+# Notes:
+#   No Makefile is intentionally introduced; Task (https://taskfile.dev)
+#   is the only "simple" layer per cross-project contract.
+
+version: "3"
+
+env:
+  HELIOSLITE_REPO: "{{.GITEA_REPOSITORY | default \"KooshaPari/heliosLite\"}}"
+  HELIOSLITE_CARGO_PROFILE:
+    sh: 'cargo info --quiet 2>/dev/null && echo dev || echo release'
+
+vars:
+  # Default mode and env. Override per-call: `task test env=prod`
+  MODE: hot
+  ENV: local
+
+tasks:
+  default:
+    desc: Print the canonical task list
+    cmds:
+      - task --list
+
+  fmt:
+    desc: cargo fmt the whole workspace
+    cmds:
+      - cargo fmt --all
+
+  lint:
+    desc: cargo clippy on the workspace (deny-warnings)
+    cmds:
+      - cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    desc: cargo test (workspace)
+    vars:
+      MODE: '{{.MODE | default "hot"}}'
+      ENV:  '{{.ENV  | default "local"}}'
+    cmds:
+      - 'echo "[task:test] mode={{.MODE}} env={{.ENV}}"'
+      - cargo test --workspace --all-features --quiet
+
+  doctor:
+    desc: smoke-check the workspace builds and the renamed binary resolves
+    cmds:
+      - cargo build -p forge_main --bin helioslite  --release
+      - cargo build -p forge_main --bin forge-dev  --release
+      - ./target/release/helioslite --version
+      - ./target/release/forge-dev --version
+
+  serve:
+    desc: run the CLI locally against ephemeral state (mode=cold wipes)
+    vars:
+      MODE: '{{.MODE | default "cold"}}'
+      ENV:  '{{.ENV  | default "local"}}'
+    cmds:
+      - 'echo "[task:serve] mode={{.MODE}} env={{.ENV}}"'
+      - cargo run -p forge_main --bin helioslite --
+
+  deploy:
+    desc: build a tagged dry-run release; gate is human-only
+    vars:
+      ENV: '{{.ENV | default "local"}}'
+    cmds:
+      - 'echo "[task:deploy] env={{.ENV}} — dry-run only, never actually publishes"'
+      - cargo build --release -p forge_main --bin helioslite
+
+  start:
+    desc: start the dev process under tmux/local
+    vars:
+      MODE: '{{.MODE | default "hot"}}'
+      ENV:  '{{.ENV  | default "local"}}'
+    cmds:
+      - 'echo "[task:start] mode={{.MODE}} env={{.ENV}}"'
+      - task: serve
+        mode: '{{.MODE}}'
+        env: '{{.ENV}}'
+
+  status:
+    desc: print repo + tooling status
+    cmds:
+      - git --no-pager log -n1 --oneline
+      - cargo --version
+      - cargo fmt --all -- --check || echo "fmt drift"
+      - cargo build -p forge_main --bin helioslite --release
+      - ./target/release/helioslite --version
+
+  help:
+    desc: print canonical task list with descriptions
+    cmds:
+      - task --list

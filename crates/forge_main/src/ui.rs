@@ -2023,6 +2023,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         // Stream the diagnostic output in real-time
         crate::zsh::run_zsh_doctor()?;
 
+        // Phenotype rename step: print which "rename channel" this build is on
+        // so the operator immediately knows whether they're hitting the renamed
+        // repository or the legacy KooshaPari/forgecode path.  This is purely
+        // additive — if the env vars are unset we fall back to the legacy labels.
+        let repo = std::env::var("HELIOSLITE_REPO")
+            .unwrap_or_else(|_| "KooshaPari/heliosLite".to_string());
+        let update_url = std::env::var("HELIOSLITE_UPDATE_URL")
+            .unwrap_or_else(|_| "https://helioslite.dev/cli".to_string());
+        let rename_banner = format!("HeliosLite rename channel → repo={repo} update={update_url}");
+        self.writeln_title(TitleFormat::info(&rename_banner))?;
+
         Ok(())
     }
 
