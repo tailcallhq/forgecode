@@ -4,7 +4,7 @@ use tokio_stream::StreamExt;
 use crate::reasoning::{Reasoning, ReasoningFull};
 use crate::{
     ArcSender, ChatCompletionMessage, ChatCompletionMessageFull, ChatResponse, ChatResponseContent,
-    ToolCallFull, ToolCallPart, Usage,
+    FinishReason, ToolCallFull, ToolCallPart, Usage,
 };
 
 /// Extension trait for ResultStream to provide additional functionality
@@ -258,6 +258,14 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
 
         // Get phase from the last message that has one
         let phase = messages.iter().rev().find_map(|message| message.phase);
+
+        // A refusal/content-filter finish is deterministic - the provider
+        // will return the same result for the same request - so it must not
+        // enter the retry loop (issue #3624). Tool calls alongside a
+        // content-filter finish are left to the normal flow.
+        if finish_reason == Some(FinishReason::ContentFilter) && tool_calls.is_empty() {
+            return Err(crate::Error::Refusal.into());
+        }
 
         // Check for empty completion - map to retryable error for retry
         if content.trim().is_empty()
@@ -1219,6 +1227,43 @@ mod tests {
         };
 
         assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn test_into_full_refusal_is_non_retryable_error() {
+        // A refusal/content-filter finish is deterministic: retrying the same
+        // request yields the same refusal. It must NOT surface as the
+        // retryable EmptyCompletion error (issue #3624).
+        let messages = vec![Ok(ChatCompletionMessage::assistant(Content::part(""))
+            .finish_reason(FinishReason::ContentFilter))];
+        let fixture: BoxStream<ChatCompletionMessage, anyhow::Error> =
+            Box::pin(tokio_stream::iter(messages));
+
+        let actual = fixture.into_full(false).await.unwrap_err();
+
+        let domain_error = actual.downcast_ref::<crate::Error>().unwrap();
+        assert!(matches!(domain_error, crate::Error::Refusal));
+    }
+
+    #[tokio::test]
+    async fn test_into_full_refusal_with_partial_content_is_error() {
+        // Mid-stream refusals can arrive after partial output. The partial
+        // text has already been streamed to the UI; the turn still must end
+        // with the refusal error rather than looping.
+        let messages = vec![
+            Ok(ChatCompletionMessage::assistant(Content::part(
+                "I was about to say",
+            ))),
+            Ok(ChatCompletionMessage::assistant(Content::part(""))
+                .finish_reason(FinishReason::ContentFilter)),
+        ];
+        let fixture: BoxStream<ChatCompletionMessage, anyhow::Error> =
+            Box::pin(tokio_stream::iter(messages));
+
+        let actual = fixture.into_full(false).await.unwrap_err();
+
+        let domain_error = actual.downcast_ref::<crate::Error>().unwrap();
+        assert!(matches!(domain_error, crate::Error::Refusal));
     }
 
     #[tokio::test]

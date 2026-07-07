@@ -74,6 +74,13 @@ pub enum Error {
     #[error("Empty completion received - no content, tool calls, or valid finish reason")]
     EmptyCompletion,
 
+    #[error(
+        "The model refused to generate a response (safety/content filter). \
+         Retrying the same request will produce the same refusal - rephrase \
+         the request or switch to a different model."
+    )]
+    Refusal,
+
     #[error(transparent)]
     Retryable(anyhow::Error),
 
