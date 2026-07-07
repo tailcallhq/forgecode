@@ -205,6 +205,7 @@ pub enum StopReason {
     MaxTokens,
     StopSequence,
     ToolUse,
+    Refusal,
 }
 
 impl From<StopReason> for forge_domain::FinishReason {
@@ -214,6 +215,7 @@ impl From<StopReason> for forge_domain::FinishReason {
             StopReason::MaxTokens => forge_domain::FinishReason::Length,
             StopReason::StopSequence => forge_domain::FinishReason::Stop,
             StopReason::ToolUse => forge_domain::FinishReason::ToolCalls,
+            StopReason::Refusal => forge_domain::FinishReason::ContentFilter,
         }
     }
 }
@@ -843,5 +845,37 @@ mod tests {
         let actual = ChatCompletionMessage::try_from(fixture).unwrap();
 
         assert_eq!(actual.usage, None);
+    }
+
+    #[test]
+    fn test_message_delta_refusal_stop_reason() {
+        // Fable returns HTTP 200 with stop_reason "refusal" when safety
+        // classifiers decline a request. This must parse as a known event,
+        // not fall through to EventData::Unknown (which silently drops the
+        // finish reason and triggers an empty-completion retry loop).
+        let fixture = r#"{"type":"message_delta","delta":{"stop_reason":"refusal","stop_sequence":null},"usage":{"output_tokens":0}}"#;
+
+        let actual = serde_json::from_str::<EventData>(fixture).unwrap();
+
+        let expected = EventData::KnownEvent(Event::MessageDelta {
+            delta: MessageDelta { stop_reason: StopReason::Refusal, stop_sequence: None },
+            usage: Usage {
+                input_tokens: None,
+                output_tokens: Some(0),
+                cache_creation_input_tokens: None,
+                cache_read_input_tokens: None,
+            },
+        });
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_refusal_maps_to_content_filter() {
+        let fixture = StopReason::Refusal;
+
+        let actual = forge_domain::FinishReason::from(fixture);
+
+        let expected = forge_domain::FinishReason::ContentFilter;
+        assert_eq!(actual, expected);
     }
 }
