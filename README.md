@@ -4,7 +4,7 @@
   <a href="assets/brand/forgecode-icon.svg"><img src="assets/brand/forgecode-icon.svg" alt="forgecode" width="160" height="160"></a>
 </p>
 <p align="center"><em>AI-enhanced terminal development environment — agentic coding CLI/TUI with ZSH plugin support.</em></p>
-<p align="center"><sub>Terminal-Forge palette · <a href="assets/brand/README.md">brand assets &amp; tokens</a> · theme.rs wired (PR #86) — <em>Phenotype-org addition on top of upstream <a href="https://github.com/tailcallhq/forgecode">tailcallhq/forgecode</a></em></sub></p>
+<p align="center"><sub>Terminal-Forge palette · <a href="assets/brand/README.md">brand assets &amp; tokens</a> · theme.rs wired (PR #86) · <a href="docs/assets/identity/">visual identity demo</a> — <em>Phenotype-org addition on top of upstream <a href="https://github.com/tailcallhq/forgecode">tailcallhq/forgecode</a></em></sub></p>
 
 ---
 
