@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="forgecode identity demo: terminal scanline + mint cursor">
+  <title>forgecode — L105 Identity Demo (Terminal-Forge scanline + mint-cursor)</title>
+  <defs>
+    <linearGradient id="fcBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0e0e10"/>
+      <stop offset="1" stop-color="#1c1c1f"/>
+    </linearGradient>
+    <style>
+      .fc-mono { font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace; }
+      .fc-scanline { animation: fc-scan 2.8s linear infinite; }
+      @keyframes fc-scan {
+        0%   { transform: translateY(-20px); opacity: 0; }
+        8%   { opacity: 0.6; }
+        92%  { opacity: 0.6; }
+        100% { transform: translateY(270px); opacity: 0; }
+      }
+      .fc-cursor { animation: fc-blink 1s steps(2, end) infinite; }
+      @keyframes fc-blink {
+        0%, 49%   { opacity: 1; }
+        50%, 100% { opacity: 0; }
+      }
+      .fc-typed span { opacity: 0; animation: fc-type 4s steps(20, end) infinite; }
+      @keyframes fc-type {
+        0%, 4%   { opacity: 0; }
+        5%, 100% { opacity: 1; }
+      }
+      .fc-spark {
+        transform-origin: 240px 135px;
+        animation: fc-spark 2.5s ease-in-out infinite;
+      }
+      @keyframes fc-spark {
+        0%, 100% { opacity: 0.3; transform: scale(0.7); }
+        50%      { opacity: 1;   transform: scale(1.15); }
+      }
+    </style>
+  </defs>
+
+  <rect width="480" height="270" fill="url(#fcBg)"/>
+
+  <rect x="20" y="20" width="440" height="230" rx="6" fill="#0e0e10" stroke="#f5a623" stroke-opacity="0.25" stroke-width="1"/>
+  <g>
+    <circle cx="36" cy="36" r="4" fill="#f5a623" opacity="0.55"/>
+    <circle cx="50" cy="36" r="4" fill="#d946a8" opacity="0.55"/>
+    <circle cx="64" cy="36" r="4" fill="#6ee7b7" opacity="0.55"/>
+  </g>
+
+  <g class="fc-mono" font-size="13">
+    <text x="36" y="74" fill="#6ee7b7">F&gt;</text>
+    <text x="60" y="74" fill="#f6f8fa" class="fc-typed">forge dispatch --plan "ship-it"</text>
+    <rect x="320" y="62" width="9" height="16" fill="#6ee7b7" class="fc-cursor"/>
+  </g>
+
+  <g class="fc-scanline">
+    <rect x="20" y="0" width="440" height="2" fill="#f5a623" fill-opacity="0.35"/>
+  </g>
+
+  <g class="fc-spark">
+    <circle cx="240" cy="155" r="34" fill="none" stroke="#d946a8" stroke-width="2"/>
+    <circle cx="240" cy="155" r="22" fill="none" stroke="#6ee7b7" stroke-width="1.5"/>
+    <path d="M228 145 L240 155 L228 165" fill="none" stroke="#f5a623" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g class="fc-mono" font-size="10">
+    <text x="36" y="220" fill="#6ee7b7" letter-spacing="0.1em">[ok]</text>
+    <text x="80" y="220" fill="#f6f8fa" opacity="0.7">compiling 0/3</text>
+    <text x="200" y="220" fill="#f5a623" letter-spacing="0.1em">[warn]</text>
+    <text x="252" y="220" fill="#f6f8fa" opacity="0.7">hot path</text>
+    <text x="340" y="220" fill="#d946a8" letter-spacing="0.1em">[run]</text>
+    <text x="380" y="220" fill="#f6f8fa" opacity="0.7">agent-7</text>
+  </g>
+
+  <g class="fc-mono">
+    <text x="240" y="258" text-anchor="middle" font-size="11" font-weight="700" fill="#f6f8fa" letter-spacing="0.18em">FORGECODE</text>
+  </g>
+
+  <g stroke="#f5a623" stroke-width="1.5" stroke-linecap="round" opacity="0.7">
+    <path d="M30 30 L42 30 M30 30 L30 42"/>
+    <path d="M450 30 L438 30 M450 30 L450 42"/>
+    <path d="M30 240 L42 240 M30 240 L30 228"/>
+    <path d="M450 240 L438 240 M450 240 L450 228"/>
+  </g>
+</svg>
