@@ -148,11 +148,12 @@ mod tests {
 
     #[test]
     fn test_codex_transformer_preserves_other_fields() {
-        let fixture = fixture();
+        let mut fixture = fixture();
+        fixture.model = Some("gpt-5.6-luna".to_string());
         let mut transformer = CodexTransformer;
         let actual = transformer.transform(fixture);
 
-        assert_eq!(actual.model.as_deref(), Some("gpt-5.1-codex"));
+        assert_eq!(actual.model.as_deref(), Some("gpt-5.6-luna"));
         assert_eq!(actual.stream, Some(true));
     }
 }
