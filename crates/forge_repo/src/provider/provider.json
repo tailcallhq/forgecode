@@ -4088,5 +4088,14 @@
     "url": "https://api.ambient.xyz/v1/chat/completions",
     "models": "https://api.ambient.xyz/v1/models",
     "auth_methods": ["api_key"]
+  },
+  {
+    "id": "orca_router",
+    "api_key_vars": "ORCAROUTER_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.orcarouter.ai/v1/chat/completions",
+    "models": "https://api.orcarouter.ai/v1/models",
+    "auth_methods": ["api_key"]
   }
 ]

@@ -44,8 +44,11 @@ pub struct Model {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Architecture {
-    pub modality: String,
-    pub tokenizer: String,
+    // Some OpenAI-compatible providers (e.g. OrcaRouter) return an
+    // `architecture` object carrying only the modality arrays, so every
+    // field must tolerate being absent.
+    pub modality: Option<String>,
+    pub tokenizer: Option<String>,
     pub instruct_type: Option<String>,
     pub input_modalities: Option<Vec<String>>,
     pub output_modalities: Option<Vec<String>>,
@@ -82,6 +85,7 @@ where
 pub struct TopProvider {
     pub context_length: Option<u64>,
     pub max_completion_tokens: Option<u64>,
+    #[serde(default)]
     pub is_moderated: bool,
 }
 
@@ -239,6 +243,42 @@ mod tests {
         assert_eq!(pricing.completion, Some(0.17992692));
         assert_eq!(pricing.image, None);
         assert_eq!(pricing.request, None);
+    }
+
+    #[tokio::test]
+    async fn test_orcarouter_api_response_format() {
+        // OrcaRouter returns an `architecture` object with only the modality
+        // arrays (no `modality`/`tokenizer`) and a `top_provider` without
+        // `is_moderated`; all of these must deserialize.
+        let fixture = load_fixture("orcarouter_api_response.json").await;
+
+        let actual = serde_json::from_value::<ListModelResponse>(fixture).unwrap();
+
+        assert_eq!(actual.data.len(), 1);
+        let model = &actual.data[0];
+        assert_eq!(model.id.as_str(), "openai/gpt-4o-mini");
+        assert_eq!(model.name, Some("OpenAI: GPT-4o-mini".to_string()));
+        assert_eq!(model.context_length, Some(128000));
+
+        let architecture = model.architecture.as_ref().unwrap();
+        assert_eq!(architecture.modality, None);
+        assert_eq!(architecture.tokenizer, None);
+        assert_eq!(
+            architecture.input_modalities,
+            Some(vec![
+                "text".to_string(),
+                "image".to_string(),
+                "file".to_string()
+            ])
+        );
+
+        let top_provider = model.top_provider.as_ref().unwrap();
+        assert_eq!(top_provider.context_length, Some(128000));
+        assert_eq!(top_provider.is_moderated, false);
+
+        let pricing = model.pricing.as_ref().unwrap();
+        assert_eq!(pricing.prompt, Some(0.00000015));
+        assert_eq!(pricing.completion, Some(0.0000006));
     }
 
     #[tokio::test]
