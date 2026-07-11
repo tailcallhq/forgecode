@@ -2293,9 +2293,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 return self.handle_provider_logout(None).await;
             }
             AppCommand::Retry => {
-                let conversation_id = self.state.conversation_id.ok_or_else(|| {
-                    anyhow::anyhow!("No conversation available to retry.")
-                })?;
+                let conversation_id = self
+                    .state
+                    .conversation_id
+                    .ok_or_else(|| anyhow::anyhow!("No conversation available to retry."))?;
                 let conversation = self.validate_conversation_exists(&conversation_id).await?;
                 let chat = conversation.retry_request().ok_or_else(|| {
                     anyhow::anyhow!(
