@@ -5,7 +5,9 @@ use forge_app::domain::{
     ChatCompletionMessage, Context as ChatContext, Model, ModelId, ProviderId, ResultStream,
     Transformer,
 };
-use forge_app::dto::openai::{ListModelResponse, ProviderPipeline, Request, Response};
+use forge_app::dto::openai::{
+    CopilotListModelResponse, ListModelResponse, ProviderPipeline, Request, Response,
+};
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider};
 use forge_infra::sanitize_headers;
@@ -247,6 +249,25 @@ impl<H: HttpInfra> OpenAIProvider<H> {
                             anyhow::bail!(error)
                         }
                         Ok(response) => {
+                            // GitHub Copilot's /models endpoint uses a different schema
+                            // (capabilities, limits, policy) than the standard OpenAI
+                            // models response and includes models the account cannot
+                            // actually use
+                            if self.provider.id == ProviderId::GITHUB_COPILOT {
+                                let data: CopilotListModelResponse = serde_json::from_str(
+                                    &response,
+                                )
+                                .with_context(|| format_http_context(None, "GET", url))
+                                .with_context(
+                                    || "Failed to deserialize GitHub Copilot models response",
+                                )?;
+                                return Ok(data
+                                    .data
+                                    .into_iter()
+                                    .filter(|model| model.is_usable())
+                                    .map(Into::into)
+                                    .collect());
+                            }
                             let data: ListModelResponse = serde_json::from_str(&response)
                                 .with_context(|| format_http_context(None, "GET", url))
                                 .with_context(|| "Failed to deserialize models response")?;

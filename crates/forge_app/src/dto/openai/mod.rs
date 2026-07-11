@@ -1,3 +1,4 @@
+mod copilot_model;
 mod error;
 mod model;
 mod reasoning;
@@ -6,6 +7,7 @@ mod response;
 mod tool_choice;
 mod transformers;
 
+pub use copilot_model::*;
 pub use error::*;
 pub use model::*;
 pub use reasoning::*;
