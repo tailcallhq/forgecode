@@ -11,13 +11,15 @@ use forge_eventsource_stream::Eventsource;
 use forge_infra::sanitize_headers;
 use futures::StreamExt;
 use reqwest::StatusCode;
-use reqwest::header::AUTHORIZATION;
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use tracing::info;
 use url::Url;
 
 use crate::provider::FromDomain;
 use crate::provider::retry::into_retry;
 use crate::provider::utils::{create_headers, format_http_context, read_http_error_reason};
+
+const CODEX_RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
 
 #[derive(Clone)]
 pub(super) struct OpenAIResponsesProvider<H> {
@@ -156,7 +158,9 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
         context: ChatContext,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
         let conversation_id = context.conversation_id.as_ref().map(ToString::to_string);
-        let headers = create_headers(self.get_headers_for_conversation(conversation_id.as_deref()));
+        let mut headers =
+            create_headers(self.get_headers_for_conversation(conversation_id.as_deref()));
+        add_codex_responses_lite_headers(&mut headers, &self.provider, model);
         let mut request = oai::CreateResponse::from_domain(context)?;
         request.model = Some(model.as_str().to_string());
 
@@ -175,8 +179,14 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
             "Connecting Upstream (Responses API)"
         );
 
-        let json_bytes = serde_json::to_vec(&request)
-            .with_context(|| "Failed to serialize OpenAI Responses request")?;
+        let json_bytes = if is_codex_responses_lite(&self.provider, model) {
+            let request = CodexResponsesLiteRequest::try_from(request)?;
+            serde_json::to_vec(&request)
+                .with_context(|| "Failed to serialize Codex Responses Lite request")?
+        } else {
+            serde_json::to_vec(&request)
+                .with_context(|| "Failed to serialize OpenAI Responses request")?
+        };
 
         // The Codex backend at chatgpt.com does not return
         // `Content-Type: text/event-stream`, which causes the
@@ -406,6 +416,241 @@ fn responses_endpoint_from_api_base(api_base: &Url) -> Url {
     url.set_fragment(None);
 
     url
+}
+
+fn is_codex_responses_lite(provider: &Provider<Url>, model: &ModelId) -> bool {
+    provider.id == forge_domain::ProviderId::CODEX && model.as_str() == "gpt-5.6-luna"
+}
+
+fn add_codex_responses_lite_headers(
+    headers: &mut HeaderMap,
+    provider: &Provider<Url>,
+    model: &ModelId,
+) {
+    if is_codex_responses_lite(provider, model) {
+        headers.insert(
+            CODEX_RESPONSES_LITE_HEADER,
+            HeaderValue::from_static("true"),
+        );
+        headers.insert(
+            "user-agent",
+            HeaderValue::from_static("codex_cli_rs/0.144.0"),
+        );
+        headers.insert("x-app-version", HeaderValue::from_static("0.144.0"));
+        headers.insert("originator", HeaderValue::from_static("codex_cli_rs"));
+    }
+}
+
+/// Input item for the Codex Responses Lite wire format.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(untagged)]
+enum CodexResponsesLiteItem {
+    /// Developer item carrying the tool definitions that are normally sent in
+    /// the top-level `tools` field.
+    AdditionalTools {
+        #[serde(rename = "type")]
+        kind: &'static str,
+        role: &'static str,
+        tools: Vec<oai::Tool>,
+    },
+    /// Developer message carrying the system instructions that are normally
+    /// sent in the top-level `instructions` field.
+    DeveloperMessage {
+        #[serde(rename = "type")]
+        kind: &'static str,
+        role: &'static str,
+        content: String,
+    },
+    /// A regular Responses API input item, passed through unchanged.
+    Item(oai::InputItem),
+}
+
+impl CodexResponsesLiteItem {
+    /// Creates the developer `additional_tools` input item.
+    fn additional_tools(tools: Vec<oai::Tool>) -> Self {
+        Self::AdditionalTools { kind: "additional_tools", role: "developer", tools }
+    }
+
+    /// Creates the developer message input item carrying instructions.
+    fn developer_message(content: String) -> Self {
+        Self::DeveloperMessage { kind: "message", role: "developer", content }
+    }
+}
+
+/// Reasoning configuration for the Codex Responses Lite wire format.
+///
+/// Extends the standard Responses reasoning object with the `context` field
+/// required by the Lite endpoint.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+struct CodexResponsesLiteReasoning {
+    #[serde(flatten)]
+    reasoning: oai::Reasoning,
+    context: &'static str,
+}
+
+impl From<oai::Reasoning> for CodexResponsesLiteReasoning {
+    fn from(reasoning: oai::Reasoning) -> Self {
+        Self { reasoning, context: "all_turns" }
+    }
+}
+
+/// Request wire format for the Codex Responses Lite endpoint.
+///
+/// Differs from the standard Responses request as follows:
+/// - Tools are moved out of the top-level `tools` field into a leading
+///   `additional_tools` developer input item.
+/// - Top-level `instructions` are blanked out and re-sent as a developer
+///   message input item (when non-empty).
+/// - `parallel_tool_calls` is forced to `false`.
+/// - `reasoning.context` is set to `"all_turns"` when reasoning is present.
+///
+/// All remaining fields mirror `oai::CreateResponse` and are passed through
+/// unchanged.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+struct CodexResponsesLiteRequest {
+    input: Vec<CodexResponsesLiteItem>,
+    /// Always serialized as the empty string. The Lite endpoint requires the
+    /// top-level `instructions` key to be present but blank; the actual
+    /// instructions are re-sent as a developer message inside `input`.
+    instructions: &'static str,
+    /// Always `false`. The Lite endpoint does not support parallel tool
+    /// calls, so the original request value is intentionally discarded.
+    parallel_tool_calls: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<CodexResponsesLiteReasoning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    background: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    conversation: Option<oai::ConversationParam>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    include: Option<Vec<oai::IncludeEnum>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_output_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tool_calls: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metadata: Option<std::collections::HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    previous_response_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt: Option<oai::Prompt>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_cache_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_cache_retention: Option<oai::PromptCacheRetention>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    safety_identifier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<oai::ServiceTier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    store: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream_options: Option<oai::ResponseStreamOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<oai::ResponseTextParam>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<oai::ToolChoiceParam>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_logprobs: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    truncation: Option<oai::Truncation>,
+}
+
+impl TryFrom<oai::CreateResponse> for CodexResponsesLiteRequest {
+    type Error = anyhow::Error;
+
+    /// Converts a standard Responses request into the Lite wire format.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request input is plain text instead of a list
+    /// of input items.
+    fn try_from(request: oai::CreateResponse) -> anyhow::Result<Self> {
+        // Exhaustive destructuring: adding a field to `CreateResponse`
+        // upstream becomes a compile error here, so no field can be silently
+        // dropped from the Lite request.
+        let oai::CreateResponse {
+            background,
+            conversation,
+            include,
+            input,
+            instructions,
+            max_output_tokens,
+            max_tool_calls,
+            metadata,
+            model,
+            parallel_tool_calls: _,
+            previous_response_id,
+            prompt,
+            prompt_cache_key,
+            prompt_cache_retention,
+            reasoning,
+            safety_identifier,
+            service_tier,
+            store,
+            stream,
+            stream_options,
+            temperature,
+            text,
+            tool_choice,
+            tools,
+            top_logprobs,
+            top_p,
+            truncation,
+        } = request;
+
+        let items = match input {
+            oai::InputParam::Items(items) => items,
+            oai::InputParam::Text(_) => {
+                anyhow::bail!("Codex Responses Lite input must be an array")
+            }
+        };
+
+        let instructions = instructions.filter(|content| !content.is_empty());
+        let input = std::iter::once(CodexResponsesLiteItem::additional_tools(
+            tools.unwrap_or_default(),
+        ))
+        .chain(instructions.map(CodexResponsesLiteItem::developer_message))
+        .chain(items.into_iter().map(CodexResponsesLiteItem::Item))
+        .collect();
+
+        Ok(Self {
+            input,
+            instructions: "",
+            parallel_tool_calls: false,
+            reasoning: reasoning.map(Into::into),
+            background,
+            conversation,
+            include,
+            max_output_tokens,
+            max_tool_calls,
+            metadata,
+            model,
+            previous_response_id,
+            prompt,
+            prompt_cache_key,
+            prompt_cache_retention,
+            safety_identifier,
+            service_tier,
+            store,
+            stream,
+            stream_options,
+            temperature,
+            text,
+            tool_choice,
+            top_logprobs,
+            top_p,
+            truncation,
+        })
+    }
 }
 
 fn request_message_count(request: &oai::CreateResponse) -> usize {
@@ -1335,6 +1580,157 @@ mod tests {
 
         assert!(x_client_request_id.is_none());
         assert!(session_id.is_none());
+    }
+
+    #[test]
+    fn test_codex_luna_adds_responses_lite_header() {
+        let provider = Provider {
+            id: ProviderId::CODEX,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(ProviderResponse::OpenAI),
+            url: Url::parse("https://chatgpt.com/backend-api/codex/responses").unwrap(),
+            credential: make_credential(ProviderId::CODEX, "test-token"),
+            custom_headers: None,
+            auth_methods: vec![],
+            url_params: vec![],
+            models: None,
+        };
+        let mut fixture = HeaderMap::new();
+
+        add_codex_responses_lite_headers(&mut fixture, &provider, &ModelId::from("gpt-5.6-luna"));
+
+        let actual = fixture
+            .get(CODEX_RESPONSES_LITE_HEADER)
+            .and_then(|value| value.to_str().ok());
+        let expected = Some("true");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_codex_non_luna_omits_responses_lite_header() {
+        let provider = Provider {
+            id: ProviderId::CODEX,
+            provider_type: forge_domain::ProviderType::Llm,
+            response: Some(ProviderResponse::OpenAI),
+            url: Url::parse("https://chatgpt.com/backend-api/codex/responses").unwrap(),
+            credential: make_credential(ProviderId::CODEX, "test-token"),
+            custom_headers: None,
+            auth_methods: vec![],
+            url_params: vec![],
+            models: None,
+        };
+        let mut fixture = HeaderMap::new();
+
+        add_codex_responses_lite_headers(&mut fixture, &provider, &ModelId::from("gpt-5.6-sol"));
+
+        let actual = fixture.contains_key(CODEX_RESPONSES_LITE_HEADER);
+        let expected = false;
+        assert_eq!(actual, expected);
+    }
+
+    /// Test fixture for a standard Responses request with tools,
+    /// instructions and reasoning.
+    fn codex_lite_request_fixture() -> oai::CreateResponse {
+        oai::CreateResponse {
+            model: Some("gpt-5.6-luna".to_string()),
+            instructions: Some("be helpful".to_string()),
+            tools: Some(vec![oai::Tool::Function(oai::FunctionTool {
+                name: "shell".to_string(),
+                parameters: None,
+                strict: None,
+                description: None,
+                defer_loading: None,
+            })]),
+            input: oai::InputParam::Items(vec![oai::InputItem::Item(oai::Item::FunctionCall(
+                oai::FunctionToolCall {
+                    id: Some("call_1".to_string()),
+                    call_id: "call_id_1".to_string(),
+                    name: "shell".to_string(),
+                    arguments: "{}".to_string(),
+                    namespace: None,
+                    status: None,
+                },
+            ))]),
+            reasoning: Some(oai::Reasoning {
+                effort: Some(oai::ReasoningEffort::Medium),
+                summary: None,
+            }),
+            parallel_tool_calls: Some(true),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_codex_responses_lite_request_rewrites_request() {
+        let fixture = codex_lite_request_fixture();
+
+        let actual =
+            serde_json::to_value(CodexResponsesLiteRequest::try_from(fixture).unwrap()).unwrap();
+
+        let expected = serde_json::json!({
+            "model": "gpt-5.6-luna",
+            "instructions": "",
+            "input": [
+                {
+                    "type": "additional_tools",
+                    "role": "developer",
+                    "tools": [{"type": "function", "name": "shell"}]
+                },
+                {
+                    "type": "message",
+                    "role": "developer",
+                    "content": "be helpful"
+                },
+                {
+                    "type": "function_call",
+                    "id": "call_1",
+                    "call_id": "call_id_1",
+                    "name": "shell",
+                    "arguments": "{}"
+                }
+            ],
+            "parallel_tool_calls": false,
+            "reasoning": {"effort": "medium", "context": "all_turns"}
+        });
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_codex_responses_lite_request_without_tools_and_instructions() {
+        let fixture = oai::CreateResponse {
+            model: Some("gpt-5.6-luna".to_string()),
+            input: oai::InputParam::Items(vec![]),
+            ..Default::default()
+        };
+
+        let actual =
+            serde_json::to_value(CodexResponsesLiteRequest::try_from(fixture).unwrap()).unwrap();
+
+        let expected = serde_json::json!({
+            "model": "gpt-5.6-luna",
+            "instructions": "",
+            "input": [
+                {
+                    "type": "additional_tools",
+                    "role": "developer",
+                    "tools": []
+                }
+            ],
+            "parallel_tool_calls": false
+        });
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_codex_responses_lite_request_rejects_text_input() {
+        let fixture = oai::CreateResponse {
+            input: oai::InputParam::Text("hi".to_string()),
+            ..Default::default()
+        };
+
+        let actual = CodexResponsesLiteRequest::try_from(fixture);
+
+        assert!(actual.is_err());
     }
 
     #[tokio::test]
