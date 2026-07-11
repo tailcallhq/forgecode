@@ -206,8 +206,7 @@ impl<H: HttpInfra> OpenAIProvider<H> {
         // GitHub Copilot's "auto" is a synthetic model: the API has no `auto`
         // id, official clients implement it by omitting the model so the
         // service selects one server-side
-        if self.provider.id == ProviderId::GITHUB_COPILOT
-            && model.as_str() == COPILOT_AUTO_MODEL_ID
+        if self.provider.id == ProviderId::GITHUB_COPILOT && model.as_str() == COPILOT_AUTO_MODEL_ID
         {
             request.model = None;
         }
