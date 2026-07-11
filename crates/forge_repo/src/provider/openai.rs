@@ -40,6 +40,21 @@ fn enhance_error(error: anyhow::Error, provider_id: &ProviderId) -> anyhow::Erro
     error
 }
 
+/// Prepares a request for GitHub Copilot's synthetic "auto" model.
+///
+/// Copilot's API has no `auto` model id; official clients implement "Auto"
+/// by omitting the model so the service selects one server-side. Since the
+/// served model is unknown, model-specific tuning must also be omitted or
+/// the request fails (e.g. `invalid_reasoning_effort` when the service
+/// selects a non-reasoning model).
+fn prepare_copilot_auto_request(mut request: Request) -> Request {
+    request.model = None;
+    request.reasoning = None;
+    request.reasoning_effort = None;
+    request.thinking = None;
+    request
+}
+
 #[derive(Clone)]
 struct OpenAIProvider<H> {
     provider: Provider<Url>,
@@ -203,12 +218,9 @@ impl<H: HttpInfra> OpenAIProvider<H> {
         let mut pipeline = ProviderPipeline::new(&self.provider, merge_system_messages);
         request = pipeline.transform(request);
 
-        // GitHub Copilot's "auto" is a synthetic model: the API has no `auto`
-        // id, official clients implement it by omitting the model so the
-        // service selects one server-side
         if self.provider.id == ProviderId::GITHUB_COPILOT && model.as_str() == COPILOT_AUTO_MODEL_ID
         {
-            request.model = None;
+            request = prepare_copilot_auto_request(request);
         }
 
         let url = self.provider.url.clone();
@@ -865,6 +877,34 @@ mod tests {
         let actual = enhance_error(fixture, &ProviderId::GITHUB_COPILOT);
         let error_string = format!("{:#}", actual);
         insta::assert_snapshot!(error_string);
+    }
+
+    #[test]
+    fn test_prepare_copilot_auto_request_strips_model_and_tuning() {
+        let fixture = Request::default()
+            .model(forge_app::domain::ModelId::new("auto"))
+            .reasoning_effort("low".to_string())
+            .messages(vec![Message {
+                role: Role::User,
+                content: Some(MessageContent::Text("Hello".to_string())),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning_details: None,
+                reasoning_text: None,
+                reasoning_opaque: None,
+                reasoning_content: None,
+                extra_content: None,
+            }]);
+
+        let actual = prepare_copilot_auto_request(fixture);
+
+        assert_eq!(actual.model, None);
+        assert_eq!(actual.reasoning_effort, None);
+        assert!(actual.reasoning.is_none());
+        assert!(actual.thinking.is_none());
+        // Messages must be preserved
+        assert_eq!(actual.message_count(), 1);
     }
 
     #[test]
