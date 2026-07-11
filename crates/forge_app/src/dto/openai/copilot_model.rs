@@ -1,6 +1,35 @@
 use forge_domain::ModelId;
 use serde::{Deserialize, Serialize};
 
+/// Identifier of the synthetic GitHub Copilot "auto" model.
+///
+/// Copilot's API has no `auto` model id; official clients implement "Auto"
+/// by letting the request omit the model so the service selects a default.
+/// Requests made with this id must not include a `model` field.
+pub const COPILOT_AUTO_MODEL_ID: &str = "auto";
+
+/// Creates the synthetic "auto" model entry for GitHub Copilot.
+///
+/// Selecting this model omits the `model` field from chat requests so the
+/// Copilot service chooses the model server-side. This mirrors the "Auto"
+/// option in official clients and is the included option on free and
+/// student plans where premium model requests are limited.
+pub fn copilot_auto_model() -> forge_domain::Model {
+    forge_domain::Model {
+        id: ModelId::new(COPILOT_AUTO_MODEL_ID),
+        name: Some("Auto (server default)".to_string()),
+        description: Some(
+            "Lets GitHub Copilot choose the model. Does not consume premium requests on plans with limited premium quota."
+                .to_string(),
+        ),
+        context_length: None,
+        tools_supported: Some(true),
+        supports_parallel_tool_calls: None,
+        supports_reasoning: None,
+        input_modalities: vec![forge_domain::InputModality::Text],
+    }
+}
+
 /// Response returned by the GitHub Copilot `/models` endpoint.
 #[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct CopilotListModelResponse {
@@ -358,5 +387,21 @@ mod tests {
         assert_eq!(actual.data.len(), 1);
         assert_eq!(actual.data[0].id.as_str(), "claude-sonnet-4.6");
         assert_eq!(actual.data[0].is_usable(), true);
+    }
+
+    #[test]
+    fn test_copilot_auto_model_id() {
+        let fixture = copilot_auto_model();
+        let actual = fixture.id.as_str();
+        let expected = COPILOT_AUTO_MODEL_ID;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_copilot_auto_model_supports_tools() {
+        let fixture = copilot_auto_model();
+        let actual = fixture.tools_supported;
+        let expected = Some(true);
+        assert_eq!(actual, expected);
     }
 }

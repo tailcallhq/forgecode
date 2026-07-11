@@ -6,7 +6,8 @@ use forge_app::domain::{
     Transformer,
 };
 use forge_app::dto::openai::{
-    CopilotListModelResponse, ListModelResponse, ProviderPipeline, Request, Response,
+    COPILOT_AUTO_MODEL_ID, CopilotListModelResponse, ListModelResponse, ProviderPipeline, Request,
+    Response, copilot_auto_model,
 };
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider};
@@ -202,6 +203,15 @@ impl<H: HttpInfra> OpenAIProvider<H> {
         let mut pipeline = ProviderPipeline::new(&self.provider, merge_system_messages);
         request = pipeline.transform(request);
 
+        // GitHub Copilot's "auto" is a synthetic model: the API has no `auto`
+        // id, official clients implement it by omitting the model so the
+        // service selects one server-side
+        if self.provider.id == ProviderId::GITHUB_COPILOT
+            && model.as_str() == COPILOT_AUTO_MODEL_ID
+        {
+            request.model = None;
+        }
+
         let url = self.provider.url.clone();
         let headers = create_headers(self.get_headers_with_request(&request));
 
@@ -261,12 +271,18 @@ impl<H: HttpInfra> OpenAIProvider<H> {
                                 .with_context(
                                     || "Failed to deserialize GitHub Copilot models response",
                                 )?;
-                                return Ok(data
-                                    .data
-                                    .into_iter()
-                                    .filter(|model| model.is_usable())
-                                    .map(Into::into)
-                                    .collect());
+                                // Offer the synthetic "auto" model first; it lets the
+                                // service pick the model and is the included option on
+                                // plans with limited premium requests
+                                let models = std::iter::once(copilot_auto_model())
+                                    .chain(
+                                        data.data
+                                            .into_iter()
+                                            .filter(|model| model.is_usable())
+                                            .map(Into::into),
+                                    )
+                                    .collect();
+                                return Ok(models);
                             }
                             let data: ListModelResponse = serde_json::from_str(&response)
                                 .with_context(|| format_http_context(None, "GET", url))
