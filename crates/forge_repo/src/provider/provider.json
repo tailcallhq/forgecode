@@ -584,6 +584,36 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.6-sol",
+        "name": "GPT-5.6 Sol",
+        "description": "Frontier model for complex professional work",
+        "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.6-terra",
+        "name": "GPT-5.6 Terra",
+        "description": "GPT-5.6 model that balances intelligence and cost",
+        "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.6-luna",
+        "name": "GPT-5.6 Luna",
+        "description": "GPT-5.6 model optimized for cost-sensitive workloads",
+        "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key"]
@@ -2828,6 +2858,36 @@
     "url": "https://chatgpt.com/backend-api/codex/responses",
     "models": [
       {
+        "id": "gpt-5.6-luna",
+        "name": "GPT-5.6 Luna",
+        "description": "GPT-5.6 model optimized for cost-sensitive workloads",
+        "context_length": 372000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.6-sol",
+        "name": "GPT-5.6 Sol",
+        "description": "Frontier model for complex professional work",
+        "context_length": 372000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-5.6-terra",
+        "name": "GPT-5.6 Terra",
+        "description": "GPT-5.6 model that balances intelligence and cost",
+        "context_length": 372000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "gpt-5.5",
         "name": "GPT-5.5",
         "description": "Latest frontier model for complex professional work",
@@ -4027,6 +4087,15 @@
     "response_type": "OpenAI",
     "url": "https://api.ambient.xyz/v1/chat/completions",
     "models": "https://api.ambient.xyz/v1/models",
+    "auth_methods": ["api_key"]
+  },
+  {
+    "id": "orca_router",
+    "api_key_vars": "ORCAROUTER_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.orcarouter.ai/v1/chat/completions",
+    "models": "https://api.orcarouter.ai/v1/models",
     "auth_methods": ["api_key"]
   }
 ]

@@ -5,7 +5,10 @@ use forge_app::domain::{
     ChatCompletionMessage, Context as ChatContext, Model, ModelId, ProviderId, ResultStream,
     Transformer,
 };
-use forge_app::dto::openai::{ListModelResponse, ProviderPipeline, Request, Response};
+use forge_app::dto::openai::{
+    COPILOT_AUTO_MODEL_ID, CopilotListModelResponse, ListModelResponse, ProviderPipeline, Request,
+    Response, copilot_auto_model,
+};
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider};
 use forge_infra::sanitize_headers;
@@ -35,6 +38,21 @@ fn enhance_error(error: anyhow::Error, provider_id: &ProviderId) -> anyhow::Erro
     }
 
     error
+}
+
+/// Prepares a request for GitHub Copilot's synthetic "auto" model.
+///
+/// Copilot's API has no `auto` model id; official clients implement "Auto"
+/// by omitting the model so the service selects one server-side. Since the
+/// served model is unknown, model-specific tuning must also be omitted or
+/// the request fails (e.g. `invalid_reasoning_effort` when the service
+/// selects a non-reasoning model).
+fn prepare_copilot_auto_request(mut request: Request) -> Request {
+    request.model = None;
+    request.reasoning = None;
+    request.reasoning_effort = None;
+    request.thinking = None;
+    request
 }
 
 #[derive(Clone)]
@@ -200,6 +218,11 @@ impl<H: HttpInfra> OpenAIProvider<H> {
         let mut pipeline = ProviderPipeline::new(&self.provider, merge_system_messages);
         request = pipeline.transform(request);
 
+        if self.provider.id == ProviderId::GITHUB_COPILOT && model.as_str() == COPILOT_AUTO_MODEL_ID
+        {
+            request = prepare_copilot_auto_request(request);
+        }
+
         let url = self.provider.url.clone();
         let headers = create_headers(self.get_headers_with_request(&request));
 
@@ -247,6 +270,31 @@ impl<H: HttpInfra> OpenAIProvider<H> {
                             anyhow::bail!(error)
                         }
                         Ok(response) => {
+                            // GitHub Copilot's /models endpoint uses a different schema
+                            // (capabilities, limits, policy) than the standard OpenAI
+                            // models response and includes models the account cannot
+                            // actually use
+                            if self.provider.id == ProviderId::GITHUB_COPILOT {
+                                let data: CopilotListModelResponse = serde_json::from_str(
+                                    &response,
+                                )
+                                .with_context(|| format_http_context(None, "GET", url))
+                                .with_context(
+                                    || "Failed to deserialize GitHub Copilot models response",
+                                )?;
+                                // Offer the synthetic "auto" model first; it lets the
+                                // service pick the model and is the included option on
+                                // plans with limited premium requests
+                                let models = std::iter::once(copilot_auto_model())
+                                    .chain(
+                                        data.data
+                                            .into_iter()
+                                            .filter(|model| model.is_usable())
+                                            .map(Into::into),
+                                    )
+                                    .collect();
+                                return Ok(models);
+                            }
                             let data: ListModelResponse = serde_json::from_str(&response)
                                 .with_context(|| format_http_context(None, "GET", url))
                                 .with_context(|| "Failed to deserialize models response")?;
@@ -829,6 +877,34 @@ mod tests {
         let actual = enhance_error(fixture, &ProviderId::GITHUB_COPILOT);
         let error_string = format!("{:#}", actual);
         insta::assert_snapshot!(error_string);
+    }
+
+    #[test]
+    fn test_prepare_copilot_auto_request_strips_model_and_tuning() {
+        let fixture = Request::default()
+            .model(forge_app::domain::ModelId::new("auto"))
+            .reasoning_effort("low".to_string())
+            .messages(vec![Message {
+                role: Role::User,
+                content: Some(MessageContent::Text("Hello".to_string())),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning_details: None,
+                reasoning_text: None,
+                reasoning_opaque: None,
+                reasoning_content: None,
+                extra_content: None,
+            }]);
+
+        let actual = prepare_copilot_auto_request(fixture);
+
+        assert_eq!(actual.model, None);
+        assert_eq!(actual.reasoning_effort, None);
+        assert!(actual.reasoning.is_none());
+        assert!(actual.thinking.is_none());
+        // Messages must be preserved
+        assert_eq!(actual.message_count(), 1);
     }
 
     #[test]
