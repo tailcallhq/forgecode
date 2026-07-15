@@ -595,7 +595,7 @@ ORCAROUTER_API_KEY=<your_orcarouter_api_key>
 
 ```bash
 # .env
-MODEL_API_KEY=<your_meta_model_api_key>
+META_API_KEY=<your_meta_model_api_key>
 ```
 
 ```yaml

@@ -962,7 +962,7 @@ mod tests {
         let configs = get_provider_configs();
         let config = configs.iter().find(|c| c.id == ProviderId::META).unwrap();
         assert_eq!(config.id, ProviderId::META);
-        assert_eq!(config.api_key_vars, Some("MODEL_API_KEY".to_string()));
+        assert_eq!(config.api_key_vars, Some("META_API_KEY".to_string()));
         assert!(config.url_param_vars.is_empty());
         assert_eq!(
             config.response_type,
