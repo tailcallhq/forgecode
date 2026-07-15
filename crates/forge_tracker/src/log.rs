@@ -30,15 +30,23 @@ pub fn init_tracing(log_path: PathBuf, tracker: Tracker) -> anyhow::Result<Guard
 
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_env(
+            {
                 // Additive rename: HELIOSLITE_LOG wins, falls back to FORGE_LOG
-                // (which is the upstream / pre-rename env name).
-                std::env::var("HELIOSLITE_LOG")
+                // (which is the upstream / pre-rename env name). Pass the
+                // owned `String` straight to `EnvFilter::try_from_env` —
+                // `String` implements `AsRef<str>`, whereas the previous
+                // `Option<&str>::as_deref()` pattern stopped compiling once
+                // the bound was tightened upstream.
+                let env_value = std::env::var("HELIOSLITE_LOG")
                     .or_else(|_| std::env::var("FORGE_LOG"))
-                    .ok()
-                    .as_deref(),
-            )
-            .unwrap_or(level),
+                    .ok();
+                match env_value {
+                    Some(value) => {
+                        tracing_subscriber::EnvFilter::try_from_env(value).unwrap_or(level)
+                    }
+                    None => level,
+                }
+            },
         )
         .with(fmt_layer)
         .init();

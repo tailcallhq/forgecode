@@ -25,6 +25,7 @@ use crate::{
     AgentExt, AgentProviderResolver, ConversationService, EnvironmentInfra, FileDiscoveryService,
     ProviderService, Services,
 };
+use futures::future;
 
 /// Builds a [`TemplateConfig`] from a [`ForgeConfig`].
 ///
@@ -299,39 +300,71 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
 
     /// Gets available models from all configured providers concurrently.
     ///
-    /// Returns a list of `ProviderModels` for each configured provider that
-    /// successfully returned models. If every configured provider fails (e.g.
-    /// due to an invalid API key), the first error encountered is returned so
-    /// the caller receives the real underlying cause rather than an empty list.
-    pub async fn get_all_provider_models(&self) -> Result<Vec<ProviderModels>> {
+    /// Each provider is fetched independently and isolated failures are
+    /// collected into [`ProviderModelsResult::errors`] rather than propagated.
+    /// This preserves the bug-fix contract: a single broken provider (e.g.
+    /// one whose openai-compat endpoint is down) must not abort the entire
+    /// listing, because `/models`, `/model`, and the model selector all
+    /// depend on this method returning usable data even when one upstream
+    /// is unreachable.
+    ///
+    /// The method only returns `Err` when the *enumeration itself* cannot
+    /// proceed — e.g. `get_all_providers()` failing. Provider-level fetch
+    /// failures are surfaced as `ProviderFetchError` entries.
+    pub async fn get_all_provider_models(&self) -> Result<ProviderModelsResult> {
         let all_providers = self.services.get_all_providers().await?;
 
-        // Build one future per configured provider, preserving the error on failure.
-        let futures: Vec<_> = all_providers
+        // Snapshot the configured providers up front so we can preserve the
+        // configured-only filter logic that previously lived inside the
+        // error-propagating future.
+        let configured: Vec<_> = all_providers
             .into_iter()
             .filter_map(|any_provider| any_provider.into_configured())
-            .map(|provider| {
-                let provider_id = provider.id.clone();
-                let services = self.services.clone();
-                async move {
-                    let result: Result<ProviderModels> = async {
-                        let refreshed = services
-                            .provider_auth_service()
-                            .refresh_provider_credential(provider)
-                            .await?;
-                        let models = services.models(refreshed).await?;
-                        Ok(ProviderModels { provider_id, models })
-                    }
-                    .await;
-                    result
-                }
-            })
             .collect();
 
-        // Execute all provider fetches concurrently.
-        futures::future::join_all(futures)
-            .await
-            .into_iter()
-            .collect::<anyhow::Result<Vec<_>>>()
+        // Build one future per configured provider. Each future is responsible
+        // ONLY for converting its own outcome into a `Result`; the outer
+        // collector is allowed to ignore `Err`s so a single failure cannot
+        // poison the rest of the batch.
+        let futures = configured.into_iter().map(|provider| {
+            let provider_id = provider.id.clone();
+            let services = self.services.clone();
+            async move {
+                let outcome: Result<ProviderModels> = async {
+                    let refreshed = services
+                        .provider_auth_service()
+                        .refresh_provider_credential(provider)
+                        .await?;
+                    let models = services.models(refreshed).await?;
+                    Ok(ProviderModels { provider_id: provider_id.clone(), models })
+                }
+                .await;
+
+                (provider_id, outcome)
+            }
+        });
+
+        // Drain every future. Each yields `(ProviderId, Result<ProviderModels>)`
+        // so we can split successes and failures cleanly.
+        let mut providers = Vec::new();
+        let mut errors = Vec::new();
+        for (provider_id, result) in future::join_all(futures).await {
+            match result {
+                Ok(entry) => providers.push(entry),
+                Err(err) => {
+                    // Surface a concise, UI-friendly message. We intentionally
+                    // do NOT pass through the full chain (it can include
+                    // provider URLs, secrets, etc.) — the chain error is
+                    // logged via the surrounding `tracing` instrumentation
+                    // and only the top-level message survives.
+                    errors.push(ProviderFetchError {
+                        provider_id,
+                        error: err.to_string(),
+                    });
+                }
+            }
+        }
+
+        Ok(ProviderModelsResult { providers, errors })
     }
 }

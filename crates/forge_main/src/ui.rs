@@ -19,7 +19,8 @@ use forge_app::{CommitResult, ToolResolver};
 use forge_config::{ForgeConfig, OutputMode, OutputSettings};
 use forge_display::MarkdownFormat;
 use forge_domain::{
-    AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, Role, TitleFormat, UserCommand,
+    AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, ProviderFetchError, Role,
+    TitleFormat, UserCommand,
 };
 use forge_fs::ForgeFS;
 use forge_select::{ForgeWidget, SelectRow};
@@ -1568,15 +1569,27 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_show_models(&mut self, porcelain: bool) -> anyhow::Result<()> {
         self.spinner.start(Some("Fetching Models"))?;
 
-        let mut all_provider_models = match self.api.get_all_provider_models().await {
-            Ok(provider_models) => provider_models,
-            Err(err) => {
-                self.spinner.stop(None)?;
-                return Err(err);
-            }
+        // Fetch models from every configured provider. Individual provider
+        // failures are now collected into `errors` rather than aborting the
+        // whole call, so a single broken openai-compat endpoint can no
+        // longer lock the user out of `/model` switches.
+        let result = self.api.get_all_provider_models().await;
+        let mut all_provider_models = match &result {
+            Ok(result) => result.providers.clone(),
+            Err(_) => Vec::new(),
         };
 
+        // Always surface provider failures (when present) before/around the
+        // main result so the user can act on them (e.g. via
+        // `forge provider remove <id>` or by editing `~/.forge/auth.json`).
+        let provider_errors: Vec<ProviderFetchError> = result
+            .as_ref()
+            .map(|r| r.errors.clone())
+            .unwrap_or_default();
+
         if all_provider_models.is_empty() {
+            self.spinner.stop(None)?;
+            self.report_provider_fetch_failures_with_errors(&provider_errors, /* has_successes = */ false)?;
             return Ok(());
         }
 
@@ -1637,10 +1650,57 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
         }
 
+        // Surface providers that failed to enumerate alongside the working
+        // ones so the operator can act on them.
+        self.report_provider_fetch_failures_with_errors(
+            &provider_errors,
+            /* has_successes = */ true,
+        )?;
+
         if porcelain {
             self.writeln(Porcelain::from(&info).truncate(1, 40).uppercase_headers())?;
         } else {
             self.writeln(info)?;
+        }
+
+        Ok(())
+    }
+
+    /// Renders per-provider fetch failures as a list of warnings so the user
+    /// understands which providers were skipped. Skips silently when nothing
+    /// failed.
+    fn report_provider_fetch_failures_with_errors(
+        &mut self,
+        errors: &[ProviderFetchError],
+        has_successes: bool,
+    ) -> anyhow::Result<()> {
+        if errors.is_empty() {
+            return Ok(());
+        }
+
+        // Sort failures alphabetically for stable presentation.
+        let mut sorted: Vec<&ProviderFetchError> = errors.iter().collect();
+        sorted.sort_by(|a, b| a.provider_id.as_ref().cmp(b.provider_id.as_ref()));
+
+        if !has_successes {
+            // No provider succeeded — make sure the user sees this is a
+            // global failure, not an empty result.
+            self.writeln_title(TitleFormat::warning(
+                "No providers returned models. The following providers failed:",
+            ))?;
+        } else {
+            self.writeln_title(TitleFormat::warning(
+                "Some providers were unreachable. Their models are omitted above:",
+            ))?;
+        }
+
+        for err in sorted {
+            self.writeln_title(
+                TitleFormat::warning(format!(" • {} — {}", err.provider_id, err.error))
+                    .sub_title(
+                        "Use `forge provider remove <id>` to drop the broken provider from the registry",
+                    ),
+            )?;
         }
 
         Ok(())
@@ -3580,9 +3640,30 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         // Fetch models from ALL configured providers (matches shell plugin's
         // `forge list models --porcelain`), then optionally filter by provider.
+        //
+        // The call now returns `ProviderModelsResult { providers, errors }` so
+        // a single broken provider is no longer fatal for the model selector:
+        // we drop the failures and let the user pick from the survivors. If
+        // even one provider produced at least one model, the selector can
+        // continue normally. If ALL configured providers failed, we surface
+        // the underlying message via `anyhow!` rather than returning silently.
         self.spinner.start(Some("Loading"))?;
-        let mut all_provider_models = self.api.get_all_provider_models().await?;
+        let result = self.api.get_all_provider_models().await;
         self.spinner.stop(None)?;
+
+        let provider_errors: Vec<ProviderFetchError> = match &result {
+            Ok(r) => r.errors.clone(),
+            Err(_) => Vec::new(),
+        };
+
+        let mut all_provider_models = match result {
+            Ok(result) => result.providers,
+            Err(err) => {
+                // Enumeration itself failed (e.g. reading the provider
+                // registry). Surface the error.
+                return Err(err);
+            }
+        };
 
         // When a provider filter is specified (e.g. during onboarding after a
         // provider was just selected), restrict the list to that provider's
@@ -3593,6 +3674,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
 
         if all_provider_models.is_empty() {
+            // No successes remain. Tell the user which providers failed so the
+            // break in their flow is debuggable in-place. We do NOT abort the
+            // caller with a generic Err — that's the bug we're fixing.
+            self.report_provider_fetch_failures_with_errors(
+                &provider_errors,
+                /* has_successes = */ false,
+            )?;
             return Ok(None);
         }
 
@@ -4416,23 +4504,37 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             return Ok(());
         }
 
-        // Check if the current model is available for the new provider
+        // Check if the current model is available for the new provider.
+        //
+        // This previously called `get_all_provider_models()` and used `?` to
+        // bubble up the error — meaning a single broken openai-compat endpoint
+        // could prevent the user from switching providers at all. We now
+        // treat a fetch failure as "model availability unknown" and force a
+        // re-selection, which always succeeds for at least one provider.
         let current_model = self.api.get_session_config().await.map(|c| c.model);
         let (needs_model_selection, compatible_model) = match current_model {
             None => (true, None),
-            Some(current_model) => {
-                let provider_models = self.api.get_all_provider_models().await?;
-                let model_available = provider_models
-                    .iter()
-                    .find(|pm| pm.provider_id == provider.id)
-                    .map(|pm| pm.models.iter().any(|m| m.id == current_model))
-                    .unwrap_or(false);
-                if model_available {
-                    (false, Some(current_model))
-                } else {
+            Some(current_model) => match self.api.get_all_provider_models().await {
+                Ok(provider_models_result) => {
+                    let provider_models = provider_models_result.providers;
+                    let model_available = provider_models
+                        .iter()
+                        .find(|pm| pm.provider_id == provider.id)
+                        .map(|pm| pm.models.iter().any(|m| m.id == current_model))
+                        .unwrap_or(false);
+                    if model_available {
+                        (false, Some(current_model))
+                    } else {
+                        (true, None)
+                    }
+                }
+                Err(_) => {
+                    // Couldn't enumerate providers — be conservative and let
+                    // the user pick a model for the new provider. The selector
+                    // itself still tolerates partial failures.
                     (true, None)
                 }
-            }
+            },
         };
 
         if needs_model_selection {
@@ -5374,16 +5476,45 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     /// Validates that a model exists, optionally scoped to a specific provider.
     /// When `provider` is `None`, models are fetched from the default provider.
     async fn validate_model(
-        &self,
+        &mut self,
         model_str: &str,
         provider: Option<&forge_domain::ProviderId>,
     ) -> Result<ModelId> {
         let models = match provider {
             None => self.api.get_models().await?,
             Some(provider_id) => {
-                self.api
+                // Look up the specific provider's models in the partial-failure
+                // result. If our target provider failed to enumerate, the
+                // existing "Provider not found or returned no models" error
+                // remains — the user can then remove the provider if it's
+                // permanently broken.
+                let result = self
+                    .api
                     .get_all_provider_models()
-                    .await?
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Could not enumerate providers to validate model '{model_str}' \
+                             for provider '{provider_id}'"
+                        )
+                    })?;
+                // Surface per-provider failures for the *other* providers in
+                // the user's TUI before falling back to the not-found error.
+                for err in &result.errors {
+                    if err.provider_id != *provider_id {
+                        self.writeln_title(
+                            TitleFormat::warning(format!(
+                                "Provider '{}' was unreachable while validating models: {}",
+                                err.provider_id, err.error
+                            ))
+                            .sub_title(
+                                "Use `forge provider remove <id>` to drop the broken provider",
+                            ),
+                        )?;
+                    }
+                }
+                result
+                    .providers
                     .into_iter()
                     .find(|pm| &pm.provider_id == provider_id)
                     .with_context(|| {

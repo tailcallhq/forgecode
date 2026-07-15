@@ -24,42 +24,42 @@ async fn execute_update_command(api: Arc<impl API>, auto_update: bool) {
         .await
     {
         Ok(o) => o,
-        Err(_) => api
+        Err(primary_err) => match api
             .execute_shell_command_raw(&format!("curl -fsSL {fallback} | sh"))
             .await
-            .unwrap_or_else(|e| e),
+        {
+            Ok(o) => o,
+            Err(fallback_err) => {
+                let msg = format!(
+                    "Auto update failed: primary={primary_err}; fallback={fallback_err}"
+                );
+                let _ = send_update_failure_event(&msg).await;
+                return;
+            }
+        },
     };
 
-    match output {
-        Err(err) => {
-            // Send an event to the tracker on failure
-            // We don't need to handle this result since we're failing silently
-            let _ = send_update_failure_event(&format!("Auto update failed {err}")).await;
+    if output.success() {
+        let should_exit = if auto_update {
+            true
+        } else {
+            let answer = forge_select::ForgeWidget::confirm(
+                "You need to close forge to complete update. Do you want to close it now?",
+            )
+            .with_default(true)
+            .prompt();
+            answer.unwrap_or_default().unwrap_or_default()
+        };
+        if should_exit {
+            std::process::exit(0);
         }
-        Ok(output) => {
-            if output.success() {
-                let should_exit = if auto_update {
-                    true
-                } else {
-                    let answer = forge_select::ForgeWidget::confirm(
-                        "You need to close forge to complete update. Do you want to close it now?",
-                    )
-                    .with_default(true)
-                    .prompt();
-                    answer.unwrap_or_default().unwrap_or_default()
-                };
-                if should_exit {
-                    std::process::exit(0);
-                }
-            } else {
-                let exit_output = match output.code() {
-                    Some(code) => format!("Process exited with code: {code}"),
-                    None => "Process exited without code".to_string(),
-                };
-                let _ =
-                    send_update_failure_event(&format!("Auto update failed, {exit_output}",)).await;
-            }
-        }
+    } else {
+        let exit_output = match output.code() {
+            Some(code) => format!("Process exited with code: {code}"),
+            None => "Process exited without code".to_string(),
+        };
+        let _ =
+            send_update_failure_event(&format!("Auto update failed, {exit_output}",)).await;
     }
 }
 
@@ -138,9 +138,8 @@ pub async fn on_update(api: Arc<impl API>, update: Option<&Update>) {
     let primary_repo =
         std::env::var("HELIOSLITE_REPO").unwrap_or_else(|_| "KooshaPari/heliosLite".to_string());
     let legacy_repo = "KooshaPari/forgecode";
-    let informer_primary =
-        update_informer::new(registry::GitHub, primary_repo.as_str(), VERSION)
-            .interval(frequency.into());
+    let informer_primary = update_informer::new(registry::GitHub, primary_repo.as_str(), VERSION)
+        .interval(frequency.clone().into());
     let informer_legacy = update_informer::new(registry::GitHub, legacy_repo, VERSION)
         .interval(frequency.into());
 

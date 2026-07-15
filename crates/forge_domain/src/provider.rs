@@ -381,6 +381,61 @@ pub struct ProviderModels {
     pub models: Vec<Model>,
 }
 
+/// Describes a single failure encountered while enumerating models for a
+/// particular provider.
+///
+/// Used by [`ProviderModelsResult`] so the caller can surface partial
+/// failures (e.g. "provider X is down, here is why") without aborting the
+/// entire model enumeration for healthy providers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderFetchError {
+    /// Provider that failed to enumerate its models.
+    pub provider_id: ProviderId,
+    /// Human-readable error string captured at the boundary where the
+    /// failure was observed. Kept as a `String` so the type stays
+    /// dependency-free and easy to render in any UI.
+    pub error: String,
+}
+
+/// Aggregated result of enumerating models across every configured provider.
+///
+/// When [`crate::ProviderService::get_all_provider_models`] (and its
+/// derivatives) is invoked, individual providers may succeed, fail, or be
+/// only partially enumerated. This struct preserves both halves:
+///
+/// - `providers` carries entries that produced at least one usable model.
+/// - `errors` carries per-provider failure context for the rest.
+///
+/// Callers are expected to render the successes and surface the failures as
+/// user-visible warnings (e.g. an inline note above `/models` output)
+/// rather than aborting the entire operation. The legacy behaviour —
+/// propagating the first error and dropping everything else — is the bug
+/// this struct replaces.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ProviderModelsResult {
+    /// Providers whose model enumeration succeeded.
+    pub providers: Vec<ProviderModels>,
+    /// Per-provider errors collected during enumeration. Always empty when
+    /// everything succeeded.
+    pub errors: Vec<ProviderFetchError>,
+}
+
+impl ProviderModelsResult {
+    /// Returns true when no provider errors were observed AND at least one
+    /// provider produced models. Equivalent to "everything was fine".
+    pub fn is_fully_successful(&self) -> bool {
+        self.errors.is_empty() && !self.providers.is_empty()
+    }
+
+    /// Returns true when every configured provider failed to enumerate. In
+    /// that situation callers may want to surface a stronger error path
+    /// (e.g. "could not load any provider models") instead of an empty
+    /// result that hides every underlying cause.
+    pub fn all_failed(&self) -> bool {
+        self.providers.is_empty() && !self.errors.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod test_helpers {
     use std::collections::HashMap;

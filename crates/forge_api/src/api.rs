@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use forge_app::dto::ToolsOverview;
 use forge_app::{User, UserUsage};
-use forge_domain::{AgentId, Effort, ModelId, ProviderModels};
+use forge_domain::{AgentId, Effort, ModelId, ProviderModelsResult};
 use forge_stream::MpscStream;
 use futures::stream::BoxStream;
 use url::Url;
@@ -23,12 +23,25 @@ pub trait API: Sync + Send {
     /// Provides a list of models available in the current environment
     async fn get_models(&self) -> Result<Vec<Model>>;
 
-    /// Provides models from all configured providers. Providers that
-    /// successfully return models are included in the result. If every
-    /// configured provider fails (e.g. due to an invalid API key), the
-    /// first error is returned so the caller sees the real underlying cause
-    /// rather than an empty list.
-    async fn get_all_provider_models(&self) -> Result<Vec<ProviderModels>>;
+    /// Provides models from all configured providers.
+    ///
+    /// Returns a [`ProviderModelsResult`] aggregating both halves of the
+    /// operation:
+    ///
+    /// - `providers` holds models for every provider whose `/models`
+    ///   enumeration succeeded.
+    /// - `errors` holds per-provider failure context for the rest.
+    ///
+    /// Crucially, **one provider being unreachable does not abort the
+    /// entire call**. The legacy `Result<Vec<ProviderModels>>` shape
+    /// propagated the first provider failure and dropped every other
+    /// provider's models — locking users out of `/model` switches the
+    /// moment any openai-compat endpoint went down.
+    ///
+    /// The method only returns `Err` when the enumeration itself cannot
+    /// proceed (e.g. `get_all_providers()` failing); provider-level fetch
+    /// failures are recorded in `errors` instead.
+    async fn get_all_provider_models(&self) -> Result<ProviderModelsResult>;
 
     /// Provides a list of agents available in the current environment
     async fn get_agents(&self) -> Result<Vec<Agent>>;

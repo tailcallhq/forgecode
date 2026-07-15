@@ -196,7 +196,7 @@ impl<
         self.app().get_models().await
     }
 
-    async fn get_all_provider_models(&self) -> Result<Vec<ProviderModels>> {
+    async fn get_all_provider_models(&self) -> Result<ProviderModelsResult> {
         self.app().get_all_provider_models().await
     }
 
