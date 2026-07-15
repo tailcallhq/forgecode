@@ -960,10 +960,7 @@ mod tests {
     #[test]
     fn test_meta_config() {
         let configs = get_provider_configs();
-        let config = configs
-            .iter()
-            .find(|c| c.id == ProviderId::META)
-            .unwrap();
+        let config = configs.iter().find(|c| c.id == ProviderId::META).unwrap();
         assert_eq!(config.id, ProviderId::META);
         assert_eq!(config.api_key_vars, Some("MODEL_API_KEY".to_string()));
         assert!(config.url_param_vars.is_empty());
