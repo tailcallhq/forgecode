@@ -4100,7 +4100,7 @@
   },
   {
     "id": "meta",
-    "api_key_vars": "MODEL_API_KEY",
+    "api_key_vars": "META_API_KEY",
     "url_param_vars": [],
     "response_type": "OpenAIResponses",
     "url": "https://api.meta.ai/v1/responses",
