@@ -591,6 +591,21 @@ ORCAROUTER_API_KEY=<your_orcarouter_api_key>
 </details>
 
 <details>
+<summary><strong>Meta</strong></summary>
+
+```bash
+# .env
+MODEL_API_KEY=<your_meta_model_api_key>
+```
+
+```yaml
+# forge.yaml
+model: muse-spark-1.1
+```
+
+</details>
+
+<details>
 <summary><strong>IO Intelligence</strong></summary>
 
 ```bash
