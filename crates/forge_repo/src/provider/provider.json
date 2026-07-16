@@ -4097,5 +4097,25 @@
     "url": "https://api.orcarouter.ai/v1/chat/completions",
     "models": "https://api.orcarouter.ai/v1/models",
     "auth_methods": ["api_key"]
+  },
+  {
+    "id": "meta",
+    "api_key_vars": "META_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAIResponses",
+    "url": "https://api.meta.ai/v1/responses",
+    "models": [
+      {
+        "id": "muse-spark-1.1",
+        "name": "Muse Spark 1.1",
+        "description": "Meta's multimodal model for agentic tool calling, coding, structured output, image and video understanding, and long-context reasoning",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      }
+    ],
+    "auth_methods": ["api_key"]
   }
 ]

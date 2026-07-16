@@ -958,6 +958,56 @@ mod tests {
     }
 
     #[test]
+    fn test_meta_config() {
+        let configs = get_provider_configs();
+        let config = configs.iter().find(|c| c.id == ProviderId::META).unwrap();
+        assert_eq!(config.id, ProviderId::META);
+        assert_eq!(config.api_key_vars, Some("META_API_KEY".to_string()));
+        assert!(config.url_param_vars.is_empty());
+        assert_eq!(
+            config.response_type,
+            Some(ProviderResponse::OpenAIResponses)
+        );
+        assert_eq!(config.url.as_str(), "https://api.meta.ai/v1/responses");
+
+        match config.models.as_ref().expect("models should be present") {
+            Models::Hardcoded(models) => {
+                let model = models
+                    .iter()
+                    .find(|m| m.id.as_str() == "muse-spark-1.1")
+                    .expect("muse-spark-1.1 should be present in hardcoded models");
+                assert_eq!(
+                    model.context_length,
+                    Some(1048576),
+                    "muse-spark-1.1 should have 1048576 context length"
+                );
+                assert_eq!(
+                    model.tools_supported,
+                    Some(true),
+                    "muse-spark-1.1 should support tools"
+                );
+                assert_eq!(
+                    model.supports_parallel_tool_calls,
+                    Some(true),
+                    "muse-spark-1.1 should support parallel tool calls"
+                );
+                assert_eq!(
+                    model.supports_reasoning,
+                    Some(true),
+                    "muse-spark-1.1 should support reasoning"
+                );
+                assert!(
+                    model
+                        .input_modalities
+                        .contains(&forge_app::domain::InputModality::Image),
+                    "muse-spark-1.1 should support image input"
+                );
+            }
+            other => panic!("expected hardcoded models, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_provider_entry_with_static_models_converts_to_hardcoded() {
         let model = forge_domain::Model::new("Qwen3.6-35B-A3b-q3-mlx")
             .name("Qwen3.5-35B".to_string())
