@@ -3349,6 +3349,16 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "kimi-k3",
+        "name": "Kimi K3",
+        "description": "Moonshot AI Kimi K3 flagship model with 2.8T parameters, 1M-token context, native vision, always-on reasoning, and tool calling capabilities",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-opus-4-7",
         "name": "Claude Opus 4.7",
         "description": "",
@@ -3573,6 +3583,16 @@
         "name": "Kimi K2.6",
         "description": "Moonshot AI Kimi K2.6 model with multimodal input, reasoning, and tool calling capabilities",
         "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k3",
+        "name": "Kimi K3",
+        "description": "Moonshot AI Kimi K3 flagship model with 2.8T parameters, 1M-token context, native vision, always-on reasoning, and tool calling capabilities",
+        "context_length": 1048576,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
