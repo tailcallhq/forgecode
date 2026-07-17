@@ -228,3 +228,61 @@ impl DatabasePool {
         Ok(pool)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    /// A pool config pointing at an unopenable database path with fast
+    /// retries so failure tests complete quickly.
+    fn broken_config() -> PoolConfig {
+        let mut config = PoolConfig::new(PathBuf::from("/dev/null/forge.db"));
+        config.max_retries = 0;
+        config.connection_timeout = Duration::from_millis(100);
+        config
+    }
+
+    #[test]
+    fn test_new_with_broken_path_does_not_panic_or_connect() {
+        // Regression test: constructing the pool must never fail or panic,
+        // even when the database path is unusable. Previously this crashed
+        // the app at startup via `TryFrom` + `unwrap()`.
+        let fixture = broken_config();
+
+        let actual = DatabasePool::new(fixture);
+
+        // No pool should have been created yet (lazy initialization).
+        let expected = true;
+        assert_eq!(actual.pool.lock().unwrap().is_none(), expected);
+    }
+
+    #[test]
+    fn test_get_connection_with_broken_path_returns_error() {
+        // Regression test: a broken database must surface as a recoverable
+        // error from `get_connection`, not a panic.
+        let fixture = DatabasePool::new(broken_config());
+
+        let actual = fixture.get_connection();
+
+        assert!(actual.is_err());
+    }
+
+    #[test]
+    fn test_get_connection_initializes_pool_lazily() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let fixture = DatabasePool::new(PoolConfig::new(dir.path().join("forge.db")));
+
+        // Pool must not exist before the first connection request.
+        assert!(fixture.pool.lock().unwrap().is_none());
+
+        let actual = fixture.get_connection();
+
+        assert!(actual.is_ok());
+        // Pool must be cached after the first successful connection.
+        let expected = true;
+        assert_eq!(fixture.pool.lock().unwrap().is_some(), expected);
+        Ok(())
+    }
+}
