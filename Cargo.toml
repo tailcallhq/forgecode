@@ -82,7 +82,7 @@ similar = { version = "3.0", features = ["inline"] }
 strip-ansi-escapes = "0.2.1"
 strum = "0.28.0"
 strum_macros = "0.28.0"
-syn = { version = "2.0.117", features = ["derive", "parsing"] }
+syn = { version = "3.0.0", features = ["derive", "parsing"] }
 sysinfo = "0.38.3"
 tempfile = "3.27.0"
 termimad = "0.34.1"
