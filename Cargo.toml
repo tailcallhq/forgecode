@@ -83,9 +83,9 @@ strip-ansi-escapes = "0.2.1"
 strum = "0.28.0"
 strum_macros = "0.28.0"
 syn = { version = "3.0.0", features = ["derive", "parsing"] }
-sysinfo = "0.38.3"
+sysinfo = "0.39.6"
 tempfile = "3.27.0"
-termimad = "0.34.1"
+termimad = "0.35.1"
 tiny_http = "0.12.0"
 syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig"] }
 thiserror = "2.0.18"
@@ -120,7 +120,7 @@ whoami = "2.1.0"
 fnv_rs = "0.4.3"
 merge = { version = "0.2", features = ["derive"] }
 hex = "0.4.3"
-rmcp = { version = "1.0.0", features = [
+rmcp = { version = "2.2.0", features = [
     "client",
     "transport-child-process",
     "transport-streamable-http-client-reqwest",
