@@ -633,11 +633,102 @@
     "url_param_vars": [],
     "response_type": "OpenAI",
     "url": "https://api.kimi.com/coding/v1/chat/completions",
-    "models": "https://api.kimi.com/coding/v1/models",
+    "models": [
+      {
+        "id": "k3",
+        "name": "Kimi K3",
+        "description": "Moonshot AI Kimi K3 flagship model with 2.8T parameters, 1M-token context, native vision, always-on reasoning, and tool calling capabilities",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-for-coding",
+        "name": "Kimi K2.7 Code",
+        "description": "Moonshot AI Kimi K2.7 Code model with 256K context, reasoning, and tool calling capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-for-coding-highspeed",
+        "name": "Kimi K2.7 Code HighSpeed",
+        "description": "Moonshot AI Kimi K2.7 Code HighSpeed model (5-6x faster output) with 256K context, reasoning, and tool calling capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      }
+    ],
     "auth_methods": ["api_key"],
     "custom_headers": {
       "User-Agent": "KimiCLI/1.0.0"
     }
+  },
+  {
+    "id": "moonshot",
+    "api_key_vars": "MOONSHOT_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.moonshot.ai/v1/chat/completions",
+    "models": [
+      {
+        "id": "kimi-k3",
+        "name": "Kimi K3",
+        "description": "Moonshot AI Kimi K3 flagship model with 2.8T parameters, 1M-token context, native vision, always-on reasoning, and tool calling capabilities",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k2.7-code",
+        "name": "Kimi K2.7 Code",
+        "description": "Moonshot AI Kimi K2.7 Code model with 256K context, reasoning, and tool calling capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k2.6",
+        "name": "Kimi K2.6",
+        "description": "Moonshot AI Kimi K2.6 model with multimodal input, reasoning, and tool calling capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k2.5",
+        "name": "Kimi K2.5",
+        "description": "Moonshot AI Kimi K2.5 model with multimodal input, reasoning, and tool calling capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k2-thinking",
+        "name": "Kimi K2 Thinking",
+        "description": "Moonshot AI Kimi K2 Thinking model with 256K context, reasoning, and tool calling capabilities",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      }
+    ],
+    "auth_methods": ["api_key"]
   },
   {
     "id": "openai_responses_compatible",
@@ -3359,6 +3450,16 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "kimi-k3",
+        "name": "Kimi K3",
+        "description": "Moonshot AI Kimi K3 flagship model with 2.8T parameters, 1M-token context, native vision, always-on reasoning, and tool calling capabilities",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-opus-4-7",
         "name": "Claude Opus 4.7",
         "description": "",
@@ -3583,6 +3684,16 @@
         "name": "Kimi K2.6",
         "description": "Moonshot AI Kimi K2.6 model with multimodal input, reasoning, and tool calling capabilities",
         "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "kimi-k3",
+        "name": "Kimi K3",
+        "description": "Moonshot AI Kimi K3 flagship model with 2.8T parameters, 1M-token context, native vision, always-on reasoning, and tool calling capabilities",
+        "context_length": 1048576,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,

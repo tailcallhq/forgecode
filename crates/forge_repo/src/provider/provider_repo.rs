@@ -1008,6 +1008,61 @@ mod tests {
     }
 
     #[test]
+    fn test_moonshot_config() {
+        let configs = get_provider_configs();
+        let config = configs
+            .iter()
+            .find(|c| c.id == ProviderId::MOONSHOT)
+            .unwrap();
+        assert_eq!(config.id, ProviderId::MOONSHOT);
+        assert_eq!(config.api_key_vars, Some("MOONSHOT_API_KEY".to_string()));
+        assert!(config.url_param_vars.is_empty());
+        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(
+            config.url.as_str(),
+            "https://api.moonshot.ai/v1/chat/completions"
+        );
+        // Moonshot's /models endpoint omits capability metadata (modalities,
+        // reasoning, tool support), so models are hardcoded in provider.json.
+        match config.models.as_ref().expect("models should be present") {
+            Models::Hardcoded(models) => {
+                assert!(
+                    models.iter().any(|m| m.id.as_str() == "kimi-k3"),
+                    "expected kimi-k3 to be present in hardcoded models"
+                );
+            }
+            other => panic!("expected hardcoded models, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_kimi_coding_config() {
+        let configs = get_provider_configs();
+        let config = configs
+            .iter()
+            .find(|c| c.id == ProviderId::KIMI_CODING)
+            .unwrap();
+        assert_eq!(config.id, ProviderId::KIMI_CODING);
+        assert_eq!(config.api_key_vars, Some("KIMI_API_KEY".to_string()));
+        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(
+            config.url.as_str(),
+            "https://api.kimi.com/coding/v1/chat/completions"
+        );
+        // Kimi Code's /models endpoint omits capability metadata, so models are
+        // hardcoded using the platform's canonical model IDs (k3, etc.).
+        match config.models.as_ref().expect("models should be present") {
+            Models::Hardcoded(models) => {
+                assert!(
+                    models.iter().any(|m| m.id.as_str() == "k3"),
+                    "expected k3 to be present in hardcoded models"
+                );
+            }
+            other => panic!("expected hardcoded models, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_provider_entry_with_static_models_converts_to_hardcoded() {
         let model = forge_domain::Model::new("Qwen3.6-35B-A3b-q3-mlx")
             .name("Qwen3.5-35B".to_string())

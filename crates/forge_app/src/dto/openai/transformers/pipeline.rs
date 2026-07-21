@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use forge_domain::{DefaultTransformation, Provider, ProviderId, Transformer};
 use url::Url;
 
@@ -101,7 +99,6 @@ impl Transformer for ProviderPipeline<'_> {
 
         let trim_tool_call_ids = TrimToolCallIds.when(move |_| provider.id == ProviderId::OPENAI);
 
-        let kimi_coding = ProviderId::from_str("kimi_coding").unwrap();
         let strict_schema = EnforceStrictToolSchema
             .pipe(EnforceStrictResponseFormatSchema)
             .when(move |_| {
@@ -110,7 +107,8 @@ impl Transformer for ProviderPipeline<'_> {
                     || provider.id == ProviderId::OPENCODE_ZEN
                     || provider.id == ProviderId::OPENCODE_GO
                     || provider.id == ProviderId::XAI
-                    || provider.id == kimi_coding
+                    || provider.id == ProviderId::KIMI_CODING
+                    || provider.id == ProviderId::MOONSHOT
             });
 
         let mut combined = zai_thinking
