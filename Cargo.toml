@@ -85,7 +85,7 @@ strum_macros = "0.28.0"
 syn = { version = "3.0.0", features = ["derive", "parsing"] }
 sysinfo = "0.38.3"
 tempfile = "3.27.0"
-termimad = "0.34.1"
+termimad = "0.35.0"
 tiny_http = "0.12.0"
 syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig"] }
 thiserror = "2.0.18"

@@ -29,7 +29,7 @@ impl MarkdownFormat {
     pub fn new() -> Self {
         let mut skin = MadSkin::default();
         let compound_style = CompoundStyle::new(Some(Color::Cyan), None, Default::default());
-        skin.inline_code = compound_style.clone();
+        skin.inline_code = compound_style;
 
         let codeblock_style = CompoundStyle::new(None, None, Default::default());
         skin.code_block = LineStyle::new(codeblock_style, Default::default());
