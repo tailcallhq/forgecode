@@ -63,8 +63,7 @@ impl<
     pub fn new(infra: Arc<F>) -> Self {
         let env = infra.get_environment();
         let file_snapshot_service = Arc::new(ForgeFileSnapshotService::new(env.clone()));
-        let db_pool =
-            Arc::new(DatabasePool::try_from(PoolConfig::new(env.database_path())).unwrap());
+        let db_pool = Arc::new(DatabasePool::new(PoolConfig::new(env.database_path())));
         let conversation_repository = Arc::new(ConversationRepositoryImpl::new(
             db_pool.clone(),
             env.workspace_hash(),

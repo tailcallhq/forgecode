@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -39,11 +40,24 @@ impl PoolConfig {
 }
 
 pub struct DatabasePool {
-    pool: DbPool,
-    max_retries: usize,
+    /// Lazily-initialized connection pool. Building the pool eagerly at
+    /// startup can fail (e.g. the SQLite file is locked by another process),
+    /// which previously crashed the app. By deferring initialization to the
+    /// first connection request, failures surface as recoverable errors from
+    /// repository methods instead of a startup panic.
+    pool: Mutex<Option<DbPool>>,
+    config: PoolConfig,
 }
 
 impl DatabasePool {
+    /// Creates a database pool handle without opening any connections.
+    ///
+    /// The underlying pool is created lazily on the first call to
+    /// `get_connection`, so this constructor is infallible.
+    pub fn new(config: PoolConfig) -> Self {
+        Self { pool: Mutex::new(None), config }
+    }
+
     #[cfg(test)]
     pub fn in_memory() -> Result<Self> {
         debug!("Creating in-memory database pool");
@@ -65,16 +79,54 @@ impl DatabasePool {
             .run_pending_migrations(MIGRATIONS)
             .map_err(|e| anyhow::anyhow!("Failed to run database migrations: {e}"))?;
 
-        Ok(Self { pool, max_retries: 5 })
+        Ok(Self {
+            pool: Mutex::new(Some(pool)),
+            config: PoolConfig::new(PathBuf::from(":memory:")),
+        })
     }
 
+    /// Returns the underlying pool, building it on first use.
+    ///
+    /// # Errors
+    /// Returns an error if the pool cannot be created after retrying, for
+    /// example when the SQLite database file is locked by another process or
+    /// is not readable.
+    fn pool(&self) -> Result<DbPool> {
+        let mut guard = self
+            .pool
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Database pool mutex poisoned"))?;
+
+        if let Some(pool) = guard.as_ref() {
+            return Ok(pool.clone());
+        }
+
+        // Retry pool creation with exponential backoff to handle transient
+        // failures such as another process holding an exclusive lock on the
+        // SQLite database file.
+        let pool = Self::retry_with_backoff(
+            self.config.max_retries,
+            "Failed to create database pool, retrying",
+            || Self::build_pool(&self.config),
+        )?;
+
+        *guard = Some(pool.clone());
+        Ok(pool)
+    }
+
+    /// Retrieves a connection from the pool, initializing the pool on first
+    /// use.
+    ///
+    /// # Errors
+    /// Returns an error if the pool cannot be created or a connection cannot
+    /// be acquired after retrying.
     pub fn get_connection(&self) -> Result<PooledSqliteConnection> {
+        let pool = self.pool()?;
         Self::retry_with_backoff(
-            self.max_retries,
+            self.config.max_retries,
             "Failed to get connection from pool, retrying",
             || {
-                self.pool
-                    .get()
+                pool.get()
                     .map_err(|e| anyhow::anyhow!("Failed to get connection from pool: {e}"))
             },
         )
@@ -127,10 +179,13 @@ impl CustomizeConnection<SqliteConnection, diesel::r2d2::Error> for SqliteCustom
     }
 }
 
-impl TryFrom<PoolConfig> for DatabasePool {
-    type Error = anyhow::Error;
-
-    fn try_from(config: PoolConfig) -> Result<Self> {
+impl DatabasePool {
+    /// Builds the connection pool and runs migrations.
+    ///
+    /// # Errors
+    /// Returns an error if the database directory cannot be created, the pool
+    /// cannot be built, or migrations fail.
+    fn build_pool(config: &PoolConfig) -> Result<DbPool> {
         debug!(database_path = %config.database_path.display(), "Creating database pool");
 
         // Ensure the parent directory exists
@@ -138,20 +193,6 @@ impl TryFrom<PoolConfig> for DatabasePool {
             std::fs::create_dir_all(parent)?;
         }
 
-        // Retry pool creation with exponential backoff to handle transient
-        // failures such as another process holding an exclusive lock on the
-        // SQLite database file.
-        DatabasePool::retry_with_backoff(
-            config.max_retries,
-            "Failed to create database pool, retrying",
-            || Self::build_pool(&config),
-        )
-    }
-}
-
-impl DatabasePool {
-    /// Builds the connection pool and runs migrations.
-    fn build_pool(config: &PoolConfig) -> Result<Self> {
         let database_url = config.database_path.to_string_lossy().to_string();
         let manager = ConnectionManager::<SqliteConnection>::new(&database_url);
 
@@ -184,6 +225,64 @@ impl DatabasePool {
         })?;
 
         debug!(database_path = %config.database_path.display(), "created connection pool");
-        Ok(Self { pool, max_retries: config.max_retries })
+        Ok(pool)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    /// A pool config pointing at an unopenable database path with fast
+    /// retries so failure tests complete quickly.
+    fn broken_config() -> PoolConfig {
+        let mut config = PoolConfig::new(PathBuf::from("/dev/null/forge.db"));
+        config.max_retries = 0;
+        config.connection_timeout = Duration::from_millis(100);
+        config
+    }
+
+    #[test]
+    fn test_new_with_broken_path_does_not_panic_or_connect() {
+        // Regression test: constructing the pool must never fail or panic,
+        // even when the database path is unusable. Previously this crashed
+        // the app at startup via `TryFrom` + `unwrap()`.
+        let fixture = broken_config();
+
+        let actual = DatabasePool::new(fixture);
+
+        // No pool should have been created yet (lazy initialization).
+        let expected = true;
+        assert_eq!(actual.pool.lock().unwrap().is_none(), expected);
+    }
+
+    #[test]
+    fn test_get_connection_with_broken_path_returns_error() {
+        // Regression test: a broken database must surface as a recoverable
+        // error from `get_connection`, not a panic.
+        let fixture = DatabasePool::new(broken_config());
+
+        let actual = fixture.get_connection();
+
+        assert!(actual.is_err());
+    }
+
+    #[test]
+    fn test_get_connection_initializes_pool_lazily() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let fixture = DatabasePool::new(PoolConfig::new(dir.path().join("forge.db")));
+
+        // Pool must not exist before the first connection request.
+        assert!(fixture.pool.lock().unwrap().is_none());
+
+        let actual = fixture.get_connection();
+
+        assert!(actual.is_ok());
+        // Pool must be cached after the first successful connection.
+        let expected = true;
+        assert_eq!(fixture.pool.lock().unwrap().is_some(), expected);
+        Ok(())
     }
 }
