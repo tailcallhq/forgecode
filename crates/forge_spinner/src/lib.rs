@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
@@ -213,10 +214,14 @@ pub struct SpinnerManager<P: ConsoleWriter> {
     word_index: Option<usize>,
     message: Option<String>,
     printer: Arc<P>,
+    /// Whether stderr is a terminal. When false, the spinner thread is never
+    /// started and no ANSI escape codes are emitted, keeping piped output clean.
+    is_terminal: bool,
 }
 
 impl<P: ConsoleWriter + 'static> SpinnerManager<P> {
     /// Creates a new SpinnerManager with the given output printer.
+    /// Automatically detects whether stderr is a terminal.
     pub fn new(printer: Arc<P>) -> Self {
         Self {
             spinner: None,
@@ -224,12 +229,18 @@ impl<P: ConsoleWriter + 'static> SpinnerManager<P> {
             word_index: None,
             message: None,
             printer,
+            is_terminal: std::io::stderr().is_terminal(),
         }
     }
 
-    /// Start the spinner with a message
+    /// Start the spinner with a message.
+    /// No-ops when stderr is not a terminal (e.g. piped output).
     pub fn start(&mut self, message: Option<&str>) -> Result<()> {
         self.stop(None)?;
+
+        if !self.is_terminal {
+            return Ok(());
+        }
 
         let words = [
             "Thinking",
@@ -351,6 +362,12 @@ impl<P: ConsoleWriter + 'static> SpinnerManager<P> {
         let _ = self.printer.write_err(line.as_bytes());
         let _ = self.printer.flush_err();
     }
+
+    /// Force terminal detection for testing purposes.
+    #[cfg(test)]
+    fn set_terminal_for_testing(&mut self, is_terminal: bool) {
+        self.is_terminal = is_terminal;
+    }
 }
 
 impl<P: ConsoleWriter> Drop for SpinnerManager<P> {
@@ -470,6 +487,7 @@ mod tests {
     #[test]
     fn test_spinner_pause_resume_keeps_same_active_spinner() {
         let mut fixture_spinner = fixture_spinner();
+        fixture_spinner.set_terminal_for_testing(true);
         fixture_spinner.start(Some("Thinking")).unwrap();
 
         fixture_spinner.pause();
