@@ -3,6 +3,7 @@ use schemars::Schema;
 use schemars::generate::SchemaGenerator;
 use schemars::transform::{Transform, transform_subschemas};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::ToolName;
 
@@ -22,6 +23,60 @@ impl Transform for RemoveSchemaTitles {
         }
 
         transform_subschemas(self, schema);
+    }
+}
+
+/// A [`Transform`] that marks nullable schemas with `"nullable": true` while
+/// keeping `enum` arrays internally consistent.
+///
+/// Schemars' built-in [`schemars::transform::AddNullable`] adds the
+/// `"nullable": true` keyword and removes `"null"` from the `type` keyword,
+/// but it does **not** remove `null` values from `enum` arrays. This leaves
+/// schemas where the `enum` array contains `null` while `type` is e.g.
+/// `"string"` — an invalid combination that strict JSON Schema validators
+/// (such as Moonshot/Kimi) reject.
+///
+/// This transform delegates to [`AddNullable`](schemars::transform::AddNullable)
+/// for the `type` keyword, then recursively strips `null` from every `enum`
+/// array in a schema that carries `"nullable": true`. The `nullable` marker
+/// alone fully conveys nullability in OpenAPI 3.0-style dialects, so `null`
+/// in `enum` is redundant once the marker is present.
+#[derive(Debug, Clone, Default)]
+pub struct NormalizeNullable;
+
+impl Transform for NormalizeNullable {
+    fn transform(&mut self, schema: &mut Schema) {
+        // Delegate type-keyword normalization (including subschema recursion)
+        // to schemars' AddNullable.
+        schemars::transform::AddNullable::default().transform(schema);
+
+        // Recursively clean up enum arrays left inconsistent by AddNullable.
+        remove_null_enum_values(schema);
+        transform_subschemas(&mut remove_null_enum_values, schema);
+    }
+}
+
+/// Removes `null` entries from the `enum` array of a schema that is marked
+/// `nullable: true`. The `nullable` marker already conveys nullability, so
+/// keeping `null` in `enum` is redundant and can make the schema invalid when
+/// the `type` no longer includes `"null"`.
+fn remove_null_enum_values(schema: &mut Schema) {
+    if let Some(map) = schema.as_object_mut() {
+        let is_nullable = map
+            .get("nullable")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        if is_nullable {
+            if let Some(Value::Array(enum_values)) = map.get_mut("enum") {
+                enum_values.retain(|v| !v.is_null());
+
+                // Drop the enum key if every value was null.
+                if enum_values.is_empty() {
+                    map.remove("enum");
+                }
+            }
+        }
     }
 }
 
@@ -154,5 +209,83 @@ mod tests {
             actual.pointer("/input_schema/$defs/NestedInput/title"),
             None
         );
+    }
+
+    #[test]
+    fn test_normalize_nullable_strips_null_from_enum() {
+        use schemars::json_schema;
+
+        // Simulate what schemars produces for Option<EnumWithCustomSchema>:
+        // type includes "null", and enum array contains null.
+        let mut schema = json_schema!({
+            "type": ["string", "null"],
+            "enum": ["content", "files_with_matches", "count", null]
+        });
+
+        NormalizeNullable.transform(&mut schema);
+
+        let actual = serde_json::to_value(&schema).unwrap();
+
+        // nullable marker should be present
+        assert_eq!(actual["nullable"], serde_json::Value::Bool(true));
+
+        // type should no longer contain "null"
+        assert_eq!(actual["type"], serde_json::json!("string"));
+
+        // enum must NOT contain null — this is the bug fix
+        let enum_values = actual["enum"].as_array().unwrap();
+        assert!(
+            !enum_values.contains(&serde_json::Value::Null),
+            "enum must not contain null after NormalizeNullable"
+        );
+        assert_eq!(enum_values.len(), 3);
+    }
+
+    #[test]
+    fn test_normalize_nullable_preserves_non_nullable_enum() {
+        use schemars::json_schema;
+
+        // A non-nullable enum should be left untouched.
+        let mut schema = json_schema!({
+            "type": "string",
+            "enum": ["a", "b", "c"]
+        });
+
+        let expected = serde_json::to_value(&schema).unwrap();
+
+        NormalizeNullable.transform(&mut schema);
+
+        let actual = serde_json::to_value(&schema).unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_normalize_nullable_recurses_into_properties() {
+        use schemars::json_schema;
+
+        // Nullable enum nested inside a properties object.
+        let mut schema = json_schema!({
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": ["string", "null"],
+                    "enum": ["fast", "slow", null]
+                }
+            }
+        });
+
+        NormalizeNullable.transform(&mut schema);
+
+        let actual = serde_json::to_value(&schema).unwrap();
+        let mode_enum = actual
+            .pointer("/properties/mode/enum")
+            .and_then(|v| v.as_array())
+            .unwrap();
+
+        assert!(
+            !mode_enum.contains(&serde_json::Value::Null),
+            "nested enum must not contain null"
+        );
+        assert_eq!(mode_enum.len(), 2);
     }
 }
