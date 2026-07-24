@@ -2304,10 +2304,10 @@ dependencies = [
  "schemars 1.2.1",
  "serde",
  "serde_json",
- "serde_yml 0.0.13",
+ "serde_yml",
  "sha2 0.11.0",
  "strum",
- "strum_macros 0.28.0",
+ "strum_macros",
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
@@ -2344,7 +2344,7 @@ dependencies = [
  "schemars 1.2.1",
  "serde",
  "serde_json",
- "strum_macros 0.28.0",
+ "strum_macros",
  "thiserror 2.0.19",
  "tokio",
  "toml_edit 0.25.13+spec-1.1.0",
@@ -2400,9 +2400,9 @@ dependencies = [
  "schemars 1.2.1",
  "serde",
  "serde_json",
- "serde_yml 0.0.13",
+ "serde_yml",
  "strum",
- "strum_macros 0.28.0",
+ "strum_macros",
  "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
@@ -2586,7 +2586,7 @@ dependencies = [
  "serial_test",
  "strip-ansi-escapes",
  "strum",
- "strum_macros 0.28.0",
+ "strum_macros",
  "tempfile",
  "terminal_size",
  "thiserror 2.0.19",
@@ -2744,10 +2744,10 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "serde_yml 0.0.13",
+ "serde_yml",
  "strip-ansi-escapes",
  "strum",
- "strum_macros 0.28.0",
+ "strum_macros",
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
@@ -3072,9 +3072,9 @@ dependencies = [
 
 [[package]]
 name = "gh-workflow"
-version = "0.8.1"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "389296a8f9ebed67f6f49f3ee7fb5870d34b1f134d6033727de8caac3a6336a1"
+checksum = "060590c7cd5ac9887553ba39f76a1d996bc6939be89043f2d9ca39b47122b283"
 dependencies = [
  "async-trait",
  "derive_more",
@@ -3084,19 +3084,19 @@ dependencies = [
  "merge",
  "serde",
  "serde_json",
- "serde_yml 0.0.12",
- "strum_macros 0.27.2",
+ "serde_yml",
+ "strum_macros",
 ]
 
 [[package]]
 name = "gh-workflow-macros"
-version = "0.8.1"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b8281789edecfe1c6dab6312577f5ec0f7f8b860cad70156b8fc70ebedc786d"
+checksum = "b9737dfef495fffea3cfbe0196a69187ab9237aaad535d02c79bad686b0fb9ec"
 dependencies = [
  "heck",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -5212,16 +5212,6 @@ dependencies = [
  "cc",
  "pkg-config",
  "vcpkg",
-]
-
-[[package]]
-name = "libyml"
-version = "0.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3302702afa434ffa30847a83305f0a69d6abd74293b6554c18ec85c7ef30c980"
-dependencies = [
- "anyhow",
- "version_check",
 ]
 
 [[package]]
@@ -7660,21 +7650,6 @@ dependencies = [
 
 [[package]]
 name = "serde_yml"
-version = "0.0.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59e2dd588bf1597a252c3b920e0143eb99b0f76e4e082f4c92ce34fbc9e71ddd"
-dependencies = [
- "indexmap 2.14.0",
- "itoa",
- "libyml",
- "memchr",
- "ryu",
- "serde",
- "version_check",
-]
-
-[[package]]
-name = "serde_yml"
 version = "0.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "909764a65f86829ccdb5eea9ab355843aa02c019a7bfd47465092953565caa05"
@@ -8089,18 +8064,6 @@ name = "strum"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9628de9b8791db39ceda2b119bbe13134770b56c138ec1d3af810d045c04f9bd"
-
-[[package]]
-name = "strum_macros"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
 
 [[package]]
 name = "strum_macros"
