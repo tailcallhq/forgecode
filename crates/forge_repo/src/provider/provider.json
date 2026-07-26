@@ -766,6 +766,16 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "claude-opus-5",
+        "name": "Claude Opus 5",
+        "description": "Thoughtful and proactive model approaching frontier intelligence at half the price",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-opus-4-8",
         "name": "Claude Opus 4.8",
         "description": "",

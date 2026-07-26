@@ -84,8 +84,8 @@ fn get_context_length(model_id: &str) -> Option<u64> {
         return Some(1_000_000);
     }
 
-    // Claude Sonnet 5 (1M context)
-    if model_id.starts_with("claude-sonnet-5") {
+    // Claude Sonnet 5 and Opus 5 (1M context)
+    if model_id.starts_with("claude-sonnet-5") || model_id.starts_with("claude-opus-5") {
         return Some(1_000_000);
     }
 
