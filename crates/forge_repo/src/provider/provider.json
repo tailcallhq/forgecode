@@ -3940,6 +3940,16 @@
     "auth_methods": ["api_key"],
     "models": [
       {
+        "id": "accounts/fireworks/models/kimi-k3",
+        "name": "Kimi K3",
+        "description": "Moonshot AI Kimi K3 flagship model with 2.8T parameters, 1M-token context, native vision, always-on reasoning, and tool calling capabilities",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "accounts/fireworks/models/kimi-k2p6",
         "name": "Kimi K2.6",
         "description": "Kimi K2.6 model",
@@ -4054,6 +4064,16 @@
         "name": "GLM 5.1 Fast",
         "description": "GLM 5.1 Fast model",
         "context_length": 202800,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "accounts/fireworks/routers/glm-5p2-fast",
+        "name": "GLM 5.2 Fast",
+        "description": "GLM 5.2 Fast model",
+        "context_length": 1048576,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,

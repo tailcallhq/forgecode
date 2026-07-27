@@ -1063,6 +1063,49 @@ mod tests {
     }
 
     #[test]
+    fn test_fireworks_ai_config() {
+        use std::str::FromStr;
+
+        let configs = get_provider_configs();
+        let fireworks_id = ProviderId::from_str("fireworks-ai").unwrap();
+        let config = configs.iter().find(|c| c.id == fireworks_id).unwrap();
+        assert_eq!(
+            config.api_key_vars,
+            Some("FIREWORKS_AI_API_KEY".to_string())
+        );
+        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(
+            config.url.as_str(),
+            "https://api.fireworks.ai/inference/v1/chat/completions"
+        );
+        // Fireworks' /models endpoint needs an API key and omits capability
+        // metadata, so the serverless catalog is hardcoded using full
+        // deployment IDs.
+        match config.models.as_ref().expect("models should be present") {
+            Models::Hardcoded(models) => {
+                let kimi_k3 = models
+                    .iter()
+                    .find(|m| m.id.as_str() == "accounts/fireworks/models/kimi-k3")
+                    .expect("expected kimi-k3 to be present in hardcoded models");
+                assert_eq!(kimi_k3.context_length, Some(1048576));
+                assert!(
+                    kimi_k3
+                        .input_modalities
+                        .contains(&forge_app::domain::InputModality::Image),
+                    "kimi-k3 should support image input"
+                );
+                assert!(
+                    models
+                        .iter()
+                        .any(|m| m.id.as_str() == "accounts/fireworks/routers/glm-5p2-fast"),
+                    "expected glm-5p2-fast router to be present in hardcoded models"
+                );
+            }
+            other => panic!("expected hardcoded models, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_provider_entry_with_static_models_converts_to_hardcoded() {
         let model = forge_domain::Model::new("Qwen3.6-35B-A3b-q3-mlx")
             .name("Qwen3.5-35B".to_string())
