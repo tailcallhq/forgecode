@@ -934,7 +934,9 @@ mod tests {
                     "expected glm-5.2-flex to be present in hardcoded models"
                 );
                 assert!(
-                    models.iter().any(|m| m.id.as_str() == "kimi-k2.7-code-flex"),
+                    models
+                        .iter()
+                        .any(|m| m.id.as_str() == "kimi-k2.7-code-flex"),
                     "expected kimi-k2.7-code-flex to be present in hardcoded models"
                 );
             }
