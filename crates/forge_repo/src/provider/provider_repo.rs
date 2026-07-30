@@ -929,6 +929,14 @@ mod tests {
                     models.iter().any(|m| m.id.as_str() == "qwen3.5-397b"),
                     "expected qwen3.5-397b to be present in hardcoded models"
                 );
+                assert!(
+                    models.iter().any(|m| m.id.as_str() == "glm-5.2-flex"),
+                    "expected glm-5.2-flex to be present in hardcoded models"
+                );
+                assert!(
+                    models.iter().any(|m| m.id.as_str() == "kimi-k2.7-code-flex"),
+                    "expected kimi-k2.7-code-flex to be present in hardcoded models"
+                );
             }
             other => panic!("expected hardcoded models, got {other:?}"),
         }
