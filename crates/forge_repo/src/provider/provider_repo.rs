@@ -929,6 +929,16 @@ mod tests {
                     models.iter().any(|m| m.id.as_str() == "qwen3.5-397b"),
                     "expected qwen3.5-397b to be present in hardcoded models"
                 );
+                assert!(
+                    models.iter().any(|m| m.id.as_str() == "glm-5.2-flex"),
+                    "expected glm-5.2-flex to be present in hardcoded models"
+                );
+                assert!(
+                    models
+                        .iter()
+                        .any(|m| m.id.as_str() == "kimi-k2.7-code-flex"),
+                    "expected kimi-k2.7-code-flex to be present in hardcoded models"
+                );
             }
             other => panic!("expected hardcoded models, got {other:?}"),
         }
@@ -1001,6 +1011,38 @@ mod tests {
                         .input_modalities
                         .contains(&forge_app::domain::InputModality::Image),
                     "muse-spark-1.1 should support image input"
+                );
+            }
+            other => panic!("expected hardcoded models, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_alibaba_token_plan_config() {
+        let configs = get_provider_configs();
+        let config = configs
+            .iter()
+            .find(|c| c.id == ProviderId::ALIBABA_TOKEN_PLAN)
+            .unwrap();
+        assert_eq!(config.id, ProviderId::ALIBABA_TOKEN_PLAN);
+        assert_eq!(
+            config.api_key_vars,
+            Some("ALIBABA_TOKEN_PLAN_API_KEY".to_string())
+        );
+        assert!(config.url_param_vars.is_empty());
+        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(
+            config.url.as_str(),
+            "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions"
+        );
+        // Alibaba Token Plan exposes an OpenAI-compatible endpoint but no
+        // capability metadata via /models, so models are hardcoded in
+        // provider.json.
+        match config.models.as_ref().expect("models should be present") {
+            Models::Hardcoded(models) => {
+                assert!(
+                    models.iter().any(|m| m.id.as_str() == "qwen3.7-max"),
+                    "expected qwen3.7-max to be present in hardcoded models"
                 );
             }
             other => panic!("expected hardcoded models, got {other:?}"),
