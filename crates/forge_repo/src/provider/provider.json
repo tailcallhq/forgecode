@@ -1029,26 +1029,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "kimi-k2.5",
-        "name": "Kimi K2.5",
-        "description": "Kimi K2.5 — quant-agnostic canonical name for the Kimi K2.5 family.",
-        "context_length": 262128,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "kimi-k2.5-fast",
-        "name": "Kimi K2.5 Fast",
-        "description": "Moonshot Kimi K2.5 with thinking mode disabled for instant, lower-latency responses.",
-        "context_length": 262128,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": false,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "qwen3.6-35b",
         "name": "Qwen3.6 35B",
         "description": "Qwen3.6 35B-A3B — quant-agnostic canonical name for the Qwen3.6 35B family.",
@@ -1137,6 +1117,26 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": false,
         "input_modalities": ["text"]
+      },
+      {
+        "id": "deepseek-v4-flash",
+        "name": "DeepSeek V4 Flash",
+        "description": "DeepSeek V4 Flash — MoE with DSpark speculative decoding, native 1M context, served on 4x B200.",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "gemma-4-31b",
+        "name": "Gemma 4 31B",
+        "description": "Google Gemma 4 31B — multimodal (text + vision) with tool calling and 262K context.",
+        "context_length": 262144,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": false,
+        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key"]
