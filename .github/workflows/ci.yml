@@ -72,6 +72,34 @@ jobs:
         toolchain: stable
     - name: Run performance benchmark
       run: './scripts/benchmark.sh --threshold 60 zsh rprompt'
+  dependency_review:
+    if: github.event_name == 'pull_request'
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - name: Dependency Review
+      uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
+  trivy:
+    name: Filesystem and Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      with:
+        persist-credentials: 'false'
+    - name: Filesystem and Dependency Vulnerability Scan
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+      with:
+        scan-type: fs
+        scanners: vuln
+        vuln-type: os,library
+        severity: HIGH,CRITICAL
+        ignore-unfixed: 'false'
+        exit-code: '1'
   draft_release:
     needs:
     - build
