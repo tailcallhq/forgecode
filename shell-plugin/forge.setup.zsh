@@ -11,10 +11,10 @@ fi
 
 # Load forge shell plugin (commands, completions, keybindings) if not already loaded
 if [[ -z "$_FORGE_PLUGIN_LOADED" ]]; then
-    eval "$(forge zsh plugin)"
+    eval "$("${FORGE_BIN:-forgecode}" zsh plugin)"
 fi
 
 # Load forge shell theme (prompt with AI context) if not already loaded
 if [[ -z "$_FORGE_THEME_LOADED" ]]; then
-    eval "$(forge zsh theme)"
+    eval "$("${FORGE_BIN:-forgecode}" zsh theme)"
 fi

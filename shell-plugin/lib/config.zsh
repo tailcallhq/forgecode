@@ -3,7 +3,7 @@
 # Configuration variables for forge plugin
 # Using typeset to keep variables local to plugin scope and prevent public exposure
 
-typeset -h _FORGE_BIN="${FORGE_BIN:-forge}"
+typeset -h _FORGE_BIN="${FORGE_BIN:-forgecode}"
 typeset -h _FORGE_CONVERSATION_PATTERN=":"
 typeset -h _FORGE_MAX_COMMIT_DIFF="${FORGE_MAX_COMMIT_DIFF:-100000}"
 
