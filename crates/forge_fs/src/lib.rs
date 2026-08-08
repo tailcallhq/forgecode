@@ -11,7 +11,6 @@
 mod binary_detection;
 mod error;
 mod file_size;
-mod is_binary;
 mod meta;
 mod read;
 mod read_range;

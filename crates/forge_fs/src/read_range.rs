@@ -6,6 +6,7 @@ use bstr::ByteSlice;
 use forge_domain::FileInfo;
 
 use crate::error::Error;
+use crate::is_binary;
 
 impl crate::ForgeFS {
     /// Reads a specific range of lines from a file.
@@ -33,18 +34,18 @@ impl crate::ForgeFS {
             return Err(Error::StartGreaterThanEnd { start: start_line, end: end_line }.into());
         }
 
-        // Open and check if file is binary
-        let mut file = tokio::fs::File::open(path_ref)
-            .await
-            .with_context(|| format!("Failed to open file {}", path_ref.display()))?;
-
         if start_line == 0 || end_line == 0 {
             return Err(Error::IndexStartingWithZero { start: start_line, end: end_line }.into());
         }
 
-        let (is_text, file_type) = Self::is_binary(&mut file).await?;
-        if !is_text {
-            return Err(Error::BinaryFileNotSupported(file_type).into());
+        // Use the same BOM + zero-byte detector that fs_search and other
+        // callers use, so binary classification is consistent across all
+        // code paths. The previous infer-based check could classify a file
+        // as text here while fs_search skipped it as binary.
+        if is_binary(path_ref).await? {
+            return Err(Error::BinaryFileNotSupported(
+                "binary content detected".into(),
+            ).into());
         }
 
         // Read file content
@@ -330,6 +331,20 @@ mod test {
             (4990, 5000, 5000)
         );
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_stray_zero_byte_classified_as_binary() -> Result<()> {
+        // Reproduces #3633: a file with a stray 0x00 in the first 512 bytes
+        // should be rejected as binary by read_range_utf8, matching what
+        // fs_search sees via the BOM-based detector.
+        let content = b"KEY=value\0trailing text\n";
+        let file = tempfile::NamedTempFile::new()?;
+        fs::write(file.path(), content).await?;
+
+        let result = crate::ForgeFS::read_range_utf8(file.path(), 1, 1).await;
+        assert!(result.is_err(), "file with stray NUL should be rejected as binary");
         Ok(())
     }
 }
