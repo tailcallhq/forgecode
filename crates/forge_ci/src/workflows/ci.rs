@@ -30,6 +30,41 @@ pub fn generate_ci_workflow() {
                 .run("./scripts/benchmark.sh --threshold 60 zsh rprompt"),
         );
 
+    let dependency_review_job = Job::new("Dependency Review")
+        .cond(Expression::new("github.event_name == 'pull_request'"))
+        .permissions(Permissions::default().contents(Level::Read))
+        .add_step(Step::new("Dependency Review").uses(
+            "actions",
+            "dependency-review-action",
+            "a1d282b36b6f3519aa1f3fc636f609c47dddb294",
+        ));
+
+    let trivy_job = Job::new("Filesystem and Dependency Vulnerability Scan")
+        .permissions(Permissions::default().contents(Level::Read))
+        .add_step(
+            Step::new("Checkout Code")
+                .uses(
+                    "actions",
+                    "checkout",
+                    "d23441a48e516b6c34aea4fa41551a30e30af803",
+                )
+                .with(("persist-credentials", "false")),
+        )
+        .add_step(
+            Step::new("Filesystem and Dependency Vulnerability Scan")
+                .uses(
+                    "aquasecurity",
+                    "trivy-action",
+                    "ed142fd0673e97e23eac54620cfb913e5ce36c25",
+                )
+                .add_with(("scan-type", "fs"))
+                .add_with(("scanners", "vuln"))
+                .add_with(("vuln-type", "os,library"))
+                .add_with(("severity", "HIGH,CRITICAL"))
+                .add_with(("ignore-unfixed", "false"))
+                .add_with(("exit-code", "1")),
+        );
+
     let draft_release_job = jobs::create_draft_release_job("build");
     let draft_release_pr_job = jobs::create_draft_release_pr_job();
     let events = Event::default()
@@ -73,6 +108,8 @@ pub fn generate_ci_workflow() {
         .add_env(("OPENROUTER_API_KEY", "${{secrets.OPENROUTER_API_KEY}}"))
         .add_job("build", build_job)
         .add_job("zsh_rprompt_perf", perf_test_job)
+        .add_job("dependency_review", dependency_review_job)
+        .add_job("trivy", trivy_job)
         .add_job("draft_release", draft_release_job)
         .add_job("draft_release_pr", draft_release_pr_job)
         .add_job("build_release", build_release_job)

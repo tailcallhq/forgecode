@@ -6,6 +6,46 @@ fn generate() {
 }
 
 #[test]
+fn generated_ci_preserves_blocking_pr_security_scans() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("workspace root");
+    let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml"))
+        .expect("generated ci workflow is readable");
+
+    assert!(workflow.contains("dependency_review:"));
+    assert!(workflow.contains("Dependency Review"));
+    assert!(workflow
+        .contains("actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294"));
+    assert!(workflow.contains("if: github.event_name == 'pull_request'"));
+    assert!(workflow.contains("trivy:"));
+    assert!(workflow.contains("Filesystem and Dependency Vulnerability Scan"));
+    assert!(workflow.contains("aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25"));
+    assert!(workflow.contains("persist-credentials: 'false'"));
+    assert!(workflow.contains("scan-type: fs"));
+    assert!(workflow.contains("scanners: vuln"));
+    assert!(workflow.contains("exit-code: '1'"));
+    assert!(workflow.ends_with('\n'));
+    assert!(workflow.lines().all(|line| line.trim_end() == line));
+
+    let trufflehog = std::fs::read_to_string(root.join(".github/workflows/trufflehog.yml"))
+        .expect("trufflehog workflow is readable");
+    assert!(trufflehog.contains("name: Trufflehog Secrets Scan"));
+    assert!(trufflehog.contains("permissions:\n  contents: read"));
+    assert!(trufflehog.contains(
+        "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+    ));
+    assert!(trufflehog.contains(
+        "trufflesecurity/trufflehog@cb6aeefd6e2498240d0418e63f69684d28337e7b"
+    ));
+    assert!(trufflehog.contains("version: 3.91.0"));
+    assert!(trufflehog.contains("extra_args: --only-verified"));
+    assert!(trufflehog.ends_with('\n'));
+    assert!(trufflehog.lines().all(|line| line.trim_end() == line));
+}
+
+#[test]
 fn test_release_drafter() {
     workflow::generate_release_drafter_workflow();
 }
