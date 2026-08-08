@@ -125,8 +125,7 @@ expression: tools
       "enum": [
         "content",
         "files_with_matches",
-        "count",
-        null
+        "count"
       ],
       "nullable": true
     },

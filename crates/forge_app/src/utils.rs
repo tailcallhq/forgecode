@@ -522,6 +522,25 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
 
             normalize_array_items(map, strict_mode);
 
+            // Always strip null from enum arrays when nullable is set,
+            // regardless of strict mode. A null enum value contradicts any
+            // non-null type declaration, producing invalid JSON Schema that
+            // strict validators (e.g. Moonshot/Kimi) reject. This also guards
+            // against external MCP schemas that may carry the same
+            // inconsistency, which are not processed by NormalizeNullable.
+            if map
+                .get("nullable")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                if let Some(serde_json::Value::Array(enum_values)) = map.get_mut("enum") {
+                    enum_values.retain(|v| !v.is_null());
+                }
+            }
+
+            // In strict mode, convert the nullable keyword into an explicit
+            // anyOf union because OpenAI's Responses API does not support
+            // nullable. The enum array has already been cleaned above.
             if strict_mode
                 && map
                     .get("nullable")
@@ -529,10 +548,6 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
                     .unwrap_or(false)
             {
                 map.remove("nullable");
-
-                if let Some(serde_json::Value::Array(enum_values)) = map.get_mut("enum") {
-                    enum_values.retain(|v| !v.is_null());
-                }
 
                 let description = map.remove("description");
                 let non_null_branch = serde_json::Value::Object(std::mem::take(map));
@@ -1325,6 +1340,40 @@ mod tests {
         // In non-strict mode, nullable should be preserved as-is
         assert_eq!(schema["properties"]["output_mode"]["nullable"], json!(true));
         assert!(schema["properties"]["output_mode"].get("anyOf").is_none());
+    }
+
+    #[test]
+    fn test_nullable_enum_null_stripped_in_non_strict_mode() {
+        // Schemas produced by external MCP tools may carry null in enum
+        // alongside nullable: true. Even in non-strict mode, null must be
+        // stripped so the schema stays valid for strict validators like
+        // Moonshot/Kimi.
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "output_mode": {
+                    "nullable": true,
+                    "type": "string",
+                    "enum": ["content", "files_with_matches", "count", null]
+                }
+            }
+        });
+
+        enforce_strict_schema(&mut schema, false);
+
+        let enum_values = schema["properties"]["output_mode"]["enum"]
+            .as_array()
+            .unwrap();
+        assert!(
+            !enum_values.contains(&json!(null)),
+            "enum must not contain null in non-strict mode"
+        );
+        assert_eq!(enum_values.len(), 3);
+        // nullable marker should be preserved
+        assert_eq!(
+            schema["properties"]["output_mode"]["nullable"],
+            json!(true)
+        );
     }
 
     #[test]
