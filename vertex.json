@@ -1,5 +1,35 @@
 [
   {
+    "id": "google/gemini-3.6-flash",
+    "name": "Gemini 3.6 Flash",
+    "description": "Google's latest workhorse model, optimized for speed, cost, and native tool use",
+    "context_length": 1048576,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": true,
+    "supports_reasoning": true,
+    "input_modalities": ["text", "image"]
+  },
+  {
+    "id": "google/gemini-3.5-flash-lite",
+    "name": "Gemini 3.5 Flash-Lite",
+    "description": "Google's fastest and most cost-efficient Gemini model, optimized for low latency use cases",
+    "context_length": 1048576,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": true,
+    "supports_reasoning": true,
+    "input_modalities": ["text", "image"]
+  },
+  {
+    "id": "google/gemini-3.5-flash-cyber",
+    "name": "Gemini 3.5 Flash Cyber",
+    "description": "Google's narrow, security-focused variant of the Gemini 3.5 Flash model",
+    "context_length": 1048576,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": true,
+    "supports_reasoning": true,
+    "input_modalities": ["text", "image"]
+  },
+  {
     "id": "google/gemini-3.5-flash",
     "name": "Gemini 3.5 Flash",
     "description": "",
