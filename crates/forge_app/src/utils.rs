@@ -522,6 +522,18 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
 
             normalize_array_items(map, strict_mode);
 
+            // A `null` literal inside a typed `enum` array (produced by
+            // schemars' AddNullable transform for Option<Enum> fields) is a
+            // non-standard representation that several OpenAI-compatible
+            // providers reject. For example, Moonshot AI (kimi) returns:
+            //   "enum value (<nil>) does not match any type in [string]".
+            // Strip null entries from enum arrays unconditionally so the
+            // schema is valid regardless of whether strict mode is applied
+            // (e.g. when kimi is routed through OpenRouter).
+            if let Some(serde_json::Value::Array(enum_values)) = map.get_mut("enum") {
+                enum_values.retain(|v| !v.is_null());
+            }
+
             if strict_mode
                 && map
                     .get("nullable")
@@ -529,10 +541,6 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
                     .unwrap_or(false)
             {
                 map.remove("nullable");
-
-                if let Some(serde_json::Value::Array(enum_values)) = map.get_mut("enum") {
-                    enum_values.retain(|v| !v.is_null());
-                }
 
                 let description = map.remove("description");
                 let non_null_branch = serde_json::Value::Object(std::mem::take(map));
@@ -1323,6 +1331,36 @@ mod tests {
         enforce_strict_schema(&mut schema, false);
 
         // In non-strict mode, nullable should be preserved as-is
+        assert_eq!(schema["properties"]["output_mode"]["nullable"], json!(true));
+        assert!(schema["properties"]["output_mode"].get("anyOf").is_none());
+    }
+
+    #[test]
+    fn test_null_enum_values_stripped_in_non_strict_mode() {
+        // schemars' AddNullable transform appends `null` to enum arrays for
+        // Option<Enum> fields. Several OpenAI-compatible providers (e.g.
+        // Moonshot/kimi via OpenRouter) reject a null literal inside a typed
+        // enum array. Null entries must be stripped even in non-strict mode so
+        // the schema is valid regardless of the provider routing.
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "output_mode": {
+                    "nullable": true,
+                    "type": "string",
+                    "enum": ["content", "files_with_matches", "count", null]
+                }
+            }
+        });
+
+        enforce_strict_schema(&mut schema, false);
+
+        // The null entry is removed, but nullable is preserved (non-strict mode
+        // does not convert to anyOf).
+        assert_eq!(
+            schema["properties"]["output_mode"]["enum"],
+            json!(["content", "files_with_matches", "count"])
+        );
         assert_eq!(schema["properties"]["output_mode"]["nullable"], json!(true));
         assert!(schema["properties"]["output_mode"].get("anyOf").is_none());
     }
