@@ -1107,7 +1107,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1859,7 +1859,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2032,7 +2032,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2304,10 +2304,10 @@ dependencies = [
  "schemars 1.2.2",
  "serde",
  "serde_json",
- "serde_yml 0.0.13",
+ "serde_yml",
  "sha2 0.11.0",
  "strum",
- "strum_macros 0.28.0",
+ "strum_macros",
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
@@ -2344,7 +2344,7 @@ dependencies = [
  "schemars 1.2.2",
  "serde",
  "serde_json",
- "strum_macros 0.28.0",
+ "strum_macros",
  "thiserror 2.0.19",
  "tokio",
  "toml_edit 0.25.13+spec-1.1.0",
@@ -2400,9 +2400,9 @@ dependencies = [
  "schemars 1.2.2",
  "serde",
  "serde_json",
- "serde_yml 0.0.13",
+ "serde_yml",
  "strum",
- "strum_macros 0.28.0",
+ "strum_macros",
  "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
@@ -2586,7 +2586,7 @@ dependencies = [
  "serial_test",
  "strip-ansi-escapes",
  "strum",
- "strum_macros 0.28.0",
+ "strum_macros",
  "tempfile",
  "terminal_size",
  "thiserror 2.0.19",
@@ -2744,10 +2744,10 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "serde_yml 0.0.13",
+ "serde_yml",
  "strip-ansi-escapes",
  "strum",
- "strum_macros 0.28.0",
+ "strum_macros",
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
@@ -3072,9 +3072,9 @@ dependencies = [
 
 [[package]]
 name = "gh-workflow"
-version = "0.8.1"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "389296a8f9ebed67f6f49f3ee7fb5870d34b1f134d6033727de8caac3a6336a1"
+checksum = "060590c7cd5ac9887553ba39f76a1d996bc6939be89043f2d9ca39b47122b283"
 dependencies = [
  "async-trait",
  "derive_more",
@@ -3084,19 +3084,19 @@ dependencies = [
  "merge",
  "serde",
  "serde_json",
- "serde_yml 0.0.12",
- "strum_macros 0.27.2",
+ "serde_yml",
+ "strum_macros",
 ]
 
 [[package]]
 name = "gh-workflow-macros"
-version = "0.8.1"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b8281789edecfe1c6dab6312577f5ec0f7f8b860cad70156b8fc70ebedc786d"
+checksum = "b9737dfef495fffea3cfbe0196a69187ab9237aaad535d02c79bad686b0fb9ec"
 dependencies = [
  "heck",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -3513,7 +3513,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a791e6620676a875f362f3156ed213e73ca099a09bf992c18812abe65cc37b1"
 dependencies = [
  "bstr",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -4963,7 +4963,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5212,16 +5212,6 @@ dependencies = [
  "cc",
  "pkg-config",
  "vcpkg",
-]
-
-[[package]]
-name = "libyml"
-version = "0.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3302702afa434ffa30847a83305f0a69d6abd74293b6554c18ec85c7ef30c980"
-dependencies = [
- "anyhow",
- "version_check",
 ]
 
 [[package]]
@@ -5670,7 +5660,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5773,7 +5763,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom 0.2.17",
  "http 1.5.0",
@@ -7249,7 +7239,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7329,7 +7319,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7656,21 +7646,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "serde_yml"
-version = "0.0.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59e2dd588bf1597a252c3b920e0143eb99b0f76e4e082f4c92ce34fbc9e71ddd"
-dependencies = [
- "indexmap 2.14.0",
- "itoa",
- "libyml",
- "memchr",
- "ryu",
- "serde",
- "version_check",
 ]
 
 [[package]]
@@ -8092,18 +8067,6 @@ checksum = "9628de9b8791db39ceda2b119bbe13134770b56c138ec1d3af810d045c04f9bd"
 
 [[package]]
 name = "strum_macros"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "strum_macros"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab85eea0270ee17587ed4156089e10b9e6880ee688791d45a905f5b1ca36f664"
@@ -8272,7 +8235,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8335,7 +8298,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9432,7 +9395,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
