@@ -15,3 +15,6 @@ json = ["serde", "serde_json"]
 
 [lib]
 doctest = false
+
+[lints]
+workspace = true

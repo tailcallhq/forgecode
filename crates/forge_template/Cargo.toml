@@ -10,3 +10,6 @@ html-escape = "0.2.13"
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+
+[lints]
+workspace = true
