@@ -982,35 +982,44 @@ mod tests {
 
         match config.models.as_ref().expect("models should be present") {
             Models::Hardcoded(models) => {
-                let model = models
-                    .iter()
-                    .find(|m| m.id.as_str() == "muse-spark-1.1")
-                    .expect("muse-spark-1.1 should be present in hardcoded models");
+                for expected_id in ["muse-spark-1.1", "muse-spark-1.2"] {
+                    let model = models
+                        .iter()
+                        .find(|m| m.id.as_str() == expected_id)
+                        .unwrap_or_else(|| {
+                            panic!("{expected_id} should be present in hardcoded models")
+                        });
+                    assert_eq!(
+                        model.context_length,
+                        Some(1048576),
+                        "{expected_id} should have 1048576 context length"
+                    );
+                    assert_eq!(
+                        model.tools_supported,
+                        Some(true),
+                        "{expected_id} should support tools"
+                    );
+                    assert_eq!(
+                        model.supports_parallel_tool_calls,
+                        Some(true),
+                        "{expected_id} should support parallel tool calls"
+                    );
+                    assert_eq!(
+                        model.supports_reasoning,
+                        Some(true),
+                        "{expected_id} should support reasoning"
+                    );
+                    assert!(
+                        model
+                            .input_modalities
+                            .contains(&forge_app::domain::InputModality::Image),
+                        "{expected_id} should support image input"
+                    );
+                }
                 assert_eq!(
-                    model.context_length,
-                    Some(1048576),
-                    "muse-spark-1.1 should have 1048576 context length"
-                );
-                assert_eq!(
-                    model.tools_supported,
-                    Some(true),
-                    "muse-spark-1.1 should support tools"
-                );
-                assert_eq!(
-                    model.supports_parallel_tool_calls,
-                    Some(true),
-                    "muse-spark-1.1 should support parallel tool calls"
-                );
-                assert_eq!(
-                    model.supports_reasoning,
-                    Some(true),
-                    "muse-spark-1.1 should support reasoning"
-                );
-                assert!(
-                    model
-                        .input_modalities
-                        .contains(&forge_app::domain::InputModality::Image),
-                    "muse-spark-1.1 should support image input"
+                    models.len(),
+                    2,
+                    "meta provider should expose exactly 2 hardcoded models"
                 );
             }
             other => panic!("expected hardcoded models, got {other:?}"),

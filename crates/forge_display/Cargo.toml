@@ -20,3 +20,6 @@ two-face = "0.5.1"
 insta.workspace = true
 pretty_assertions.workspace = true
 strip-ansi-escapes.workspace = true
+
+[lints]
+workspace = true

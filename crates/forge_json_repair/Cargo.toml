@@ -14,3 +14,5 @@ serde_json5 = "0.2.1"
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+[lints]
+workspace = true
