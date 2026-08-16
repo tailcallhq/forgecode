@@ -860,7 +860,7 @@ fn normalize_tool_name(name: &ToolName) -> ToolName {
 impl ToolCatalog {
     pub fn schema(&self) -> Schema {
         use schemars::generate::SchemaSettings;
-        use schemars::transform::{AddNullable, Transform};
+        use schemars::transform::Transform;
 
         let r#gen = SchemaSettings::default()
             .with(|s| {
@@ -889,8 +889,10 @@ impl ToolCatalog {
             ToolCatalog::TodoRead(_) => r#gen.into_root_schema_for::<TodoRead>(),
         };
 
-        // Apply transform to add nullable property and remove null from type
-        AddNullable::default().transform(&mut schema);
+        // Normalize nullable schemas: add the "nullable": true marker and
+        // ensure enum arrays stay internally consistent (no null values that
+        // contradict the declared type).
+        crate::NormalizeNullable.transform(&mut schema);
 
         schema
     }
