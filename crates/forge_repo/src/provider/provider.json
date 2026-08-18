@@ -18,6 +18,31 @@
     "auth_methods": ["api_key"]
   },
   {
+    "id": "scaleway",
+    "api_key_vars": "SCW_SECRET_KEY",
+    "url_param_vars": [
+      {
+        "name": "SCW_PROJECT_ID",
+        "optional": true
+      }
+    ],
+    "response_type": "OpenAI",
+    "url": "https://api.scaleway.ai{{#if SCW_PROJECT_ID}}/{{SCW_PROJECT_ID}}{{/if}}/v1/chat/completions",
+    "models": [
+      {
+        "id": "glm-5.2",
+        "name": "GLM-5.2",
+        "description": "Scaleway-hosted GLM-5.2 for long-horizon reasoning and coding tasks",
+        "context_length": 256000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      }
+    ],
+    "auth_methods": ["api_key"]
+  },
+  {
     "id": "github_copilot",
     "api_key_vars": "GITHUB_COPILOT_API_KEY",
     "url_param_vars": [],

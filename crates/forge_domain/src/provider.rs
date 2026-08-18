@@ -49,6 +49,7 @@ impl ProviderId {
     pub const OPENAI: ProviderId = ProviderId(Cow::Borrowed("openai"));
     pub const OPEN_ROUTER: ProviderId = ProviderId(Cow::Borrowed("open_router"));
     pub const REQUESTY: ProviderId = ProviderId(Cow::Borrowed("requesty"));
+    pub const SCALEWAY: ProviderId = ProviderId(Cow::Borrowed("scaleway"));
     pub const ZAI: ProviderId = ProviderId(Cow::Borrowed("zai"));
     pub const ZAI_CODING: ProviderId = ProviderId(Cow::Borrowed("zai_coding"));
     pub const CEREBRAS: ProviderId = ProviderId(Cow::Borrowed("cerebras"));
@@ -98,6 +99,7 @@ impl ProviderId {
             ProviderId::OPENAI,
             ProviderId::OPEN_ROUTER,
             ProviderId::REQUESTY,
+            ProviderId::SCALEWAY,
             ProviderId::ZAI,
             ProviderId::ZAI_CODING,
             ProviderId::CEREBRAS,
@@ -198,6 +200,7 @@ impl std::str::FromStr for ProviderId {
             "openai" => ProviderId::OPENAI,
             "open_router" => ProviderId::OPEN_ROUTER,
             "requesty" => ProviderId::REQUESTY,
+            "scaleway" => ProviderId::SCALEWAY,
             "zai" => ProviderId::ZAI,
             "zai_coding" => ProviderId::ZAI_CODING,
             "cerebras" => ProviderId::CEREBRAS,
@@ -586,6 +589,7 @@ mod tests {
     fn test_provider_id_display_name() {
         assert_eq!(ProviderId::OPENAI.to_string(), "OpenAI");
         assert_eq!(ProviderId::OPEN_ROUTER.to_string(), "OpenRouter");
+        assert_eq!(ProviderId::SCALEWAY.to_string(), "Scaleway");
         assert_eq!(ProviderId::ZAI.to_string(), "ZAI");
         assert_eq!(ProviderId::XAI.to_string(), "XAI");
         assert_eq!(ProviderId::ANTHROPIC.to_string(), "Anthropic");
@@ -638,6 +642,13 @@ mod tests {
     }
 
     #[test]
+    fn test_scaleway_from_str() {
+        let actual = ProviderId::from_str("scaleway").unwrap();
+        let expected = ProviderId::SCALEWAY;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_opencode_go_from_str() {
         let actual = ProviderId::from_str("opencode_go").unwrap();
         let expected = ProviderId::OPENCODE_GO;
@@ -649,6 +660,7 @@ mod tests {
         let built_in = ProviderId::built_in_providers();
         assert!(built_in.contains(&ProviderId::CODEX));
         assert!(built_in.contains(&ProviderId::OPENAI_RESPONSES_COMPATIBLE));
+        assert!(built_in.contains(&ProviderId::SCALEWAY));
         assert!(built_in.contains(&ProviderId::FIREWORKS_AI));
         assert!(built_in.contains(&ProviderId::VIVGRID));
         assert!(built_in.contains(&ProviderId::OPENCODE_GO));

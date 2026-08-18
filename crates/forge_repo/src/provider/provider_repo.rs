@@ -697,6 +697,42 @@ mod tests {
             "https://openrouter.ai/api/v1/chat/completions"
         );
 
+        let scaleway_config = configs
+            .iter()
+            .find(|c| c.id == ProviderId::SCALEWAY)
+            .unwrap();
+        assert_eq!(
+            scaleway_config.api_key_vars,
+            Some("SCW_SECRET_KEY".to_string())
+        );
+        assert_eq!(
+            scaleway_config
+                .url_param_vars
+                .iter()
+                .map(|v| (v.param_name(), v.is_optional()))
+                .collect::<Vec<_>>(),
+            vec![("SCW_PROJECT_ID", true)]
+        );
+        assert_eq!(
+            scaleway_config.response_type,
+            Some(ProviderResponse::OpenAI)
+        );
+        assert_eq!(
+            scaleway_config.url,
+            "https://api.scaleway.ai{{#if SCW_PROJECT_ID}}/{{SCW_PROJECT_ID}}{{/if}}/v1/chat/completions"
+        );
+        match scaleway_config.models.as_ref().unwrap() {
+            Models::Hardcoded(models) => {
+                assert_eq!(models.len(), 1);
+                assert_eq!(models[0].id.as_str(), "glm-5.2");
+                assert_eq!(models[0].context_length, Some(256000));
+                assert_eq!(models[0].tools_supported, Some(true));
+                assert_eq!(models[0].supports_parallel_tool_calls, Some(true));
+                assert_eq!(models[0].supports_reasoning, Some(true));
+            }
+            Models::Url(_) => panic!("Expected Models::Hardcoded variant"),
+        }
+
         let vivgrid_config = configs
             .iter()
             .find(|c| c.id == ProviderId::VIVGRID)

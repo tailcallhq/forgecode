@@ -7,6 +7,7 @@ use super::ensure_system_first::MergeSystemMessages;
 use super::github_copilot_reasoning::GitHubCopilotReasoning;
 use super::make_cerebras_compat::MakeCerebrasCompat;
 use super::make_openai_compat::MakeOpenAiCompat;
+use super::make_scaleway_compat::MakeScalewayCompat;
 use super::make_xai_compat::MakeXaiCompat;
 use super::minimax::SetMinimaxParams;
 use super::normalize_tool_schema::{
@@ -65,9 +66,12 @@ impl Transformer for ProviderPipeline<'_> {
 
         let open_ai_compat = MakeOpenAiCompat.when(move |_| !supports_open_router_params(provider));
 
+        let scaleway_compat = MakeScalewayCompat.when(move |_| provider.id == ProviderId::SCALEWAY);
+
         let set_reasoning_effort = SetReasoningEffort.when(move |request: &Request| {
             provider.id == ProviderId::REQUESTY
                 || provider.id == ProviderId::GITHUB_COPILOT
+                || provider.id == ProviderId::SCALEWAY
                 || is_deepseek_compatible(provider, request)
                 || provider.id == ProviderId::NVIDIA
         });
@@ -116,6 +120,7 @@ impl Transformer for ProviderPipeline<'_> {
             .pipe(strip_thought_signature)
             .pipe(set_reasoning_effort)
             .pipe(open_ai_compat)
+            .pipe(scaleway_compat)
             .pipe(github_copilot_reasoning)
             .pipe(reasoning_content)
             .pipe(default_reasoning_content)
@@ -311,6 +316,20 @@ mod tests {
             models: Some(ModelSource::Url(
                 Url::parse("https://api.requesty.ai/v1/models").unwrap(),
             )),
+        }
+    }
+
+    fn scaleway(key: &str) -> Provider<Url> {
+        Provider {
+            id: ProviderId::SCALEWAY,
+            provider_type: Default::default(),
+            response: Some(ProviderResponse::OpenAI),
+            url: Url::parse("https://api.scaleway.ai/v1/chat/completions").unwrap(),
+            auth_methods: vec![forge_domain::AuthMethod::ApiKey],
+            url_params: vec![],
+            credential: make_credential(ProviderId::SCALEWAY, key),
+            custom_headers: None,
+            models: Some(ModelSource::Hardcoded(vec![])),
         }
     }
 
@@ -1119,6 +1138,28 @@ mod tests {
         let actual = pipeline.transform(fixture);
 
         assert_eq!(actual.reasoning_effort, Some("none".to_string()));
+        assert_eq!(actual.reasoning, None);
+    }
+
+    #[test]
+    fn test_scaleway_provider_applies_reasoning_effort() {
+        let provider = scaleway("scaleway");
+        let fixture =
+            Request::default()
+                .max_tokens(32_768)
+                .reasoning(forge_domain::ReasoningConfig {
+                    enabled: Some(true),
+                    effort: Some(forge_domain::Effort::High),
+                    max_tokens: None,
+                    exclude: None,
+                });
+
+        let mut pipeline = ProviderPipeline::new(&provider, false);
+        let actual = pipeline.transform(fixture);
+
+        assert_eq!(actual.reasoning_effort, Some("high".to_string()));
+        assert_eq!(actual.max_tokens, None);
+        assert_eq!(actual.max_completion_tokens, Some(16_384));
         assert_eq!(actual.reasoning, None);
     }
 

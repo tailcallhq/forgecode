@@ -23,6 +23,16 @@ use crate::provider::utils::{create_headers, format_http_context, join_url};
 
 /// Enhances error messages with provider-specific helpful information
 fn enhance_error(error: anyhow::Error, provider_id: &ProviderId) -> anyhow::Error {
+    if *provider_id == ProviderId::SCALEWAY {
+        let error_string = format!("{error:#}");
+
+        if error_string.contains("insufficient permissions") || error_string.contains("FORBIDDEN") {
+            return error.context(
+                "The Scaleway API key cannot access the configured SCW_PROJECT_ID. Leave the project ID blank to use the default project, or grant the key GenerativeApisModelAccess for that project."
+            );
+        }
+    }
+
     // GitHub Copilot specific error enhancements
     if *provider_id == ProviderId::GITHUB_COPILOT {
         let error_string = format!("{:#}", error);
@@ -877,6 +887,17 @@ mod tests {
         let actual = enhance_error(fixture, &ProviderId::GITHUB_COPILOT);
         let error_string = format!("{:#}", actual);
         insta::assert_snapshot!(error_string);
+    }
+
+    #[test]
+    fn test_enhance_error_scaleway_project_permissions() {
+        let fixture =
+            anyhow::anyhow!("403 FORBIDDEN: insufficient permissions to access the resource");
+
+        let actual = enhance_error(fixture, &ProviderId::SCALEWAY);
+
+        let expected = "The Scaleway API key cannot access the configured SCW_PROJECT_ID. Leave the project ID blank to use the default project, or grant the key GenerativeApisModelAccess for that project.";
+        assert_eq!(actual.to_string(), expected);
     }
 
     #[test]

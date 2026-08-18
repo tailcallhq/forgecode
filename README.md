@@ -651,6 +651,29 @@ model: claude-3.7-sonnet
 </details>
 
 <details>
+<summary><strong><a href="https://www.scaleway.com/en/docs/generative-apis/api-cli/using-generative-apis/">Scaleway Generative APIs</a></strong></summary>
+
+```bash
+forge provider login scaleway
+# Enter your SCW_SECRET_KEY.
+# SCW_PROJECT_ID is optional; leave it blank to use the default project.
+```
+
+```yaml
+# forge.yaml
+model: glm-5.2
+```
+
+Legacy environment-variable setup:
+
+```bash
+SCW_SECRET_KEY=<your_scaleway_secret_key>
+SCW_PROJECT_ID=<optional_project_id>
+```
+
+</details>
+
+<details>
 <summary><strong>Google Vertex AI</strong></summary>
 
 **Setup Instructions:**
