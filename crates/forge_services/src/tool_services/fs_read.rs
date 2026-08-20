@@ -31,19 +31,30 @@ fn truncate_line(line: &str, max_length: usize) -> String {
 
 /// Detects the MIME type of a file based on extension and content
 fn detect_mime_type(path: &Path, content: &[u8]) -> String {
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_ascii_lowercase);
+
+    // Text extensions are authoritative because source files can contain
+    // embedded magic-byte literals that infer would otherwise misclassify.
+    match extension.as_deref() {
+        Some(
+            "txt" | "md" | "rs" | "toml" | "yaml" | "yml" | "json" | "js" | "ts" | "py" | "sh",
+        ) => return "text/plain".to_string(),
+        Some("ipynb") => return "application/json".to_string(),
+        _ => {}
+    }
+
     // Try infer crate first (checks magic numbers)
     if let Some(file_type) = infer::get(content) {
         return file_type.mime_type().to_string();
     }
 
     // Fallback to extension-based detection
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| match ext.to_lowercase().as_str() {
-            "txt" | "md" | "rs" | "toml" | "yaml" | "yml" | "json" | "js" | "ts" | "py" | "sh" => {
-                "text/plain"
-            }
-            "ipynb" => "application/json",
+    extension
+        .as_deref()
+        .map(|ext| match ext {
             "pdf" => "application/pdf",
             "jpg" | "jpeg" => "image/jpeg",
             "png" => "image/png",
@@ -211,12 +222,21 @@ impl<F: FileInfoInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + I
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use pretty_assertions::assert_eq;
     use tempfile::NamedTempFile;
     use tokio::fs;
 
     use super::*;
-    use crate::attachment::tests::MockFileService;
+    use crate::attachment::tests::{MockCompositeService, MockFileService};
+
+    fn typescript_with_embedded_pdf_magic() -> String {
+        let mut fixture = "// ".to_string();
+        fixture.push_str(&" ".repeat(449 - fixture.len()));
+        fixture.push_str("%PDF-1.4");
+        fixture
+    }
 
     // Helper to create a temporary file with specific content size
     async fn create_test_file_with_size(size: usize) -> anyhow::Result<NamedTempFile> {
@@ -331,11 +351,55 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_mime_type_for_typescript_with_embedded_pdf_magic() {
+        let fixture = typescript_with_embedded_pdf_magic();
+        let actual = (
+            fixture.find("%PDF"),
+            detect_mime_type(Path::new("kind.ts"), fixture.as_bytes()),
+        );
+        let expected = (Some(449), "text/plain".to_string());
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_detect_mime_type_prefers_known_text_extensions() {
+        let fixture = [
+            "txt", "md", "rs", "toml", "yaml", "yml", "json", "js", "ts", "py", "sh",
+        ];
+        let content = typescript_with_embedded_pdf_magic();
+        let actual = fixture.map(|extension| {
+            let path = PathBuf::from(format!("source.{extension}"));
+            detect_mime_type(&path, content.as_bytes())
+        });
+        let expected = fixture.map(|_| "text/plain".to_string());
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn test_fs_read_returns_typescript_with_embedded_pdf_magic_as_text() {
+        let path = PathBuf::from("/test/src/media/kind.ts");
+        let source = typescript_with_embedded_pdf_magic();
+        let infra = Arc::new(MockCompositeService::new());
+        infra.add_file(path.clone(), source.clone());
+        let fixture = ForgeFsRead::new(infra);
+        let output = fixture
+            .read(path.display().to_string(), None, None)
+            .await
+            .unwrap();
+        let actual = (output.content.file_content().to_string(), output.info);
+        let expected = (
+            source.clone(),
+            FileInfo::new(1, 2000, 1, compute_hash(&source)),
+        );
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_detect_mime_type_for_ipynb() {
-        let path = Path::new("notebook.ipynb");
-        let content = b"{\"cells\": []}";
-        let actual = detect_mime_type(path, content);
-        assert_eq!(actual, "application/json");
+        let fixture = typescript_with_embedded_pdf_magic();
+        let actual = detect_mime_type(Path::new("notebook.ipynb"), fixture.as_bytes());
+        let expected = "application/json";
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -363,6 +427,37 @@ mod tests {
         let content = b"\xFF\xD8\xFF";
         let actual = detect_mime_type(path, content);
         assert_eq!(actual, "image/jpeg");
+    }
+
+    #[test]
+    fn test_detect_mime_type_from_content_without_known_extension() {
+        let fixture = [
+            ("document", b"header%PDF-1.4".as_slice()),
+            ("image", b"\x89PNG\r\n\x1a\n".as_slice()),
+            ("photo.unknown", b"\xFF\xD8\xFF".as_slice()),
+            ("archive", b"PK\x03\x04".as_slice()),
+        ];
+        let actual = fixture.map(|(path, content)| detect_mime_type(Path::new(path), content));
+        let expected = [
+            "application/pdf".to_string(),
+            "image/png".to_string(),
+            "image/jpeg".to_string(),
+            "application/zip".to_string(),
+        ];
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_detect_mime_type_uses_extension_fallback() {
+        let fixture = ["document.pdf", "image.png", "photo.jpg", "animation.gif"];
+        let actual = fixture.map(|path| detect_mime_type(Path::new(path), b"not magic bytes"));
+        let expected = [
+            "application/pdf".to_string(),
+            "image/png".to_string(),
+            "image/jpeg".to_string(),
+            "image/gif".to_string(),
+        ];
+        assert_eq!(actual, expected);
     }
 
     #[test]
