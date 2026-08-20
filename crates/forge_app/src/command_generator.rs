@@ -128,6 +128,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use forge_domain::{
         AuthCredential, AuthDetails, AuthMethod, ChatCompletionMessage, Content, FinishReason,
         ModelSource, ProviderId, ProviderResponse, ResultStream, Role,
@@ -200,7 +202,8 @@ mod tests {
             &self,
             _ops: Vec<forge_domain::ConfigOperation>,
         ) -> anyhow::Result<()> {
-            unimplemented!()
+            // Test double: no environment to persist.
+            Ok(())
         }
 
         fn get_env_var(&self, key: &str) -> Option<String> {
@@ -209,6 +212,10 @@ mod tests {
 
         fn get_env_vars(&self) -> std::collections::BTreeMap<String, String> {
             self.env_vars.clone()
+        }
+
+        async fn database_stats(&self) -> anyhow::Result<forge_domain::HeliosdoctorDbStats> {
+            Ok(forge_domain::HeliosdoctorDbStats::default())
         }
     }
 
@@ -320,6 +327,43 @@ mod tests {
 
         async fn update_config(&self, _ops: Vec<forge_domain::ConfigOperation>) -> Result<()> {
             Ok(())
+        }
+
+        async fn heliosdoctor(&self) -> anyhow::Result<forge_domain::HeliosdoctorInfo> {
+            self.heliosdoctor_verbose(false).await
+        }
+
+        async fn heliosdoctor_verbose(
+            &self,
+            verbose: bool,
+        ) -> anyhow::Result<forge_domain::HeliosdoctorInfo> {
+            Ok(forge_domain::HeliosdoctorInfo {
+                version: "test".to_string(),
+                binary_stem: "forge".to_string(),
+                base_path: "/test".into(),
+                db_path: "/test/forge.db".into(),
+                updater_repo: "test/repo".to_string(),
+                updater_binary: "forge".to_string(),
+                config_source: "test".to_string(),
+                db_stats: verbose.then(forge_domain::HeliosdoctorDbStats::default),
+                write_db_path: None,
+                legacy_db_path: None,
+            })
+        }
+
+        async fn heliosdoctor_integrity(&self) -> anyhow::Result<forge_domain::HeliosdoctorInfo> {
+            Ok(forge_domain::HeliosdoctorInfo {
+                version: "test".to_string(),
+                binary_stem: "forge".to_string(),
+                base_path: PathBuf::from("/tmp"),
+                db_path: PathBuf::from("/tmp/.forge.db"),
+                updater_repo: "test/repo".to_string(),
+                updater_binary: "forge".to_string(),
+                config_source: "default".to_string(),
+                db_stats: None,
+                write_db_path: None,
+                legacy_db_path: None,
+            })
         }
     }
 

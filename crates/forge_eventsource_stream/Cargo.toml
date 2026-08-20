@@ -1,7 +1,8 @@
 [package]
 name = "forge_eventsource_stream"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
 
 [features]
@@ -16,6 +17,6 @@ pin-project-lite = "0.2.8"
 [dev-dependencies]
 futures = "0.3"
 http = "1.0"
-reqwest = { version = "0.11", features = ["stream"] }
+reqwest.workspace = true
 tokio = { version = "1.0", features = ["macros", "rt"] }
 url = "2.2"

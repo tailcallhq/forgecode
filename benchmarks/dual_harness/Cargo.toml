@@ -1,0 +1,21 @@
+[package]
+name = "dual_harness"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Dual-harness shared-3task.v1 process_smoke adapter for forgecode (FR-DH-001)"
+publish = false
+
+[[bin]]
+name = "dual_harness_shared_3task"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "time", "io-util"] }
+
+[dev-dependencies]
+tempfile.workspace = true

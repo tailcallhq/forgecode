@@ -1,5 +1,17 @@
 name-template: "v$RESOLVED_VERSION"
 tag-template: "v$RESOLVED_VERSION"
+# The version-resolver derives the next version from the last PUBLISHED
+# release, which lags the fork's synced upstream version (the fork only
+# publishes on its own release point while syncing code to upstream v2.13.x
+# tags). Without an override, every main push drafts "v2.10.9" and bakes
+# APP_VERSION=2.10.9 into release assets built from 2.13.21-synced code.
+#
+# NOTE: this file's `version:` key is NOT honored by the pinned
+# release-drafter action; the override lives as the action's `version` input
+# in the forge_ci-generated workflows (.github/workflows/ci.yml and
+# .github/workflows/release-drafter.yml), sourced from
+# forge_ci::jobs::FORK_RELEASE_VERSION. Bump that constant (h-block) on each
+# fork release and keep its upstream block in step with the sync.
 categories:
   - title: "🚀 Features"
     labels:

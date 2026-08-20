@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/KooshaPari/forgecode/docs/contracts/provider-models/resilience-policy.schema.json",
+  "title": "ResiliencePolicy",
+  "description": "Contract v1.0.0. Retry/backoff parameter schema and retryable-error taxonomy shared across forgecode (Rust), OmniRoute (TypeScript), and cliproxy (Go). The backoff algorithm (exponential-with-jitter) is language-native in each repo; this contract defines the PARAMETER SET and the RETRYABLE-ERROR classification that must be consistent across implementations. Also cross-references the SSE terminal-marker rule set (see sse_stop_reference).",
+  "version": "1.0.0",
+  "type": "object",
+  "required": [],
+  "properties": {
+    "retry_policy": {
+      "type": "object",
+      "description": "Exponential-backoff-with-jitter parameter set. Reference implementation: forge_config::RetryConfig + forge_app::retry::retry_with_config (backon ExponentialBuilder).",
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 8,
+          "description": "Maximum number of retry attempts (excluding the initial attempt). After max_attempts retries the error is propagated to the caller. forgecode default: 8 (RetryConfig.max_attempts). OmniRoute: MAX_REQUEST_RETRY = 10. cliproxy: varies per executor (typically 3–5). Set to 0 to disable retries."
+        },
+        "initial_backoff_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 200,
+          "description": "Delay (milliseconds) before the first retry attempt. forgecode: RetryConfig.initial_backoff_ms = 200. OmniRoute: base cooldown ~200 ms. cliproxy: base backoff ~200 ms."
+        },
+        "min_delay_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1000,
+          "description": "Minimum delay (milliseconds) between any two retry attempts after backoff is applied. Acts as a floor: delay = max(min_delay_ms, computed_backoff). forgecode: RetryConfig.min_delay_ms = 1000."
+        },
+        "backoff_factor": {
+          "type": "number",
+          "minimum": 1.0,
+          "default": 2.0,
+          "description": "Exponential backoff multiplication factor. delay_n = initial_backoff_ms * backoff_factor^n. forgecode: RetryConfig.backoff_factor = 2 (passed as f32 to backon ExponentialBuilder.with_factor). OmniRoute: minRetryCooldownMs * 2^(failures-1). cliproxy: base * 2^attempt."
+        },
+        "max_delay_secs": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "default": null,
+          "description": "Cap on the computed backoff delay (seconds). When null, no cap is applied (rely on max_attempts). forgecode: RetryConfig.max_delay_secs (optional). OmniRoute: no explicit cap. cliproxy: varies per executor."
+        },
+        "jitter": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to apply uniform random jitter to each retry delay to prevent thundering-herd. forgecode: always on (backon ExponentialBuilder.with_jitter()). OmniRoute: implicit (random spread in cooldown). cliproxy: backoffWithJitter applies explicit jitter."
+        },
+        "suppress_errors": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, retry error events and log lines are suppressed. Used by forgecode for background/non-critical operations (RetryConfig.suppress_errors). Not modeled in OmniRoute or cliproxy."
+        }
+      },
+      "additionalProperties": false
+    },
+    "retryable_error_taxonomy": {
+      "type": "object",
+      "description": "Classification of which errors / HTTP status codes MUST trigger a retry (normative). Implementations MUST retry on all listed status codes and MUST NOT retry on non-listed codes (to avoid amplifying 4xx client errors). Reference: forge_domain::Error::Retryable, forge_config::RetryConfig.status_codes.",
+      "properties": {
+        "retryable_http_status_codes": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 100, "maximum": 599 },
+          "uniqueItems": true,
+          "default": [408, 429, 500, 502, 503, 504, 520, 522, 524, 529],
+          "description": "HTTP status codes that indicate a transient server-side or network error and MUST trigger a retry. Rationale per code: 408 (Request Timeout), 429 (Rate Limited — observe Retry-After if present), 500 (Internal Server Error), 502 (Bad Gateway), 503 (Service Unavailable), 504 (Gateway Timeout), 520/522/524/529 (Cloudflare transient errors). forgecode source: RetryConfig.status_codes default in forge_config/src/retry.rs."
+        },
+        "non_retryable_http_status_codes": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 100, "maximum": 599 },
+          "description": "HTTP status codes that indicate permanent or client-side failures and MUST NOT be retried. Enumerated here for clarity; this list is non-exhaustive — any code not in retryable_http_status_codes is implicitly non-retryable.",
+          "default": [400, 401, 403, 404, 405, 409, 410, 413, 422, 451]
+        },
+        "retryable_error_kinds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [
+            "network_timeout",
+            "connection_reset",
+            "connection_refused",
+            "dns_resolution_failure",
+            "tls_handshake_timeout",
+            "read_timeout"
+          ],
+          "description": "Transport-level error categories that MUST trigger a retry regardless of HTTP status code (e.g. connection dropped before response). forgecode: these map to anyhow errors wrapped in forge_domain::Error::Retryable. OmniRoute: network errors escalated in retry logic. cliproxy: connection-level errors in executor retry paths."
+        },
+        "non_retryable_error_kinds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [
+            "invalid_api_key",
+            "malformed_request",
+            "context_length_exceeded",
+            "content_policy_violation",
+            "model_not_found"
+          ],
+          "description": "Error categories that represent permanent failures and MUST NOT trigger a retry. Retrying these wastes quota and can cause cascading failures."
+        },
+        "retry_after_semantics": {
+          "type": "string",
+          "const": "observe_if_present",
+          "description": "When an HTTP 429 response includes a Retry-After header, implementations SHOULD wait at least that duration before the next attempt, overriding the computed backoff delay. This is a SHOULD (not MUST) because some providers emit unreliable Retry-After values."
+        }
+      },
+      "additionalProperties": false
+    },
+    "sse_stop_reference": {
+      "type": "object",
+      "description": "Cross-reference to the SSE terminal-marker rule set. The retry and SSE-reconnect layers are distinct: the SSE reconnect retry (forge_eventsource/src/retry.rs, ~120 LOC) uses its own state machine and MUST NOT be conflated with the HTTP-request retry loop above. SSE-level reconnects are triggered by connection drops, not by the terminal-marker rules.",
+      "properties": {
+        "sse_retry_scope": {
+          "type": "string",
+          "const": "sse_reconnect_only",
+          "description": "The SSE-specific retry loop (forge_eventsource) handles connection-level reconnects on stream drop. It is separate from the HTTP retry loop (forge_app::retry). Do not apply HTTP retry parameters to SSE reconnect, and vice versa."
+        },
+        "terminal_marker_schema_ref": {
+          "type": "string",
+          "const": "provider-model.schema.json#/$defs/SseStopRule",
+          "description": "The normative SSE terminal-marker rule set (SseStopRule) lives in provider-model.schema.json. The is_sse_terminal helper (forge_eventsource::is_sse_terminal, landed in P5.1) is the reference Rust implementation."
+        },
+        "is_sse_terminal_reference": {
+          "type": "string",
+          "const": "forge_eventsource::is_sse_terminal",
+          "description": "Canonical Rust implementation of the SSE stop-signal detector, consolidated from 3 internal duplicates (event.rs, openai_responses/repository.rs, anthropic.rs) in P5.1. OmniRoute: sseTextTransform.checkIfStopSignal + streamTracker. cliproxy: stream_forwarder + kiro_openai_stream."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$comment": "Cross-repo alignment notes: (1) forgecode uses backon crate (ExponentialBuilder) — parameters map directly to this schema. (2) OmniRoute implements backoff inline in resilience/settings.ts and sse/services/cooldownAwareRetry.ts — MAX_REQUEST_RETRY=10 differs from forgecode default of 8; teams should align or document the divergence. (3) cliproxy uses per-executor bespoke backoff (kiro/jitter.go, rate_limiter.go) — align base/factor/max to this schema. (4) The SSE reconnect retry (forge_eventsource) is explicitly out of scope for the HTTP retry parameters above."
+}

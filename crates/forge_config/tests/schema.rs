@@ -2,11 +2,12 @@ use std::path::Path;
 
 use forge_config::ForgeConfig;
 use pretty_assertions::assert_eq;
+use serde_json::Value;
 
 #[tokio::test]
 async fn generate_workflow_schema() -> anyhow::Result<()> {
     let schema = schemars::schema_for!(ForgeConfig);
-    let generated_schema = serde_json::to_string_pretty(&schema)?;
+    let generated_schema = format_schema(serde_json::to_value(&schema)?);
 
     // Use the crate root directory for the schema file
     let crate_root = env!("CARGO_MANIFEST_DIR");
@@ -27,4 +28,29 @@ async fn generate_workflow_schema() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn format_schema(mut schema: Value) -> String {
+    sort_json_objects(&mut schema);
+    serde_json::to_string_pretty(&schema).expect("schema value should serialize")
+}
+
+fn sort_json_objects(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            let mut entries: Vec<_> = std::mem::take(object).into_iter().collect();
+            entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+            for (key, mut child) in entries {
+                sort_json_objects(&mut child);
+                object.insert(key, child);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                sort_json_objects(child);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
 }

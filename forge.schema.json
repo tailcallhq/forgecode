@@ -1,428 +1,75 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "ForgeConfig",
-  "description": "Top-level Forge configuration merged from all sources (defaults, file,\nenvironment).",
-  "type": "object",
-  "properties": {
-    "auto_dump": {
-      "description": "Format used when automatically creating a session dump after task\ncompletion; disabled when absent.",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/AutoDumpFormat"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "auto_install_vscode_extension": {
-      "description": "Enables automatic VS Code extension installation when Forge runs inside\nVS Code and the extension is not already installed.",
-      "type": "boolean",
-      "default": false
-    },
-    "auto_open_dump": {
-      "description": "Whether to automatically open HTML dump files in the browser after\ncreation.",
-      "type": "boolean",
-      "default": false
-    },
-    "commit": {
-      "description": "Model and provider configuration used for commit message generation.",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ModelConfig"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "compact": {
-      "description": "Context compaction settings applied to all agents; falls back to each\nagent's individual setting when absent.",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Compact"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "currency_conversion_rate": {
-      "description": "Conversion rate applied to costs before display in the shell rprompt.\nThe raw USD cost is multiplied by this value, allowing costs to be shown\nin a local currency. Defaults to `1.0` (no conversion).",
-      "$ref": "#/$defs/double",
-      "default": 0.0
-    },
-    "currency_symbol": {
-      "description": "Currency symbol displayed in the shell rprompt next to the session cost\n(e.g. `\"$\"`, `\"€\"`, `\"₹\"`). Defaults to `\"$\"`.",
-      "type": "string",
-      "default": ""
-    },
-    "custom_history_path": {
-      "description": "Path to the conversation history file; defaults to the global history\nlocation when absent.",
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "debug_requests": {
-      "description": "Directory where debug request files are written; disabled when absent.",
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "http": {
-      "description": "HTTP client settings including proxy, TLS, and timeout configuration.",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/HttpConfig"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "max_commit_count": {
-      "description": "Maximum number of recent commits included as context for commit message\ngeneration.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_conversations": {
-      "description": "Maximum number of conversations shown in the conversation list.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_extensions": {
-      "description": "Maximum number of file extensions included in the agent system prompt.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_fetch_chars": {
-      "description": "Maximum number of characters returned from a URL fetch.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_file_read_batch_size": {
-      "description": "Maximum number of files read in a single batch operation.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_file_size_bytes": {
-      "description": "Maximum file size in bytes permitted for read operations.",
-      "type": "integer",
-      "format": "uint64",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_image_size_bytes": {
-      "description": "Maximum image file size in bytes permitted for read operations.",
-      "type": "integer",
-      "format": "uint64",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_line_chars": {
-      "description": "Maximum number of characters per line when reading a file.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_parallel_file_reads": {
-      "description": "Maximum number of files read concurrently during batch operations.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_read_lines": {
-      "description": "Maximum number of lines read from a file in a single operation.",
-      "type": "integer",
-      "format": "uint64",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_requests_per_turn": {
-      "description": "Maximum number of requests that can be made in a single turn.",
-      "type": [
-        "integer",
-        "null"
-      ],
-      "format": "uint",
-      "minimum": 0
-    },
-    "max_search_lines": {
-      "description": "Maximum number of lines returned by a single file search operation.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_search_result_bytes": {
-      "description": "Maximum number of bytes returned by a single file search operation.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_sem_search_results": {
-      "description": "Maximum number of candidate results returned from the initial semantic\nsearch vector query.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_stdout_line_chars": {
-      "description": "Maximum number of characters per line in shell command output.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_stdout_prefix_lines": {
-      "description": "Maximum number of lines captured from the leading portion of shell\ncommand output.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_stdout_suffix_lines": {
-      "description": "Maximum number of lines captured from the trailing portion of shell\ncommand output.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "max_tokens": {
-      "description": "Maximum tokens the model may generate per response for all agents\n(1–100,000).",
-      "type": [
-        "integer",
-        "null"
-      ],
-      "format": "uint32",
-      "minimum": 0
-    },
-    "max_tool_failure_per_turn": {
-      "description": "Maximum tool failures per turn before the orchestrator forces\ncompletion.",
-      "type": [
-        "integer",
-        "null"
-      ],
-      "format": "uint",
-      "minimum": 0
-    },
-    "merge_system_messages": {
-      "description": "When `true`, all system messages in the conversation are merged into a\nsingle leading system message before the request is sent. Enable this\nfor providers that reject requests containing system messages after\nuser or assistant turns (e.g. vLLM, NVIDIA NIM).",
-      "type": "boolean",
-      "default": false
-    },
-    "model_cache_ttl_secs": {
-      "description": "Time-to-live in seconds for the cached model API list.",
-      "type": "integer",
-      "format": "uint64",
-      "default": 0,
-      "minimum": 0
-    },
-    "providers": {
-      "description": "Additional provider definitions merged with the built-in provider list.\n\nEntries with an `id` matching a built-in provider override its fields;\nentries with a new `id` are appended and become available for model\nselection.",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/ProviderEntry"
-      }
-    },
-    "reasoning": {
-      "description": "Reasoning configuration applied to all agents; controls effort level,\ntoken budget, and visibility of the model's thinking process.",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ReasoningConfig"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "research_subagent": {
-      "description": "Whether the deep research agent is available.\n\nWhen set to `true`, the Sage agent is added to the agent list and\nthe `:sage` app command is enabled. Defaults to `false`.",
-      "type": "boolean",
-      "default": false
-    },
-    "restricted": {
-      "description": "Whether restricted mode is active; when enabled, tool execution requires\nexplicit permission grants.",
-      "type": "boolean",
-      "default": false
-    },
-    "retry": {
-      "description": "Retry settings applied at the system level to all IO operations.",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/RetryConfig"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "sem_search_top_k": {
-      "description": "Number of top results retained after re-ranking in semantic search.",
-      "type": "integer",
-      "format": "uint",
-      "default": 0,
-      "minimum": 0
-    },
-    "services_url": {
-      "description": "Base URL of the Forge services API used for semantic search and\nindexing.",
-      "type": "string",
-      "default": ""
-    },
-    "session": {
-      "description": "Default model and provider configuration used when not overridden by\nindividual agents.",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ModelConfig"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "subagents": {
-      "description": "Enables subagent support via the task tool; when true the forge agent\ngains access to the `task` tool for delegating work to specialised\nsub-agents, and the `sage` research-only agent tool is removed.\nWhen false the `task` tool is disabled and `sage` is available instead.",
-      "type": "boolean",
-      "default": false
-    },
-    "suggest": {
-      "description": "Model and provider configuration used for shell command suggestion\ngeneration.",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ModelConfig"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "temperature": {
-      "description": "Output randomness for all agents; lower values are deterministic, higher\nvalues are creative (0.0–2.0).",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/double"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "tool_supported": {
-      "description": "Whether tool use is supported in the current environment; when false,\nall tool calls are disabled.",
-      "type": "boolean",
-      "default": false
-    },
-    "tool_timeout_secs": {
-      "description": "Maximum time in seconds a single tool call may run before being\ncancelled.",
-      "type": "integer",
-      "format": "uint64",
-      "default": 0,
-      "minimum": 0
-    },
-    "top_k": {
-      "description": "Top-k vocabulary cutoff for all agents; restricts sampling to the k\nhighest-probability tokens (1–1000).",
-      "type": [
-        "integer",
-        "null"
-      ],
-      "format": "uint32",
-      "minimum": 0
-    },
-    "top_p": {
-      "description": "Nucleus sampling threshold for all agents; limits token selection to the\ntop cumulative probability mass (0.0–1.0).",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/double"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "updates": {
-      "description": "Configuration for automatic Forge updates.",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Update"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "use_forge_committer": {
-      "description": "Whether `forge commit` should override `GIT_COMMITTER_NAME` and\n`GIT_COMMITTER_EMAIL` with the Forge identity. Defaults to `true` via\nthe embedded `.forge.toml` defaults.",
-      "type": "boolean",
-      "default": false
-    },
-    "use_text_patch_fallback": {
-      "description": "Switches patch replacement fallback from the legacy fuzzy-search range\nlookup to the newer text-patch gRPC API.\nDefaults to `false` so patching continues to use the legacy fallback\nbehavior unless explicitly enabled in `forge.toml`.",
-      "type": "boolean",
-      "default": false
-    },
-    "verify_todos": {
-      "description": "Enables the pending todos hook that checks for incomplete todo items\nwhen a task ends and reminds the LLM about them.",
-      "type": "boolean",
-      "default": false
-    }
-  },
   "$defs": {
     "AutoDumpFormat": {
       "description": "The output format used when auto-dumping a conversation on task completion.",
       "oneOf": [
         {
+          "const": "json",
           "description": "Dump as a JSON file",
-          "type": "string",
-          "const": "json"
+          "type": "string"
         },
         {
+          "const": "html",
           "description": "Dump as an HTML file",
-          "type": "string",
-          "const": "html"
+          "type": "string"
         }
       ]
     },
     "Compact": {
       "description": "Configuration for automatic context compaction for all agents",
-      "type": "object",
       "properties": {
+        "compression_strategy": {
+          "$ref": "#/$defs/CompressionStrategy",
+          "default": "token_prune",
+          "description": "Programmatic compression strategy for context reduction.\n`TokenPrune` removes low-information tokens (default, fast, no API\ncost). `StructuralDedup` merges similar tool calls and file reads.\n`SemanticCompress` uses embeddings to cluster and merge related\nmessages."
+        },
+        "enable_adaptive_eviction": {
+          "default": false,
+          "description": "Enable adaptive eviction window that adjusts based on context ratio.\nMore aggressive eviction when approaching token threshold.",
+          "type": "boolean"
+        },
+        "enable_importance_scoring": {
+          "default": false,
+          "description": "Enable importance-based message preservation during eviction.\nHigh-importance messages (tool calls, errors, decisions) are protected.",
+          "type": "boolean"
+        },
+        "enable_prefilter": {
+          "default": false,
+          "description": "Enable pre-compaction filtering to remove noise before summarization.\nRemoves short tool results, debug output, and duplicate operations.",
+          "type": "boolean"
+        },
+        "enable_structural_dedup": {
+          "default": false,
+          "description": "Enable structural deduplication of similar tool calls and file reads.",
+          "type": "boolean"
+        },
+        "enable_token_prune": {
+          "default": false,
+          "description": "Enable programmatic token pruning (removes whitespace, comments,\nboilerplate from message content). No API cost, deterministic.",
+          "type": "boolean"
+        },
         "eviction_window": {
-          "description": "Maximum percentage of the context that can be summarized during\ncompaction. Valid values are between 0.0 and 1.0, where 0.0 means no\ncompaction and 1.0 allows summarizing all messages. Works alongside\nretention_window - the more conservative limit (fewer messages to\ncompact) takes precedence.",
           "$ref": "#/$defs/double",
-          "default": 0.0
+          "default": 0.0,
+          "description": "Maximum percentage of the context that can be summarized during\ncompaction. Valid values are between 0.0 and 1.0, where 0.0 means no\ncompaction and 1.0 allows summarizing all messages. Works alongside\nretention_window - the more conservative limit (fewer messages to\ncompact) takes precedence."
         },
         "max_tokens": {
           "description": "Maximum number of tokens to keep after compaction",
+          "format": "uint",
+          "minimum": 0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0
+          ]
         },
         "message_threshold": {
           "description": "Maximum number of messages before triggering compaction",
+          "format": "uint",
+          "minimum": 0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0
+          ]
         },
         "model": {
           "description": "Model ID to use for compaction, useful when compacting with a\ncheaper/faster model. If not specified, the root level model will be\nused.",
@@ -438,24 +85,64 @@
             "null"
           ]
         },
-        "retention_window": {
-          "description": "Number of most recent messages to preserve during compaction.\nThese messages won't be considered for summarization. Works alongside\neviction_window - the more conservative limit (fewer messages to\ncompact) takes precedence.",
-          "type": "integer",
-          "format": "uint",
-          "default": 0,
-          "minimum": 0
+        "prune_strategy": {
+          "$ref": "#/$defs/PruneStrategy",
+          "default": "age_based",
+          "description": "AI-driven pruning strategy for message eviction during compaction.\n`AgeBased` evicts oldest first (default).\n`ImportanceBased` evicts lowest-importance messages.\n`Hybrid` combines both, protecting high-importance messages."
         },
-        "token_threshold": {
-          "description": "Maximum number of tokens before triggering compaction. This acts as an\nabsolute cap and is combined with\n`token_threshold_percentage` by taking the lower value.",
+        "retention_window": {
+          "default": 0,
+          "description": "Number of most recent messages to preserve during compaction.\nThese messages won't be considered for summarization. Works alongside\neviction_window - the more conservative limit (fewer messages to\ncompact) takes precedence.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "semantic_compress_threshold": {
+          "description": "Token threshold for semantic compression (messages above this ratio\nof total context are candidates for semantic compression).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "summarization_strategy": {
+          "$ref": "#/$defs/SummarizationStrategy",
+          "default": "extract",
+          "description": "Strategy for generating summaries during compaction.\n- `extract`: Pure structural extraction (default, fast, no API cost)\n- `llm`: Full LLM summarization (higher quality, requires API)\n- `hybrid`: Extract + LLM refinement (balanced)"
+        },
+        "summary_max_tokens": {
+          "description": "Maximum tokens in generated summary. Helps control output size.",
+          "format": "uint",
+          "minimum": 0,
           "type": [
             "integer",
             "null"
-          ],
+          ]
+        },
+        "summary_model": {
+          "description": "Model ID to use for LLM-based summarization. If not specified,\nfalls back to `model` or the root level model.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "summary_timeout_secs": {
+          "default": 3,
+          "description": "Timeout for LLM summarization in seconds. If exceeded, falls back\nto structural extraction.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "token_threshold": {
+          "description": "Maximum number of tokens before triggering compaction. This acts as an\nabsolute cap and is combined with\n`token_threshold_percentage` by taking the lower value.",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "token_threshold_percentage": {
-          "description": "Maximum percentage of the model context window used to derive the token\nthreshold before triggering compaction. This is combined with\n`token_threshold` by taking the lower value.",
           "anyOf": [
             {
               "$ref": "#/$defs/double"
@@ -463,62 +150,96 @@
             {
               "type": "null"
             }
+          ],
+          "description": "Maximum percentage of the model context window used to derive the token\nthreshold before triggering compaction. This is combined with\n`token_threshold` by taking the lower value."
+        },
+        "trunc_mode": {
+          "$ref": "#/$defs/SemanticTruncMode",
+          "default": "fixed",
+          "description": "Semantic truncation mode for tool results and long outputs.\n`Fixed` truncates at token count (default).\n`BoundaryAware` truncates at sentence/paragraph boundaries.\n`SemanticKeep` uses similarity to keep the most informative portion."
+        },
+        "trunc_ratio": {
+          "description": "Maximum token ratio of a single tool result to keep before truncation.\nMessages exceeding this ratio of the context window are truncated.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
           ]
         },
         "turn_threshold": {
           "description": "Maximum number of conversation turns before triggering compaction",
+          "format": "uint",
+          "minimum": 0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0
+          ]
         }
-      }
+      },
+      "type": "object"
+    },
+    "CompressionStrategy": {
+      "description": "Programmatic compression strategy for context reduction.",
+      "oneOf": [
+        {
+          "const": "token_prune",
+          "description": "Remove low-information tokens (whitespace, comments, boilerplate).\nFast, deterministic, no API cost.",
+          "type": "string"
+        },
+        {
+          "const": "structural_dedup",
+          "description": "Structural deduplication - merge similar tool calls and file reads.",
+          "type": "string"
+        },
+        {
+          "const": "semantic_compress",
+          "description": "Semantic compression using embeddings - cluster and merge related\nmessages, preserving decision points and key facts.",
+          "type": "string"
+        }
+      ]
     },
     "Effort": {
       "description": "Effort level for model reasoning.",
       "oneOf": [
         {
+          "const": "none",
           "description": "No reasoning; skips the thinking step entirely.",
-          "type": "string",
-          "const": "none"
+          "type": "string"
         },
         {
+          "const": "minimal",
           "description": "Minimal reasoning; fastest and cheapest.",
-          "type": "string",
-          "const": "minimal"
+          "type": "string"
         },
         {
+          "const": "low",
           "description": "Low reasoning effort.",
-          "type": "string",
-          "const": "low"
+          "type": "string"
         },
         {
+          "const": "medium",
           "description": "Medium reasoning effort; the default for most providers.",
-          "type": "string",
-          "const": "medium"
+          "type": "string"
         },
         {
+          "const": "high",
           "description": "High reasoning effort.",
-          "type": "string",
-          "const": "high"
+          "type": "string"
         },
         {
+          "const": "xhigh",
           "description": "Extra-high reasoning effort (OpenAI / OpenRouter).",
-          "type": "string",
-          "const": "xhigh"
+          "type": "string"
         },
         {
+          "const": "max",
           "description": "Maximum reasoning effort; only available on select Anthropic models.",
-          "type": "string",
-          "const": "max"
+          "type": "string"
         }
       ]
     },
     "HttpConfig": {
       "description": "HTTP client configuration.",
-      "type": "object",
       "properties": {
         "accept_invalid_certs": {
           "description": "Accept invalid certificates",
@@ -529,39 +250,35 @@
           "type": "boolean"
         },
         "connect_timeout_secs": {
-          "type": "integer",
           "format": "uint64",
-          "minimum": 0
-        },
-        "hickory": {
-          "type": "boolean"
+          "minimum": 0,
+          "type": "integer"
         },
         "keep_alive_interval_secs": {
           "description": "Keep-alive interval in seconds",
+          "format": "uint64",
+          "minimum": 0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint64",
-          "minimum": 0
+          ]
         },
         "keep_alive_timeout_secs": {
           "description": "Keep-alive timeout in seconds",
-          "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "keep_alive_while_idle": {
           "description": "Keep-alive while connection is idle",
           "type": "boolean"
         },
         "max_redirects": {
-          "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "max_tls_version": {
-          "description": "Maximum TLS protocol version to use",
           "anyOf": [
             {
               "$ref": "#/$defs/TlsVersion"
@@ -569,10 +286,10 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Maximum TLS protocol version to use"
         },
         "min_tls_version": {
-          "description": "Minimum TLS protocol version to use",
           "anyOf": [
             {
               "$ref": "#/$defs/TlsVersion"
@@ -580,32 +297,33 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Minimum TLS protocol version to use"
         },
         "pool_idle_timeout_secs": {
-          "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "pool_max_idle_per_host": {
-          "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "read_timeout_secs": {
-          "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "root_cert_paths": {
           "description": "Paths to root certificate files",
+          "items": {
+            "type": "string"
+          },
           "type": [
             "array",
             "null"
-          ],
-          "items": {
-            "type": "string"
-          }
+          ]
         },
         "tls_backend": {
           "$ref": "#/$defs/TlsBackend"
@@ -617,39 +335,38 @@
         "pool_idle_timeout_secs",
         "pool_max_idle_per_host",
         "max_redirects",
-        "hickory",
         "tls_backend",
         "adaptive_window",
         "keep_alive_timeout_secs",
         "keep_alive_while_idle",
         "accept_invalid_certs"
-      ]
+      ],
+      "type": "object"
     },
     "InputModality": {
       "description": "Represents input modalities that a model can accept",
       "oneOf": [
         {
+          "const": "text",
           "description": "Text input (all models support this)",
-          "type": "string",
-          "const": "text"
+          "type": "string"
         },
         {
+          "const": "image",
           "description": "Image input (vision-capable models)",
-          "type": "string",
-          "const": "image"
+          "type": "string"
         }
       ]
     },
     "Model": {
-      "type": "object",
       "properties": {
         "context_length": {
+          "format": "uint64",
+          "minimum": 0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint64",
-          "minimum": 0
+          ]
         },
         "description": {
           "type": [
@@ -661,14 +378,14 @@
           "type": "string"
         },
         "input_modalities": {
-          "description": "Input modalities supported by the model (defaults to text-only)",
-          "type": "array",
           "default": [
             "text"
           ],
+          "description": "Input modalities supported by the model (defaults to text-only)",
           "items": {
             "$ref": "#/$defs/InputModality"
-          }
+          },
+          "type": "array"
         },
         "name": {
           "type": [
@@ -699,11 +416,11 @@
       },
       "required": [
         "id"
-      ]
+      ],
+      "type": "object"
     },
     "ModelConfig": {
       "description": "Pairs a provider and model together for a specific operation.",
-      "type": "object",
       "properties": {
         "model_id": {
           "description": "The model to use for this operation.",
@@ -717,10 +434,10 @@
       "required": [
         "provider_id",
         "model_id"
-      ]
+      ],
+      "type": "object"
     },
     "ModelListConfig": {
-      "description": "Source of models for a provider: either a URL to fetch them from or a\nstatic list defined inline.",
       "anyOf": [
         {
           "description": "URL template used to fetch the model list dynamically.",
@@ -728,24 +445,60 @@
         },
         {
           "description": "A static list of models defined directly in the configuration.",
-          "type": "array",
           "items": {
             "$ref": "#/$defs/Model"
-          }
+          },
+          "type": "array"
+        }
+      ],
+      "description": "Source of models for a provider: either a URL to fetch them from or a\nstatic list defined inline."
+    },
+    "OutputMode": {
+      "description": "Controls the verbosity of forge's tool output formatting.\n\nThe output mode affects how tool results are rendered in the chat UI:\n- `Concise`: Minimal output, just the essential information (default for\n  most users).\n- `Compact`: Same as concise but with extra whitespace trimming and\n  aggressive line folding for terminal-friendly display.\n- `Verbose`: Full output including all metadata, reasoning traces, and\n  intermediate computation steps. Useful for debugging.",
+      "oneOf": [
+        {
+          "const": "concise",
+          "description": "Minimal output (default).",
+          "type": "string"
+        },
+        {
+          "const": "compact",
+          "description": "Extra whitespace-trimmed variant of concise for terminal display.",
+          "type": "string"
+        },
+        {
+          "const": "verbose",
+          "description": "Full output with all metadata and intermediate steps.",
+          "type": "string"
         }
       ]
     },
+    "OutputSettings": {
+      "description": "User-facing configuration for tool output rendering.",
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/OutputMode",
+          "default": "concise",
+          "description": "Verbosity level applied to tool output rendering."
+        },
+        "trailing_newline": {
+          "default": true,
+          "description": "Whether to include a trailing newline after tool output blocks.\nDefaults to `true`. Disable to suppress extra blank lines in agents\nthat add their own formatting.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
     "ProviderAuthMethod": {
       "description": "Authentication method supported by a provider.\n\nOnly the simple (non-OAuth) methods are available here; providers that\nrequire OAuth device or authorization-code flows must be configured via the\nfile-based `provider.json` override instead.",
-      "type": "string",
       "enum": [
         "api_key",
         "google_adc"
-      ]
+      ],
+      "type": "string"
     },
     "ProviderEntry": {
       "description": "A single provider entry defined inline in `forge.toml`.\n\nInline providers are merged with the built-in provider list; entries with\nthe same `id` override the corresponding built-in entry field-by-field,\nwhile entries with a new `id` are appended to the list.",
-      "type": "object",
       "properties": {
         "api_key_var": {
           "description": "Environment variable holding the API key for this provider.",
@@ -756,27 +509,26 @@
         },
         "auth_methods": {
           "description": "Authentication methods supported by this provider; defaults to\n`[\"api_key\"]` when omitted.",
-          "type": "array",
           "items": {
             "$ref": "#/$defs/ProviderAuthMethod"
-          }
+          },
+          "type": "array"
         },
         "custom_headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
           "description": "Additional HTTP headers sent with every request to this provider.",
           "type": [
             "object",
             "null"
-          ],
-          "additionalProperties": {
-            "type": "string"
-          }
+          ]
         },
         "id": {
           "description": "Unique provider identifier used in model paths (e.g. `\"my_provider\"`).",
           "type": "string"
         },
         "models": {
-          "description": "Model source: either a URL template for dynamic discovery or a static\nlist of models defined inline.",
           "anyOf": [
             {
               "$ref": "#/$defs/ModelListConfig"
@@ -784,10 +536,10 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Model source: either a URL template for dynamic discovery or a static\nlist of models defined inline."
         },
         "provider_type": {
-          "description": "Provider category; defaults to `llm` when omitted.",
           "anyOf": [
             {
               "$ref": "#/$defs/ProviderTypeEntry"
@@ -795,10 +547,10 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Provider category; defaults to `llm` when omitted."
         },
         "response_type": {
-          "description": "Wire protocol used by this provider.",
           "anyOf": [
             {
               "$ref": "#/$defs/ProviderResponseType"
@@ -806,7 +558,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Wire protocol used by this provider."
         },
         "url": {
           "description": "URL template for chat completions; may contain `{{VAR}}` placeholders\nthat are substituted from the credential's url params.",
@@ -814,20 +567,20 @@
         },
         "url_param_vars": {
           "description": "Environment variables whose values are substituted into `{{VAR}}`\nplaceholders in the `url` and `models` templates.",
-          "type": "array",
           "items": {
             "$ref": "#/$defs/ProviderUrlParam"
-          }
+          },
+          "type": "array"
         }
       },
       "required": [
         "id",
         "url"
-      ]
+      ],
+      "type": "object"
     },
     "ProviderResponseType": {
       "description": "Wire protocol a provider uses for chat completions.",
-      "type": "string",
       "enum": [
         "OpenAI",
         "OpenAIResponses",
@@ -835,26 +588,26 @@
         "Bedrock",
         "Google",
         "OpenCode"
-      ]
+      ],
+      "type": "string"
     },
     "ProviderTypeEntry": {
       "description": "Category of a provider.",
       "oneOf": [
         {
+          "const": "llm",
           "description": "LLM provider for chat completions.",
-          "type": "string",
-          "const": "llm"
+          "type": "string"
         },
         {
+          "const": "context_engine",
           "description": "Context engine provider for code indexing and search.",
-          "type": "string",
-          "const": "context_engine"
+          "type": "string"
         }
       ]
     },
     "ProviderUrlParam": {
       "description": "A URL parameter variable for a provider, used to substitute template\nvariables in URL strings.",
-      "type": "object",
       "properties": {
         "name": {
           "description": "The environment variable name used as the template variable key.",
@@ -866,22 +619,41 @@
         },
         "options": {
           "description": "Optional preset values for this parameter shown as suggestions in the\nUI.",
-          "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "type": "array"
         }
       },
       "required": [
         "name"
+      ],
+      "type": "object"
+    },
+    "PruneStrategy": {
+      "description": "AI-driven pruning strategy for message eviction.",
+      "oneOf": [
+        {
+          "const": "age_based",
+          "description": "Evict oldest messages first (FIFO). Simple and predictable.",
+          "type": "string"
+        },
+        {
+          "const": "importance_based",
+          "description": "Evict messages with lowest semantic importance score.",
+          "type": "string"
+        },
+        {
+          "const": "hybrid",
+          "description": "Hybrid: combine age and importance, protecting high-importance\nmessages even when old.",
+          "type": "string"
+        }
       ]
     },
     "ReasoningConfig": {
       "description": "Controls the reasoning behaviour of a model, including effort level, token\nbudget, and visibility of the thinking process.",
-      "type": "object",
       "properties": {
         "effort": {
-          "description": "Controls the effort level of the model's reasoning.\nSupported by openrouter and forge provider.",
           "anyOf": [
             {
               "$ref": "#/$defs/Effort"
@@ -889,7 +661,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Controls the effort level of the model's reasoning.\nSupported by openrouter and forge provider."
         },
         "enabled": {
           "description": "Enables reasoning at the \"medium\" effort level with no exclusions.\nSupported by openrouter, anthropic, and forge provider.",
@@ -907,61 +680,61 @@
         },
         "max_tokens": {
           "description": "Controls how many tokens the model can spend thinking.\nShould be greater than 1024 but less than the overall max_tokens.\nSupported by openrouter, anthropic, and forge provider.",
+          "format": "uint",
+          "minimum": 0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0
+          ]
         }
-      }
+      },
+      "type": "object"
     },
     "RetryConfig": {
       "description": "Configuration for retry mechanism.",
-      "type": "object",
       "properties": {
         "backoff_factor": {
           "description": "Backoff multiplication factor for each retry attempt",
-          "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "initial_backoff_ms": {
           "description": "Initial backoff delay in milliseconds for retry operations",
-          "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "max_attempts": {
           "description": "Maximum number of retry attempts",
-          "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "max_delay_secs": {
           "description": "Maximum delay between retries in seconds",
+          "format": "uint64",
+          "minimum": 0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint64",
-          "minimum": 0
+          ]
         },
         "min_delay_ms": {
           "description": "Minimum delay in milliseconds between retry attempts",
-          "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "status_codes": {
           "description": "HTTP status codes that should trigger retries",
-          "type": "array",
           "items": {
-            "type": "integer",
             "format": "uint16",
             "maximum": 65535,
-            "minimum": 0
-          }
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
         },
         "suppress_errors": {
           "description": "Whether to suppress retry error logging and events",
@@ -975,29 +748,69 @@
         "max_attempts",
         "status_codes",
         "suppress_errors"
+      ],
+      "type": "object"
+    },
+    "SemanticTruncMode": {
+      "description": "Semantic truncation mode for tool results and long outputs.",
+      "oneOf": [
+        {
+          "const": "fixed",
+          "description": "Truncate at fixed token count (fast, deterministic).",
+          "type": "string"
+        },
+        {
+          "const": "boundary_aware",
+          "description": "Truncate at sentence/paragraph boundaries (preserves readability).",
+          "type": "string"
+        },
+        {
+          "const": "semantic_keep",
+          "description": "Use semantic similarity to keep the most informative portion of\nlong outputs, discarding redundant sections.",
+          "type": "string"
+        }
+      ]
+    },
+    "SummarizationStrategy": {
+      "description": "Strategy for generating summaries during compaction.",
+      "oneOf": [
+        {
+          "const": "extract",
+          "description": "Pure structural extraction - extracts tool calls, file paths, and\ncommands into a structured summary. Fast, deterministic, no API\ncost.",
+          "type": "string"
+        },
+        {
+          "const": "llm",
+          "description": "LLM-based semantic summarization - uses an LLM to generate a coherent\nsummary capturing decisions, rationale, and context. Higher quality\nbut requires API call.",
+          "type": "string"
+        },
+        {
+          "const": "hybrid",
+          "description": "Hybrid approach - first extracts structured data, then uses LLM to\nrefine and enrich the summary with semantic understanding.",
+          "type": "string"
+        }
       ]
     },
     "TlsBackend": {
       "description": "TLS backend option.",
-      "type": "string",
       "enum": [
         "default",
         "rustls"
-      ]
+      ],
+      "type": "string"
     },
     "TlsVersion": {
       "description": "TLS version enum for configuring TLS protocol versions.",
-      "type": "string",
       "enum": [
         "1.0",
         "1.1",
         "1.2",
         "1.3"
-      ]
+      ],
+      "type": "string"
     },
     "Update": {
       "description": "Configuration for automatic forge updates",
-      "type": "object",
       "properties": {
         "auto_update": {
           "description": "Whether to automatically install updates without prompting",
@@ -1007,7 +820,6 @@
           ]
         },
         "frequency": {
-          "description": "How frequently forge checks for updates: daily, weekly, always, or never",
           "anyOf": [
             {
               "$ref": "#/$defs/UpdateFrequency"
@@ -1015,23 +827,423 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "How frequently forge checks for updates: daily, weekly, always, or never"
         }
-      }
+      },
+      "type": "object"
     },
     "UpdateFrequency": {
       "description": "Frequency at which forge checks for updates",
-      "type": "string",
       "enum": [
         "daily",
         "weekly",
         "never",
         "always"
-      ]
+      ],
+      "type": "string"
     },
     "double": {
-      "type": "number",
-      "format": "double"
+      "format": "double",
+      "type": "number"
     }
-  }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Top-level Forge configuration merged from all sources (defaults, file,\nenvironment).",
+  "properties": {
+    "auto_continue_on_interrupt": {
+      "default": false,
+      "description": "Whether to automatically continue after a per-turn limit interruption.",
+      "type": "boolean"
+    },
+    "auto_dump": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AutoDumpFormat"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Format used when automatically creating a session dump after task\ncompletion; disabled when absent."
+    },
+    "auto_install_vscode_extension": {
+      "default": false,
+      "description": "Enables automatic VS Code extension installation when Forge runs inside\nVS Code and the extension is not already installed.",
+      "type": "boolean"
+    },
+    "auto_open_dump": {
+      "default": false,
+      "description": "Whether to automatically open HTML dump files in the browser after\ncreation.",
+      "type": "boolean"
+    },
+    "commit": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Model and provider configuration used for commit message generation."
+    },
+    "compact": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Compact"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Context compaction settings applied to all agents; falls back to each\nagent's individual setting when absent."
+    },
+    "currency_conversion_rate": {
+      "$ref": "#/$defs/double",
+      "default": 0.0,
+      "description": "Conversion rate applied to costs before display in the shell rprompt.\nThe raw USD cost is multiplied by this value, allowing costs to be shown\nin a local currency. Defaults to `1.0` (no conversion)."
+    },
+    "currency_symbol": {
+      "default": "",
+      "description": "Currency symbol displayed in the shell rprompt next to the session cost\n(e.g. `\"$\"`, `\"€\"`, `\"₹\"`). Defaults to `\"$\"`.",
+      "type": "string"
+    },
+    "custom_history_path": {
+      "description": "Path to the conversation history file; defaults to the global history\nlocation when absent.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "debug_requests": {
+      "description": "Directory where debug request files are written; disabled when absent.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "http": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HttpConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "HTTP client settings including proxy, TLS, and timeout configuration."
+    },
+    "max_commit_count": {
+      "default": 0,
+      "description": "Maximum number of recent commits included as context for commit message\ngeneration.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_conversations": {
+      "default": 0,
+      "description": "Maximum number of conversations shown in the conversation list.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_extensions": {
+      "default": 0,
+      "description": "Maximum number of file extensions included in the agent system prompt.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_fetch_chars": {
+      "default": 0,
+      "description": "Maximum number of characters returned from a URL fetch.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_file_read_batch_size": {
+      "default": 0,
+      "description": "Maximum number of files read in a single batch operation.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_file_size_bytes": {
+      "default": 0,
+      "description": "Maximum file size in bytes permitted for read operations.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_image_size_bytes": {
+      "default": 0,
+      "description": "Maximum image file size in bytes permitted for read operations.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_line_chars": {
+      "default": 0,
+      "description": "Maximum number of characters per line when reading a file.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_parallel_file_reads": {
+      "default": 0,
+      "description": "Maximum number of files read concurrently during batch operations.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_read_lines": {
+      "default": 0,
+      "description": "Maximum number of lines read from a file in a single operation.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_requests_per_turn": {
+      "description": "Maximum number of requests that can be made in a single turn.",
+      "format": "uint",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "max_search_lines": {
+      "default": 0,
+      "description": "Maximum number of lines returned by a single file search operation.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_search_result_bytes": {
+      "default": 0,
+      "description": "Maximum number of bytes returned by a single file search operation.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_sem_search_results": {
+      "default": 0,
+      "description": "Maximum number of candidate results returned from the initial semantic\nsearch vector query.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_stdout_line_chars": {
+      "default": 0,
+      "description": "Maximum number of characters per line in shell command output.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_stdout_prefix_lines": {
+      "default": 0,
+      "description": "Maximum number of lines captured from the leading portion of shell\ncommand output.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_stdout_suffix_lines": {
+      "default": 0,
+      "description": "Maximum number of lines captured from the trailing portion of shell\ncommand output.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_tokens": {
+      "description": "Maximum tokens the model may generate per response for all agents\n(1–100,000).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "max_tool_failure_per_turn": {
+      "description": "Maximum tool failures per turn before the orchestrator forces\ncompletion.",
+      "format": "uint",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "merge_system_messages": {
+      "default": false,
+      "description": "When `true`, all system messages in the conversation are merged into a\nsingle leading system message before the request is sent. Enable this\nfor providers that reject requests containing system messages after\nuser or assistant turns (e.g. vLLM, NVIDIA NIM).",
+      "type": "boolean"
+    },
+    "model_cache_ttl_secs": {
+      "default": 0,
+      "description": "Time-to-live in seconds for the cached model API list.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "output": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OutputSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "User-facing output rendering settings (verbose/concise/compact modes).\nWhen absent the renderer falls back to `OutputSettings::default()`\n(concise mode, trailing newline enabled)."
+    },
+    "providers": {
+      "description": "Additional provider definitions merged with the built-in provider list.\n\nEntries with an `id` matching a built-in provider override its fields;\nentries with a new `id` are appended and become available for model\nselection.",
+      "items": {
+        "$ref": "#/$defs/ProviderEntry"
+      },
+      "type": "array"
+    },
+    "reasoning": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReasoningConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Reasoning configuration applied to all agents; controls effort level,\ntoken budget, and visibility of the model's thinking process."
+    },
+    "research_subagent": {
+      "default": false,
+      "description": "Whether the deep research agent is available.\n\nWhen set to `true`, the Sage agent is added to the agent list and\nthe `:sage` app command is enabled. Defaults to `false`.",
+      "type": "boolean"
+    },
+    "restricted": {
+      "default": false,
+      "description": "Whether restricted mode is active; when enabled, tool execution requires\nexplicit permission grants.",
+      "type": "boolean"
+    },
+    "retry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RetryConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Retry settings applied at the system level to all IO operations."
+    },
+    "sem_search_top_k": {
+      "default": 0,
+      "description": "Number of top results retained after re-ranking in semantic search.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "services_url": {
+      "default": "",
+      "description": "Base URL of the Forge services API used for semantic search and\nindexing.",
+      "type": "string"
+    },
+    "session": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Default model and provider configuration used when not overridden by\nindividual agents."
+    },
+    "subagents": {
+      "default": false,
+      "description": "Enables subagent support via the task tool; when true the forge agent\ngains access to the `task` tool for delegating work to specialised\nsub-agents, and the `sage` research-only agent tool is removed.\nWhen false the `task` tool is disabled and `sage` is available instead.",
+      "type": "boolean"
+    },
+    "suggest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Model and provider configuration used for shell command suggestion\ngeneration."
+    },
+    "temperature": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/double"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Output randomness for all agents; lower values are deterministic, higher\nvalues are creative (0.0–2.0)."
+    },
+    "tool_supported": {
+      "default": false,
+      "description": "Whether tool use is supported in the current environment; when false,\nall tool calls are disabled.",
+      "type": "boolean"
+    },
+    "tool_timeout_secs": {
+      "default": 0,
+      "description": "Maximum time in seconds a single tool call may run before being\ncancelled.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "top_k": {
+      "description": "Top-k vocabulary cutoff for all agents; restricts sampling to the k\nhighest-probability tokens (1–1000).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "top_p": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/double"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Nucleus sampling threshold for all agents; limits token selection to the\ntop cumulative probability mass (0.0–1.0)."
+    },
+    "updates": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Update"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Configuration for automatic Forge updates."
+    },
+    "use_forge_committer": {
+      "default": false,
+      "description": "Whether `forge commit` should override `GIT_COMMITTER_NAME` and\n`GIT_COMMITTER_EMAIL` with the Forge identity. Defaults to `true` via\nthe embedded `.forge.toml` defaults.",
+      "type": "boolean"
+    },
+    "use_text_patch_fallback": {
+      "default": false,
+      "description": "Switches patch replacement fallback from the legacy fuzzy-search range\nlookup to the newer text-patch gRPC API.\nDefaults to `false` so patching continues to use the legacy fallback\nbehavior unless explicitly enabled in `forge.toml`.",
+      "type": "boolean"
+    },
+    "verify_todos": {
+      "default": false,
+      "description": "Enables the pending todos hook that checks for incomplete todo items\nwhen a task ends and reminds the LLM about them.",
+      "type": "boolean"
+    }
+  },
+  "title": "ForgeConfig",
+  "type": "object"
 }

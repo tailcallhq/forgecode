@@ -1,0 +1,30 @@
+[package]
+name = "forge3d"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+parking_lot = "0.12"
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+tempfile.workspace = true
+forge_drift.workspace = true
+forge_similarity.workspace = true
+forge_infra.workspace = true
+forge_snaps.workspace = true
+fs2 = "0.4"
+libc = "0.2"
+tokio-util.workspace = true
+clap.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true

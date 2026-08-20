@@ -1,0 +1,31 @@
+{
+  "welcome": "欢迎使用 ForgeCode",
+  "errors": {
+    "file_not_found": "找不到文件：{path}",
+    "permission_denied": "权限被拒绝：{path}",
+    "network_error": "网络错误：{message}",
+    "build_failed": "构建失败：{reason}",
+    "test_failed": "{count} 个测试失败",
+    "coverage_below_threshold": "覆盖率 {current}% 低于阈值 {threshold}%"
+  },
+  "status": {
+    "building": "构建中...",
+    "testing": "运行测试...",
+    "deploying": "部署中...",
+    "completed": "成功完成",
+    "failed": "失败"
+  },
+  "cli": {
+    "help_description": "ForgeCode CLI - AI 驱动的软件工程助手",
+    "version": "版本 {version}",
+    "init_success": "项目初始化成功",
+    "config_saved": "配置已保存到 {path}"
+  },
+  "quality_gates": {
+    "passed": "质量门通过：{gate}",
+    "failed": "质量门失败：{gate} - {reason}",
+    "coverage_check": "覆盖率检查：{current}%（阈值：{threshold}%）",
+    "lint_check": "代码检查：{count} 个问题",
+    "security_check": "安全检查：{status}"
+  }
+}

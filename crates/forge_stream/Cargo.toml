@@ -1,7 +1,8 @@
 [package]
 name = "forge_stream"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
@@ -10,3 +11,9 @@ tokio.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
+criterion.workspace = true
+futures.workspace = true
+
+[[bench]]
+name = "stream_bench"
+harness = false

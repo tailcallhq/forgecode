@@ -1,0 +1,22 @@
+[package]
+name = "forgecode-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+forge_json_repair = { path = "../crates/forge_json_repair" }
+
+[[bin]]
+name = "json_repair"
+path = "fuzz_targets/json_repair.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

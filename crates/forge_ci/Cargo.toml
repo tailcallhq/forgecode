@@ -1,15 +1,15 @@
 [package]
 name = "forge_ci"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-gh-workflow.workspace = true
+serde_yaml_ng.workspace = true
 indexmap.workspace = true
 derive_setters.workspace = true
 
 [dev-dependencies]
-

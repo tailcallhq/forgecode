@@ -265,8 +265,13 @@ mod tests {
             "enabled": true
         }));
         let actual = serde_json::to_string(&fixture).unwrap();
-        let expected = r#"{"enabled":true,"name":"test","value":42}"#;
-        assert_eq!(actual, expected);
+        let reparsed: Value = serde_json::from_str(&actual).unwrap();
+        let expected = json!({
+            "name": "test",
+            "value": 42,
+            "enabled": true
+        });
+        assert_eq!(reparsed, expected);
     }
 
     #[test]

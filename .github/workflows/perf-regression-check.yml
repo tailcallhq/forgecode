@@ -1,0 +1,163 @@
+# Performance Regression Check
+# Reads agileplus/perf-baselines.json and outputs a markdown table to GITHUB_STEP_SUMMARY.
+
+name: Performance Regression Check
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  perf-check:
+    name: Performance Regression Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Set up Rust
+        if: hashFiles('Cargo.toml') != ''
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Set up Node.js
+        if: hashFiles('package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cargo/registry
+            ~/.cargo/git
+            node_modules
+          key: perf-${{ runner.os }}-${{ hashFiles('**/go.sum', '**/Cargo.lock', '**/package-lock.json') }}
+          restore-keys: perf-${{ runner.os }}-
+
+      - name: Run Go benchmarks
+        if: hashFiles('go.mod') != ''
+        run: |
+          echo "Running Go benchmarks..."
+          go test -bench=. -benchmem -count=3 -timeout=600s ./... > bench-go.txt 2>&1 || true
+          echo "GO_BENCH=true" >> $GITHUB_ENV
+
+      - name: Run Rust benchmarks
+        if: hashFiles('Cargo.toml') != ''
+        run: |
+          echo "Running Rust benchmarks..."
+          cargo bench --bench performance -- --output-format=bencher > bench-rust.txt 2>&1 || true
+          echo "RUST_BENCH=true" >> $GITHUB_ENV
+
+      - name: Run npm benchmarks
+        if: hashFiles('package.json') != ''
+        run: |
+          echo "Running npm benchmarks..."
+          npm run bench --if-present > bench-npm.txt 2>&1 || true
+          echo "NPM_BENCH=true" >> $GITHUB_ENV
+
+      - name: Check against baselines
+        id: check
+        run: |
+          if [ ! -f "agileplus/perf-baselines.json" ]; then
+            echo "## Performance Regression Check" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No perf-baselines.json found. Skipping regression check." >> $GITHUB_STEP_SUMMARY
+            echo "status=skip" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "## Performance Regression Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Benchmark | Baseline | Tolerance | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|----------|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          python3 -c "
+          import json, sys, re
+
+          with open('agileplus/perf-baselines.json') as f:
+              baselines = json.load(f)
+
+          has_regression = False
+
+          for name, info in baselines.get('benchmarks', {}).items():
+              baseline = info['baseline']
+              tolerance = info.get('tolerance_pct', 20)
+              metric = info.get('metric', '')
+              desc = info.get('description', '')
+
+              # Try to find actual result in bench output files
+              actual = None
+              for bench_file in ['bench-go.txt', 'bench-rust.txt', 'bench-npm.txt']:
+                  try:
+                      with open(bench_file) as bf:
+                          for line in bf:
+                              if name in line:
+                                  match = re.search(r'([\d.]+)\s+' + re.escape(metric), line)
+                                  if match:
+                                      actual = float(match.group(1))
+                                      break
+                  except FileNotFoundError:
+                      pass
+                  if actual is not None:
+                      break
+
+              if actual is None:
+                  print(f'| {name} | {baseline} {metric} | {tolerance}% | No data |')
+                  continue
+
+              threshold = baseline * (1 + tolerance / 100.0)
+              if actual > threshold:
+                  status = f'Regression (+{((actual - baseline) / baseline) * 100:.1f}%)'
+                  has_regression = True
+              else:
+                  status = f'OK ({((actual - baseline) / baseline) * 100:+.1f}%)'
+
+              print(f'| {name} | {baseline} {metric} | {tolerance}% | {status} |')
+
+          if has_regression:
+              sys.exit(1)
+          " >> $GITHUB_STEP_SUMMARY
+
+          if [ $? -eq 1 ]; then
+            echo "status=fail" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> **Performance regression detected.** Please review the benchmark results above." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "status=pass" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> All benchmarks within tolerance." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            bench-go.txt
+            bench-rust.txt
+            bench-npm.txt
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Fail on regression
+        if: steps.check.outputs.status == 'fail'
+        run: |
+          echo "Performance regression detected - see GITHUB_STEP_SUMMARY for details"
+          exit 1

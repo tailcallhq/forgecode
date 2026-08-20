@@ -1,0 +1,47 @@
+name: AgilePlus Pillar Scorecard
+
+on:
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: agileplus-pillar-scorecard
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish scorecard to GitHub issue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Render scorecard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          scorecard="agileplus/pillars/31-pillar-scorecard.json"
+          issue_number="${AGILEPLUS_SCORE_CARD_ISSUE:-}"
+          if [[ -z "$issue_number" ]]; then
+            issue_number="$(gh issue list --state all --search '"AgilePlus Pillar Scorecard" in:title' --limit 1 --json number --jq '.[0].number // empty')"
+          fi
+          if [[ -z "$issue_number" ]]; then
+            issue_number="$(gh issue create --title 'AgilePlus Pillar Scorecard' --body 'Automated weekly AgilePlus scorecard updates are posted here.' --json number --jq '.number')"
+          fi
+          jq -r --arg issue "$issue_number" '
+            ["# AgilePlus Pillar Scorecard", "", ("**Assessment:** " + .assessmentDate), ("**Average:** " + (.summary.average|tostring) + " / 10 (" + .summary.grade + ")"), ("**Target:** " + (.grading.target|tostring)), ("**Pillars:** " + (.summary.pillarCount|tostring)), "", "| Pillar | Score | Target |", "| --- | ---: | ---: |", (.pillars | to_entries[] | "| " + .value.name + " | " + (.value.score|tostring) + " | " + (.value.target|tostring) + " |"), "", "The lowest-priority improvements are Mobile (3), i18n (2), and Agile PM (4). See the JSON scorecard for schema and evidence requirements.", "", "<!-- issue: " + $issue + " -->"] | .[]
+          ' "$scorecard" > scorecard.md
+          gh issue comment "$issue_number" --body-file scorecard.md
+          echo "Posted scorecard to issue #$issue_number" >> "$GITHUB_STEP_SUMMARY"
+      - name: Check JSON shape
+        run: |
+          jq -e '
+            .summary.pillarCount == (.pillars | length) and
+            .summary.pillarCount == 31 and
+            ([.pillars[].score] | add) > 0
+          ' agileplus/pillars/31-pillar-scorecard.json >/dev/null

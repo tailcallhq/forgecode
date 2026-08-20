@@ -1,13 +1,14 @@
 [package]
 name = "forge_snaps"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
 forge_fs.workspace = true
-fnv_rs.workspace = true
+fnv.workspace = true
 serde.workspace = true
 uuid = { workspace = true, features = ["v4", "serde"] }
 chrono.workspace = true

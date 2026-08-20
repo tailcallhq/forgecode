@@ -1,0 +1,30 @@
+[package]
+name = "forge_similarity"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "similarity scoring — trait + hash-only + hosted fallback"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+tracing.workspace = true
+thiserror.workspace = true
+# async-trait makes `async fn` in trait object-safe (dyn-compatible)
+async-trait.workspace = true
+
+# Optional hosted provider
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["json"] }
+
+[features]
+default = ["hash-only"]
+hash-only = []
+hosted = ["reqwest"]
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
+criterion.workspace = true
+
+[[bench]]
+name = "similarity_bench"
+harness = false

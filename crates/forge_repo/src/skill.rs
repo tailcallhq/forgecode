@@ -511,15 +511,20 @@ mod tests {
         let test_skill = actual.iter().find(|s| s.name == "test-skill").unwrap();
         assert_eq!(test_skill.description, "A test skill with resources");
         assert_eq!(test_skill.resources.len(), 3); // file_1.txt, foo/file_2.txt, foo/bar/file_3.txt
+        // Compare relative resource paths with `/` separators: on Windows the
+        // PathBuf strips the prefix with `\`, so normalize before comparing
+        // (the contract is the resource set, not the OS separator).
+        let relative = |path: &std::path::PathBuf| {
+            path.strip_prefix(&skill_dir)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/")
+        };
         assert_eq!(
             test_skill
                 .resources
                 .iter()
-                .map(|path| path
-                    .strip_prefix(&skill_dir)
-                    .unwrap()
-                    .to_string_lossy()
-                    .to_string())
+                .map(relative)
                 .collect::<Vec<_>>(),
             vec![
                 "test-skill/file_1.txt".to_string(),

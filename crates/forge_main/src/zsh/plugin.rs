@@ -1,4 +1,5 @@
 use std::fs;
+#[cfg(not(windows))]
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -99,15 +100,22 @@ fn execute_zsh_script_with_streaming(script_content: &str, script_name: &str) ->
     //      embedded quoting.
     //   3. Piping via stdin is unreliable -- Windows caps pipe buffer size, which
     //      can truncate or block on larger scripts.
-    // The -f flag also prevents ~/.zshrc from loading during execution.
+    // The -f flag also prevents ~/.zshrc from loading during startup.
+    //
+    // Windows also inherits stdio instead of piping: doctor.zsh explicitly
+    // sources ~/.zshrc, which may spawn background processes that inherit the
+    // pipe handles; the streaming readers below would then block on EOF until
+    // those processes exit, hanging the command indefinitely. With inherited
+    // handles the output still reaches the console and `child.wait()` only
+    // waits for zsh itself.
     let (_temp_dir, mut child) = if cfg!(windows) {
         let (temp_dir, script_path) = create_temp_zsh_script(&script_content)?;
         let child = std::process::Command::new("zsh")
             // -f: don't load ~/.zshrc (prevents theme loading during doctor)
             .arg("-f")
             .arg(script_path.to_string_lossy().as_ref())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
             .spawn()
             .context(format!("Failed to execute zsh {} script", script_name))?;
         // Keep temp_dir alive by boxing it in the tuple
@@ -123,50 +131,93 @@ fn execute_zsh_script_with_streaming(script_content: &str, script_name: &str) ->
         (None, child)
     };
 
-    // Get stdout and stderr handles
-    let stdout = child.stdout.take().context("Failed to capture stdout")?;
-    let stderr = child.stderr.take().context("Failed to capture stderr")?;
+    // Stream (unix only; Windows inherits stdio) and wait for the child with a
+    // hard deadline so a misbehaving zsh can never hang the CLI.
+    const SCRIPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-    // Use scoped threads for safer streaming with automatic joining
-    std::thread::scope(|s| {
-        // Stream stdout line by line
-        s.spawn(|| {
-            let stdout_reader = BufReader::new(stdout);
-            for line in stdout_reader.lines() {
-                match line {
-                    Ok(line) => println!("{}", line),
-                    Err(e) => eprintln!("Error reading stdout: {}", e),
+    #[cfg(not(windows))]
+    {
+        // Get stdout and stderr handles
+        let stdout = child.stdout.take().context("Failed to capture stdout")?;
+        let stderr = child.stderr.take().context("Failed to capture stderr")?;
+
+        // Use scoped threads for safer streaming with automatic joining. The
+        // deadline poll runs inside the scope: killing the child on timeout
+        // closes the pipes, so the readers hit EOF and the scope joins.
+        std::thread::scope(|s| {
+            // Stream stdout line by line
+            s.spawn(|| {
+                let stdout_reader = BufReader::new(stdout);
+                for line in stdout_reader.lines() {
+                    match line {
+                        Ok(line) => println!("{}", line),
+                        Err(e) => eprintln!("Error reading stdout: {}", e),
+                    }
                 }
-            }
-        });
+            });
 
-        // Stream stderr line by line
-        s.spawn(|| {
-            let stderr_reader = BufReader::new(stderr);
-            for line in stderr_reader.lines() {
-                match line {
-                    Ok(line) => eprintln!("{}", line),
-                    Err(e) => eprintln!("Error reading stderr: {}", e),
+            // Stream stderr line by line
+            s.spawn(|| {
+                let stderr_reader = BufReader::new(stderr);
+                for line in stderr_reader.lines() {
+                    match line {
+                        Ok(line) => eprintln!("{}", line),
+                        Err(e) => eprintln!("Error reading stderr: {}", e),
+                    }
                 }
-            }
-        });
-    });
+            });
 
-    // Wait for the child process to complete
-    let status = child
-        .wait()
-        .context(format!("Failed to wait for zsh {} script", script_name))?;
+            wait_with_timeout(&mut child, SCRIPT_TIMEOUT, script_name)
+        })?;
+    }
+
+    #[cfg(windows)]
+    {
+        wait_with_timeout(&mut child, SCRIPT_TIMEOUT, script_name)?;
+    }
+
+    Ok(())
+}
+
+/// Waits for `child` to exit, killing it if it exceeds `timeout`.
+///
+/// A diagnostic shell script must never hang the parent CLI. This matters on
+/// Windows in particular: the MSYS zsh build can fail to fork when spawned
+/// from a Rust process (cygwin fork snapshots the parent address space), which
+/// leaves the child stuck instead of exiting with an error. The deadline
+/// bounds both platforms uniformly.
+fn wait_with_timeout(
+    child: &mut std::process::Child,
+    timeout: std::time::Duration,
+    script_name: &str,
+) -> Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(e) => {
+                return Err(anyhow::Error::new(e)
+                    .context(format!("Failed to wait for zsh {script_name} script")));
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!(
+                "ZSH {script_name} script timed out after {}s",
+                timeout.as_secs()
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    };
 
     if !status.success() {
         let exit_code = status
             .code()
             .map_or_else(|| "unknown".to_string(), |code| code.to_string());
 
-        anyhow::bail!(
-            "ZSH {} script failed with exit code: {}",
-            script_name,
-            exit_code
-        );
+        anyhow::bail!("ZSH {script_name} script failed with exit code: {exit_code}");
     }
 
     Ok(())
@@ -178,8 +229,57 @@ fn execute_zsh_script_with_streaming(script_content: &str, script_name: &str) ->
 ///
 /// Returns error if the doctor script cannot be executed
 pub fn run_zsh_doctor() -> Result<()> {
+    // The Windows release does not bundle zsh. Treat that as a failed
+    // diagnostic rather than reporting a false-positive success to scripts.
+    #[cfg(windows)]
+    if !zsh_available() {
+        anyhow::bail!(concat!(
+            "Forge doctor skipped: zsh is not available on Windows. ",
+            "Install zsh or run `forge zsh doctor` from a zsh-capable environment."
+        ));
+    }
+
     let script_content = include_str!("../../../../shell-plugin/doctor.zsh");
     execute_zsh_script_with_streaming(script_content, "doctor")
+}
+
+#[cfg(windows)]
+fn zsh_available() -> bool {
+    // The probe must be bounded: MSYS zsh can fail to initialize (cygwin
+    // process-lock contention) when spawned from a multi-threaded Rust
+    // process, which makes `zsh --version` hang instead of exiting. Treat
+    // that as "not available" after a short grace period rather than hanging
+    // the doctor command.
+    let mut child = match std::process::Command::new("zsh")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return false,
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) => {}
+            Err(_) => return false,
+        }
+        if std::time::Instant::now() >= deadline {
+            // Kill the shim and its cygwin children best-effort so a
+            // deadlocked zsh cannot linger.
+            let pid = child.id();
+            let _ = child.kill();
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
 }
 
 /// Shows ZSH keyboard shortcuts with streaming output
@@ -400,11 +500,15 @@ mod tests {
                 // Success case
             }
             Err(e) => {
-                // Check if it's a non-zero exit code error or zsh not available (both expected
-                // in tests)
+                // Check if it's a non-zero exit code error, zsh not available,
+                // or a bounded-execution timeout (all expected in tests: the
+                // doctor script may not run in the test environment at all).
                 let error_msg = e.to_string();
                 assert!(
-                    error_msg.contains("exit code") || error_msg.contains("Failed to execute"),
+                    error_msg.contains("exit code")
+                        || error_msg.contains("Failed to execute")
+                        || error_msg.contains("timed out")
+                        || error_msg.contains("zsh is not available"),
                     "Unexpected error: {}",
                     error_msg
                 );
@@ -798,5 +902,21 @@ mod tests {
                 std::env::remove_var("ZDOTDIR");
             }
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failing_zsh_script_is_returned_to_the_caller() {
+        if std::process::Command::new("zsh")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let actual = execute_zsh_script_with_streaming("exit 17", "test");
+
+        let error = actual.expect_err("a failing zsh script must be an error");
+        assert!(error.to_string().contains("exit code: 17"));
     }
 }

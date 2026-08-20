@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  forgecode brand icon — Terminal-Forge palette (proposed 2026-07-06 by vision-pillar).
+  Mark: a stylized terminal window containing a glowing "F>" prompt + spark line,
+  on a deep-charcoal panel. Amber CRT dominant + synthwave magenta accent.
+  Reads "AI-enhanced terminal forge" = the brand position.
+
+  Palette tokens:
+    #0e0e10 deep-charcoal (panel background)
+    #1c1c1f deep-charcoal-2 (window frame)
+    #f5a623 amber-crt (primary accent — CRT phosphor)
+    #d946a8 synthwave-magenta (secondary — AI glow)
+    #6ee7b7 mint-prompt (tertiary — command-line success)
+
+  Source-of-truth: this file. All raster exports derive from this 1024x1024 SVG.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="forgecode">
+  <title>forgecode</title>
+  <desc>Terminal-Forge mark: amber CRT prompt on synthwave-magenta charcoal panel.</desc>
+
+  <defs>
+    <!-- Charcoal panel with subtle CRT vignette -->
+    <radialGradient id="forge-panel" cx="50%" cy="50%" r="65%">
+      <stop offset="0%"  stop-color="#1c1c1f" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#0e0e10" stop-opacity="1"/>
+    </radialGradient>
+
+    <!-- Amber CRT phosphor glow -->
+    <radialGradient id="forge-amber-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"  stop-color="#f5a623" stop-opacity="1"/>
+      <stop offset="50%" stop-color="#f5a623" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#f5a623" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Synthwave magenta glow for the spark -->
+    <radialGradient id="forge-magenta-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"  stop-color="#d946a8" stop-opacity="1"/>
+      <stop offset="55%" stop-color="#d946a8" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#d946a8" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Soft drop shadow for the terminal window -->
+    <filter id="forge-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
+      <feOffset dx="0" dy="6" result="off"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.55"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <!-- Scanlines (very subtle) -->
+    <pattern id="forge-scanlines" x="0" y="0" width="6" height="6" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="transparent"/>
+      <rect width="6" height="1" y="0" fill="#000000" fill-opacity="0.15"/>
+    </pattern>
+  </defs>
+
+  <!-- Outer deep-charcoal background -->
+  <rect width="1024" height="1024" rx="208" ry="208" fill="#0e0e10"/>
+
+  <!-- Panel -->
+  <rect x="64" y="64" width="896" height="896" rx="160" ry="160"
+        fill="url(#forge-panel)"
+        stroke="#f5a623" stroke-opacity="0.15" stroke-width="2"/>
+
+  <!-- Terminal window (centered, ~720x520) -->
+  <g filter="url(#forge-shadow)">
+    <rect x="152" y="232" width="720" height="560" rx="32" ry="32"
+          fill="#0a0a0c" stroke="#1c1c1f" stroke-width="4"/>
+
+    <!-- Title bar -->
+    <rect x="152" y="232" width="720" height="64" rx="32" ry="32" fill="#1c1c1f"/>
+    <rect x="152" y="280" width="720" height="16" fill="#1c1c1f"/>
+
+    <!-- Traffic-light dots (amber, magenta, mint) -->
+    <circle cx="200" cy="264" r="14" fill="#f5a623"/>
+    <circle cx="244" cy="264" r="14" fill="#d946a8"/>
+    <circle cx="288" cy="264" r="14" fill="#6ee7b7"/>
+
+    <!-- Prompt "F>" in amber CRT -->
+    <g transform="translate(192, 380)">
+      <text x="0" y="0"
+            font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, monospace"
+            font-size="120"
+            font-weight="700"
+            fill="#f5a623"
+            style="letter-spacing: 0.04em;">F&gt;</text>
+    </g>
+
+    <!-- Magenta spark/glow below the prompt (the AI hint) -->
+    <circle cx="500" cy="540" r="120" fill="url(#forge-magenta-glow)"/>
+    <circle cx="500" cy="540" r="36" fill="#d946a8"/>
+
+    <!-- Mint prompt echo line (the "result" line) -->
+    <g transform="translate(192, 660)">
+      <text x="0" y="0"
+            font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, monospace"
+            font-size="48"
+            font-weight="500"
+            fill="#6ee7b7"
+            fill-opacity="0.85"
+            style="letter-spacing: 0.04em;">~ forged</text>
+    </g>
+
+    <!-- Scanlines overlay (very subtle, on the terminal body only) -->
+    <rect x="152" y="296" width="720" height="496" fill="url(#forge-scanlines)" rx="0" ry="0"/>
+  </g>
+
+  <!-- Amber glow at the F> prompt cursor (the live line) -->
+  <circle cx="396" cy="392" r="80" fill="url(#forge-amber-glow)"/>
+
+  <!-- Tiny corner accents (CRT reticle feel) -->
+  <g fill="#f5a623" opacity="0.45">
+    <rect x="112" y="112" width="36" height="8"  rx="3"/>
+    <rect x="112" y="112" width="8"  height="36" rx="3"/>
+    <rect x="876" y="112" width="36" height="8"  rx="3"/>
+    <rect x="904" y="112" width="8"  height="36" rx="3"/>
+    <rect x="112" y="904" width="36" height="8"  rx="3"/>
+    <rect x="112" y="876" width="8"  height="36" rx="3"/>
+    <rect x="876" y="904" width="36" height="8"  rx="3"/>
+    <rect x="904" y="876" width="8"  height="36" rx="3"/>
+  </g>
+</svg>

@@ -7,7 +7,7 @@ use thiserror::Error;
 #[derive(Debug, derive_more::From, Error)]
 pub enum Error {
     #[error("{0}")]
-    Response(ErrorResponse),
+    Response(Box<ErrorResponse>),
 
     #[error("Invalid Status Code: {0}")]
     InvalidStatusCode(u16),

@@ -1,0 +1,91 @@
+# Pre-commit hooks for CI gates
+# Install: pre-commit install && pre-commit install --hook-type commit-msg
+# Run all: pre-commit run --all-files
+repos:
+  # ── General file hygiene ──
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-xml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: [--branch, main, --branch, master]
+
+  # ── Python (ruff = lint + format) ──
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.13
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # ── Python type checking ──
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.15.0
+    hooks:
+      - id: mypy
+        args: [--ignore-missing-imports, --no-strict-optional]
+        additional_dependencies: [types-requests, types-PyYAML]
+        pass_filenames: false
+        entry: mypy src/
+        language: system
+
+  # ── Rust ──
+  - repo: https://github.com/rust-lang/rust-clippy
+    rev: nightly-2025-07-15
+    hooks:
+      - id: clippy
+        args: [--all-targets, --all-features, --, -D, warnings]
+
+  - repo: https://github.com/rust-lang/rustfmt
+    rev: nightly-2025-07-15
+    hooks:
+      - id: rustfmt
+
+  # ── JavaScript/TypeScript (biome = fast lint+format) ──
+  - repo: https://github.com/biomejs/pre-commit
+    rev: v2.0.0
+    hooks:
+      - id: biome-check
+        args: [--write]
+
+  # ── Go ──
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.2.2
+    hooks:
+      - id: golangci-lint
+
+  # ── Docker ──
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.13.1-beta
+    hooks:
+      - id: hadolint-docker
+
+  # ── Commit message (conventional commits) ──
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.0.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: [feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert]
+
+  # ── Secret scanning ──
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.1
+    hooks:
+      - id: gitleaks
+
+  # ── Trunk.io (if installed) ──
+  - repo: https://github.com/trunk-io/trunk
+    rev: v1.0.0
+    hooks:
+      - id: trunk-check

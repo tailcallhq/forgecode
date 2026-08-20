@@ -1,0 +1,86 @@
+name: Coverage Ratchet
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ratchet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Measure coverage
+        id: cov
+        run: |
+          cargo tarpaulin --workspace --timeout 300 --out Xml --output-dir coverage
+          COV=$(grep -oP 'line-rate="\K[0-9.]+' coverage/cobertura.xml | head -1)
+          echo "percentage=$COV" >> "$GITHUB_OUTPUT"
+
+      - name: Read ratchet baseline
+        id: base
+        run: |
+          if [ -f agileplus/coverage-ratchet.json ]; then
+            BASE=$(jq -r .baseline_percentage agileplus/coverage-ratchet.json)
+          else
+            BASE=0
+          fi
+          echo "baseline=$BASE" >> "$GITHUB_OUTPUT"
+
+      - name: Check ratchet
+        run: |
+          CUR=$(echo "${{ steps.cov.outputs.percentage }}")
+          BASE=$(echo "${{ steps.base.outputs.baseline }}")
+          awk -v cur="$CUR" -v base="$BASE" 'BEGIN { if (cur+0 < base+0) { printf "FAIL: coverage %s dropped below ratchet %s\n", cur, base; exit 1 } else { printf "OK: coverage %s >= ratchet %s\n", cur, base } }'
+
+      - name: Update ratchet (only on main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          CUR=$(echo "${{ steps.cov.outputs.percentage }}")
+          BASE=$(echo "${{ steps.base.outputs.baseline }}")
+          awk -v cur="$CUR" -v base="$BASE" 'BEGIN { if (cur+0 > base+0) printf "%.4f", cur+0; else printf "%.4f", base+0 }' > /tmp/new_base
+          NEW=$(cat /tmp/new_base)
+          printf '{\n  "baseline_percentage": %s,\n  "last_updated": "%s",\n  "source": "tarpaulin"\n}\n' "$NEW" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > agileplus/coverage-ratchet.json
+          git config user.name "forge[bot]"
+          git config user.email "forge@users.noreply.github.com"
+          git add agileplus/coverage-ratchet.json || true
+          git diff --cached --quiet || git commit -m "ci(coverage): ratchet baseline to $NEW%"
+          git push || true
+
+      - name: Comment PR with coverage delta
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const cur = parseFloat("${{ steps.cov.outputs.percentage }}");
+            const base = parseFloat("${{ steps.base.outputs.baseline }}");
+            const delta = (cur - base).toFixed(2);
+            const sign = delta >= 0 ? "+" : "";
+            const emoji = cur >= base ? "✅" : "❌";
+            const body = `## Coverage Ratchet\n\n${emoji} **${(cur*100).toFixed(2)}%** (baseline ${(base*100).toFixed(2)}%, delta ${sign}${delta}%)\n\n${cur >= base ? "Coverage meets or exceeds ratchet." : "Coverage dropped below ratchet — please add tests."}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });

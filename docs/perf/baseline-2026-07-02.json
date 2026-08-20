@@ -1,0 +1,380 @@
+{
+  "timestamp": "epoch+1782961423s",
+  "commit": "6f8f80a37",
+  "os": "macos",
+  "arch": "aarch64",
+  "harness_version": "0.1.0",
+  "tokio_worker_threads": 10,
+  "regimes": [
+    {
+      "regime": "warmup",
+      "parallel_workers": 1,
+      "measurement_target": "forge --help",
+      "forge_cold_rss_kib": 32,
+      "samples": [
+        {
+          "pid": 96189,
+          "rss_kib": 208,
+          "user_cpu_pct": 0.42,
+          "system_cpu_pct": 0.27999999999999997,
+          "threads": 0,
+          "fds": 0
+        }
+      ],
+      "mean_rss_kib": 208.0,
+      "p99_rss_kib": 208,
+      "mean_idle_cpu_pct": 0.7,
+      "mean_threads": 0.0,
+      "mean_fds": 0.0,
+      "duration_ms": 2915
+    },
+    {
+      "regime": "sustained",
+      "parallel_workers": 8,
+      "measurement_target": "sleep 0.5",
+      "forge_cold_rss_kib": 208,
+      "samples": [
+        {
+          "pid": 96303,
+          "rss_kib": 1136,
+          "user_cpu_pct": 0.3,
+          "system_cpu_pct": 0.2,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96299,
+          "rss_kib": 1104,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96309,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96310,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.3,
+          "system_cpu_pct": 0.2,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96319,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96326,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96321,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96312,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        }
+      ],
+      "mean_rss_kib": 1120.0,
+      "p99_rss_kib": 1120,
+      "mean_idle_cpu_pct": 0.425,
+      "mean_threads": 0.0,
+      "mean_fds": 0.0,
+      "duration_ms": 764
+    },
+    {
+      "regime": "burst",
+      "parallel_workers": 32,
+      "measurement_target": "sleep 0.5",
+      "forge_cold_rss_kib": 208,
+      "samples": [
+        {
+          "pid": 96510,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96588,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96747,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96837,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.36,
+          "system_cpu_pct": 0.24,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96509,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.3,
+          "system_cpu_pct": 0.2,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96642,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96754,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96507,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96650,
+          "rss_kib": 1136,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96822,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.36,
+          "system_cpu_pct": 0.24,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96504,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96674,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96848,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96518,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96665,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96516,
+          "rss_kib": 1136,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96580,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96517,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96662,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96519,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96660,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.18,
+          "system_cpu_pct": 0.12,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96512,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.3,
+          "system_cpu_pct": 0.2,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96654,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.18,
+          "system_cpu_pct": 0.12,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96521,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96631,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96751,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96760,
+          "rss_kib": 1136,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96775,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.3,
+          "system_cpu_pct": 0.2,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96793,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96791,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96782,
+          "rss_kib": 1136,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        },
+        {
+          "pid": 96826,
+          "rss_kib": 1120,
+          "user_cpu_pct": 0.24,
+          "system_cpu_pct": 0.16000000000000003,
+          "threads": 0,
+          "fds": 0
+        }
+      ],
+      "mean_rss_kib": 1122.0,
+      "p99_rss_kib": 1136,
+      "mean_idle_cpu_pct": 0.41562500000000024,
+      "mean_threads": 0.0,
+      "mean_fds": 0.0,
+      "duration_ms": 755
+    }
+  ]
+}

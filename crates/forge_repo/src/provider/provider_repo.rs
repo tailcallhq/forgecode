@@ -7,7 +7,6 @@ use forge_domain::{
     AnyProvider, ApiKey, AuthCredential, AuthDetails, Error, MigrationResult, Provider,
     ProviderRepository, ProviderType, URLParam, URLParamSpec, URLParamValue,
 };
-use merge::Merge;
 use serde::Deserialize;
 
 /// Represents the source of models for a provider
@@ -72,32 +71,45 @@ impl UrlParamVarConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Merge)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 struct ProviderConfig {
-    #[merge(strategy = overwrite)]
     id: ProviderId,
     #[serde(default)]
-    #[merge(strategy = overwrite)]
     provider_type: ProviderType,
     #[serde(default)]
-    #[merge(strategy = overwrite)]
     api_key_vars: Option<String>,
     #[serde(default)]
-    #[merge(strategy = merge::vec::append)]
     url_param_vars: Vec<UrlParamVarConfig>,
     #[serde(default)]
-    #[merge(strategy = overwrite)]
     response_type: Option<ProviderResponse>,
-    #[merge(strategy = overwrite)]
     url: String,
     #[serde(default)]
-    #[merge(strategy = overwrite)]
     models: Option<Models>,
-    #[merge(strategy = merge::vec::append)]
     auth_methods: Vec<forge_domain::AuthMethod>,
     #[serde(default)]
-    #[merge(strategy = overwrite)]
     custom_headers: Option<std::collections::HashMap<String, String>>,
+}
+
+impl ProviderConfig {
+    fn merge_from(&mut self, other: Self) {
+        self.id = other.id;
+        self.provider_type = other.provider_type;
+        if other.api_key_vars.is_some() {
+            self.api_key_vars = other.api_key_vars;
+        }
+        self.url_param_vars.extend(other.url_param_vars);
+        if other.response_type.is_some() {
+            self.response_type = other.response_type;
+        }
+        self.url = other.url;
+        if other.models.is_some() {
+            self.models = other.models;
+        }
+        self.auth_methods.extend(other.auth_methods);
+        if other.custom_headers.is_some() {
+            self.custom_headers = other.custom_headers;
+        }
+    }
 }
 
 /// Maps new environment variable names to their legacy fallback names.
@@ -110,6 +122,11 @@ fn legacy_env_var_fallback(new_name: &str) -> Option<&'static str> {
         "LM_STUDIO_HOST" => Some("LM_STUDIO_URL"),
         "LLAMA_CPP_HOST" => Some("LLAMA_CPP_URL"),
         "JAN_AI_HOST" => Some("JAN_AI_URL"),
+        // HeliosLite rename (2026-07-06): FORGE_API_KEY -> HELIOSLITE_API_KEY.
+        // Users on the legacy KooshaPari/forgecode pre-rename build keep working
+        // until they rotate their env. Symmetric with the OLLAMA/VLLM/LM_STUDIO
+        // fallbacks above. Will be removed in a future major.
+        "HELIOSLITE_API_KEY" => Some("FORGE_API_KEY"),
         _ => None,
     }
 }
@@ -127,28 +144,22 @@ fn default_url_param_value(name: &str) -> Option<&'static str> {
     }
 }
 
-fn overwrite<T>(base: &mut T, other: T) {
-    *base = other;
-}
-
 /// Transparent wrapper for Vec<ProviderConfig> that implements custom merge
 /// logic
-#[derive(Debug, Clone, Deserialize, Merge)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-struct ProviderConfigs(#[merge(strategy = merge_configs)] Vec<ProviderConfig>);
+struct ProviderConfigs(Vec<ProviderConfig>);
 
-fn merge_configs(base: &mut Vec<ProviderConfig>, other: Vec<ProviderConfig>) {
-    let mut map: std::collections::HashMap<_, _> =
-        base.drain(..).map(|c| (c.id.clone(), c)).collect();
-
-    for other_config in other {
-        let id = other_config.id.clone();
-        map.entry(id)
-            .and_modify(|base_config| base_config.merge(other_config.clone()))
-            .or_insert(other_config);
+impl ProviderConfigs {
+    fn merge_from(&mut self, other: Self) {
+        for other_config in other.0 {
+            if let Some(base_config) = self.0.iter_mut().find(|base| base.id == other_config.id) {
+                base_config.merge_from(other_config);
+            } else {
+                self.0.push(other_config);
+            }
+        }
     }
-
-    base.extend(map.into_values());
 }
 
 impl From<forge_config::ProviderUrlParam> for UrlParamVarConfig {
@@ -572,11 +583,11 @@ impl<
     async fn get_merged_configs(&self) -> Vec<ProviderConfig> {
         let mut configs = ProviderConfigs(get_provider_configs().clone());
         // Merge custom file configs into embedded configs
-        configs.merge(ProviderConfigs(
+        configs.merge_from(ProviderConfigs(
             self.get_custom_provider_configs().await.unwrap_or_default(),
         ));
         // Merge inline configs from ForgeConfig (forge.toml `providers` field)
-        configs.merge(ProviderConfigs(self.get_config_provider_configs()));
+        configs.merge_from(ProviderConfigs(self.get_config_provider_configs()));
 
         configs.0
     }
@@ -672,6 +683,109 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+
+    fn fixture_provider_config(id: &str, url: &str) -> ProviderConfig {
+        ProviderConfig {
+            id: ProviderId::from(id.to_string()),
+            provider_type: ProviderType::Llm,
+            api_key_vars: Some("BASE_KEY".to_string()),
+            url_param_vars: vec![UrlParamVarConfig::Plain("BASE_PARAM".to_string())],
+            response_type: Some(ProviderResponse::OpenAI),
+            url: url.to_string(),
+            models: None,
+            auth_methods: vec![AuthMethod::ApiKey],
+            custom_headers: Some(std::collections::HashMap::from([(
+                "X-Base".to_string(),
+                "base".to_string(),
+            )])),
+        }
+    }
+
+    #[test]
+    fn test_provider_config_merge_from_overwrites_scalars_and_appends_vectors() {
+        let mut fixture = fixture_provider_config("shared", "https://base.example");
+        let other = ProviderConfig {
+            id: ProviderId::from("shared".to_string()),
+            provider_type: ProviderType::ContextEngine,
+            api_key_vars: Some("OTHER_KEY".to_string()),
+            url_param_vars: vec![UrlParamVarConfig::Plain("OTHER_PARAM".to_string())],
+            response_type: Some(ProviderResponse::Anthropic),
+            url: "https://other.example".to_string(),
+            models: None,
+            auth_methods: vec![AuthMethod::GoogleAdc],
+            custom_headers: Some(std::collections::HashMap::from([(
+                "X-Other".to_string(),
+                "other".to_string(),
+            )])),
+        };
+        fixture.merge_from(other);
+        let expected = ProviderConfig {
+            id: ProviderId::from("shared".to_string()),
+            provider_type: ProviderType::ContextEngine,
+            api_key_vars: Some("OTHER_KEY".to_string()),
+            url_param_vars: vec![
+                UrlParamVarConfig::Plain("BASE_PARAM".to_string()),
+                UrlParamVarConfig::Plain("OTHER_PARAM".to_string()),
+            ],
+            response_type: Some(ProviderResponse::Anthropic),
+            url: "https://other.example".to_string(),
+            models: None,
+            auth_methods: vec![AuthMethod::ApiKey, AuthMethod::GoogleAdc],
+            custom_headers: Some(std::collections::HashMap::from([(
+                "X-Other".to_string(),
+                "other".to_string(),
+            )])),
+        };
+        assert_eq!(fixture, expected);
+    }
+
+    #[test]
+    fn test_provider_config_merge_from_preserves_absent_optional_fields() {
+        let mut fixture = fixture_provider_config("shared", "https://base.example");
+        let other = ProviderConfig {
+            models: None,
+            api_key_vars: None,
+            response_type: None,
+            custom_headers: None,
+            ..fixture_provider_config("shared", "https://other.example")
+        };
+
+        fixture.merge_from(other);
+
+        let expected = ProviderConfig {
+            url: "https://other.example".to_string(),
+            url_param_vars: vec![
+                UrlParamVarConfig::Plain("BASE_PARAM".to_string()),
+                UrlParamVarConfig::Plain("BASE_PARAM".to_string()),
+            ],
+            auth_methods: vec![AuthMethod::ApiKey, AuthMethod::ApiKey],
+            ..fixture_provider_config("shared", "https://base.example")
+        };
+        assert_eq!(fixture, expected);
+    }
+
+    #[test]
+    fn test_provider_configs_merge_from_updates_matching_id_and_preserves_base_order() {
+        let mut fixture = ProviderConfigs(vec![
+            fixture_provider_config("first", "https://base-first.example"),
+            fixture_provider_config("shared", "https://base-shared.example"),
+        ]);
+        let other = ProviderConfigs(vec![
+            ProviderConfig {
+                url: "https://other-shared.example".to_string(),
+                ..fixture_provider_config("shared", "https://unused.example")
+            },
+            fixture_provider_config("third", "https://third.example"),
+        ]);
+        fixture.merge_from(other);
+        let actual_ids = fixture
+            .0
+            .iter()
+            .map(|config| config.id.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(actual_ids, vec!["First", "Shared", "Third"]);
+        assert_eq!(fixture.0[1].url, "https://other-shared.example");
+    }
 
     #[test]
     fn test_load_provider_configs() {
@@ -1241,6 +1355,10 @@ mod env_tests {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect()
+        }
+
+        async fn database_stats(&self) -> anyhow::Result<forge_domain::HeliosdoctorDbStats> {
+            Ok(forge_domain::HeliosdoctorDbStats::default())
         }
     }
 
@@ -2012,6 +2130,10 @@ mod env_tests {
                     .iter()
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect()
+            }
+
+            async fn database_stats(&self) -> anyhow::Result<forge_domain::HeliosdoctorDbStats> {
+                Ok(forge_domain::HeliosdoctorDbStats::default())
             }
         }
 

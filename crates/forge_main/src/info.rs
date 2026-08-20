@@ -75,7 +75,7 @@ impl Section {
 /// # Output Format
 ///
 /// ```text
-/// 
+///
 /// CONFIGURATION
 ///   model gpt-4
 /// provider openai
@@ -346,7 +346,6 @@ impl From<&ForgeConfig> for Info {
                 )
                 .add_key_value("Pool Max Idle", http.pool_max_idle_per_host.to_string())
                 .add_key_value("Max Redirects", http.max_redirects.to_string())
-                .add_key_value("Use Hickory DNS", http.hickory.to_string())
                 .add_key_value("TLS Backend", format!("{:?}", http.tls_backend))
                 .add_key_value(
                     "Min TLS Version",
@@ -714,6 +713,11 @@ impl From<&Conversation> for Info {
 
         info = info.add_key_value("ID", conversation.id.to_string());
 
+        // Subagent breadcrumb — show parent if this is a spawned session
+        if let Some(parent_id) = &conversation.parent_id {
+            info = info.add_key_value("Spawned by", format!("{} (use /parent to jump)", parent_id));
+        }
+
         if let Some(title) = &conversation.title {
             info = info.add_key_value("Title", title);
         }
@@ -766,9 +770,7 @@ mod tests {
         use fake::{Fake, Faker};
         let mut fixture: Environment = Faker.fake();
         fixture = fixture.os(os.to_string());
-        if let Some(home_path) = home {
-            fixture = fixture.home(PathBuf::from(home_path));
-        }
+        fixture.home = home.map(PathBuf::from);
         fixture
     }
 
@@ -979,6 +981,10 @@ mod tests {
             context: None,
             metrics,
             metadata: forge_domain::MetaData::new(Utc::now()),
+            cwd: None,
+            message_count: None,
+            parent_id: None,
+            source: None,
         };
 
         let actual = super::Info::from(&fixture);
@@ -1006,6 +1012,10 @@ mod tests {
             context: None,
             metrics,
             metadata: forge_domain::MetaData::new(Utc::now()),
+            cwd: None,
+            message_count: None,
+            parent_id: None,
+            source: None,
         };
 
         let actual = super::Info::from(&fixture);
@@ -1051,6 +1061,10 @@ mod tests {
             context: Some(context),
             metrics,
             metadata: forge_domain::MetaData::new(Utc::now()),
+            cwd: None,
+            message_count: None,
+            parent_id: None,
+            source: None,
         };
 
         let actual = super::Info::from(&fixture);

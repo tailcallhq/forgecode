@@ -2,10 +2,12 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::{Arc, OnceLock, RwLock};
+use std::time::Duration;
 
 use backon::{ExponentialBuilder, Retryable};
 use bstr::ByteSlice;
 use forge_app::McpClientInfra;
+use forge_config::RetryConfig;
 use forge_domain::{
     Environment, Image, McpHttpServer, McpServerConfig, ToolDefinition, ToolName, ToolOutput,
 };
@@ -19,23 +21,47 @@ use schemars::Schema;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::error::Error;
+use crate::resilience::{Bulkhead, CircuitBreaker, CircuitBreakerConfig};
 
 const VERSION: &str = match option_env!("APP_VERSION") {
     Some(val) => val,
     None => env!("CARGO_PKG_VERSION"),
 };
 
+/// Default max concurrent MCP calls per client when no config is provided.
+const DEFAULT_MCP_MAX_CONCURRENT: usize = 16;
+/// Default retry attempts for MCP transport errors when no `RetryConfig` is
+/// provided.  Mirrors the previously hardcoded value so behaviour is unchanged
+/// for callers that have not opted in to config-driven retry.
+const DEFAULT_MCP_MAX_RETRIES: usize = 5;
+
 type RmcpClient = RunningService<RoleClient, InitializeRequestParams>;
 
 #[derive(Clone)]
 pub struct ForgeMcpClient {
+    /// Holds the live connection once established.
     client: Arc<RwLock<Option<Arc<RmcpClient>>>>,
     config: McpServerConfig,
     env_vars: BTreeMap<String, String>,
     environment: Environment,
     resolved_config: Arc<OnceLock<anyhow::Result<McpServerConfig>>>,
+    /// Retry configuration that governs how many times transport errors are
+    /// retried and with what backoff.  Driven by the global [`RetryConfig`]
+    /// so that all retry behaviour in the system is controlled from one place.
+    retry_config: RetryConfig,
+    /// Circuit breaker shared across all calls on this client instance.
+    circuit_breaker: CircuitBreaker,
+    /// Concurrency bulkhead — prevents stampeding a struggling MCP server.
+    bulkhead: Bulkhead,
+    /// Serialises the connect() path so that concurrent callers cannot each
+    /// observe `client == None`, independently create a transport, and then
+    /// silently discard all but the last one (TOCTOU).  The async mutex is
+    /// held only during the connection handshake; normal call-tool paths never
+    /// acquire it.
+    connect_mutex: Arc<TokioMutex<()>>,
 }
 
 impl ForgeMcpClient {
@@ -44,12 +70,45 @@ impl ForgeMcpClient {
         env_vars: &BTreeMap<String, String>,
         environment: Environment,
     ) -> Self {
+        Self::with_retry_config(config, env_vars, environment, RetryConfig::default())
+    }
+
+    /// Constructs a client with an explicit [`RetryConfig`].  All retry and
+    /// backoff behaviour is driven by `retry_config`; circuit-breaker and
+    /// bulkhead thresholds are derived from it.
+    pub fn with_retry_config(
+        config: McpServerConfig,
+        env_vars: &BTreeMap<String, String>,
+        environment: Environment,
+        retry_config: RetryConfig,
+    ) -> Self {
+        // Derive circuit-breaker threshold from retry config: open after the
+        // same number of attempts that the retry layer would exhaust.
+        let failure_threshold = if retry_config.max_attempts > 0 {
+            retry_config.max_attempts as u32
+        } else {
+            DEFAULT_MCP_MAX_RETRIES as u32
+        };
+
+        let circuit_breaker = CircuitBreaker::new(CircuitBreakerConfig {
+            failure_threshold,
+            reset_timeout: retry_config
+                .max_delay_secs
+                .map(Duration::from_secs)
+                .unwrap_or(Duration::from_secs(30)),
+            name: "mcp_client".to_string(),
+        });
+
         Self {
             client: Default::default(),
             config,
             env_vars: env_vars.clone(),
             environment,
             resolved_config: Arc::new(OnceLock::new()),
+            retry_config,
+            circuit_breaker,
+            bulkhead: Bulkhead::new("mcp_client", DEFAULT_MCP_MAX_CONCURRENT),
+            connect_mutex: Arc::new(TokioMutex::new(())),
         }
     }
 
@@ -70,16 +129,33 @@ impl ForgeMcpClient {
         ClientInfo::new(Default::default(), Implementation::new("Forge", VERSION))
     }
 
-    /// Connects to the MCP server. If `force` is true, it will reconnect even
-    /// if already connected.
+    /// Connects to the MCP server, returning an existing connection when one
+    /// is already live.
+    ///
+    /// The fast path (connection already established) reads the `RwLock`
+    /// without acquiring the `connect_mutex`.  The slow path (first connect or
+    /// reconnect) holds `connect_mutex` for the duration of the handshake so
+    /// that concurrent callers serialise here rather than each creating an
+    /// independent transport only to discard all but the last one (TOCTOU).
     async fn connect(&self) -> anyhow::Result<Arc<RmcpClient>> {
+        // Fast path: already connected.
         if let Some(client) = self.get_client() {
-            Ok(client.clone())
-        } else {
-            let client = self.create_connection().await?;
-            self.set_client(client.clone());
-            Ok(client.clone())
+            return Ok(client);
         }
+
+        // Slow path: acquire the per-client mutex so only one task performs
+        // the connection handshake at a time.
+        let _guard = self.connect_mutex.lock().await;
+
+        // Re-check after acquiring the lock — another task may have connected
+        // while we were waiting.
+        if let Some(client) = self.get_client() {
+            return Ok(client);
+        }
+
+        let client = self.create_connection().await?;
+        self.set_client(client.clone());
+        Ok(client)
     }
 
     fn get_client(&self) -> Option<Arc<RmcpClient>> {
@@ -490,33 +566,73 @@ impl ForgeMcpClient {
             .is_error(result.is_error.unwrap_or_default()))
     }
 
+    /// Returns a predicate that decides whether an MCP error is worth retrying.
+    /// When a transport error is detected the cached client handle is cleared
+    /// so the next attempt reconnects.
+    fn mcp_should_retry(&self, err: &anyhow::Error) -> bool {
+        let is_transport = err
+            .downcast_ref::<rmcp::ServiceError>()
+            .map(|e| {
+                matches!(
+                    e,
+                    rmcp::ServiceError::TransportSend(_) | rmcp::ServiceError::TransportClosed
+                )
+            })
+            .unwrap_or(false);
+
+        if is_transport && let Ok(mut guard) = self.client.write() {
+            guard.take();
+        }
+
+        is_transport
+    }
+
+    /// Executes `call` with:
+    ///
+    /// 1. A **bulkhead** that limits concurrency to
+    ///    `DEFAULT_MCP_MAX_CONCURRENT`.
+    /// 2. A **circuit breaker** that short-circuits after repeated failures.
+    /// 3. **Retry with exponential backoff** driven by the global
+    ///    [`RetryConfig`] (falls back to `DEFAULT_MCP_MAX_RETRIES` if the
+    ///    config has `max_attempts == 0`).
     async fn attempt_with_retry<T, F>(&self, call: impl Fn() -> F) -> anyhow::Result<T>
     where
         F: Future<Output = anyhow::Result<T>>,
     {
-        call.retry(
-            ExponentialBuilder::default()
-                .with_max_times(5)
-                .with_jitter(),
-        )
-        .when(|err| {
-            let is_transport = err
-                .downcast_ref::<rmcp::ServiceError>()
-                .map(|e| {
-                    matches!(
-                        e,
-                        rmcp::ServiceError::TransportSend(_) | rmcp::ServiceError::TransportClosed
-                    )
-                })
-                .unwrap_or(false);
+        let max_times = if self.retry_config.max_attempts > 0 {
+            self.retry_config.max_attempts
+        } else {
+            DEFAULT_MCP_MAX_RETRIES
+        };
 
-            if is_transport && let Ok(mut guard) = self.client.write() {
-                guard.take();
-            }
+        let min_delay = if self.retry_config.min_delay_ms > 0 {
+            Duration::from_millis(self.retry_config.min_delay_ms)
+        } else {
+            Duration::from_millis(100)
+        };
 
-            is_transport
-        })
-        .await
+        let factor = if self.retry_config.backoff_factor > 0 {
+            self.retry_config.backoff_factor as f32
+        } else {
+            2.0_f32
+        };
+
+        let strategy = ExponentialBuilder::default()
+            .with_max_times(max_times)
+            .with_min_delay(min_delay)
+            .with_factor(factor)
+            .with_jitter();
+
+        let bulkhead = &self.bulkhead;
+        let circuit_breaker = &self.circuit_breaker;
+
+        // Bulkhead: reject immediately if at capacity
+        let _permit = bulkhead.try_acquire()?;
+
+        // Circuit breaker wraps the (possibly retried) call
+        circuit_breaker
+            .call(|| call.retry(&strategy).when(|err| self.mcp_should_retry(err)))
+            .await
     }
 }
 
@@ -828,5 +944,55 @@ mod tests {
         assert_eq!(resolved.url, "https://test.example.com");
         assert_eq!(resolved.disable, true);
         assert_eq!(resolved.headers.get("Auth"), Some(&"test".to_string()));
+    }
+
+    /// Verifies the TOCTOU fix: `ForgeMcpClient` must expose a `connect_mutex`
+    /// that serialises concurrent `connect()` calls.
+    ///
+    /// Concurrency invariant (documented here because an end-to-end transport
+    /// test would require a live MCP server):
+    ///
+    /// 1. The fast path reads `client` under `RwLock` — no mutex needed.
+    /// 2. The slow path acquires `connect_mutex`, then re-checks `client`
+    ///    (double-checked locking) before calling `create_connection()`.
+    /// 3. Therefore at most one transport handshake is in flight per
+    ///    `ForgeMcpClient` instance at any point in time, and all concurrent
+    ///    callers that arrive while the handshake is in progress will reuse the
+    ///    same connection once it is stored.
+    #[test]
+    fn test_connect_mutex_is_present_and_starts_unlocked() {
+        use std::path::PathBuf;
+
+        use forge_domain::Environment;
+
+        let config = McpServerConfig::Http(McpHttpServer {
+            url: "https://example.com".to_string(),
+            headers: BTreeMap::new(),
+            timeout: None,
+            disable: false,
+            oauth: Default::default(),
+        });
+        let env = Environment {
+            os: "linux".to_string(),
+            cwd: PathBuf::from("/tmp"),
+            home: None,
+            shell: "/bin/sh".to_string(),
+            base_path: PathBuf::from("/tmp/.forge"),
+        };
+        let client = ForgeMcpClient::new(config, &BTreeMap::new(), env);
+
+        // The mutex must be immediately acquirable on a freshly constructed client
+        // (i.e. no connect is in progress).
+        let guard = client.connect_mutex.try_lock();
+        assert!(
+            guard.is_ok(),
+            "connect_mutex should be unlocked on a fresh ForgeMcpClient"
+        );
+
+        // Verify the client field holds no connection yet.
+        assert!(
+            client.get_client().is_none(),
+            "newly constructed client must have no live connection"
+        );
     }
 }

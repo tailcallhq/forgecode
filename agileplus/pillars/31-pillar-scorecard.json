@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "project": "ForgeCode",
+  "version": "2.13.21",
+  "assessmentDate": "2026-08-19",
+  "source": "2026-08-19 AgilePlus audit; remote-branch count supplied by repository audit",
+  "grading": {
+    "scale": "0-10",
+    "bands": {
+      "exemplary": "9-10",
+      "effective": "7-8",
+      "partial": "5-6",
+      "gap": "0-4"
+    },
+    "target": 8.0
+  },
+  "summary": {
+    "pillarCount": 31,
+    "average": 6.81,
+    "grade": 7.0,
+    "pillarsAtOrAboveTarget": 14,
+    "criticalPillarsBelow6": 3
+  },
+  "pillars": {
+    "code_quality": { "name": "Code Quality", "score": 8, "target": 8 },
+    "tests": { "name": "Tests", "score": 7, "target": 8 },
+    "docs": { "name": "Docs", "score": 8, "target": 8 },
+    "ci_cd": { "name": "CI/CD", "score": 9, "target": 8 },
+    "security": { "name": "Security", "score": 8, "target": 8 },
+    "architecture": { "name": "Architecture", "score": 9, "target": 8 },
+    "performance": { "name": "Performance", "score": 7, "target": 8 },
+    "dx": { "name": "DX", "score": 8, "target": 8 },
+    "releases": { "name": "Releases", "score": 8, "target": 8 },
+    "monitoring": { "name": "Monitoring", "score": 6, "target": 8 },
+    "deps": { "name": "Deps", "score": 8, "target": 8 },
+    "reviews": { "name": "Reviews", "score": 7, "target": 8 },
+    "branch_mgmt": { "name": "Branch Mgmt", "score": 6, "target": 8 },
+    "issue_tracking": { "name": "Issue Tracking", "score": 7, "target": 8 },
+    "agile_pm": { "name": "Agile PM", "score": 4, "target": 8 },
+    "accessibility": { "name": "Accessibility", "score": 5, "target": 8 },
+    "i18n": { "name": "i18n", "score": 2, "target": 8 },
+    "mobile": { "name": "Mobile", "score": 3, "target": 8 },
+    "api": { "name": "API", "score": 7, "target": 8 },
+    "db": { "name": "DB", "score": 6, "target": 8 },
+    "errors": { "name": "Errors", "score": 8, "target": 8 },
+    "logging": { "name": "Logging", "score": 7, "target": 8 },
+    "config": { "name": "Config", "score": 8, "target": 8 },
+    "env": { "name": "Env", "score": 7, "target": 8 },
+    "build": { "name": "Build", "score": 8, "target": 8 },
+    "pkg": { "name": "Pkg", "score": 7, "target": 8 },
+    "license": { "name": "License", "score": 8, "target": 8 },
+    "community": { "name": "Community", "score": 5, "target": 8 },
+    "contributing": { "name": "Contributing", "score": 8, "target": 8 },
+    "coc": { "name": "CoC", "score": 3, "target": 8 },
+    "vuln_disc": { "name": "Vuln Disc", "score": 8, "target": 8 }
+  }
+}

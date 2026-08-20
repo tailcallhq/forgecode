@@ -1,7 +1,8 @@
 [package]
 name = "forge_api"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
@@ -14,6 +15,8 @@ forge_services.workspace = true
 forge_repo.workspace = true
 forge_infra.workspace = true
 futures.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 
 
 
@@ -25,9 +28,6 @@ futures.workspace = true
 forge_app.workspace = true
 serde_json.workspace = true
 forge_config.workspace = true
+tokio-util.workspace = true
 
 [dev-dependencies]
-
-tokio = { workspace = true }
-
-

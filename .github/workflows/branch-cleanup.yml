@@ -1,0 +1,106 @@
+name: Nightly Branch Cleanup
+
+on:
+  schedule:
+    - cron: '27 2 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only report candidates when true
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-branch-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Delete stale unprotected branches
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DRY_RUN: ${{ inputs.dry_run || vars.AGILEPLUS_BRANCH_CLEANUP_DRY_RUN || 'false' }}
+      STALE_DAYS: '90'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Audit and clean remote branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+          owner="${repo%/*}"
+          default_branch="$(gh api "repos/$repo" --jq .default_branch)"
+          cutoff="$(date -u -d "$STALE_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)"
+          page=1
+          branches=""
+          while true; do
+            response="$(gh api "repos/$repo/branches?per_page=100&page=$page")"
+            count="$(jq 'length' <<<"$response")"
+            branches+="$(jq -r '.[].name' <<<"$response")"$'\n'
+            (( count < 100 )) && break
+            page=$((page + 1))
+          done
+          page=1
+          open_refs=""
+          while true; do
+            response="$(gh api "repos/$repo/pulls?state=open&per_page=100&page=$page")"
+            count="$(jq 'length' <<<"$response")"
+            open_refs+="$(jq -r '.[] | [.head.ref, .head.repo.full_name] | @tsv' <<<"$response")"$'\n'
+            (( count < 100 )) && break
+            page=$((page + 1))
+          done
+          deleted=0
+          skipped=0
+          protected=0
+          old=0
+          merged=0
+          while IFS= read -r branch; do
+            [[ -n "$branch" ]] || continue
+            [[ "$branch" != "$default_branch" ]] || { skipped=$((skipped + 1)); continue; }
+            if grep -Fqx "$branch	$repo" <<<"$open_refs"; then
+              skipped=$((skipped + 1))
+              continue
+            fi
+            if gh api "repos/$repo/branches/$branch/protection" >/dev/null 2>&1; then
+              protected=$((protected + 1))
+              continue
+            fi
+            last_commit="$(gh api "repos/$repo/commits/$branch" --jq '.commit.committer.date' 2>/dev/null || true)"
+            [[ -n "$last_commit" && "$last_commit" != "null" ]] || { skipped=$((skipped + 1)); continue; }
+            has_merged_pr="$(gh api "repos/$repo/pulls?state=closed&head=$owner:$branch&per_page=100" --jq 'any(.[]; .merged_at != null)' 2>/dev/null || printf 'false')"
+            if [[ "$last_commit" < "$cutoff" ]]; then old=$((old + 1)); fi
+            if [[ "$has_merged_pr" == "true" ]]; then merged=$((merged + 1)); fi
+            if [[ "$last_commit" < "$cutoff" || "$has_merged_pr" == "true" ]]; then
+              reason="inactive since $last_commit"
+              [[ "$has_merged_pr" == "true" ]] && reason="has a merged pull request"
+              if [[ "$DRY_RUN" == "true" ]]; then
+                echo "DRY RUN: would delete $branch ($reason)"
+              else
+                gh api --method DELETE "repos/$repo/git/refs/heads/$branch" >/dev/null
+                echo "Deleted $branch ($reason)"
+                deleted=$((deleted + 1))
+              fi
+            else
+              skipped=$((skipped + 1))
+            fi
+          done <<< "$branches"
+          {
+            echo "## Branch cleanup summary"
+            echo "- Mode: $([[ "$DRY_RUN" == "true" ]] && echo dry run || echo deletion)"
+            echo "- Remote branches inspected: $(wc -l <<< "$branches")"
+            echo "- Deleted: $deleted"
+            echo "- Skipped (active/default/race): $skipped"
+            echo "- Protected branches: $protected"
+            echo "- Inactive branches: $old"
+            echo "- Branches with merged PRs: $merged"
+            echo "- Cutoff: $cutoff"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,4 +1,4 @@
-use std::hash::{DefaultHasher, Hash, Hasher};
+use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 use std::path::PathBuf;
 
 use derive_more::Display;
@@ -114,6 +114,86 @@ impl Environment {
         self.base_path.join(".forge.db")
     }
 
+    /// Returns the path of the legacy read-only database whose conversations
+    /// are unioned into the read-side projection.
+    ///
+    /// Resolution order:
+    /// 1. `FORGE_LEGACY_DB_PATH` environment variable, if set. Allows callers
+    ///    to point the read-side UNION at a different legacy file.
+    /// 2. Otherwise `.forge.db` — the default legacy path.
+    pub fn legacy_database_path(&self) -> PathBuf {
+        if let Ok(path) = std::env::var("FORGE_LEGACY_DB_PATH") {
+            return PathBuf::from(path);
+        }
+        self.database_path()
+    }
+
+    /// Returns the path where the fork WRITES conversations and other DB
+    /// tables.
+    ///
+    /// Resolution order:
+    /// 1. `FORGE_WRITE_DB_PATH` environment variable, if set. Allows callers to
+    ///    point writes at any file (including a brand-new directory) so the
+    ///    existing `.forge.db` is left untouched.
+    /// 2. Otherwise `.forge.writes.db` — the split-DB default. The fork always
+    ///    writes new data into the separate write DB while reads go through the
+    ///    `conversations_all` UNION (legacy `.forge.db` + write DB), so
+    ///    pre-existing conversations remain visible.
+    ///
+    /// Point `FORGE_LEGACY_DB_PATH` at a different file to change which
+    /// legacy database the read-side UNION pulls from.
+    pub fn write_database_path(&self) -> PathBuf {
+        if let Ok(path) = std::env::var("FORGE_WRITE_DB_PATH") {
+            return PathBuf::from(path);
+        }
+        self.base_path.join(".forge.writes.db")
+    }
+
+    /// Returns whether the hot-path conversation writes should be routed
+    /// through the `forge-dbd` single-writer daemon.
+    ///
+    /// Resolution order:
+    /// 1. `FORGE_DBD_ENABLED` environment variable, if set. Only the exact
+    ///    values `1` or `true` (case-insensitive) enable the daemon.
+    /// 2. Otherwise `false` — the client falls back to direct SQLite access.
+    pub fn dbd_enabled(&self) -> bool {
+        match std::env::var("FORGE_DBD_ENABLED") {
+            Ok(value) => matches!(value.to_ascii_lowercase().as_str(), "1" | "true"),
+            Err(_) => false,
+        }
+    }
+
+    /// Returns the socket path the client uses to reach the `forge-dbd`
+    /// daemon.
+    ///
+    /// Resolution order:
+    /// 1. `FORGE_DBD_SOCKET` environment variable, if set. Allows callers to
+    ///    point the client at a non-default socket.
+    /// 2. Otherwise `~/.forge/.forge.db.sock` — the P3 single-writer daemon
+    ///    default.
+    pub fn dbd_socket_path(&self) -> PathBuf {
+        if let Ok(path) = std::env::var("FORGE_DBD_SOCKET") {
+            return PathBuf::from(path);
+        }
+        self.home
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".forge/.forge.db.sock")
+    }
+
+    /// Returns the path to the `forge-dbd` daemon binary the client should
+    /// spawn on the first routed write when the socket is not live.
+    ///
+    /// Resolution order:
+    /// 1. `FORGE_DBD_BIN` environment variable, if set. Allows callers to point
+    ///    the client at a specific daemon binary — an absolute path, or a bare
+    ///    name resolved through `PATH`.
+    /// 2. Otherwise `None` — the client falls back to looking up `forge_dbd` on
+    ///    `PATH` at spawn time.
+    pub fn dbd_bin_path(&self) -> Option<PathBuf> {
+        std::env::var("FORGE_DBD_BIN").ok().map(PathBuf::from)
+    }
+
     /// Returns the path to the cache directory
     pub fn cache_dir(&self) -> PathBuf {
         self.base_path.join("cache")
@@ -175,10 +255,12 @@ impl Environment {
     }
 
     pub fn workspace_hash(&self) -> WorkspaceHash {
-        let mut hasher = DefaultHasher::default();
-        self.cwd.hash(&mut hasher);
-
-        WorkspaceHash(hasher.finish())
+        // BuildHasherDefault produces a deterministic hasher (zero seed),
+        // unlike DefaultHasher::default() which uses OS entropy per-process.
+        // This ensures the same CWD always maps to the same workspace_id
+        // across invocations.
+        let builder = BuildHasherDefault::<DefaultHasher>::default();
+        WorkspaceHash(builder.hash_one(&self.cwd))
     }
 }
 
@@ -382,6 +464,187 @@ mod tests {
 
         let actual = fixture.provider_config_path();
         let expected = PathBuf::from("/home/user/.forge/provider.json");
+
+        assert_eq!(actual, expected);
+    }
+
+    /// Serializes tests that mutate `FORGE_LEGACY_DB_PATH` so they cannot
+    /// race when run in parallel.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn test_legacy_database_path_defaults_to_database_path() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let fixture: Environment = Faker.fake();
+        let fixture = fixture.base_path(PathBuf::from("/home/user/.forge"));
+
+        // Arrange: ensure FORGE_LEGACY_DB_PATH is not set.
+        let previous = std::env::var("FORGE_LEGACY_DB_PATH").ok();
+        unsafe { std::env::remove_var("FORGE_LEGACY_DB_PATH") };
+
+        let actual = fixture.legacy_database_path();
+        let expected = fixture.database_path();
+
+        // Cleanup: restore the previous value, if any.
+        match previous {
+            Some(value) => unsafe { std::env::set_var("FORGE_LEGACY_DB_PATH", value) },
+            None => unsafe { std::env::remove_var("FORGE_LEGACY_DB_PATH") },
+        }
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_legacy_database_path_honors_env_var() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let fixture: Environment = Faker.fake();
+        let fixture = fixture.base_path(PathBuf::from("/home/user/.forge"));
+
+        // Arrange: point FORGE_LEGACY_DB_PATH at a custom legacy file.
+        let previous = std::env::var("FORGE_LEGACY_DB_PATH").ok();
+        unsafe { std::env::set_var("FORGE_LEGACY_DB_PATH", "/custom/legacy.db") };
+
+        let actual = fixture.legacy_database_path();
+        let expected = PathBuf::from("/custom/legacy.db");
+
+        // Cleanup: restore the previous value, if any.
+        match previous {
+            Some(value) => unsafe { std::env::set_var("FORGE_LEGACY_DB_PATH", value) },
+            None => unsafe { std::env::remove_var("FORGE_LEGACY_DB_PATH") },
+        }
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_dbd_enabled_defaults_to_false() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let fixture: Environment = Faker.fake();
+
+        // Arrange: ensure FORGE_DBD_ENABLED is not set.
+        let previous = std::env::var("FORGE_DBD_ENABLED").ok();
+        unsafe { std::env::remove_var("FORGE_DBD_ENABLED") };
+
+        let actual = fixture.dbd_enabled();
+        let expected = false;
+
+        // Cleanup: restore the previous value, if any.
+        match previous {
+            Some(value) => unsafe { std::env::set_var("FORGE_DBD_ENABLED", value) },
+            None => unsafe { std::env::remove_var("FORGE_DBD_ENABLED") },
+        }
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_dbd_enabled_honors_env_var() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let fixture: Environment = Faker.fake();
+
+        // Arrange: exercise the accepted enabling values.
+        let previous = std::env::var("FORGE_DBD_ENABLED").ok();
+        for (value, expected) in [
+            ("1", true),
+            ("true", true),
+            ("TRUE", true),
+            ("0", false),
+            ("", false),
+        ] {
+            unsafe { std::env::set_var("FORGE_DBD_ENABLED", value) };
+            let actual = fixture.dbd_enabled();
+            assert_eq!(actual, expected, "FORGE_DBD_ENABLED={value:?}");
+        }
+
+        // Cleanup: restore the previous value, if any.
+        match previous {
+            Some(value) => unsafe { std::env::set_var("FORGE_DBD_ENABLED", value) },
+            None => unsafe { std::env::remove_var("FORGE_DBD_ENABLED") },
+        }
+    }
+
+    #[test]
+    fn test_dbd_socket_path_defaults_to_home() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let fixture: Environment = Faker.fake();
+        let fixture = fixture.home(PathBuf::from("/home/user"));
+
+        // Arrange: ensure FORGE_DBD_SOCKET is not set.
+        let previous = std::env::var("FORGE_DBD_SOCKET").ok();
+        unsafe { std::env::remove_var("FORGE_DBD_SOCKET") };
+
+        let actual = fixture.dbd_socket_path();
+        let expected = PathBuf::from("/home/user/.forge/.forge.db.sock");
+
+        // Cleanup: restore the previous value, if any.
+        match previous {
+            Some(value) => unsafe { std::env::set_var("FORGE_DBD_SOCKET", value) },
+            None => unsafe { std::env::remove_var("FORGE_DBD_SOCKET") },
+        }
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_dbd_socket_path_honors_env_var() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let fixture: Environment = Faker.fake();
+        let fixture = fixture.home(PathBuf::from("/home/user"));
+
+        // Arrange: point FORGE_DBD_SOCKET at a custom socket.
+        let previous = std::env::var("FORGE_DBD_SOCKET").ok();
+        unsafe { std::env::set_var("FORGE_DBD_SOCKET", "/custom/forge.db.sock") };
+
+        let actual = fixture.dbd_socket_path();
+        let expected = PathBuf::from("/custom/forge.db.sock");
+
+        // Cleanup: restore the previous value, if any.
+        match previous {
+            Some(value) => unsafe { std::env::set_var("FORGE_DBD_SOCKET", value) },
+            None => unsafe { std::env::remove_var("FORGE_DBD_SOCKET") },
+        }
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_dbd_bin_path_defaults_to_none() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let fixture: Environment = Faker.fake();
+
+        // Arrange: ensure FORGE_DBD_BIN is not set.
+        let previous = std::env::var("FORGE_DBD_BIN").ok();
+        unsafe { std::env::remove_var("FORGE_DBD_BIN") };
+
+        let actual = fixture.dbd_bin_path();
+        let expected = None;
+
+        // Cleanup: restore the previous value, if any.
+        match previous {
+            Some(value) => unsafe { std::env::set_var("FORGE_DBD_BIN", value) },
+            None => unsafe { std::env::remove_var("FORGE_DBD_BIN") },
+        }
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_dbd_bin_path_honors_env_var() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let fixture: Environment = Faker.fake();
+
+        // Arrange: point FORGE_DBD_BIN at a custom daemon binary.
+        let previous = std::env::var("FORGE_DBD_BIN").ok();
+        unsafe { std::env::set_var("FORGE_DBD_BIN", "/custom/forge_dbd") };
+
+        let actual = fixture.dbd_bin_path();
+        let expected = Some(PathBuf::from("/custom/forge_dbd"));
+
+        // Cleanup: restore the previous value, if any.
+        match previous {
+            Some(value) => unsafe { std::env::set_var("FORGE_DBD_BIN", value) },
+            None => unsafe { std::env::remove_var("FORGE_DBD_BIN") },
+        }
 
         assert_eq!(actual, expected);
     }

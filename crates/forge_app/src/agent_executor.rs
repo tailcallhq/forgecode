@@ -39,12 +39,14 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentEx
     /// specified agent. If conversation_id is provided, the agent will reuse
     /// that conversation, maintaining context across invocations. Otherwise,
     /// a new conversation is created.
+    #[tracing::instrument(skip(self, task, ctx), fields(agent = %agent_id, conversation = ?conversation_id))]
     pub async fn execute(
         &self,
         agent_id: AgentId,
         task: String,
         ctx: &ToolCallContext,
         conversation_id: Option<ConversationId>,
+        parent_id: Option<ConversationId>,
     ) -> anyhow::Result<ToolOutput> {
         ctx.send_tool_input(
             TitleFormat::debug(format!(
@@ -66,9 +68,15 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentEx
             // Create context with agent initiator since it's spawned by a parent agent
             // This is crucial for GitHub Copilot billing optimization
             let context = forge_domain::Context::default().initiator("agent".to_string());
-            let conversation = Conversation::generate()
+            let mut conversation = Conversation::generate()
                 .title(task.clone())
                 .context(context.clone());
+            if let Some(parent) = parent_id {
+                conversation.parent_id = Some(parent);
+            }
+            if let Some(source) = ctx.source() {
+                conversation.source = Some(source.to_string());
+            }
             self.services
                 .conversation_service()
                 .upsert_conversation(conversation.clone())

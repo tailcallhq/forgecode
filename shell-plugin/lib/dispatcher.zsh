@@ -90,6 +90,18 @@ function _forge_action_default() {
 function forge-accept-line() {
     # Save the original command for history
     local original_buffer="$BUFFER"
+
+    # Belt-and-suspenders: if a stray SIGINT ever reaches the widget itself
+    # (e.g. when job control is unavailable), restore a sane ZLE state instead
+    # of leaving the buffer/cursor desynced. Child processes reset trapped
+    # signals to their default disposition, so forge still sees a normal
+    # Ctrl+C — this trap only protects the widget shell itself.
+    # LOCAL_TRAPS makes the trap function-scoped, so it is automatically
+    # restored on every exit path (including the early returns below for
+    # editor/commit-preview/suggest) instead of leaking to the main prompt.
+    setopt LOCAL_OPTIONS LOCAL_TRAPS
+    local _forge_int_trap='BUFFER=""; CURSOR=0; zle -I; zle reset-prompt'
+    trap "$_forge_int_trap" INT
     
     # Parse the buffer first in parent shell context to avoid subshell issues
     local user_action=""
@@ -270,10 +282,11 @@ function forge-accept-line() {
     local action_status=$?
     _forge_osc133_emit "D;$action_status"
     _forge_osc133_emit "A"
-    
+
     # Centralized reset after all actions complete
     # This ensures consistent prompt state without requiring each action to call _forge_reset
     # Exceptions: editor, commit-preview, and suggest actions return early as they intentionally modify BUFFER
     _forge_reset
+    trap - INT
     return $action_status
 }

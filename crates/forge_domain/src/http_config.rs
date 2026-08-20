@@ -141,7 +141,6 @@ pub struct HttpConfig {
     pub pool_idle_timeout: u64,
     pub pool_max_idle_per_host: usize,
     pub max_redirects: usize,
-    pub hickory: bool,
     pub tls_backend: TlsBackend,
     /// Minimum TLS protocol version to use. When `None`, uses TLS library
     /// default.
@@ -174,7 +173,6 @@ impl Default for HttpConfig {
             pool_idle_timeout: 90,
             pool_max_idle_per_host: 5,
             max_redirects: 10,
-            hickory: false,
             tls_backend: TlsBackend::default(),
             min_tls_version: None, // Use TLS library default
             max_tls_version: None, // Use TLS library default

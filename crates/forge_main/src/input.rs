@@ -50,4 +50,15 @@ impl Console {
         let mut editor = self.editor.lock().unwrap();
         editor.set_buffer(content);
     }
+
+    /// Clear the terminal screen (ANSI escape sequence).
+    /// Works in any TTY without needing a ConsoleWriter abstraction.
+    pub fn clear_screen(&self) -> anyhow::Result<()> {
+        use std::io::Write;
+        // ANSI: clear entire screen, move cursor home
+        let mut stdout = std::io::stdout().lock();
+        stdout.write_all(b"\x1b[2J\x1b[H")?;
+        stdout.flush()?;
+        Ok(())
+    }
 }

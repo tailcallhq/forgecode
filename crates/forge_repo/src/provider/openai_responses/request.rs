@@ -268,6 +268,9 @@ impl FromDomain<ChatContext> for oai::CreateResponse {
                             }
                         }
                     }
+                    Role::Tool => {
+                        anyhow::bail!("Tool text messages should use a tool result item")
+                    }
                 },
                 ContextMessage::Tool(result) => {
                     let call_id = result
@@ -403,12 +406,29 @@ mod tests {
     };
     use forge_app::utils::enforce_strict_schema;
     use pretty_assertions::assert_eq;
-    use serde_json::json;
+    use serde_json::{Map, Value, json};
 
     use crate::provider::FromDomain;
     use crate::provider::openai_responses::request::{
         codex_tool_parameters, has_open_additional_properties,
     };
+
+    fn canonical_json(value: Value) -> Value {
+        match value {
+            Value::Array(values) => Value::Array(values.into_iter().map(canonical_json).collect()),
+            Value::Object(object) => {
+                let mut entries = object.into_iter().collect::<Vec<_>>();
+                entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+                let mut sorted = Map::new();
+                for (key, value) in entries {
+                    sorted.insert(key, canonical_json(value));
+                }
+                Value::Object(sorted)
+            }
+            value => value,
+        }
+    }
 
     #[test]
     fn test_reasoning_config_conversion_with_effort() -> anyhow::Result<()> {
@@ -950,7 +970,8 @@ mod tests {
 
         let actual = oai::CreateResponse::from_domain(context)?;
 
-        insta::assert_json_snapshot!("openai_responses_tools", actual.tools);
+        let tools = canonical_json(serde_json::to_value(actual.tools)?);
+        insta::assert_json_snapshot!("openai_responses_tools", tools);
 
         Ok(())
     }
@@ -973,7 +994,8 @@ mod tests {
 
         let actual = oai::CreateResponse::from_domain(context)?;
 
-        insta::assert_json_snapshot!("openai_responses_all_catalog_tools", actual.tools);
+        let tools = canonical_json(serde_json::to_value(actual.tools)?);
+        insta::assert_json_snapshot!("openai_responses_all_catalog_tools", tools);
 
         Ok(())
     }

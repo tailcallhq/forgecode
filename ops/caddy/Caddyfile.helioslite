@@ -1,0 +1,39 @@
+# Caddy envelope for HeliosLite
+#
+# Subdomains:
+#   helioslite.phenotype.space   → Vercel-served docs landing
+#                                  (fronted by Caddy for shared
+#                                   security headers and rate limit)
+#   helioslite.pheno.studio     → internal-only dev / QA dashboards
+#                                   (fronted through Caddy on the
+#                                   WSL/Hyper-V gateway machine)
+#
+# Authentication for *.pheno.studio is handled via phenomonitor
+# mTLS-backed bearer tokens. Public routes through *.phenotype.space
+# never authenticate; rate-limit only.
+
+import shared-phenotype.conf
+
+helioslite.phenotype.space {
+    encode zstd gzip
+    reverse_proxy https://helios-landing-helioslite.vercel.app {
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+    rate_limit helioslite_public_rl
+    header /strict-transport-security "max-age=31536000; includeSubDomains"
+}
+
+helioslite.pheno.studio {
+    encode zstd gzip
+    reverse_proxy https://phenomonitor.internal:8443 {
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+    basicauth {
+        # phenomonitor is gated by mTLS upstream; basicauth is a
+        # pre-flight deny for clients that don't present a valid
+        # phenomonitor bearer.
+        phenomonitor_admin  $2a$14$1V6k0hlIW2dqh8.fAOj6duXJu7qdtWi6P1jj1DcPVRlg5Yr0VoVoK
+    }
+}

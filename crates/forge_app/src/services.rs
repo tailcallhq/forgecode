@@ -5,8 +5,9 @@ use bytes::Bytes;
 use derive_setters::Setters;
 use forge_domain::{
     AgentId, AnyProvider, Attachment, AuthContextRequest, AuthContextResponse, AuthMethod,
-    ChatCompletionMessage, CommandOutput, Context, Conversation, ConversationId, File, FileInfo,
-    FileStatus, Image, McpConfig, McpServers, Model, ModelId, Node, Provider, ProviderId,
+    ChatCompletionMessage, CommandOutput, Context, Conversation, ConversationId,
+    ConversationSummary, File, FileInfo, FileStatus, ForgeForgetOptions, ForgeForgetReport,
+    ForgeImportReport, Image, McpConfig, McpServers, Model, ModelId, Node, Provider, ProviderId,
     ResultStream, Scope, SearchParams, SyncProgress, SyntaxError, Template, ToolCallFull,
     ToolOutput, WorkspaceAuth, WorkspaceId, WorkspaceInfo,
 };
@@ -204,6 +205,30 @@ pub trait AppConfigService: Send + Sync {
     /// all configuration changes; use [`forge_domain::ConfigOperation`]
     /// variants to describe each mutation.
     async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()>;
+
+    /// Returns environment diagnostics: base path, db path, updater channel,
+    /// binary identity, and where the base path was resolved from.
+    /// Cheap — no DB calls, only reads config and argv[0].
+    async fn heliosdoctor(&self) -> anyhow::Result<forge_domain::HeliosdoctorInfo>;
+
+    /// Same as [`heliosdoctor`] but with database statistics populated.
+    ///
+    /// When `verbose` is `true`, the returned `HeliosdoctorInfo` includes
+    /// aggregate DB stats (compression health, agent fanout, oversized
+    /// contexts, integrity check) sourced from
+    /// `ConversationRepository::database_stats`.
+    async fn heliosdoctor_verbose(
+        &self,
+        verbose: bool,
+    ) -> anyhow::Result<forge_domain::HeliosdoctorInfo>;
+
+    /// Fast health check surfaced by `heliosdoctor --integrity-only`.
+    ///
+    /// Returns the same diagnostics as [`heliosdoctor`] but with `db_stats`
+    /// populated by an integrity-only probe (PRAGMA integrity_check on the
+    /// write DB and legacy DB when split) that skips the COUNT queries
+    /// [`heliosdoctor_verbose`] performs.
+    async fn heliosdoctor_integrity(&self) -> anyhow::Result<forge_domain::HeliosdoctorInfo>;
 }
 
 #[async_trait::async_trait]
@@ -257,6 +282,146 @@ pub trait ConversationService: Send + Sync {
 
     /// Permanently deletes a conversation
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> anyhow::Result<()>;
+
+    /// Find all subagent conversations for a given parent
+    async fn get_conversations_by_parent(
+        &self,
+        parent_id: &ConversationId,
+    ) -> anyhow::Result<Option<Vec<Conversation>>>;
+
+    /// Find all top-level conversations (those without a parent)
+    async fn get_parent_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>>;
+
+    /// Lightweight variant that returns only metadata columns
+    /// (no context blobs). Use for the TUI conversation list selector.
+    async fn get_parent_conversations_lite(
+        &self,
+        limit: Option<usize>,
+        all_workspaces: bool,
+    ) -> anyhow::Result<Option<Vec<ConversationSummary>>>;
+
+    /// Find conversations by source (e.g., "interactive", "headless",
+    /// "forge-p")
+    async fn get_conversations_by_source(
+        &self,
+        source: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>>;
+
+    /// By-reference variant of [`Self::upsert_conversation`]. Avoids the
+    /// per-call `Conversation` clone on hot paths (orchestrator loop, service
+    /// `modify_conversation`). Preferred for code that already holds a
+    /// `&Conversation`.
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> anyhow::Result<()>;
+
+    /// Full-text search over conversation titles and context, scoped to the
+    /// current workspace. Backed by the FTS5 virtual table installed by
+    /// migration `2026-06-14-000002_add_fts5_to_conversations`. Results are
+    /// ranked by BM25. Empty `Vec` means no matches — use `.is_empty()` on
+    /// the result.
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Vec<Conversation>>;
+
+    /// Reclaim FTS5 segment shadow data. Compacts per-segment shadow trees
+    /// back into a single segment, reducing query-time shadow-walk cost and
+    /// disk footprint. Safe to call at any time; safe to call repeatedly.
+    async fn optimize_fts_index(&self) -> anyhow::Result<()>;
+
+    /// Re-binds a subagent conversation to a different parent. Pass `None`
+    /// for `new_parent_id` to detach (promotes the subagent to a top-level
+    /// session). Atomic single-row update; does not recurse into descendants.
+    async fn update_parent_id(
+        &self,
+        conversation_id: &ConversationId,
+        new_parent_id: Option<&ConversationId>,
+    ) -> anyhow::Result<()>;
+
+    /// Retrieves conversations whose `cwd` column matches the given path
+    /// exactly. Used by the session viewer to filter by current working
+    /// directory (per-project scoping).
+    async fn get_conversations_by_cwd(
+        &self,
+        cwd: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>>;
+
+    /// Return an FTS5 snippet for a (conversation, query) pair — a short
+    /// highlighted excerpt of the matched passage. Used by the search UI
+    /// to render a preview pane when the user picks a search hit.
+    async fn get_conversation_snippet(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        token_count: usize,
+    ) -> anyhow::Result<Option<String>>;
+
+    /// Roll the conversation back to its last compaction point — the most
+    /// recent user-turn boundary in the context. Used by the `/rewind`
+    /// slash command. Returns the rewound conversation, or `None` if no
+    /// compaction anchor exists (i.e. nothing to rewind to).
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> anyhow::Result<Option<Conversation>>;
+
+    /// Idempotent maintenance command: zstd-compress all uncompressed context
+    /// blobs (`is_compressed = 0, context IS NOT NULL`).
+    ///
+    /// Returns `(compressed, skipped, errors)` counts.
+    async fn compress_uncompressed_contexts(&self) -> anyhow::Result<(usize, usize, usize)>;
+
+    /// One-way import from an official forge-lineage database.
+    ///
+    /// The source database is opened read-only (`PRAGMA query_only`) and is
+    /// never modified. Conversations whose `conversation_id` already exists
+    /// in this repository are skipped, so re-running the import is
+    /// idempotent. Returns a [`ForgeImportReport`] describing the outcome.
+    async fn import_forge_db(&self, source: PathBuf) -> anyhow::Result<ForgeImportReport>;
+
+    /// One-way import with explicit [`forge_domain::ForgeImportOptions`].
+    ///
+    /// See `ConversationRepository::import_forge_db_with_options` for full
+    /// semantics (`dry_run`, `verbose`, transaction-wrapped inserts).
+    async fn import_forge_db_with_options(
+        &self,
+        source: PathBuf,
+        options: &forge_domain::ForgeImportOptions,
+    ) -> anyhow::Result<ForgeImportReport>;
+
+    /// One-way export from this heliosLite repository to a freshly-created
+    /// official-schema SQLite file at `destination`.
+    ///
+    /// See `ConversationRepository::export_forge_db` for full semantics.
+    async fn export_forge_db(
+        &self,
+        destination: PathBuf,
+        options: &forge_domain::ForgeExportOptions,
+    ) -> anyhow::Result<forge_domain::ForgeExportReport>;
+
+    /// Aggregate DB stats for `heliosdoctor --verbose`.
+    async fn database_stats(&self) -> anyhow::Result<forge_domain::HeliosdoctorDbStats>;
+
+    /// Atomic `~/.forge` → `~/.helioslite` data-dir move.
+    ///
+    /// See `ConversationRepository::migrate_data_dir` for full semantics.
+    async fn migrate_data_dir(
+        &self,
+        options: &forge_domain::MigrateOptions,
+    ) -> anyhow::Result<forge_domain::ForgeMigrateReport>;
+
+    /// Remove conversations matching the given filter.
+    ///
+    /// See `ConversationRepository::forget_conversations` for full semantics.
+    async fn forget_conversations(
+        &self,
+        options: &ForgeForgetOptions,
+    ) -> anyhow::Result<ForgeForgetReport>;
 }
 
 #[async_trait::async_trait]
@@ -634,6 +799,154 @@ impl<I: Services> ConversationService for I {
             .delete_conversation(conversation_id)
             .await
     }
+
+    async fn get_conversations_by_parent(
+        &self,
+        parent_id: &ConversationId,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_service()
+            .get_conversations_by_parent(parent_id)
+            .await
+    }
+
+    async fn get_parent_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_service()
+            .get_parent_conversations(limit)
+            .await
+    }
+
+    async fn get_parent_conversations_lite(
+        &self,
+        limit: Option<usize>,
+        all_workspaces: bool,
+    ) -> anyhow::Result<Option<Vec<ConversationSummary>>> {
+        self.conversation_service()
+            .get_parent_conversations_lite(limit, all_workspaces)
+            .await
+    }
+
+    async fn get_conversations_by_source(
+        &self,
+        source: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_service()
+            .get_conversations_by_source(source, limit)
+            .await
+    }
+
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> anyhow::Result<()> {
+        self.conversation_service()
+            .upsert_conversation_ref(conversation)
+            .await
+    }
+
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Vec<Conversation>> {
+        self.conversation_service()
+            .search_conversations(query, limit)
+            .await
+    }
+
+    async fn optimize_fts_index(&self) -> anyhow::Result<()> {
+        self.conversation_service().optimize_fts_index().await
+    }
+
+    async fn update_parent_id(
+        &self,
+        conversation_id: &ConversationId,
+        new_parent_id: Option<&ConversationId>,
+    ) -> anyhow::Result<()> {
+        self.conversation_service()
+            .update_parent_id(conversation_id, new_parent_id)
+            .await
+    }
+
+    async fn get_conversations_by_cwd(
+        &self,
+        cwd: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_service()
+            .get_conversations_by_cwd(cwd, limit)
+            .await
+    }
+
+    async fn get_conversation_snippet(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        token_count: usize,
+    ) -> anyhow::Result<Option<String>> {
+        self.conversation_service()
+            .get_conversation_snippet(conversation_id, query, token_count)
+            .await
+    }
+
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> anyhow::Result<Option<Conversation>> {
+        self.conversation_service()
+            .rewind_conversation(conversation_id)
+            .await
+    }
+
+    async fn compress_uncompressed_contexts(&self) -> anyhow::Result<(usize, usize, usize)> {
+        self.conversation_service()
+            .compress_uncompressed_contexts()
+            .await
+    }
+
+    async fn import_forge_db(&self, source: PathBuf) -> anyhow::Result<ForgeImportReport> {
+        self.conversation_service().import_forge_db(source).await
+    }
+
+    async fn import_forge_db_with_options(
+        &self,
+        source: PathBuf,
+        options: &forge_domain::ForgeImportOptions,
+    ) -> anyhow::Result<ForgeImportReport> {
+        self.conversation_service()
+            .import_forge_db_with_options(source, options)
+            .await
+    }
+
+    async fn export_forge_db(
+        &self,
+        destination: PathBuf,
+        options: &forge_domain::ForgeExportOptions,
+    ) -> anyhow::Result<forge_domain::ForgeExportReport> {
+        self.conversation_service()
+            .export_forge_db(destination, options)
+            .await
+    }
+
+    async fn database_stats(&self) -> anyhow::Result<forge_domain::HeliosdoctorDbStats> {
+        self.conversation_service().database_stats().await
+    }
+
+    async fn migrate_data_dir(
+        &self,
+        options: &forge_domain::MigrateOptions,
+    ) -> anyhow::Result<forge_domain::ForgeMigrateReport> {
+        self.conversation_service().migrate_data_dir(options).await
+    }
+
+    async fn forget_conversations(
+        &self,
+        options: &ForgeForgetOptions,
+    ) -> anyhow::Result<ForgeForgetReport> {
+        self.conversation_service()
+            .forget_conversations(options)
+            .await
+    }
 }
 #[async_trait::async_trait]
 impl<I: Services> ProviderService for I {
@@ -981,6 +1294,21 @@ impl<I: Services> AppConfigService for I {
 
     async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()> {
         self.config_service().update_config(ops).await
+    }
+
+    async fn heliosdoctor(&self) -> anyhow::Result<forge_domain::HeliosdoctorInfo> {
+        self.config_service().heliosdoctor().await
+    }
+
+    async fn heliosdoctor_verbose(
+        &self,
+        verbose: bool,
+    ) -> anyhow::Result<forge_domain::HeliosdoctorInfo> {
+        self.config_service().heliosdoctor_verbose(verbose).await
+    }
+
+    async fn heliosdoctor_integrity(&self) -> anyhow::Result<forge_domain::HeliosdoctorInfo> {
+        self.config_service().heliosdoctor_integrity().await
     }
 }
 

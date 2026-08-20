@@ -173,7 +173,12 @@ pub mod tests {
         }
 
         async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
-            unimplemented!()
+            // Test double: no environment to persist.
+            Ok(())
+        }
+
+        async fn database_stats(&self) -> anyhow::Result<forge_domain::HeliosdoctorDbStats> {
+            Ok(forge_domain::HeliosdoctorDbStats::default())
         }
     }
 
@@ -526,6 +531,14 @@ pub mod tests {
 
         fn get_env_vars(&self) -> BTreeMap<String, String> {
             self.env_service.get_env_vars()
+        }
+
+        fn database_stats(
+            &self,
+        ) -> impl std::future::Future<Output = anyhow::Result<forge_domain::HeliosdoctorDbStats>> + Send
+        {
+            let env_service = self.env_service.clone();
+            async move { env_service.database_stats().await }
         }
     }
 

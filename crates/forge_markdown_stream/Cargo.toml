@@ -1,7 +1,8 @@
 [package]
 name = "forge_markdown_stream"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
 
 [lib]
@@ -12,12 +13,11 @@ path = "src/lib.rs"
 streamdown-parser = "0.1.4"
 streamdown-core = "0.1.4"
 streamdown-ansi = "0.1.4"
-streamdown-render = "0.1.4"
-syntect.workspace = true
 colored.workspace = true
 unicode-width = "0.2"
 unicode-segmentation = "1.12"
 terminal-colorsaurus = "1.0.3"
+forge_syntax.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

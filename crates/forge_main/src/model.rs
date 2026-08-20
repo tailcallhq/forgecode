@@ -155,6 +155,16 @@ impl ForgeCommandManager {
                 | "sync-info"
                 | "workspace-init"
                 | "sync-init"
+                | "subagents"
+                | "sa"
+                | "goal"
+                | "g"
+                | "loop"
+                | "l"
+                | "parent"
+                | "p"
+                | "search"
+                | "sr"
         )
     }
 
@@ -541,6 +551,46 @@ pub enum AppCommand {
     #[strum(props(usage = "Compact the conversation context"))]
     Compact,
 
+    /// Clear the screen (does not affect conversation history).
+    /// This can be triggered with the '/clear' command (alias: cls).
+    #[strum(props(usage = "Clear the screen [alias: cls]"))]
+    #[command(alias = "cls")]
+    Clear,
+
+    /// Write project memory (AGENTS.md) for the current workspace.
+    /// This can be triggered with the '/init' command.
+    #[strum(props(usage = "Initialize project memory (AGENTS.md) for the current workspace"))]
+    Init,
+
+    /// Rewind the conversation to a previous checkpoint.
+    /// This can be triggered with the '/rewind' command.
+    /// Rolls back the conversation to the last compaction point (or the start
+    /// of the session if no compaction has occurred). The undone turns are
+    /// preserved in history but the current context is reset to the
+    /// checkpoint, freeing context window space.
+    #[strum(props(usage = "Rewind to the last checkpoint (or session start)"))]
+    Rewind,
+
+    /// Review the current code changes.
+    /// This can be triggered with the '/review' command.
+    #[strum(props(usage = "Review current code changes"))]
+    Review,
+
+    /// Run tests for the current workspace.
+    /// This can be triggered with the '/test' command.
+    #[strum(props(usage = "Run tests for the current workspace"))]
+    Test,
+
+    /// Think about a problem before acting.
+    /// This can be triggered with the '/think' command.
+    #[strum(props(usage = "Think about a problem before acting"))]
+    Think,
+
+    /// Optimize the FTS5 search index to reclaim shadow data.
+    /// This can be triggered with the '/fts-optimize' command.
+    #[strum(props(usage = "Optimize FTS5 search index (reclaims shadow data)"))]
+    FtsOptimize,
+
     /// Start a new conversation while preserving history.
     /// This can be triggered with the '/new' command.
     #[strum(props(usage = "Start a new conversation"))]
@@ -638,6 +688,12 @@ pub enum AppCommand {
     #[strum(props(usage = "Logout from configured provider"))]
     Logout,
 
+    /// Remove a configured provider from the TUI.
+    /// This can be triggered with the '/providers remove' command.
+    #[strum(props(usage = "Remove a configured provider"))]
+    #[command(name = "providers-remove")]
+    ProviderRemove,
+
     /// Retry without modifying model context
     #[strum(props(usage = "Retry the last command"))]
     #[command(alias = "r")]
@@ -650,6 +706,80 @@ pub enum AppCommand {
         /// Conversation ID to switch to directly (optional — shows interactive
         /// picker if absent)
         id: Option<String>,
+    },
+
+    /// List all subagent conversations for the current parent session
+    #[strum(props(usage = "List subagents for the current session"))]
+    #[command(name = "subagents", aliases = ["sa"])]
+    Subagents,
+
+    /// Set or view the current looping goal
+    #[strum(props(usage = "Set or view the current goal. Usage: :goal <description>"))]
+    #[command(alias = "g")]
+    Goal {
+        /// Goal description (optional — shows current goal if absent)
+        #[arg(trailing_var_arg = true, num_args = 0..)]
+        description: Vec<String>,
+    },
+
+    /// Toggle looping mode on/off
+    #[strum(props(usage = "Toggle looping mode. Usage: :loop [on|off]"))]
+    #[command(alias = "l")]
+    Loop {
+        /// Loop state (optional — toggles if absent)
+        state: Option<String>,
+    },
+
+    /// Jump to the parent conversation of the current subagent session
+    #[strum(props(usage = "Jump to the parent conversation of the current session"))]
+    #[command(alias = "p")]
+    Parent,
+
+    /// Re-bind the current (subagent) conversation to a different parent.
+    /// Usage: `:reparent <parent_id>` or `:reparent --detach` to promote to a
+    /// top-level session.
+    #[strum(props(usage = "Re-parent the current session. Usage: :reparent <id>|--detach"))]
+    #[command(alias = "rp")]
+    Reparent {
+        /// New parent conversation ID, or `--detach` to promote this
+        /// session to top-level.
+        #[arg(trailing_var_arg = true, num_args = 0..)]
+        target: Vec<String>,
+    },
+
+    /// Filter conversations by working directory. Usage: `:cwd <path>` or
+    /// `:cwd --current` to scope to the current shell cwd.
+    #[strum(props(usage = "Filter conversations by cwd. Usage: :cwd <path>|--current"))]
+    #[command(alias = "cw")]
+    Cwd {
+        /// Cwd to filter by (exact match), or `--current` to use the
+        /// current shell working directory.
+        #[arg(trailing_var_arg = true, num_args = 0..)]
+        target: Vec<String>,
+    },
+
+    /// Sort the conversation selector. Usage: `:sort <key>` where key is
+    /// one of `updated`, `created`, `turns`, `title`. Persists in
+    /// `UIState.sort` until the session exits or another `:sort` is run.
+    #[strum(props(
+        usage = "Sort the conversation selector. Usage: :sort <key> (updated|created|turns|title)"
+    ))]
+    #[command(alias = "so")]
+    Sort {
+        /// Sort key: `updated` (default), `created`, `turns`, or `title`.
+        /// Anything else falls back to `updated` and prints a hint.
+        #[arg(trailing_var_arg = true, num_args = 0..)]
+        target: Vec<String>,
+    },
+
+    /// Full-text search over conversation titles and contents (FTS5 BM25).
+    /// Usage: `:search <query>` or `:search "rust refactor"`.
+    #[strum(props(usage = "Search conversation history. Usage: :search <query>"))]
+    #[command(alias = "sr")]
+    Search {
+        /// FTS5 MATCH expression (e.g. "rust refactor", "tokio*").
+        #[arg(trailing_var_arg = true, num_args = 1..)]
+        query: Vec<String>,
     },
 
     /// Show nested conversations spawned by the current conversation
@@ -698,6 +828,22 @@ pub enum AppCommand {
     /// Index the current workspace for semantic code search
     #[strum(props(usage = "Index the current workspace for semantic search"))]
     Index,
+
+    /// Switch tool output to compact mode. Trims whitespace and folds blank
+    /// lines for terminal-friendly display. Triggered with `:output-compact`.
+    #[strum(props(usage = "Switch tool output to compact mode (trim whitespace, fold blanks)"))]
+    OutputCompact,
+
+    /// Switch tool output to concise mode (default). Minimal output without
+    /// extra trimming. Triggered with `:output-concise`.
+    #[strum(props(usage = "Switch tool output to concise mode (default)"))]
+    OutputConcise,
+
+    /// Switch tool output to verbose mode. Includes metadata, reasoning
+    /// traces, and intermediate computation steps. Triggered with
+    /// `:output-verbose`.
+    #[strum(props(usage = "Switch tool output to verbose mode (include all metadata)"))]
+    OutputVerbose,
 }
 
 impl AppCommand {
@@ -723,8 +869,17 @@ impl AppCommand {
             AppCommand::Agent => "agent",
             AppCommand::Login => "login",
             AppCommand::Logout => "logout",
+            AppCommand::ProviderRemove => "providers-remove",
             AppCommand::Retry => "retry",
             AppCommand::Conversations { .. } => "conversation",
+            AppCommand::Subagents => "subagents",
+            AppCommand::Goal { .. } => "goal",
+            AppCommand::Loop { .. } => "loop",
+            AppCommand::Parent => "parent",
+            AppCommand::Reparent { .. } => "reparent",
+            AppCommand::Cwd { .. } => "cwd",
+            AppCommand::Sort { .. } => "sort",
+            AppCommand::Search { .. } => "search",
             AppCommand::ConversationTree => "conversation-tree",
             AppCommand::Delete => "delete",
             AppCommand::Rename { .. } => "rename",
@@ -749,6 +904,16 @@ impl AppCommand {
             AppCommand::WorkspaceStatus => "workspace-status",
             AppCommand::WorkspaceInfo => "workspace-info",
             AppCommand::WorkspaceInit => "workspace-init",
+            AppCommand::OutputCompact => "output-compact",
+            AppCommand::OutputConcise => "output-concise",
+            AppCommand::OutputVerbose => "output-verbose",
+            AppCommand::Clear => "clear",
+            AppCommand::Init => "init",
+            AppCommand::Rewind => "rewind",
+            AppCommand::Review => "review",
+            AppCommand::Test => "test",
+            AppCommand::Think => "think",
+            AppCommand::FtsOptimize => "fts-optimize",
         }
     }
 

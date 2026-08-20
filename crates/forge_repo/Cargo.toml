@@ -1,11 +1,13 @@
 [package]
 name = "forge_repo"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
 forge_app.workspace = true
+forge_dbd = { path = "../forge_dbd" }
 forge_config.workspace = true
 forge_domain.workspace = true
 forge_infra.workspace = true
@@ -29,14 +31,12 @@ strum.workspace = true
 forge_eventsource.workspace = true
 forge_eventsource_stream.workspace = true
 handlebars.workspace = true
-merge.workspace = true
 aws-config.workspace = true
 aws-sdk-bedrockruntime.workspace = true
 aws-credential-types.workspace = true
 aws-smithy-types.workspace = true
 aws-smithy-runtime-api.workspace = true
 aws-smithy-async.workspace = true
-aws-smithy-runtime.workspace = true
 lazy_static.workspace = true
 derive_setters.workspace = true
 base64.workspace = true
@@ -51,6 +51,9 @@ dirs.workspace = true
 async-openai.workspace = true
 regex.workspace = true
 google-cloud-auth.workspace = true
+zstd.workspace = true
+sha2.workspace = true
+hex.workspace = true
 
 # gRPC for codebase client
 tonic.workspace = true

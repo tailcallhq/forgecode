@@ -1,0 +1,31 @@
+{
+  "welcome": "ForgeCode へようこそ",
+  "errors": {
+    "file_not_found": "ファイルが見つかりません：{path}",
+    "permission_denied": "権限が拒否されました：{path}",
+    "network_error": "ネットワークエラー：{message}",
+    "build_failed": "ビルド失敗：{reason}",
+    "test_failed": "{count} 件のテストが失敗しました",
+    "coverage_below_threshold": "カバレッジ {current}% がしきい値 {threshold}% を下回っています"
+  },
+  "status": {
+    "building": "ビルド中...",
+    "testing": "テスト実行中...",
+    "deploying": "デプロイ中...",
+    "completed": "正常に完了しました",
+    "failed": "失敗"
+  },
+  "cli": {
+    "help_description": "ForgeCode CLI - AI ベースのソフトウェアエンジニアリングアシスタント",
+    "version": "バージョン {version}",
+    "init_success": "プロジェクトの初期化に成功しました",
+    "config_saved": "設定を {path} に保存しました"
+  },
+  "quality_gates": {
+    "passed": "品質ゲート通過：{gate}",
+    "failed": "品質ゲート失敗：{gate} - {reason}",
+    "coverage_check": "カバレッジチェック：{current}%（しきい値：{threshold}%）",
+    "lint_check": "リンtチェック：{count} 件の問題",
+    "security_check": "セキュリティチェック：{status}"
+  }
+}

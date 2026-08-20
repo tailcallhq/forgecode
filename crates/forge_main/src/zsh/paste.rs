@@ -232,10 +232,10 @@ mod tests {
 
     #[test]
     fn test_wrap_pasted_text_existing_file() {
-        // /usr/bin/env exists on macOS/Linux
-        let fixture = "look at /usr/bin/env please";
-        let actual = wrap_pasted_text(fixture);
-        let expected = "look at @[/usr/bin/env] please";
+        let (path, _dir) = existing_file();
+        let fixture = format!("look at {path} please");
+        let actual = wrap_pasted_text(&fixture);
+        let expected = format!("look at @[{path}] please");
         assert_eq!(actual, expected);
     }
 
@@ -249,11 +249,11 @@ mod tests {
 
     #[test]
     fn test_wrap_pasted_text_bare_path_only() {
-        // Just a bare path (typical drag-and-drop result)
-        // /usr/bin/env is a real file, so it should be wrapped
-        let fixture = "/usr/bin/env";
-        let actual = wrap_pasted_text(fixture);
-        let expected = "@[/usr/bin/env]";
+        // Just a bare path (typical drag-and-drop result); a real file on the
+        // current platform, so it should be wrapped.
+        let (path, _dir) = existing_file();
+        let actual = wrap_pasted_text(&path);
+        let expected = format!("@[{path}]");
         assert_eq!(actual, expected);
     }
 
@@ -267,9 +267,10 @@ mod tests {
 
     #[test]
     fn test_wrap_pasted_text_with_text_before() {
-        let fixture = "analyze /usr/bin/env";
-        let actual = wrap_pasted_text(fixture);
-        let expected = "analyze @[/usr/bin/env]";
+        let (path, _dir) = existing_file();
+        let fixture = format!("analyze {path}");
+        let actual = wrap_pasted_text(&fixture);
+        let expected = format!("analyze @[{path}]");
         assert_eq!(actual, expected);
     }
 
@@ -283,25 +284,28 @@ mod tests {
 
     #[test]
     fn test_wrap_pasted_text_mixed_existing_and_nonexistent() {
-        let fixture = "check /usr/bin/env and /nonexistent/foo.rs";
-        let actual = wrap_pasted_text(fixture);
-        let expected = "check @[/usr/bin/env] and /nonexistent/foo.rs";
+        let (path, _dir) = existing_file();
+        let fixture = format!("check {path} and /nonexistent/foo.rs");
+        let actual = wrap_pasted_text(&fixture);
+        let expected = format!("check @[{path}] and /nonexistent/foo.rs");
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_wrap_pasted_text_crlf_normalised() {
-        let fixture = "/usr/bin/env\r\n";
-        let actual = wrap_pasted_text(fixture);
-        let expected = "@[/usr/bin/env]\n";
+        let (path, _dir) = existing_file();
+        let fixture = format!("{path}\r\n");
+        let actual = wrap_pasted_text(&fixture);
+        let expected = format!("@[{path}]\n");
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_wrap_pasted_text_single_quoted_path() {
-        let fixture = "'/usr/bin/env'";
-        let actual = wrap_pasted_text(fixture);
-        let expected = "@[/usr/bin/env]";
+        let (path, _dir) = existing_file();
+        let fixture = format!("'{path}'");
+        let actual = wrap_pasted_text(&fixture);
+        let expected = format!("@[{path}]");
         assert_eq!(actual, expected);
     }
 
@@ -346,6 +350,21 @@ mod tests {
         }
         std::fs::write(&file_path, "test").unwrap();
         (file_path.to_string_lossy().into_owned(), dir)
+    }
+
+    /// Creates a real file (platform-independent stand-in for `/usr/bin/env`)
+    /// and returns its absolute path with the `TempDir` guard. The wrap
+    /// machinery only wraps paths that resolve on disk, so fixtures that need
+    /// an existing path use this instead of hardcoding unix paths.
+    fn existing_file() -> (String, tempfile::TempDir) {
+        create_file_with_spaces("existing.txt")
+    }
+
+    /// Creates a real temp directory (platform-independent stand-in for
+    /// `/tmp`) and returns its path with the `TempDir` guard.
+    fn existing_dir() -> (String, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        (dir.path().to_string_lossy().into_owned(), dir)
     }
 
     #[test]
@@ -418,7 +437,13 @@ mod tests {
     }
 
     // -- Tests for backslash-escaped paths -----------------------------------
+    //
+    // Backslash-escaping (`\ ` for spaces) is a unix-shell convention that
+    // terminals like Ghostty send for drag-and-drop. On Windows a backslash
+    // IS the path separator, so the escaped form is ambiguous; these tests
+    // are unix-only for that reason.
 
+    #[cfg(unix)]
     #[test]
     fn test_wrap_pasted_text_backslash_escaped_spaces() {
         // Terminals like Ghostty send /path/my\ file.txt for drag-and-drop
@@ -429,6 +454,7 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_wrap_pasted_text_backslash_escaped_spaces_in_directory() {
         let (path, _dir) = create_file_with_spaces("my folder/file.txt");
@@ -446,6 +472,7 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_wrap_pasted_text_backslash_escaped_in_sentence() {
         let (path, _dir) = create_file_with_spaces("my file.txt");
@@ -485,10 +512,12 @@ mod tests {
 
     #[test]
     fn test_resolve_file_path_plain() {
-        let actual = resolve_file_path("/usr/bin/env");
-        assert_eq!(actual, Some("/usr/bin/env".to_string()));
+        let (path, _dir) = existing_file();
+        let actual = resolve_file_path(&path);
+        assert_eq!(actual, Some(path));
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_resolve_file_path_escaped() {
         let (path, _dir) = create_file_with_spaces("my file.txt");
@@ -505,25 +534,25 @@ mod tests {
 
     #[test]
     fn test_resolve_file_path_directory() {
-        // /tmp is a real directory on macOS/Linux
-        let actual = resolve_file_path("/tmp");
-        assert_eq!(actual, Some("/tmp".to_string()));
+        let (path, _dir) = existing_dir();
+        let actual = resolve_file_path(&path);
+        assert_eq!(actual, Some(path));
     }
 
     #[test]
     fn test_wrap_pasted_text_directory_path() {
-        // /tmp is a real directory, so it should be wrapped
-        let fixture = "/tmp";
-        let actual = wrap_pasted_text(fixture);
-        let expected = "@[/tmp]";
+        let (path, _dir) = existing_dir();
+        let actual = wrap_pasted_text(&path);
+        let expected = format!("@[{path}]");
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_wrap_pasted_text_directory_in_sentence() {
-        let fixture = "look at /tmp please";
-        let actual = wrap_pasted_text(fixture);
-        let expected = "look at @[/tmp] please";
+        let (path, _dir) = existing_dir();
+        let fixture = format!("look at {path} please");
+        let actual = wrap_pasted_text(&fixture);
+        let expected = format!("look at @[{path}] please");
         assert_eq!(actual, expected);
     }
 
@@ -542,9 +571,9 @@ mod tests {
     #[test]
     fn test_wrap_pasted_text_vscode_plain_path() {
         // VSCode sends a plain path for files without spaces
-        let fixture = "/usr/bin/env";
-        let actual = wrap_pasted_text(fixture);
-        let expected = "@[/usr/bin/env]";
+        let (path, _dir) = existing_file();
+        let actual = wrap_pasted_text(&path);
+        let expected = format!("@[{path}]");
         assert_eq!(actual, expected);
     }
 
@@ -567,9 +596,11 @@ mod tests {
     #[test]
     fn test_wrap_pasted_text_cyrillic_with_mixed_paths() {
         // Mix of Cyrillic text and paths that should be wrapped
-        let fixture = "Проверь /usr/bin/env и /tmp пожалуйста";
-        let actual = wrap_pasted_text(fixture);
-        let expected = "Проверь @[/usr/bin/env] и @[/tmp] пожалуйста";
+        let (file, _dir) = existing_file();
+        let (dir, _dir_guard) = existing_dir();
+        let fixture = format!("Проверь {file} и {dir} пожалуйста");
+        let actual = wrap_pasted_text(&fixture);
+        let expected = format!("Проверь @[{file}] и @[{dir}] пожалуйста");
         assert_eq!(actual, expected);
     }
 }

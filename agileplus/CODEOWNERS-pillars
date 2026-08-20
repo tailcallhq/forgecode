@@ -1,0 +1,37 @@
+# Pillar ownership map
+
+# Paths are deliberately pillar-oriented so specialist reviewers can be added without
+# replacing the repository-wide ownership rule in CODEOWNERS.
+agileplus/ @KooshaPari
+.github/workflows/agileplus-pillar-scorecard.yml @KooshaPari
+.github/workflows/branch-cleanup.yml @KooshaPari
+
+# Code quality, tests, CI/CD, and release ownership
+src/ @KooshaPari
+crates/ @KooshaPari
+tests/ @KooshaPari
+benches/ @KooshaPari
+.github/workflows/ci.yml @KooshaPari
+.github/workflows/release.yml @KooshaPari
+
+# Security, dependencies, and vulnerability disclosure
+SECURITY.md @KooshaPari
+deny.toml @KooshaPari
+.github/workflows/codeql.yml @KooshaPari
+.github/workflows/cargo-deny.yml @KooshaPari
+.github/workflows/trufflehog.yml @KooshaPari
+
+# Documentation, community, contribution, and conduct
+docs/ @KooshaPari
+CONTRIBUTING.md @KooshaPari
+CODE_OF_CONDUCT.md @KooshaPari
+CHANGELOG.md @KooshaPari
+
+# Product surfaces and quality review
+apps/ @KooshaPari
+assets/ @KooshaPari
+templates/ @KooshaPari
+
+# Ownership assignment note
+# Current audit data identifies @KooshaPari as the repository owner. Split the
+# relevant path groups into named maintainer teams as those owners are appointed.

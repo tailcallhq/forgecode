@@ -275,11 +275,16 @@ mod tests {
 
     #[test]
     fn test_normalize_result_wraps_existing_pasted_path() {
-        let fixture = "/usr/bin/env".to_string();
+        // A real file on the current platform: unix paths like /usr/bin/env
+        // do not exist on Windows, so create a fixture file instead.
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("existing.txt");
+        std::fs::write(&file_path, "test").unwrap();
+        let path = file_path.to_string_lossy().into_owned();
 
-        let actual = normalize_result_text(fixture);
+        let expected = ReadResult::Success(format!("@[{path}]"));
+        let actual = normalize_result_text(path);
 
-        let expected = ReadResult::Success("@[/usr/bin/env]".to_string());
         assert_eq!(actual, expected);
     }
 

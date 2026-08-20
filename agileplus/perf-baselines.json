@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "last_updated": "2026-08-19T00:00:00Z",
+  "benchmarks": {
+    "BenchmarkForgeDaemonStartup": {
+      "metric": "ms",
+      "baseline": 500,
+      "tolerance_pct": 20,
+      "description": "Forge daemon cold start time"
+    },
+    "BenchmarkLSPResponse": {
+      "metric": "ms",
+      "baseline": 100,
+      "tolerance_pct": 30,
+      "description": "LSP diagnostic response latency"
+    },
+    "BenchmarkPluginLoad": {
+      "metric": "ms",
+      "baseline": 200,
+      "tolerance_pct": 25,
+      "description": "Plugin loading time"
+    },
+    "BenchmarkFileWatch": {
+      "metric": "ms",
+      "baseline": 50,
+      "tolerance_pct": 40,
+      "description": "File watch event processing latency"
+    },
+    "BenchmarkProjectScan": {
+      "metric": "ms",
+      "baseline": 1000,
+      "tolerance_pct": 15,
+      "description": "Full project structure scan time"
+    }
+  }
+}

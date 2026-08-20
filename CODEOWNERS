@@ -1,0 +1,29 @@
+# CODEOWNERS — AgilePlus Pillar Ownership
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Each pillar from the 31-pillar scorecard has designated owners.
+# PRs touching files in these paths will auto-request reviews from owners.
+
+# Default: repo owner reviews everything
+*                                       @KooshaPari
+
+# Pillar 1: Code Quality
+/src/                                   @KooshaPari
+# Pillar 2: Test Coverage
+/tests/                                 @KooshaPari
+# Pillar 3: Documentation
+/docs/                                  @KooshaPari
+*.md                                    @KooshaPari
+# Pillar 4: CI/CD Pipeline
+/.github/workflows/                     @KooshaPari
+# Pillar 5: Security
+# (security review triggered on all PRs via default owner)
+# Pillar 15: Agile/Project Management
+/agileplus/                             @KooshaPari
+# Pillar 25: Build Optimization
+/Cargo.toml                             @KooshaPari
+/Cargo.lock                             @KooshaPari
+# Pillar 30: Code of Conduct
+/CODE_OF_CONDUCT.md                     @KooshaPari
+# Pillar 31: Vulnerability Disclosure
+/SECURITY.md                            @KooshaPari

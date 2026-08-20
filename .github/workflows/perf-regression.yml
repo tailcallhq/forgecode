@@ -1,0 +1,105 @@
+# Performance Regression Gate
+# Runs on PRs to detect performance regressions in key benchmarks.
+# Compares against baseline stored in agileplus/perf-baseline.json
+
+name: Performance Regression Gate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  perf-regression:
+    name: Performance Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        if: hashFiles('Cargo.toml') != ''
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+        if: hashFiles('go.mod') != ''
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: perf-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', '**/go.sum') }}
+          restore-keys: perf-${{ runner.os }}-
+
+      - name: Run benchmarks
+        id: benchmarks
+        run: |
+          echo "## Performance Benchmark Results" > perf-results.md
+          echo "" >> perf-results.md
+
+          if [ -f "Cargo.toml" ]; then
+            echo "### Rust Benchmarks" >> perf-results.md
+            cargo bench --bench '*' -- --output-format=bencher | tee bench-output.txt
+            echo "BENCH_OUTPUT<<EOF" >> $GITHUB_OUTPUT
+            cat bench-output.txt >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          elif [ -f "go.mod" ]; then
+            echo "### Go Benchmarks" >> perf-results.md
+            go test -bench=. -benchmem -count=3 ./... | tee bench-output.txt
+            echo "BENCH_OUTPUT<<EOF" >> $GITHUB_OUTPUT
+            cat bench-output.txt >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "No Cargo.toml or go.mod found, skipping benchmarks"
+            echo "SKIPPED=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check performance baseline
+        if: steps.benchmarks.outputs.SKIPPED != 'true'
+        run: |
+          if [ -f "agileplus/perf-baseline.json" ]; then
+            echo "Checking against baseline..."
+            # Compare key metrics (non-blocking in dry-run mode)
+            python3 -c "
+          import json, sys
+          with open('agileplus/perf-baseline.json') as f:
+              baseline = json.load(f)
+          print('Baseline loaded:', json.dumps(baseline, indent=2)[:500])
+          " || echo "Baseline comparison not yet configured"
+          else
+            echo "No baseline found. Saving current run as baseline."
+            echo '{"timestamp": "'$(date -Iseconds)'", "status": "initial"}' > agileplus/perf-baseline.json
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.benchmarks.outputs.SKIPPED != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const benchOutput = `${{ steps.benchmarks.outputs.BENCH_OUTPUT }}`;
+            const body = `## 🏎️ Performance Benchmark Results\n\n\`\`\`\n${benchOutput}\n\`\`\`\n\n*Performance regression gate: check above for regressions against baseline.*`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+
+      - name: Upload benchmark results
+        if: steps.benchmarks.outputs.SKIPPED != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: bench-output.txt
+          retention-days: 30

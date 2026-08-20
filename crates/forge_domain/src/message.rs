@@ -162,6 +162,9 @@ pub enum FinishReason {
     /// violated filters.
     #[strum(serialize = "content_filter")]
     ContentFilter,
+    /// The Anthropic provider refused to generate a response.
+    #[strum(serialize = "refusal")]
+    Refusal,
     /// The model stopped generating output because it made a tool call.
     #[strum(serialize = "tool_calls")]
     ToolCalls,
@@ -393,6 +396,10 @@ mod tests {
         assert_eq!(
             FinishReason::from_str("content_filter").unwrap(),
             FinishReason::ContentFilter
+        );
+        assert_eq!(
+            FinishReason::from_str("refusal").unwrap(),
+            FinishReason::Refusal
         );
         assert_eq!(
             FinishReason::from_str("tool_calls").unwrap(),

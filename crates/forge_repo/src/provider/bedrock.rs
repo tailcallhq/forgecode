@@ -834,6 +834,9 @@ impl FromDomain<forge_domain::ContextMessage> for aws_sdk_bedrockruntime::types:
                     forge_domain::Role::System => {
                         anyhow::bail!("System messages should be filtered out before conversion")
                     }
+                    forge_domain::Role::Tool => {
+                        anyhow::bail!("Tool text messages should use a tool result block")
+                    }
                 };
 
                 Message::builder()

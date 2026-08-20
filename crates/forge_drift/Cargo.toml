@@ -1,0 +1,24 @@
+[package]
+name = "forge_drift"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "drift detection — hash + Jaccard word-set similarity for multi-agent overlap"
+
+[dependencies]
+forge_similarity = { path = "../forge_similarity" }
+sha2.workspace = true
+serde = { workspace = true, features = ["derive", "rc"] }
+serde_json.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+parking_lot = "0.12"
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "drift_bench"
+harness = false

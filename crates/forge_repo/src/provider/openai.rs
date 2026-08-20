@@ -541,24 +541,32 @@ mod tests {
 
         async fn http_post(
             &self,
-            _url: &Url,
-            _headers: Option<HeaderMap>,
-            _body: Bytes,
+            url: &Url,
+            headers: Option<HeaderMap>,
+            body: Bytes,
         ) -> anyhow::Result<reqwest::Response> {
-            unimplemented!()
+            let mut request = self.client.post(url.clone()).body(body);
+            if let Some(headers) = headers {
+                request = request.headers(headers);
+            }
+            Ok(request.send().await?)
         }
 
-        async fn http_delete(&self, _url: &Url) -> anyhow::Result<reqwest::Response> {
-            unimplemented!()
+        async fn http_delete(&self, url: &Url) -> anyhow::Result<reqwest::Response> {
+            Ok(self.client.delete(url.clone()).send().await?)
         }
 
         async fn http_eventsource(
             &self,
-            _url: &Url,
-            _headers: Option<HeaderMap>,
-            _body: Bytes,
+            url: &Url,
+            headers: Option<HeaderMap>,
+            body: Bytes,
         ) -> anyhow::Result<EventSource> {
-            unimplemented!()
+            let mut request = self.client.post(url.clone()).body(body);
+            if let Some(headers) = headers {
+                request = request.headers(headers);
+            }
+            Ok(EventSource::new(request).map_err(|e| anyhow::anyhow!(e))?)
         }
     }
 
@@ -607,8 +615,8 @@ mod tests {
     fn create_error_response(message: &str, code: u16) -> serde_json::Value {
         serde_json::json!({
             "error": {
-                "message": message,
-                "code": code
+                "code": code,
+                "message": message
             }
         })
     }

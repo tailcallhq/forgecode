@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,17 +11,20 @@ use console::style;
 use convert_case::{Case, Casing};
 use forge_api::{
     API, AgentId, AnyProvider, ApiKeyRequest, AuthContextRequest, AuthContextResponse, ChatRequest,
-    ChatResponse, CodeRequest, ConfigOperation, Conversation, ConversationId, DeviceCodeRequest,
-    Event, InterruptionReason, ModelId, Provider, ProviderId, TextMessage, UserPrompt,
+    ChatResponse, CodeRequest, ConfigOperation, Conversation, ConversationId, ConversationSummary,
+    DeviceCodeRequest, Event, InterruptionReason, ModelId, Provider, ProviderId, TextMessage,
+    UserPrompt,
 };
-use forge_app::utils::{format_display_path, truncate_key};
+use forge_app::utils::format_display_path;
 use forge_app::{CommitResult, ToolResolver};
-use forge_config::ForgeConfig;
+use forge_config::{ConfigReader, ForgeConfig, OutputMode, OutputSettings};
 use forge_display::MarkdownFormat;
 use forge_domain::{
-    AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, Role, TitleFormat, UserCommand,
+    AuthMethod, ChatResponseContent, ConsoleWriter, ContextMessage, ForgeExportOptions,
+    ForgeImportOptions, Role, TitleFormat, UserCommand,
 };
 use forge_fs::ForgeFS;
+use forge_repo::{export_forge_snapshot, publish_snapshot_atomic};
 use forge_select::{ForgeWidget, SelectRow};
 use forge_spinner::SpinnerManager;
 use forge_tracker::ToolCallPayload;
@@ -31,13 +35,13 @@ use tokio_stream::StreamExt;
 use url::Url;
 
 use crate::cli::{
-    Cli, CommitCommandGroup, ConversationCommand, ListCommand, McpCommand, SelectCommand,
-    TopLevelCommand,
+    Cli, CommitCommandGroup, ConversationCommand, ExportSubcommand, ImportSubcommand, ListCommand,
+    MaintenanceSubcommand, McpCommand, SelectCommand, TopLevelCommand,
 };
 use crate::conversation_selector::ConversationSelector;
 use crate::display_constants::{CommandType, headers, markers, status};
 use crate::editor::ReadLineError;
-use crate::error::UIError;
+use crate::error::{UIError, is_cursor_error};
 use crate::info::Info;
 use crate::input::Console;
 use crate::model::{AppCommand, ForgeCommandManager};
@@ -55,6 +59,204 @@ use crate::{TRACKER, banner, tracker};
 
 // File-specific constants
 const MISSING_AGENT_TITLE: &str = "<missing agent.title>";
+const MAX_AUTO_CONTINUE_ATTEMPTS: usize = 8;
+const REDACTED_API_KEY: &str = "<redacted>";
+
+fn redact_api_key(_key: &str) -> &'static str {
+    REDACTED_API_KEY
+}
+
+fn auto_continue_allowed(attempts: usize) -> bool {
+    attempts < MAX_AUTO_CONTINUE_ATTEMPTS
+}
+
+/// Detects the source of the conversation based on CLI arguments.
+/// Returns "interactive", "forge-p", "headless", or the subcommand name.
+fn detect_source(cli: &Cli) -> String {
+    if cli.subcommands.is_some() {
+        "subcommand".to_string()
+    } else if cli.prompt.is_some() {
+        "forge-p".to_string()
+    } else if cli.piped_input.is_some() {
+        "headless".to_string()
+    } else {
+        "interactive".to_string()
+    }
+}
+
+fn is_helioslite_binary_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case("helioslite")
+}
+
+fn require_helioslite_binary() -> anyhow::Result<()> {
+    let binary = std::env::args_os()
+        .next()
+        .and_then(|arg| {
+            Path::new(&arg)
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+    if !is_helioslite_binary_name(&binary) {
+        anyhow::bail!(
+            "sessions import-forge is HeliosLite-only; invoke the helioslite binary (detected {binary})"
+        );
+    }
+    Ok(())
+}
+
+fn lexical_absolute(path: &Path) -> anyhow::Result<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    Ok(normalized)
+}
+
+fn nearest_existing_ancestor(path: &Path) -> anyhow::Result<PathBuf> {
+    let mut candidate = path.to_path_buf();
+    while !candidate.exists() {
+        candidate = candidate
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("path has no existing ancestor: {}", path.display()))?
+            .to_path_buf();
+    }
+    Ok(candidate)
+}
+
+fn canonicalize_for_validation(path: &Path) -> anyhow::Result<PathBuf> {
+    let absolute = lexical_absolute(path)?;
+    let ancestor = nearest_existing_ancestor(&absolute)?;
+    let canonical_ancestor = ancestor
+        .canonicalize()
+        .with_context(|| format!("canonicalize existing ancestor {}", ancestor.display()))?;
+    let suffix = absolute.strip_prefix(&ancestor).with_context(|| {
+        format!(
+            "derive non-existent suffix for {} from {}",
+            absolute.display(),
+            ancestor.display()
+        )
+    })?;
+    Ok(canonical_ancestor.join(suffix))
+}
+
+fn validate_helioslite_sessions_root(sessions_root: &Path) -> anyhow::Result<()> {
+    let absolute_root = lexical_absolute(sessions_root)?;
+    if fs::symlink_metadata(&absolute_root)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        anyhow::bail!(
+            "HeliosLite sessions root must not be a symlink: {}",
+            absolute_root.display()
+        );
+    }
+
+    let canonical_root = canonicalize_for_validation(&absolute_root)?;
+    if let Some(home) = dirs::home_dir() {
+        let forge_root = home.join(".forge");
+        let canonical_forge = canonicalize_for_validation(&forge_root)?;
+        if canonical_root.starts_with(&canonical_forge)
+            || canonical_forge.starts_with(&canonical_root)
+        {
+            anyhow::bail!(
+                "HeliosLite sessions root must not overlap ~/.forge (root {}, Forge {})",
+                canonical_root.display(),
+                canonical_forge.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn validate_snapshot_destination(destination: &Path, sessions_root: &Path) -> anyhow::Result<()> {
+    validate_helioslite_sessions_root(sessions_root)?;
+    let absolute_destination = lexical_absolute(destination)?;
+    if fs::symlink_metadata(&absolute_destination)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        anyhow::bail!(
+            "snapshot destination must not be a symlink: {}",
+            absolute_destination.display()
+        );
+    }
+    let parent = destination
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("snapshot destination must have a parent directory"))?;
+
+    // Reject traversal before creating anything. This lexical check is also
+    // necessary when the sessions root itself has not been created yet.
+    let absolute_root = lexical_absolute(sessions_root)?;
+    let absolute_parent = lexical_absolute(parent)?;
+    if !absolute_parent.starts_with(&absolute_root) {
+        return Err(anyhow::anyhow!(
+            "snapshot destination must stay under HeliosLite sessions root {}",
+            absolute_root.display()
+        ));
+    }
+
+    // Resolve existing ancestors before mkdir so a symlink cannot redirect a
+    // newly-created parent outside the owned HeliosLite tree.
+    let root_ancestor = nearest_existing_ancestor(&absolute_root)?
+        .canonicalize()
+        .with_context(|| {
+            format!(
+                "canonicalize sessions root ancestor {}",
+                absolute_root.display()
+            )
+        })?;
+    let parent_ancestor = nearest_existing_ancestor(&absolute_parent)?
+        .canonicalize()
+        .with_context(|| {
+            format!(
+                "canonicalize snapshot parent ancestor {}",
+                absolute_parent.display()
+            )
+        })?;
+    if !parent_ancestor.starts_with(&root_ancestor) {
+        return Err(anyhow::anyhow!(
+            "snapshot destination resolves outside HeliosLite sessions root {}",
+            root_ancestor.display()
+        ));
+    }
+
+    fs::create_dir_all(sessions_root).with_context(|| {
+        format!(
+            "create HeliosLite sessions root {}",
+            sessions_root.display()
+        )
+    })?;
+    let root = sessions_root.canonicalize().with_context(|| {
+        format!(
+            "canonicalize HeliosLite sessions root {}",
+            sessions_root.display()
+        )
+    })?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create snapshot parent {}", parent.display()))?;
+    let canonical_parent = parent
+        .canonicalize()
+        .with_context(|| format!("canonicalize snapshot parent {}", parent.display()))?;
+    if !canonical_parent.starts_with(&root) {
+        return Err(anyhow::anyhow!(
+            "snapshot destination must stay under HeliosLite sessions root {}",
+            root.display()
+        ));
+    }
+    Ok(())
+}
 
 /// Conversation dump format used by the /dump command
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -112,6 +314,22 @@ pub struct UI<A: ConsoleWriter, F: Fn(ForgeConfig) -> A> {
     cli: Cli,
     spinner: SharedSpinner<A>,
     config: ForgeConfig,
+    /// Cancellation handles for background cache-hydration tasks. Aborted
+    /// and replaced on each `hydrate_caches` call to prevent the zombie
+    /// task accumulation that caused the 10-20x scroll latency after a
+    /// few `/new` invocations.
+    hydration_handles: Vec<tokio::task::JoinHandle<()>>,
+    /// Generation counter for the conversation cache; bumped on every
+    /// conversation list refresh so stale preview fetches can be discarded.
+    cache_generation: std::sync::atomic::AtomicU64,
+    /// Soft interrupt flag for the prompt loop. Set when the user issues
+    /// a cancellation keystroke; cleared at the top of the next iteration.
+    // WIP: Claude-style status bar / prompt-loop plumbing (PRs #27/#29/#30), not yet fully wired
+    // into the render loop.
+    #[allow(dead_code)]
+    interrupt_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Number of automatic continuation requests in the current chain.
+    auto_continue_attempts: usize,
     #[allow(dead_code)] // The guard is kept alive by being held in the struct
     _guard: forge_tracker::Guard,
 }
@@ -130,6 +348,52 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     fn writeln_to_stderr(&mut self, title: String) -> anyhow::Result<()> {
         self.spinner.ewrite_ln(title)
+    }
+
+    /// Renders the status bar (Claude-style bottom-of-screen line) to stderr so
+    /// it does not get tangled with the chat output stream. The line is cleared
+    /// with ANSI escapes first so it overwrites the previous status.
+    ///
+    /// Format (when `is_busy`):
+    ///   ⠋  <active_tool> · <context_pct>% ctx · <last_action>
+    /// Format (when idle):
+    ///   ✓  <last_action> · <context_pct>% ctx
+    // WIP: Claude-style status bar (PRs #27/#29/#30), not yet fully wired into the render loop.
+    #[allow(dead_code)]
+    fn render_status_bar(&mut self) -> anyhow::Result<()> {
+        let snap = self.state.status_bar.snapshot();
+        // ANSI: ESC[2K = erase entire line, ESC[1A = move up one line (to
+        // overwrite a previously-drawn status line). We draw to stderr so the
+        // stream does not interleave with the chat output the user is reading.
+        let prefix = "\x1b[2K\x1b[1A\x1b[2K";
+        let bar = if snap.is_busy {
+            let spinner = "⠋".bright_cyan();
+            let tool = snap.active_tool.as_deref().unwrap_or("working").yellow();
+            let ctx = format!("{}% ctx", snap.context_pct).dimmed();
+            let last = snap.last_action.as_deref().unwrap_or("").dimmed();
+            format!(
+                "{prefix} {spinner} {tool} · {ctx} · {last}\n",
+                prefix = prefix,
+                spinner = spinner,
+                tool = tool,
+                ctx = ctx,
+                last = last
+            )
+        } else {
+            let mark = "✓".green();
+            let ctx = format!("{}% ctx", snap.context_pct).dimmed();
+            let last = snap.last_action.as_deref().unwrap_or("idle").dimmed();
+            format!(
+                "{prefix} {mark}  {last} · {ctx}\n",
+                prefix = prefix,
+                mark = mark,
+                last = last,
+                ctx = ctx
+            )
+        };
+        // ewrite_ln goes to stderr, which keeps the status line below the chat
+        // scroll region on most terminals.
+        self.spinner.ewrite_ln(bar)
     }
 
     /// Helper to get provider for an optional agent, defaulting to the current
@@ -291,6 +555,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             spinner,
             markdown: MarkdownFormat::new(),
             config,
+            hydration_handles: Vec::new(),
+            cache_generation: std::sync::atomic::AtomicU64::new(0),
+            interrupt_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            auto_continue_attempts: 0,
             _guard: forge_tracker::init_tracing(env.log_path(), TRACKER.clone())?,
         })
     }
@@ -316,11 +584,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             None
         };
 
-        // Prompt the user for input
-        let agent_id = self.api.get_active_agent().await.unwrap_or_default();
-        let model = self
-            .get_agent_model(self.api.get_active_agent().await)
-            .await;
+        // Prompt the user for input. Resolve the active agent once and
+        // reuse it for both the model lookup and the ForgePrompt builder —
+        // this batches 2 sequential awaits into 1 in the hot prompt loop.
+        let active_agent = self.api.get_active_agent().await.unwrap_or_default();
+        let agent_id = active_agent.clone();
+        let model = self.get_agent_model(Some(active_agent)).await;
         let reasoning_effort = self.api.get_reasoning_effort().await.ok().flatten();
         let mut forge_prompt = ForgePrompt::new(self.state.cwd.clone(), agent_id);
         if let Some(u) = usage {
@@ -339,13 +608,27 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         match self.run_inner().await {
             Ok(_) => {}
             Err(error) => {
+                // Check if this is a cursor position error (non-fatal)
+                // These errors occur during shutdown when the terminal can't respond
+                // to cursor position queries. See the investigation plan for details.
+                let main_err: &(dyn std::error::Error + 'static) = error.as_ref();
+                if is_cursor_error(main_err) {
+                    tracing::debug!(
+                        "Suppressing cursor position error during shutdown (non-fatal)"
+                    );
+                    return;
+                }
+
                 tracing::error!(error = ?error);
 
                 // Display the full error chain for better debugging
                 let mut error_message = error.to_string();
                 let mut source = error.source();
                 while let Some(err) = source {
-                    error_message.push_str(&format!("\n    Caused by: {}", err));
+                    // Skip cursor errors in the chain - they're non-fatal
+                    if !is_cursor_error(err) {
+                        error_message.push_str(&format!("\n    Caused by: {}", err));
+                    }
                     source = err.source();
                 }
 
@@ -443,18 +726,61 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         }
     }
 
-    // Improve startup time by hydrating caches
+    // Improve startup time by hydrating caches.
+    //
+    // IMPORTANT: any existing hydration tasks are aborted first to prevent
+    // the zombie task accumulation that produced the 10-20x scroll latency
+    // after a few `/new` invocations. Every call into this fn also bumps
+    // `cache_generation` so in-flight preview fetches can detect staleness.
     fn hydrate_caches(&self) {
-        let api = self.api.clone();
-        tokio::spawn(async move { api.get_models().await });
-        let api = self.api.clone();
-        tokio::spawn(async move { api.get_tools().await });
-        let api = self.api.clone();
-        tokio::spawn(async move { api.get_agent_infos().await });
-        let api = self.api.clone();
+        // Abort any prior background hydration tasks before spawning new ones
+        // to prevent Arc<API> clones + DB connections from accumulating
+        // across `/new` invocations.
+        for handle in &self.hydration_handles {
+            handle.abort();
+        }
+        // We can't mutate self.hydration_handles through &self; the orchestrator
+        // is expected to call `replace_hydration_handles` right after this.
+        // Bump the generation so any in-flight previews are discardable.
+        self.cache_generation
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Replaces the hydration task handles. Called by `init_state` after
+    /// `hydrate_caches` to install the newly-spawned handles so the next
+    /// call to `hydrate_caches` can abort them.
+    // WIP: Claude-style status bar / cache hydration plumbing (PRs #27/#29/#30), not yet fully
+    // wired into the render loop.
+    #[allow(dead_code)]
+    fn replace_hydration_handles(&mut self, handles: Vec<tokio::task::JoinHandle<()>>) {
+        for handle in &self.hydration_handles {
+            handle.abort();
+        }
+        self.hydration_handles = handles;
+    }
+
+    /// Spawns a tracked hydration task. Used by `init_state` so that
+    /// subsequent `hydrate_caches` calls can abort stale tasks.
+    // WIP: Claude-style status bar / cache hydration plumbing (PRs #27/#29/#30), not yet fully
+    // wired into the render loop.
+    #[allow(dead_code)]
+    fn spawn_tracked<Fut>(&self, fut: Fut) -> tokio::task::JoinHandle<()>
+    where
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
         tokio::spawn(async move {
-            let _ = api.hydrate_channel();
-        });
+            fut.await;
+        })
+    }
+
+    /// Returns the current cache generation. Used by the conversation
+    /// preview pipeline to discard stale fetches.
+    // WIP: Claude-style status bar / cache hydration plumbing (PRs #27/#29/#30), not yet fully
+    // wired into the render loop.
+    #[allow(dead_code)]
+    fn current_generation(&self) -> u64 {
+        self.cache_generation
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     async fn handle_generate_conversation_id(&mut self) -> Result<()> {
@@ -700,6 +1026,20 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 self.handle_conversation_command(conversation_group).await?;
                 return Ok(());
             }
+            TopLevelCommand::Sessions(group) => {
+                require_helioslite_binary()?;
+                let crate::cli::SessionsCommand::ImportForge(args) = group.command;
+                let destination_root = ConfigReader::sessions_path();
+                validate_snapshot_destination(&args.dest, &destination_root)?;
+                let snapshot = export_forge_snapshot(&args.source)?;
+                let row_count = snapshot.manifest.row_count;
+                let source_sha256 = snapshot.manifest.source_sha256.clone();
+                publish_snapshot_atomic(&snapshot, &args.dest)?;
+                self.writeln(format!(
+                    "Imported {row_count} Forge sessions into {}; source sha256={source_sha256}",
+                    args.dest.display()
+                ))?;
+            }
             TopLevelCommand::Suggest { prompt } => {
                 self.on_cmd(UserPrompt::from(prompt)).await?;
                 return Ok(());
@@ -880,29 +1220,257 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                             self.select_row_output("Command", query.clone(), rows)?;
                         }
                     }
-                    SelectCommand::Conversation { query, parent } => {
-                        let conversations = if let Some(parent_id) = parent {
-                            let parent_conv = self.validate_conversation_exists(parent_id).await?;
-                            self.fetch_related_conversations(&parent_conv).await
-                        } else {
-                            let max_conversations = self.config.max_conversations;
-                            let conversations =
-                                self.api.get_conversations(Some(max_conversations)).await?;
-                            Self::user_initiated_conversations(conversations)
-                        };
+                    SelectCommand::Conversation { query, .. } => {
+                        let max_conversations = self.config.max_conversations;
+                        let conversations = self
+                            .api
+                            .get_parent_conversations_lite(Some(max_conversations), true)
+                            .await?;
 
                         if !conversations.is_empty()
-                            && let Some(conversation) = ConversationSelector::select_conversation(
-                                &conversations,
-                                self.state.conversation_id,
-                                query.clone(),
-                            )
-                            .await?
+                            && let Some(conversation_id) =
+                                ConversationSelector::select_conversation(
+                                    &conversations,
+                                    self.state.conversation_id,
+                                    query.clone(),
+                                    self.state.sort,
+                                )
+                                .await?
                         {
-                            self.writeln(conversation.id)?;
+                            self.writeln(conversation_id)?;
                         }
                     }
                 }
+                return Ok(());
+            }
+            TopLevelCommand::Heliosdoctor(args) => {
+                self.spinner.start(Some("Diagnosing"))?;
+                let info = if args.integrity_only {
+                    self.api.heliosdoctor_integrity().await?
+                } else {
+                    self.api.heliosdoctor_verbose(args.verbose).await?
+                };
+                self.spinner.stop(None)?;
+                if args.json {
+                    let json = serde_json::to_string_pretty(&info)?;
+                    self.writeln(json)?;
+                } else if args.porcelain {
+                    let db_stats = info.db_stats.as_ref();
+                    let mut line = format!(
+                        "version={}\nbinary={}\nbase_path={}\ndb_path={}\nupdater_repo={}\nupdater_binary={}\nconfig_source={}",
+                        info.version,
+                        info.binary_stem,
+                        info.base_path.display(),
+                        info.db_path.display(),
+                        info.updater_repo,
+                        info.updater_binary,
+                        info.config_source,
+                    );
+                    if let Some(stats) = db_stats {
+                        line.push_str(&format!(
+                            "\ndb_total={}\ndb_compressed={}\ndb_uncompressed={}\ndb_empty={}\ndb_oversized={}\ndb_agent={}\ndb_integrity={}",
+                            stats.total_conversations,
+                            stats.compressed_rows,
+                            stats.uncompressed_rows,
+                            stats.empty_rows,
+                            stats.oversized_rows,
+                            stats.agent_initiated_rows,
+                            stats.integrity_check,
+                        ));
+                    }
+                    if let Some(write) = info.write_db_path.as_ref() {
+                        line.push_str(&format!("\nwrite_db={}", write.display()));
+                    }
+                    if let Some(legacy) = info.legacy_db_path.as_ref() {
+                        line.push_str(&format!("\nlegacy_db={}", legacy.display()));
+                    }
+                    line.push('\n');
+                    self.writeln(line)?;
+                } else {
+                    self.writeln(format!(
+                        "heliosLite/forge diagnostics\n  version            : {}\n  binary identity    : {}\n  config source      : {}\n  base path          : {}\n  db path            : {}\n  updater repo       : {}\n  updater binary tag : {}\n",
+                        info.version,
+                        info.binary_stem,
+                        info.config_source,
+                        info.base_path.display(),
+                        info.db_path.display(),
+                        info.updater_repo,
+                        info.updater_binary,
+                    ))?;
+                    if let Some(stats) = info.db_stats.as_ref() {
+                        if args.integrity_only {
+                            self.writeln(format!(
+                                "integrity check\n  result            : {}\n  write db          : {}\n  legacy db         : {}\n",
+                                stats.integrity_check,
+                                info.write_db_path
+                                    .as_ref()
+                                    .map(|p| p.display().to_string())
+                                    .unwrap_or_else(|| info.db_path.display().to_string()),
+                                info.legacy_db_path
+                                    .as_ref()
+                                    .map(|p| p.display().to_string())
+                                    .unwrap_or_else(|| "-".to_string()),
+                            ))?;
+                        } else {
+                            self.writeln(format!(
+                                "database stats\n  total              : {}\n  compressed         : {}\n  uncompressed       : {}\n  empty              : {}\n  oversized (>1MB)   : {}\n  agent-initiated    : {}\n  integrity check    : {}\n",
+                                stats.total_conversations,
+                                stats.compressed_rows,
+                                stats.uncompressed_rows,
+                                stats.empty_rows,
+                                stats.oversized_rows,
+                                stats.agent_initiated_rows,
+                                stats.integrity_check,
+                            ))?;
+                        }
+                    }
+                }
+                return Ok(());
+            }
+            TopLevelCommand::Maintenance(maintenance_group) => {
+                match maintenance_group.command {
+                    MaintenanceSubcommand::Compress => {
+                        self.spinner.start(Some("Compressing"))?;
+                        let (compressed, skipped, errors) =
+                            self.api.compress_uncompressed_contexts().await?;
+                        self.spinner.stop(None)?;
+                        self.writeln(format!(
+                            "zstd compression complete: {} compressed, {} skipped, {} errors",
+                            compressed, skipped, errors
+                        ))?;
+                    }
+                }
+                return Ok(());
+            }
+            TopLevelCommand::Import(import_group) => {
+                match import_group.command {
+                    ImportSubcommand::Forge { db, dry_run, verbose } => {
+                        let options = ForgeImportOptions { dry_run, verbose };
+                        self.spinner.start(Some(if dry_run {
+                            "Scanning (dry-run)"
+                        } else {
+                            "Importing"
+                        }))?;
+                        let report = self.api.import_forge_db_with_options(db, &options).await?;
+                        self.spinner.stop(None)?;
+                        let prefix = if dry_run {
+                            "import (dry-run)"
+                        } else {
+                            "import"
+                        };
+                        self.writeln(format!(
+                            "{} complete: {} read, {} imported, {} skipped (already exist), \
+                             {} invalid IDs, {} context parse failures, {} errors",
+                            prefix,
+                            report.source_total,
+                            report.imported,
+                            report.skipped_existing,
+                            report.invalid_id,
+                            report.context_parse_failed,
+                            report.errors
+                        ))?;
+                    }
+                }
+                return Ok(());
+            }
+            TopLevelCommand::Export(export_group) => {
+                match export_group.command {
+                    ExportSubcommand::Forge { db, dry_run, format, include_agent } => {
+                        let options =
+                            ForgeExportOptions { dry_run, format: format.into(), include_agent };
+                        self.spinner.start(Some(if dry_run {
+                            "Scanning (dry-run)"
+                        } else {
+                            "Exporting"
+                        }))?;
+                        let report = self.api.export_forge_db(db, &options).await?;
+                        self.spinner.stop(None)?;
+                        let prefix = if dry_run {
+                            "export (dry-run)"
+                        } else {
+                            "export"
+                        };
+                        self.writeln(format!(
+                            "{} complete: {} read, {} exported, {} decompression failures, {} errors",
+                            prefix,
+                            report.source_total,
+                            report.exported,
+                            report.decompression_failed,
+                            report.errors
+                        ))?;
+                    }
+                }
+                return Ok(());
+            }
+            TopLevelCommand::Migrate(args) => {
+                self.spinner.start(Some(if args.dry_run {
+                    "Scanning migration"
+                } else {
+                    "Migrating"
+                }))?;
+                let options = forge_domain::MigrateOptions { dry_run: args.dry_run };
+                let report = self.api.migrate_data_dir(&options).await?;
+                self.spinner.stop(None)?;
+                let prefix = if args.dry_run {
+                    "migrate (dry-run)"
+                } else {
+                    "migrate"
+                };
+                self.writeln(format!(
+                    "{} complete: source={} destination={} outcome={} bytes_copied={} conversations_verified={} renamed_legacy_to={}",
+                    prefix,
+                    report.source_path.display(),
+                    report.destination_path.display(),
+                    report.outcome,
+                    report.bytes_copied,
+                    report.conversations_verified,
+                    report.renamed_legacy_to.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "-".to_string())
+                ))?;
+                return Ok(());
+            }
+            TopLevelCommand::Forget(args) => {
+                let ids: Vec<forge_domain::ConversationId> = args
+                    .ids
+                    .iter()
+                    .filter_map(|raw| match forge_domain::ConversationId::parse(raw) {
+                        Ok(id) => Some(id),
+                        Err(err) => {
+                            self.writeln_title(TitleFormat::error(format!(
+                                "Invalid id {raw:?}: {err}"
+                            )))
+                            .ok()?;
+                            None
+                        }
+                    })
+                    .collect();
+                if ids.is_empty() && args.source.is_none() && args.older_than_secs.is_none() {
+                    self.writeln_title(TitleFormat::error(
+                        "must specify at least one of --ids, --source, --older-than-secs",
+                    ))?;
+                    return Ok(());
+                }
+                let options = forge_domain::ForgeForgetOptions {
+                    ids,
+                    source: args.source.clone(),
+                    older_than_secs: args.older_than_secs,
+                    dry_run: args.dry_run,
+                };
+                self.spinner.start(Some(if args.dry_run {
+                    "Scanning forget"
+                } else {
+                    "Deleting"
+                }))?;
+                let report = self.api.forget_conversations(&options).await?;
+                self.spinner.stop(None)?;
+                let prefix = if args.dry_run {
+                    "forget (dry-run)"
+                } else {
+                    "forget"
+                };
+                self.writeln(format!(
+                    "{} complete: {} matched, {} deleted (dry_run={})",
+                    prefix, report.matched, report.deleted, report.dry_run
+                ))?;
                 return Ok(());
             }
         }
@@ -1820,19 +2388,19 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 // Show both providers if they're different
                 info = info.add_key_value("Agent Provider (URL)", agent_specific.url.as_str());
                 if let Some(api_key) = agent_specific.api_key() {
-                    info = info.add_key_value("Agent API Key", truncate_key(api_key.as_str()));
+                    info = info.add_key_value("Agent API Key", redact_api_key(api_key.as_str()));
                 }
 
                 info = info.add_key_value("Default Provider (URL)", default.url.as_str());
                 if let Some(api_key) = default.api_key() {
-                    info = info.add_key_value("Default API Key", truncate_key(api_key.as_str()));
+                    info = info.add_key_value("Default API Key", redact_api_key(api_key.as_str()));
                 }
             }
             (Some(provider), _) | (_, Some(provider)) => {
                 // Show single provider (either default or agent-specific)
                 info = info.add_key_value("Provider (URL)", provider.url.as_str());
                 if let Some(api_key) = provider.api_key() {
-                    info = info.add_key_value("API Key", truncate_key(api_key.as_str()));
+                    info = info.add_key_value("API Key", redact_api_key(api_key.as_str()));
                 }
             }
             _ => {
@@ -1877,6 +2445,17 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         // Stream the diagnostic output in real-time
         crate::zsh::run_zsh_doctor()?;
+
+        // Phenotype rename step: print which "rename channel" this build is on
+        // so the operator immediately knows whether they're hitting the renamed
+        // repository or the legacy KooshaPari/forgecode path.  This is purely
+        // additive — if the env vars are unset we fall back to the legacy labels.
+        let repo = std::env::var("HELIOSLITE_REPO")
+            .unwrap_or_else(|_| "KooshaPari/heliosLite".to_string());
+        let update_url = std::env::var("HELIOSLITE_UPDATE_URL")
+            .unwrap_or_else(|_| "https://helioslite.dev/cli".to_string());
+        let rename_banner = format!("HeliosLite rename channel → repo={repo} update={update_url}");
+        self.writeln_title(TitleFormat::info(&rename_banner))?;
 
         Ok(())
     }
@@ -2047,8 +2626,10 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn list_conversations(&mut self) -> anyhow::Result<()> {
         self.spinner.start(Some("Loading Conversations"))?;
         let max_conversations = self.config.max_conversations;
-        let conversations = self.api.get_conversations(Some(max_conversations)).await?;
-        let conversations = Self::user_initiated_conversations(conversations);
+        let conversations = self
+            .api
+            .get_parent_conversations_lite(Some(max_conversations), true)
+            .await?;
         self.spinner.stop(None)?;
 
         if conversations.is_empty() {
@@ -2058,15 +2639,24 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             return Ok(());
         }
 
-        if let Some(conversation) = ConversationSelector::select_conversation(
+        if let Some(conversation_id) = ConversationSelector::select_conversation(
             &conversations,
             self.state.conversation_id,
             None,
+            self.state.sort,
         )
         .await?
         {
-            let conversation_id = conversation.id;
             self.state.conversation_id = Some(conversation_id);
+
+            // Lazy-load the full conversation (with context) only when the
+            // user opens or interacts with it — avoids decompressing the
+            // multi-MB context blob for every conversation in the list.
+            let conversation = self
+                .api
+                .conversation(&conversation_id)
+                .await?
+                .context("Conversation not found")?;
 
             // Show conversation content
             self.on_show_last_message(conversation, false).await?;
@@ -2083,9 +2673,69 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    async fn list_subagents(&mut self) -> anyhow::Result<()> {
+        let parent_id = match self.state.conversation_id {
+            Some(id) => id,
+            None => {
+                self.writeln_title(TitleFormat::error(
+                    "No active session. Start a conversation first.",
+                ))?;
+                return Ok(());
+            }
+        };
+
+        self.spinner.start(Some("Loading Subagents"))?;
+        let conversations = self.api.get_subagents(&parent_id).await?;
+        self.spinner.stop(None)?;
+
+        if conversations.is_empty() {
+            self.writeln_title(TitleFormat::info("No subagents found for this session."))?;
+            return Ok(());
+        }
+
+        // Convert to summaries for the list selector (only metadata needed).
+        // Full context will be lazy-loaded when the user opens a subagent.
+        let summaries: Vec<ConversationSummary> =
+            conversations.into_iter().map(Into::into).collect();
+
+        if let Some(conversation_id) = ConversationSelector::select_conversation(
+            &summaries,
+            self.state.conversation_id,
+            None,
+            self.state.sort,
+        )
+        .await?
+        {
+            self.state.conversation_id = Some(conversation_id);
+
+            // Lazy-load the full conversation only when opened.
+            let conversation = self
+                .api
+                .conversation(&conversation_id)
+                .await?
+                .context("Conversation not found")?;
+
+            // Show conversation content
+            self.on_show_last_message(conversation, false).await?;
+
+            // Print log about conversation switching
+            self.writeln_title(TitleFormat::info(format!(
+                "Switched to subagent {}",
+                conversation_id.into_string().bold()
+            )))?;
+
+            // Show conversation info
+            self.on_info(false, Some(conversation_id)).await?;
+        }
+        Ok(())
+    }
+
     async fn on_show_conversations(&mut self, porcelain: bool) -> anyhow::Result<()> {
         let max_conversations = self.config.max_conversations;
-        let conversations = self.api.get_conversations(Some(max_conversations)).await?;
+        let conversations = self
+            .api
+            .get_parent_conversations(Some(max_conversations))
+            .await?;
         let conversations = Self::user_initiated_conversations(conversations);
 
         if conversations.is_empty() {
@@ -2138,6 +2788,405 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         Ok(())
     }
 
+    async fn handle_goal(&mut self, description: Option<String>) -> anyhow::Result<()> {
+        if let Some(desc) = description {
+            self.state.goal = Some(desc.clone());
+            self.writeln_title(TitleFormat::info(format!("Goal set: {}", desc.bold())))?;
+        } else {
+            match &self.state.goal {
+                Some(goal) => {
+                    self.writeln_title(TitleFormat::info(format!(
+                        "Current goal: {}",
+                        goal.bold()
+                    )))?;
+                }
+                None => {
+                    self.writeln_title(TitleFormat::info(
+                        "No goal set. Usage: :goal <description>",
+                    ))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_loop(&mut self, state: Option<String>) -> anyhow::Result<()> {
+        if let Some(s) = state {
+            let enabled = s.trim().eq_ignore_ascii_case("on");
+            self.state.loop_enabled = enabled;
+            self.writeln_title(TitleFormat::info(format!(
+                "Loop mode {}",
+                if enabled {
+                    "enabled".bold()
+                } else {
+                    "disabled".bold()
+                }
+            )))?;
+        } else {
+            self.state.loop_enabled = !self.state.loop_enabled;
+            self.writeln_title(TitleFormat::info(format!(
+                "Loop mode {}",
+                if self.state.loop_enabled {
+                    "enabled".bold()
+                } else {
+                    "disabled".bold()
+                }
+            )))?;
+        }
+        Ok(())
+    }
+
+    async fn handle_parent(&mut self) -> anyhow::Result<()> {
+        let conversation_id = match self.state.conversation_id {
+            Some(id) => id,
+            None => {
+                self.writeln_title(TitleFormat::error(
+                    "No active session. Start a conversation first.",
+                ))?;
+                return Ok(());
+            }
+        };
+
+        let conversation = self.validate_conversation_exists(&conversation_id).await?;
+
+        match conversation.parent_id {
+            Some(parent_id) => {
+                let parent = self.validate_conversation_exists(&parent_id).await?;
+                self.state.conversation_id = Some(parent_id);
+                self.on_show_last_message(parent, false).await?;
+                self.writeln_title(TitleFormat::info(format!(
+                    "Switched to parent conversation {}",
+                    parent_id.into_string().bold()
+                )))?;
+                self.on_info(false, Some(parent_id)).await?;
+            }
+            None => {
+                self.writeln_title(TitleFormat::info(
+                    "This is a root conversation — it has no parent.",
+                ))?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_search(&mut self, query_parts: Vec<String>) -> anyhow::Result<()> {
+        let query = query_parts.join(" ").trim().to_string();
+        if query.is_empty() {
+            self.writeln_title(TitleFormat::error(
+                "Usage: :search <query>. Provide a search expression (e.g. :search \"rust refactor\").",
+            ))?;
+            return Ok(());
+        }
+
+        self.spinner.start(Some("Searching"))?;
+        let conversations = self.api.search_conversations(&query, Some(50)).await?;
+        self.spinner.stop(None)?;
+
+        if conversations.is_empty() {
+            self.writeln_title(TitleFormat::info(format!(
+                "No matches for {}",
+                format!("\"{query}\"").bold()
+            )))?;
+            return Ok(());
+        }
+
+        self.writeln_title(TitleFormat::info(format!(
+            "Matches for {} ({}):",
+            format!("\"{query}\"").bold(),
+            conversations.len()
+        )))?;
+
+        // Convert to summaries for the list selector (only metadata needed).
+        let summaries: Vec<ConversationSummary> =
+            conversations.into_iter().map(Into::into).collect();
+
+        if let Some(conversation_id) = ConversationSelector::select_conversation(
+            &summaries,
+            self.state.conversation_id,
+            None,
+            self.state.sort,
+        )
+        .await?
+        {
+            // Fetch a short FTS5 snippet (~32 tokens) so the user can see
+            // *why* this conversation matched. `None` means no preview —
+            // fall through silently (the title is already shown above).
+            if let Ok(Some(snippet)) = self
+                .api
+                .get_conversation_snippet(&conversation_id, &query, 32)
+                .await
+            {
+                self.writeln_title(TitleFormat::info(format!(
+                    "  matched: {}",
+                    snippet.dimmed()
+                )))?;
+            }
+
+            self.state.conversation_id = Some(conversation_id);
+
+            // Lazy-load the full conversation only when opened.
+            let conversation = self
+                .api
+                .conversation(&conversation_id)
+                .await?
+                .context("Conversation not found")?;
+
+            self.on_show_last_message(conversation, false).await?;
+            self.writeln_title(TitleFormat::info(format!(
+                "Switched to conversation {}",
+                conversation_id.into_string().bold()
+            )))?;
+            self.on_info(false, Some(conversation_id)).await?;
+        }
+        Ok(())
+    }
+
+    /// Re-binds the current (subagent) conversation to a different parent.
+    /// Usage:
+    ///   - `:reparent <parent_id>`  → attach to the given parent
+    ///   - `:reparent --detach`     → promote this session to top-level
+    ///   - `:reparent`              → no-arg; shows usage hint
+    async fn handle_reparent(&mut self, target: Vec<String>) -> anyhow::Result<()> {
+        let conversation_id = match self.state.conversation_id {
+            Some(id) => id,
+            None => {
+                self.writeln_title(TitleFormat::error(
+                    "No active session. Start a conversation first.",
+                ))?;
+                return Ok(());
+            }
+        };
+
+        if target.is_empty() {
+            self.writeln_title(TitleFormat::info(
+                "Usage: :reparent <parent_id> | :reparent --detach",
+            ))?;
+            return Ok(());
+        }
+
+        // `:reparent --detach` → detach (None)
+        // `:reparent <anything else>` → parse as a ConversationId
+        let new_parent_id = if target.iter().any(|t| t == "--detach") {
+            None
+        } else {
+            let raw = target.join(" ").trim().to_string();
+            match ConversationId::parse(&raw) {
+                Ok(id) => Some(id),
+                Err(err) => {
+                    self.writeln_title(TitleFormat::error(format!(
+                        "Invalid parent ID {raw:?}: {err}"
+                    )))?;
+                    return Ok(());
+                }
+            }
+        };
+
+        self.api
+            .update_parent_id(&conversation_id, new_parent_id.as_ref())
+            .await?;
+
+        let msg = match new_parent_id {
+            Some(pid) => format!(
+                "Re-parented current session to {}.",
+                pid.into_string().bold()
+            ),
+            None => "Detached current session — promoted to top-level.".to_string(),
+        };
+        self.writeln_title(TitleFormat::info(msg))?;
+        Ok(())
+    }
+
+    /// Filters the conversation list by working directory. Usage:
+    ///   - `:cwd <path>`       → exact-match cwd filter
+    ///   - `:cwd --current`    → use the current shell working directory
+    ///   - `:cwd --clear`      → clear the cwd filter
+    async fn handle_cwd(&mut self, target: Vec<String>) -> anyhow::Result<()> {
+        if target.is_empty() || target.iter().any(|t| t == "--help" || t == "-h") {
+            self.writeln_title(TitleFormat::info(
+                "Usage: :cwd <path> | :cwd --current | :cwd --clear",
+            ))?;
+            return Ok(());
+        }
+
+        if target.iter().any(|t| t == "--clear") {
+            self.state.cwd_filter = None;
+            self.writeln_title(TitleFormat::info("Cleared cwd filter."))?;
+            return Ok(());
+        }
+
+        let cwd = if target.iter().any(|t| t == "--current") {
+            match std::env::current_dir() {
+                Ok(p) => p.to_string_lossy().to_string(),
+                Err(err) => {
+                    self.writeln_title(TitleFormat::error(format!(
+                        "Failed to read current dir: {err}"
+                    )))?;
+                    return Ok(());
+                }
+            }
+        } else {
+            target.join(" ").trim().to_string()
+        };
+
+        self.state.cwd_filter = Some(cwd.clone());
+        self.writeln_title(TitleFormat::info(format!(
+            "Cwd filter set to {}",
+            cwd.bold()
+        )))?;
+        Ok(())
+    }
+
+    async fn handle_sort(&mut self, target: Vec<String>) -> anyhow::Result<()> {
+        use forge_domain::ConversationSort;
+
+        if target.is_empty() || target.iter().any(|t| t == "--help" || t == "-h") {
+            self.writeln_title(TitleFormat::info(
+                "Usage: :sort <turns|updated|created|title|cwd> | :sort --reset",
+            ))?;
+            return Ok(());
+        }
+
+        if target.iter().any(|t| t == "--reset") {
+            self.state.sort = ConversationSort::default();
+            self.writeln_title(TitleFormat::info(format!(
+                "Sort reset to {}",
+                ConversationSort::default().name().bold()
+            )))?;
+            return Ok(());
+        }
+
+        let requested = target.join(" ").trim().to_lowercase();
+        let new_sort = match requested.as_str() {
+            "turns" | "messages" | "msg" | "count" => ConversationSort::Turns,
+            "updated" | "updated_at" | "recent" => ConversationSort::Updated,
+            "created" | "created_at" | "oldest" => ConversationSort::Created,
+            "title" | "name" => ConversationSort::Title,
+            "cwd" | "dir" | "directory" => ConversationSort::Cwd,
+            other => {
+                self.writeln_title(TitleFormat::error(format!(
+                    "Unknown sort key: {} (use: turns|updated|created|title|cwd)",
+                    other
+                )))?;
+                return Ok(());
+            }
+        };
+
+        self.state.sort = new_sort;
+        self.writeln_title(TitleFormat::info(format!(
+            "Sort set to {}",
+            new_sort.name().bold()
+        )))?;
+        Ok(())
+    }
+
+    async fn handle_clear_screen(&mut self) -> anyhow::Result<()> {
+        // CC parity: /clear — clear the visible terminal area (does NOT drop history)
+        self.console.clear_screen()?;
+        self.writeln_title(TitleFormat::info("Screen cleared".to_string()))?;
+        Ok(())
+    }
+
+    async fn handle_init_agents_md(&mut self) -> anyhow::Result<()> {
+        // CC parity: /init — write an AGENTS.md at the cwd if one doesn't exist
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let agents_path = cwd.join("AGENTS.md");
+        if agents_path.exists() {
+            self.writeln_title(TitleFormat::error(format!(
+                "{} already exists — refusing to overwrite",
+                "AGENTS.md".bold()
+            )))?;
+            return Ok(());
+        }
+        let template = "# AGENTS.md\n\n\
+            Project-specific instructions for forge agents working in this repository.\n\n\
+            ## What this file is\n\n\
+            Forge reads this file at session start. Put any conventions, gotchas, or non-obvious\n\
+            requirements here so the agent doesn't have to rediscover them every session.\n\n\
+            ## Sections to fill in (delete ones that don't apply)\n\n\
+            ### Build & test\n\
+            - How to build the project\n\
+            - How to run the test suite (single-file and full)\n\
+            - Lint / format / typecheck commands\n\n\
+            ### Repo conventions\n\
+            - Branch naming, commit message style, PR labels\n\
+            - Code style (formatter, linter, naming)\n\
+            - File layout (where to put new code, tests, docs)\n\n\
+            ### Tooling\n\
+            - Required tools and their versions\n\
+            - How to run the agent (forge-dev path, build flags)\n\
+            - Any env vars that must be set\n\n\
+            ### Subagent policy\n\
+            - When to spawn a subagent (multi-file refactor, deep investigation, parallel work)\n\
+            - When NOT to spawn a subagent (small edits, in-session work)\n\
+            - Which model to use for which kind of subtask\n";
+        std::fs::write(&agents_path, template)
+            .map_err(|e| anyhow::anyhow!("Failed to write {}: {}", agents_path.display(), e))?;
+        self.writeln_title(TitleFormat::info(format!(
+            "Wrote {} — review and edit before the next session",
+            "AGENTS.md".bold()
+        )))?;
+        Ok(())
+    }
+
+    async fn handle_rewind(&mut self) -> anyhow::Result<()> {
+        // CC parity: /rewind — rollback the active conversation to the last compaction
+        // anchor (or to its creation if no compaction exists). Backs up the
+        // current state first so a second /rewind reverts the rollback.
+        if let Some(cid) = self.state.conversation_id {
+            match self.api.rewind_conversation(&cid).await {
+                Ok(_) => {
+                    self.writeln_title(TitleFormat::info(format!(
+                        "Rewound conversation {} to last compaction",
+                        cid.into_string().bold()
+                    )))?;
+                }
+                Err(e) => {
+                    self.writeln_title(TitleFormat::error(format!(
+                        "Rewind failed: {}",
+                        e.to_string().red()
+                    )))?;
+                }
+            }
+        } else {
+            self.writeln_title(TitleFormat::error(
+                "No active conversation to rewind".to_string(),
+            ))?;
+        }
+        Ok(())
+    }
+
+    async fn handle_review(&mut self) -> anyhow::Result<()> {
+        self.writeln_title(TitleFormat::info(
+            "Review mode: reviewing the current conversation context. (not yet implemented — run the agent's review flow)",
+        ))?;
+        Ok(())
+    }
+
+    async fn handle_test(&mut self) -> anyhow::Result<()> {
+        self.writeln_title(TitleFormat::info(
+            "Test mode: drafting tests for the current changes. (not yet implemented — run the agent's test flow)",
+        ))?;
+        Ok(())
+    }
+
+    async fn handle_think(&mut self) -> anyhow::Result<()> {
+        self.writeln_title(TitleFormat::info(
+            "Think mode: generating structured analysis. (not yet implemented — run the agent's think flow)",
+        ))?;
+        Ok(())
+    }
+
+    async fn handle_fts_optimize(&mut self) -> anyhow::Result<()> {
+        self.writeln_title(TitleFormat::info("Optimizing FTS5 search index..."))?;
+        match self.api.optimize_fts_index().await {
+            Ok(()) => self.writeln_title(TitleFormat::info("FTS5 index optimized."))?,
+            Err(e) => {
+                self.writeln_title(TitleFormat::error(format!("FTS5 optimize failed: {e}")))?
+            }
+        }
+        Ok(())
+    }
+
     fn user_initiated_conversations(conversations: Vec<Conversation>) -> Vec<Conversation> {
         let related_ids: HashSet<ConversationId> = conversations
             .iter()
@@ -2175,36 +3224,68 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     self.list_conversations().await?;
                 }
             }
-            AppCommand::ConversationTree => {
-                let conversation_id = self
-                    .state
-                    .conversation_id
-                    .ok_or_else(|| anyhow::anyhow!("No active conversation"))?;
-                let parent = self.validate_conversation_exists(&conversation_id).await?;
-                let children = self.fetch_related_conversations(&parent).await;
-
-                if children.is_empty() {
-                    self.writeln_title(TitleFormat::info("No child conversations found."))?;
-                } else if let Some(conversation) = ConversationSelector::select_conversation(
-                    &children,
-                    self.state.conversation_id,
-                    None,
-                )
-                .await?
-                {
-                    let conversation_id = conversation.id;
-                    self.state.conversation_id = Some(conversation_id);
-                    self.on_show_last_message(conversation, false).await?;
-                    self.writeln_title(TitleFormat::info(format!(
-                        "Switched to conversation {}",
-                        conversation_id.into_string().bold()
-                    )))?;
-                    self.on_info(false, Some(conversation_id)).await?;
-                }
+            AppCommand::Subagents => {
+                self.list_subagents().await?;
+            }
+            AppCommand::Goal { description } => {
+                let desc = if description.is_empty() {
+                    None
+                } else {
+                    Some(description.join(" ").trim().to_string())
+                };
+                self.handle_goal(desc).await?;
+            }
+            AppCommand::Loop { state } => {
+                self.handle_loop(state).await?;
+            }
+            AppCommand::Parent => {
+                self.handle_parent().await?;
+            }
+            AppCommand::Reparent { target } => {
+                self.handle_reparent(target).await?;
+            }
+            AppCommand::Cwd { target } => {
+                self.handle_cwd(target).await?;
+            }
+            AppCommand::Sort { target } => {
+                self.handle_sort(target).await?;
+            }
+            AppCommand::Search { query } => {
+                self.handle_search(query).await?;
             }
             AppCommand::Compact => {
                 self.spinner.start(Some("Compacting"))?;
                 self.on_compaction().await?;
+            }
+            AppCommand::Clear => {
+                self.handle_clear_screen().await?;
+            }
+            AppCommand::Init => {
+                self.handle_init_agents_md().await?;
+            }
+            AppCommand::Rewind => {
+                self.handle_rewind().await?;
+            }
+            AppCommand::Review => {
+                self.handle_review().await?;
+            }
+            AppCommand::Test => {
+                self.handle_test().await?;
+            }
+            AppCommand::Think => {
+                self.handle_think().await?;
+            }
+            AppCommand::FtsOptimize => {
+                self.handle_fts_optimize().await?;
+            }
+            AppCommand::OutputCompact => {
+                self.apply_output_mode(OutputMode::Compact).await?;
+            }
+            AppCommand::OutputConcise => {
+                self.apply_output_mode(OutputMode::Concise).await?;
+            }
+            AppCommand::OutputVerbose => {
+                self.apply_output_mode(OutputMode::Verbose).await?;
             }
             AppCommand::Delete => {
                 self.handle_delete_conversation().await?;
@@ -2286,6 +3367,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 self.handle_provider_login(None).await?;
             }
             AppCommand::Logout => {
+                return self.handle_provider_logout(None).await;
+            }
+            AppCommand::ProviderRemove => {
                 return self.handle_provider_logout(None).await;
             }
             AppCommand::Retry => {
@@ -2396,8 +3480,14 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let cwd = self.state.cwd.clone();
                 self.on_workspace_init(cwd, false).await?;
             }
+            AppCommand::ConversationTree => {
+                // Show nested conversations spawned by the current conversation
+                // Reuse list_conversations for now; upstream may have more specific logic
+                self.list_conversations().await?;
+            }
         }
 
+        self.state.last_activity = std::time::Instant::now();
         Ok(false)
     }
     async fn on_compaction(&mut self) -> Result<(), anyhow::Error> {
@@ -2669,13 +3759,13 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             ConversationId::parse(&id_str)
                 .map_err(|_| anyhow::anyhow!("Invalid conversation ID: {id_str}"))?
         } else {
-            // Show conversation picker
-            let conversations = self
+            // Show conversation picker with lightweight metadata query
+            let summaries = self
                 .api
-                .get_conversations(Some(self.config.max_conversations))
+                .get_parent_conversations_lite(Some(self.config.max_conversations), true)
                 .await?;
 
-            if conversations.is_empty() {
+            if summaries.is_empty() {
                 self.writeln_title(TitleFormat::error(
                     "No conversations found. Start a conversation first.",
                 ))?;
@@ -2683,14 +3773,15 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
 
             let selected = ConversationSelector::select_conversation(
-                &conversations,
+                &summaries,
                 self.state.conversation_id,
                 None,
+                self.state.sort,
             )
             .await?;
 
             match selected {
-                Some(conv) => conv.id,
+                Some(id) => id,
                 None => return Ok(()),
             }
         };
@@ -2749,30 +3840,31 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             )))?;
         } else {
             // Interactive: show picker then prompt for new name
-            let conversations = self
+            let summaries = self
                 .api
-                .get_conversations(Some(self.config.max_conversations))
+                .get_parent_conversations_lite(Some(self.config.max_conversations), true)
                 .await?;
 
-            if conversations.is_empty() {
+            if summaries.is_empty() {
                 self.writeln_title(TitleFormat::error("No conversations found."))?;
                 return Ok(());
             }
 
             let selected = ConversationSelector::select_conversation(
-                &conversations,
+                &summaries,
                 self.state.conversation_id,
                 None,
+                self.state.sort,
             )
             .await?;
 
-            if let Some(conv) = selected {
+            if let Some(conv_id) = selected {
                 let name_result = ForgeWidget::input("New name").allow_empty(false).prompt()?;
 
                 if let Some(name) = name_result
                     && !name.is_empty()
                 {
-                    self.api.rename_conversation(&conv.id, name.clone()).await?;
+                    self.api.rename_conversation(&conv_id, name.clone()).await?;
                     self.writeln_title(TitleFormat::info(format!(
                         "Conversation renamed to '{}'",
                         name.bold()
@@ -3832,7 +4924,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
             // Check if conversation exists, if not create it
             if self.api.conversation(&id).await?.is_none() {
-                let conversation = Conversation::new(id);
+                let mut conversation = Conversation::new(id);
+                conversation.source = Some(detect_source(&self.cli));
                 self.api.upsert_conversation(conversation).await?;
                 is_new = true;
             }
@@ -3841,7 +4934,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             let content = ForgeFS::read_utf8(path).await?;
 
             // Try to parse as a dump file first (with "conversation" wrapper)
-            let conversation: Conversation = if let Ok(dump) =
+            let mut conversation: Conversation = if let Ok(dump) =
                 serde_json::from_str::<ConversationDump>(&content)
             {
                 dump.conversation
@@ -3852,10 +4945,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             };
 
             let id = conversation.id;
+            conversation.source = Some(detect_source(&self.cli));
             self.api.upsert_conversation(conversation).await?;
             id
         } else {
-            let conversation = Conversation::generate();
+            let mut conversation = Conversation::generate();
+            conversation.source = Some(detect_source(&self.cli));
             let id = conversation.id;
             is_new = true;
             self.api.upsert_conversation(conversation).await?;
@@ -3957,6 +5052,16 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     }
 
     async fn on_message(&mut self, content: Option<String>) -> Result<()> {
+        self.auto_continue_attempts = 0;
+        self.on_message_inner(content, false).await
+    }
+
+    async fn on_message_inner(
+        &mut self,
+        content: Option<String>,
+        is_auto_continuation: bool,
+    ) -> Result<()> {
+        debug_assert!(is_auto_continuation || self.auto_continue_attempts == 0);
         let conversation_id = self.init_conversation().await?;
 
         if self.config.auto_install_vscode_extension {
@@ -4020,6 +5125,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         writer.finish()?;
         self.spinner.stop(None)?;
         self.spinner.reset();
+        self.state.last_activity = std::time::Instant::now();
 
         Ok(())
     }
@@ -4133,10 +5239,54 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             ChatResponse::TaskMessage { content } => match content {
                 ChatResponseContent::ToolInput(title) => {
                     writer.finish()?;
-                    self.writeln(title.display())?;
+                    // ASCII color + symbol per tool type for visual scanning
+                    let title_str = title.display().to_string();
+                    let tool_name = title_str.split_whitespace().next().unwrap_or("");
+                    let (symbol, color_fn): (&str, fn(String) -> String) = match tool_name {
+                        // Read-family tools — cyan ⏵
+                        "read" | "cat" | "view" | "fs.read" | "fs.cat" | "fs.view" => {
+                            ("⏵", |s| s.cyan().to_string())
+                        }
+                        // Write/patch — green ✎
+                        "write" | "edit" | "patch" | "fs.write" | "fs.edit" | "fs.patch" => {
+                            ("✎", |s| s.green().to_string())
+                        }
+                        // Shell — yellow ▶
+                        "bash" | "shell" | "exec" | "process" => {
+                            ("▶", |s| s.yellow().to_string())
+                        }
+                        // Search/grep/find — magenta ⌕
+                        "search" | "grep" | "find" | "ripgrep" | "rg" | "fs.search" => {
+                            ("⌕", |s| s.magenta().to_string())
+                        }
+                        // Subagent/task — blue ⊙
+                        "task" | "forge_task" | "subagent" | "agent" => {
+                            ("⊙", |s| s.blue().to_string())
+                        }
+                        // Web — bright cyan ⤴
+                        "fetch" | "web" | "http" | "curl" | "wget" => {
+                            ("⤴", |s| s.bright_cyan().to_string())
+                        }
+                        // Default — no symbol, white
+                        _ => ("•", |s| s.white().to_string()),
+                    };
+                    self.writeln(format!("{} {}", symbol, color_fn(title_str)))?;
                 }
                 ChatResponseContent::ToolOutput(text) => {
                     writer.finish()?;
+                    // Compress long tool output to 3 lines + a hint, with Ctrl+O to expand
+                    if !self.state.tool_output_expanded {
+                        let lines: Vec<&str> = text.lines().collect();
+                        if lines.len() > 3 {
+                            let preview = lines.get(..3).unwrap_or(&lines).join("\n");
+                            self.writeln(preview.dimmed().to_string())?;
+                            self.writeln(format!(
+                                "{} [Ctrl+O to expand]",
+                                format!("... ({} more lines)", lines.len() - 3).dimmed()
+                            ))?;
+                            return Ok(());
+                        }
+                    }
                     self.writeln(text)?;
                 }
                 ChatResponseContent::Markdown { text, partial: _ } => {
@@ -4201,16 +5351,44 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 writer.finish()?;
                 self.spinner.stop(None)?;
 
-                let title = match reason {
+                match reason {
                     InterruptionReason::MaxRequestPerTurnLimitReached { limit } => {
-                        format!("Maximum request ({limit}) per turn achieved")
+                        self.writeln_title(TitleFormat::action(format!(
+                            "Maximum request ({limit}) per turn achieved"
+                        )))?;
                     }
-                    InterruptionReason::MaxToolFailurePerTurnLimitReached { limit, .. } => {
-                        format!("Maximum tool failure limit ({limit}) reached for this turn")
+                    InterruptionReason::MaxToolFailurePerTurnLimitReached { limit, errors } => {
+                        self.writeln_title(TitleFormat::action(format!(
+                            "Maximum tool failure limit ({limit}) reached for this turn"
+                        )))?;
+                        if !errors.is_empty() {
+                            let mut failing_tools = errors
+                                .iter()
+                                .map(|(name, count)| format!("{name} x {count}"))
+                                .collect::<Vec<_>>();
+                            failing_tools.sort();
+                            self.writeln_title(TitleFormat::action(format!(
+                                "Failing tools: {}",
+                                failing_tools.join(", ")
+                            )))?;
+                        }
                     }
-                };
+                }
 
-                self.writeln_title(TitleFormat::action(title))?;
+                if self.config.auto_continue_on_interrupt || Self::is_non_interactive() {
+                    if !auto_continue_allowed(self.auto_continue_attempts) {
+                        self.auto_continue_attempts = 0;
+                        self.writeln_title(TitleFormat::error(format!(
+                            "Automatic continuation stopped after {MAX_AUTO_CONTINUE_ATTEMPTS} interruptions"
+                        )))?;
+                        return Ok(());
+                    }
+                    self.auto_continue_attempts += 1;
+                    self.spinner.start(None)?;
+                    Box::pin(self.on_message_inner(None, true)).await?;
+                    return Ok(());
+                }
+
                 let continued = self.should_continue().await?;
                 if !continued && let Some(conversation_id) = self.state.conversation_id {
                     self.writeln_title(
@@ -4223,6 +5401,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
             ChatResponse::TaskComplete => {
                 writer.finish()?;
+                self.auto_continue_attempts = 0;
                 if let Some(conversation_id) = self.state.conversation_id {
                     self.writeln_title(
                         TitleFormat::debug("Finished").sub_title(conversation_id.into_string()),
@@ -4235,6 +5414,15 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
         }
         Ok(())
+    }
+
+    fn is_non_interactive() -> bool {
+        use std::io::IsTerminal;
+
+        std::env::var_os("CI").is_some()
+            || std::env::var_os("FORGE_NON_INTERACTIVE").is_some()
+            || std::env::var_os("FORGE_AGENT_MODE").is_some()
+            || !std::io::stdin().is_terminal()
     }
 
     async fn should_continue(&mut self) -> anyhow::Result<bool> {
@@ -4270,6 +5458,11 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
         // Add conversation ID
         info = info.add_key_value("ID", conversation.id.to_string());
+
+        // Subagent breadcrumb — show parent if this is a spawned session
+        if let Some(parent_id) = &conversation.parent_id {
+            info = info.add_key_value("Spawned by", format!("{} (use /parent to jump)", parent_id));
+        }
 
         // Calculate duration
         let created_at = conversation.metadata.created_at;
@@ -5185,12 +6378,158 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
         });
     }
+
+    /// Apply an output mode setting and persist it to the config.
+    async fn apply_output_mode(&mut self, mode: OutputMode) -> Result<()> {
+        let mut cfg = forge_config::ForgeConfig::read().unwrap_or_default();
+        cfg.output = Some(OutputSettings { mode, ..cfg.output.clone().unwrap_or_default() });
+        let path = forge_config::config_path();
+        cfg.write(Some(&path))?;
+        self.writeln_title(TitleFormat::info(format!(
+            "Output mode set to: {}",
+            mode.label()
+        )))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::{
+        MAX_AUTO_CONTINUE_ATTEMPTS, auto_continue_allowed, is_helioslite_binary_name,
+        redact_api_key, validate_helioslite_sessions_root, validate_snapshot_destination,
+    };
+
+    #[test]
+    fn automatic_continuation_has_a_hard_boundary() {
+        assert!(auto_continue_allowed(0));
+        assert!(auto_continue_allowed(MAX_AUTO_CONTINUE_ATTEMPTS - 1));
+        assert!(!auto_continue_allowed(MAX_AUTO_CONTINUE_ATTEMPTS));
+        assert!(!auto_continue_allowed(usize::MAX));
+    }
+
+    #[test]
+    fn info_api_key_display_is_fully_redacted() {
+        let fixture = "sk-super-secret-api-key-1234567890";
+        let actual = redact_api_key(fixture);
+        let expected = "<redacted>";
+
+        assert_eq!(actual, expected);
+        assert!(!actual.contains(fixture));
+    }
+
     // Note: Tests for confirm_delete_conversation are disabled because
     // ForgeSelect::confirm is not easily mockable in the current
     // architecture. The functionality is tested through integration tests
     // instead.
+
+    #[test]
+    fn import_is_helioslite_only_case_insensitively() {
+        assert!(is_helioslite_binary_name("helioslite"));
+        assert!(is_helioslite_binary_name("HeLiOsLiTe"));
+        assert!(!is_helioslite_binary_name("forge"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sessions_root_rejects_root_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("target");
+        fs::create_dir_all(&target).unwrap();
+        let root = dir.path().join("sessions");
+        symlink(&target, &root).unwrap();
+
+        let error = validate_helioslite_sessions_root(&root).unwrap_err();
+        assert!(error.to_string().contains("must not be a symlink"));
+    }
+
+    #[test]
+    fn sessions_root_rejects_overlap_with_forge_root() {
+        let forge_root = dirs::home_dir().unwrap().join(".forge");
+        let root = forge_root.join("helioslite-sessions");
+
+        let error = validate_helioslite_sessions_root(&root).unwrap_err();
+        assert!(error.to_string().contains("must not overlap ~/.forge"));
+    }
+
+    #[test]
+    fn destination_rejects_traversal_before_creating_parent() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("helioslite/sessions");
+        let outside = dir.path().join("outside");
+        let destination = root.join("../outside/snapshot");
+
+        let error = validate_snapshot_destination(&destination, &root).unwrap_err();
+        assert!(error.to_string().contains("must stay under"));
+        assert!(!outside.exists());
+        assert!(!root.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn destination_rejects_symlink_parent_before_writing_through_it() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("helioslite/sessions");
+        fs::create_dir_all(&root).unwrap();
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, root.join("link")).unwrap();
+
+        let destination = root.join("link/snapshot");
+        let error = validate_snapshot_destination(&destination, &root).unwrap_err();
+        assert!(error.to_string().contains("resolves outside"));
+        assert!(!outside.join("snapshot").exists());
+    }
+
+    #[test]
+    fn destination_creates_only_valid_helioslite_parent() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("helioslite/sessions");
+        let destination = root.join("imports/snapshot");
+
+        validate_snapshot_destination(&destination, &root).unwrap();
+        assert!(destination.parent().unwrap().is_dir());
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn destination_allows_existing_published_snapshot_through_preflight() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("helioslite/sessions");
+        let destination = root.join("imports/snapshot");
+        fs::create_dir_all(&destination).unwrap();
+        fs::write(destination.join("snapshot.json"), "{}\n").unwrap();
+        fs::write(destination.join("manifest.json"), "{}\n").unwrap();
+
+        let actual = validate_snapshot_destination(&destination, &root);
+
+        assert!(actual.is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn destination_rejects_existing_symlink_before_publishing() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("helioslite/sessions");
+        let outside = dir.path().join("outside/snapshot");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let destination = root.join("imports/snapshot");
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        symlink(&outside, &destination).unwrap();
+
+        let error = validate_snapshot_destination(&destination, &root).unwrap_err();
+
+        assert!(error.to_string().contains("must not be a symlink"));
+    }
 }

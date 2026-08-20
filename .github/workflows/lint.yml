@@ -1,0 +1,82 @@
+name: ci
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  fmt:
+    name: "Format check (rustfmt)"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Setup Rust toolchain (stable + rustfmt)
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          toolchain: stable
+          components: rustfmt
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: "Clippy (-D warnings)"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install system deps
+        run: sudo apt-get update -q && sudo apt-get install -y libsqlite3-dev protobuf-compiler
+
+      - name: Setup Rust toolchain (stable + clippy)
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+        with:
+          version: 0.16.0
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@7e35be21c2b94d972b1143087fabc27d7dc881ef
+
+      - name: cargo clippy -D warnings
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  lint:
+    name: lint
+    if: always()
+    needs: [fmt, clippy]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Aggregate lint results
+        run: |
+          failed=0
+          for result in "${{ needs.fmt.result }}" "${{ needs.clippy.result }}"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              failed=$((failed + 1))
+            fi
+          done
+          if [ "$failed" -gt 0 ]; then
+            echo "${failed} lint job(s) failed"
+            exit 1
+          fi
+          echo "All lint jobs passed or were skipped"

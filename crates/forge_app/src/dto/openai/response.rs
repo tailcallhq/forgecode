@@ -333,7 +333,7 @@ impl TryFrom<Response> for ChatCompletionMessage {
                     };
 
                     if let Some(error) = error {
-                        return Err(Error::Response(error.clone()).into());
+                        return Err(Error::Response(Box::new(error.clone())).into());
                     }
 
                     let mut response = match choice {
@@ -521,7 +521,7 @@ impl TryFrom<Response> for ChatCompletionMessage {
                                     filtered_categories.join(", ")
                                 ))
                                 .code(ErrorCode::String("content_filter".to_string()));
-                            return Err(Error::Response(error).into());
+                            return Err(Error::Response(Box::new(error)).into());
                         }
                     }
 
@@ -551,7 +551,7 @@ impl TryFrom<Response> for ChatCompletionMessage {
                 }
                 Ok(msg)
             }
-            Response::Failure { error } => Err(Error::Response(error).into()),
+            Response::Failure { error } => Err(Error::Response(Box::new(error)).into()),
         }
     }
 }

@@ -1,0 +1,185 @@
+# Trunk.io — Unified linting, formatting, and security
+# Docs: https://docs.trunk.io/check/reference
+# This replaces per-language linter configs with a single source of truth
+
+version: 0.1
+cli:
+  version: 1.22.12
+
+# Trunk plugins to enable
+plugins:
+  sources:
+    - id: trunk
+      ref: v1.6.6
+    - id: trunk-fmt
+      ref: v1.2.1
+
+# Linter configurations
+linters:
+  # --- RUST ---
+  - name: rustfmt
+    enabled: true
+    direct_configs:
+      - rustfmt.toml
+      - .rustfmt.toml
+
+  - name: clippy
+    enabled: true
+    direct_configs:
+      - clippy.toml
+      - .clippy.toml
+
+  # --- PYTHON ---
+  - name: ruff
+    enabled: true
+    args: ["--config", "pyproject.toml"]
+    direct_configs:
+      - ruff.toml
+      - pyproject.toml
+
+  - name: mypy
+    enabled: true
+    direct_configs:
+      - mypy.ini
+      - setup.cfg
+      - pyproject.toml
+
+  - name: bandit
+    enabled: true
+    args: ["-c", "pyproject.toml"]
+
+  - name: black
+    enabled: true
+    direct_configs:
+      - pyproject.toml
+
+  # --- GO ---
+  - name: golangci-lint
+    enabled: true
+    direct_configs:
+      - .golangci.yml
+      - .golangci.yaml
+      - golangci-lint.yaml
+
+  - name: gofmt
+    enabled: true
+
+  - name: goimports
+    enabled: true
+
+  # --- TYPESCRIPT/JAVASCRIPT ---
+  - name: biome
+    enabled: true
+    direct_configs:
+      - biome.json
+      - biome.jsonc
+
+  - name: eslint
+    enabled: true
+    direct_configs:
+      - .eslintrc.js
+      - .eslintrc.json
+      - .eslintrc.yml
+      - eslint.config.js
+
+  - name: prettier
+    enabled: true
+    direct_configs:
+      - .prettierrc
+      - .prettierrc.json
+      - .prettierrc.yml
+      - prettier.config.js
+
+  # --- DOCKER ---
+  - name: hadolint
+    enabled: true
+    direct_configs:
+      - hadolint.yaml
+
+  # --- YAML ---
+  - name: yamllint
+    enabled: true
+
+  # --- MARKDOWN ---
+  - name: markdownlint
+    enabled: true
+    direct_configs:
+      - .markdownlint.json
+
+  # --- SECURITY ---
+  - name: gitleaks
+    enabled: true
+
+  # --- GENERAL ---
+  - name: shellcheck
+    enabled: true
+
+  - name: actionlint
+    enabled: true
+
+  - name: trufflehog
+    enabled: true
+
+# Formatter configurations
+formatters:
+  - name: rustfmt
+    enabled: true
+    direct_configs:
+      - rustfmt.toml
+
+  - name: ruff
+    enabled: true
+    args: ["format"]
+    direct_configs:
+      - pyproject.toml
+
+  - name: black
+    enabled: true
+
+  - name: gofmt
+    enabled: true
+
+  - name: goimports
+    enabled: true
+
+  - name: biome
+    enabled: true
+    args: ["format"]
+
+  - name: prettier
+    enabled: true
+
+  - name: shfmt
+    enabled: true
+    args: ["-i", "2", "-ci"]
+
+# Action definitions (CI commands)
+actions:
+  - name: checkout
+    type: git_clone
+
+  - name: install
+    type: plugin
+    path: trunk-install
+
+# Ignored patterns
+ignore:
+  - paths:
+      - node_modules/
+      - .venv/
+      - venv/
+      - __pycache__/
+      - target/
+      - dist/
+      - build/
+      - .git/
+      - vendor/
+      - "*.lock"
+      - "go.sum"
+    type: include
+
+# CI configuration
+ci:
+  enabled: true
+  notify:
+    - trunk-io

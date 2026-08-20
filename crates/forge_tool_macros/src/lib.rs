@@ -40,6 +40,11 @@ pub fn derive_description(input: TokenStream) -> TokenStream {
                 )
             })
             .trim()
+            // git stores description files with LF endings; on Windows
+            // checkouts (autocrlf) the on-disk bytes carry CRLF, which would
+            // leak into generated tool descriptions and break snapshot
+            // determinism. Normalize to the authored LF bytes.
+            .replace("\r\n", "\n")
             .to_string()
     } else {
         // Collect doc lines from doc comments

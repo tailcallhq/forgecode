@@ -1,0 +1,104 @@
+name: Release Attestation
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build-and-attest:
+    name: Build and Attest (SLSA Build L2)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      CARGO_WORKDIR: .
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: stable
+
+      - name: Set up protobuf compiler
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@7e35be21c2b94d972b1143087fabc27d7dc881ef
+        with:
+          workspaces: |
+            . -> target
+
+      - name: Build release artifacts
+        working-directory: ${{ env.CARGO_WORKDIR }}
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --workspace --all-targets
+
+      - name: Stage release artifacts
+        working-directory: ${{ env.CARGO_WORKDIR }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          # Copy all built executables
+          find target/release -maxdepth 1 -type f -executable \
+            -exec cp -t release-artifacts/ {} + 2>/dev/null || true
+          # Source tarball
+          tar \
+            --exclude='./target' \
+            --exclude='./.git' \
+            --exclude='./release-artifacts' \
+            -czf release-artifacts/source.tar.gz \
+            -C "$GITHUB_WORKSPACE/${{ env.CARGO_WORKDIR }}" .
+          # Build manifest
+          cat > release-artifacts/BUILD_MANIFEST.txt <<EOF
+          # Release Build Manifest
+          repository: ${{ github.repository }}
+          ref:        ${{ github.ref }}
+          sha:        ${{ github.sha }}
+          runner:     ${{ runner.os }}
+          rustc:      $(rustc --version)
+          cargo:      $(cargo --version)
+          built_at:   $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          EOF
+          echo "=== Release artifacts ==="
+          ls -la release-artifacts/
+
+      - name: Emit CycloneDX SBOMs
+        # Per-crate CycloneDX SBOMs regenerated on every release and shipped
+        # inside release-artifacts (uploaded + covered by the SLSA attestation
+        # subject-path below). Tool pinned to 0.5.9 to match the committed
+        # *.cdx.json provenance (cargo-cyclonedx 0.5.9). SOURCE_DATE_EPOCH is
+        # honored by cargo-cyclonedx for reproducible SBOM timestamps.
+        working-directory: ${{ env.CARGO_WORKDIR }}
+        run: |
+          set -euo pipefail
+          cargo install cargo-cyclonedx --version 0.5.9
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" cargo cyclonedx --format json --all
+          find crates benchmarks -name "*.cdx.json" -exec cp --parents {} release-artifacts/ \;
+
+      - name: Upload artifacts for provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-artifacts
+          path: ${{ env.CARGO_WORKDIR }}/release-artifacts/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Attest build provenance (SLSA Build L2)
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373
+        with:
+          subject-path: ${{ env.CARGO_WORKDIR }}/release-artifacts/*

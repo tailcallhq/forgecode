@@ -1,0 +1,50 @@
+version: 1
+project: forgecode
+updated: 2026-08-19
+
+gates:
+  format:
+    required: true
+    command: cargo fmt --all -- --check
+  clippy:
+    required: true
+    command: cargo clippy --workspace --all-targets --all-features -- -D warnings
+  tests:
+    required: true
+    command: cargo insta test --accept
+  coverage:
+    required: true
+    command: cargo llvm-cov --all-features --workspace --fail-under-lines 85
+    metric: line_coverage
+    threshold: 85
+  dependencies:
+    required: true
+    command: cargo deny check
+  security:
+    required: true
+    controls:
+      - repository secret scan
+      - CodeQL analysis on relevant events
+      - dependency vulnerability review
+  release:
+    required_for: [release]
+    controls:
+      - changelog updated
+      - release version metadata aligned
+      - native target matrix passes
+      - release assets verified
+  pillar_scorecard:
+    required: true
+    cadence: weekly
+    path: agileplus/pillars/31-pillar-scorecard.json
+    workflow: .github/workflows/agileplus-pillar-scorecard.yml
+
+policy:
+  block_on_failure: true
+  allow_expired_exceptions: true
+  exception_requires:
+    - linked issue
+    - named owner
+    - risk statement
+    - expiry date
+    - maintainer approval

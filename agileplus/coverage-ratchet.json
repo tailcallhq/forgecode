@@ -1,0 +1,6 @@
+{
+  "baseline_percentage": 0.0,
+  "last_updated": "2026-08-19T00:00:00Z",
+  "source": "tarpaulin",
+  "notes": "Initial baseline of 0.0. Will be ratcheted upward on each successful main push. PRs that drop below baseline will fail."
+}

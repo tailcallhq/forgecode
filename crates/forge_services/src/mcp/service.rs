@@ -407,6 +407,10 @@ mod tests {
         async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
             Ok(())
         }
+
+        async fn database_stats(&self) -> anyhow::Result<forge_domain::HeliosdoctorDbStats> {
+            Ok(forge_domain::HeliosdoctorDbStats::default())
+        }
     }
 
     // ── Fixture ──────────────────────────────────────────────────────────────

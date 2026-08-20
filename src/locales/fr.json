@@ -1,0 +1,31 @@
+{
+  "welcome": "Bienvenue dans ForgeCode",
+  "errors": {
+    "file_not_found": "Fichier non trouvé : {path}",
+    "permission_denied": "Permission refusée : {path}",
+    "network_error": "Erreur réseau : {message}",
+    "build_failed": "Échec de la compilation : {reason}",
+    "test_failed": "{count} test(s) échoué(s)",
+    "coverage_below_threshold": "La couverture {current}% est inférieure au seuil {threshold}%"
+  },
+  "status": {
+    "building": "Compilation en cours...",
+    "testing": "Exécution des tests...",
+    "deploying": "Déploiement en cours...",
+    "completed": "Terminé avec succès",
+    "failed": "Échoué"
+  },
+  "cli": {
+    "help_description": "ForgeCode CLI - Assistant développement logiciel alimenté par l'IA",
+    "version": "Version {version}",
+    "init_success": "Projet initialisé avec succès",
+    "config_saved": "Configuration enregistrée dans {path}"
+  },
+  "quality_gates": {
+    "passed": "Porte de qualité passée : {gate}",
+    "failed": "Porte de qualité échouée : {gate} - {reason}",
+    "coverage_check": "Vérification de couverture : {current}% (seuil : {threshold}%)",
+    "lint_check": "Vérification du lint : {count} problème(s)",
+    "security_check": "Vérification de sécurité : {status}"
+  }
+}

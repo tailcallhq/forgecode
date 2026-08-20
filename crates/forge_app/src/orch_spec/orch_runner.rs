@@ -205,7 +205,8 @@ impl AgentService for Runner {
 #[async_trait::async_trait]
 impl TemplateService for Runner {
     async fn register_template(&self, _path: std::path::PathBuf) -> anyhow::Result<()> {
-        unimplemented!()
+        // Test harness registers no templates; treat as a no-op.
+        Ok(())
     }
 
     async fn render_template<V: serde::Serialize + Send + Sync>(
@@ -227,7 +228,9 @@ impl AttachmentService for Runner {
 #[async_trait::async_trait]
 impl SkillFetchService for Runner {
     async fn fetch_skill(&self, _skill_name: String) -> anyhow::Result<forge_domain::Skill> {
-        unimplemented!("SkillFetchService not implemented for test Runner")
+        Err(anyhow::anyhow!(
+            "SkillFetchService not implemented for test Runner"
+        ))
     }
 
     async fn list_skills(&self) -> anyhow::Result<Vec<forge_domain::Skill>> {
@@ -273,6 +276,10 @@ impl EnvironmentInfra for Runner {
 
     fn get_env_vars(&self) -> BTreeMap<String, String> {
         BTreeMap::new()
+    }
+
+    async fn database_stats(&self) -> anyhow::Result<forge_domain::HeliosdoctorDbStats> {
+        Ok(forge_domain::HeliosdoctorDbStats::default())
     }
 
     fn get_environment(&self) -> forge_domain::Environment {

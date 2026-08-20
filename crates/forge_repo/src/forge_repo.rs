@@ -11,10 +11,10 @@ use forge_app::{
 use forge_config::ForgeConfig;
 use forge_domain::{
     AnyProvider, AuthCredential, ChatCompletionMessage, ChatRepository, CommandOutput, Context,
-    Conversation, ConversationId, ConversationRepository, Environment, FileInfo,
-    FuzzySearchRepository, McpServerConfig, MigrationResult, Model, ModelId, Provider, ProviderId,
-    ProviderRepository, ResultStream, SearchMatch, Skill, SkillRepository, Snapshot,
-    SnapshotRepository, TextPatchBlock, TextPatchRepository,
+    Conversation, ConversationId, ConversationRepository, ConversationSummary, Environment,
+    FileInfo, ForgeImportReport, FuzzySearchRepository, McpServerConfig, MigrationResult, Model,
+    ModelId, Provider, ProviderId, ProviderRepository, ResultStream, SearchMatch, Skill,
+    SkillRepository, Snapshot, SnapshotRepository, TextPatchBlock, TextPatchRepository,
 };
 use forge_eventsource::EventSource;
 // Re-export CacacheStorage from forge_infra
@@ -26,6 +26,7 @@ use url::Url;
 use crate::agent::ForgeAgentRepository;
 use crate::context_engine::ForgeContextEngineRepository;
 use crate::conversation::ConversationRepositoryImpl;
+use crate::daemon_repo::DaemonConversationRepository;
 use crate::database::{DatabasePool, PoolConfig};
 use crate::fs_snap::ForgeFileSnapshotService;
 use crate::fuzzy_search::ForgeFuzzySearchRepository;
@@ -41,7 +42,7 @@ use crate::validation::ForgeValidationRepository;
 pub struct ForgeRepo<F> {
     infra: Arc<F>,
     file_snapshot_service: Arc<ForgeFileSnapshotService>,
-    conversation_repository: Arc<ConversationRepositoryImpl>,
+    conversation_repository: Arc<dyn ConversationRepository>,
     mcp_cache_repository: Arc<CacacheStorage>,
     provider_repository: Arc<ForgeProviderRepository<F>>,
     chat_repository: Arc<ForgeChatRepository<F>>,
@@ -63,12 +64,38 @@ impl<
     pub fn new(infra: Arc<F>) -> Self {
         let env = infra.get_environment();
         let file_snapshot_service = Arc::new(ForgeFileSnapshotService::new(env.clone()));
-        let db_pool =
-            Arc::new(DatabasePool::try_from(PoolConfig::new(env.database_path())).unwrap());
+
+        // Split-DB: primary DB is the write path; legacy DB is the historical
+        // path, which the connection customizer ATTACHes read-only on every
+        // acquire. When the two paths differ, the read-side `conversations_all`
+        // TEMP VIEW exposes the UNION of both tables. When they are the same
+        // (e.g. fresh install) the legacy attachment is a no-op.
+        let write_path = env.write_database_path();
+        let legacy_path = env.legacy_database_path();
+        let legacy_for_pool = if legacy_path != write_path && legacy_path.exists() {
+            Some(legacy_path.clone())
+        } else {
+            None
+        };
+        let pool_config = PoolConfig::new(write_path).with_legacy_database_path(legacy_for_pool);
+        let db_pool = Arc::new(DatabasePool::try_from(pool_config).unwrap());
         let conversation_repository = Arc::new(ConversationRepositoryImpl::new(
             db_pool.clone(),
             env.workspace_hash(),
         ));
+        // Daemon mode (P3 single-writer daemon): when FORGE_DBD_ENABLED, route
+        // the hot-path conversation writes through forge-dbd and keep reads
+        // direct. The decorator is best-effort — any daemon failure falls back
+        // to the direct implementation, so this is a mode switch only.
+        let conversation_repository: Arc<dyn ConversationRepository> = if env.dbd_enabled() {
+            Arc::new(DaemonConversationRepository::new(
+                conversation_repository,
+                env.dbd_socket_path(),
+                env.workspace_hash().id() as i64,
+            ))
+        } else {
+            conversation_repository
+        };
 
         let mcp_cache_repository = Arc::new(CacacheStorage::new(
             env.cache_dir().join("mcp_cache"),
@@ -140,10 +167,188 @@ impl<F: Send + Sync> ConversationRepository for ForgeRepo<F> {
         self.conversation_repository.get_last_conversation().await
     }
 
+    async fn get_conversations_by_parent(
+        &self,
+        parent_id: &ConversationId,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_conversations_by_parent(parent_id)
+            .await
+    }
+
+    async fn get_parent_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_parent_conversations(limit)
+            .await
+    }
+
+    async fn get_parent_conversations_lite(
+        &self,
+        limit: Option<usize>,
+        all_workspaces: bool,
+    ) -> anyhow::Result<Option<Vec<ConversationSummary>>> {
+        self.conversation_repository
+            .get_parent_conversations_lite(limit, all_workspaces)
+            .await
+    }
+
+    async fn get_conversations_by_source(
+        &self,
+        source: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_conversations_by_source(source, limit)
+            .await
+    }
+
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> anyhow::Result<()> {
         self.conversation_repository
             .delete_conversation(conversation_id)
             .await
+    }
+
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> anyhow::Result<()> {
+        self.conversation_repository
+            .upsert_conversation_ref(conversation)
+            .await
+    }
+
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Vec<Conversation>> {
+        self.conversation_repository
+            .search_conversations(query, limit)
+            .await
+    }
+
+    async fn optimize_fts_index(&self) -> anyhow::Result<()> {
+        self.conversation_repository.optimize_fts_index().await
+    }
+
+    async fn refresh_fts_index(&self) -> anyhow::Result<()> {
+        self.conversation_repository.refresh_fts_index().await
+    }
+
+    async fn update_parent_id(
+        &self,
+        conversation_id: &ConversationId,
+        new_parent_id: Option<&ConversationId>,
+    ) -> anyhow::Result<()> {
+        self.conversation_repository
+            .update_parent_id(conversation_id, new_parent_id)
+            .await
+    }
+
+    async fn get_conversations_by_cwd(
+        &self,
+        cwd: &str,
+        limit: Option<usize>,
+    ) -> anyhow::Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_conversations_by_cwd(cwd, limit)
+            .await
+    }
+
+    async fn get_conversation_snippet(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        token_count: usize,
+    ) -> anyhow::Result<Option<String>> {
+        self.conversation_repository
+            .get_conversation_snippet(conversation_id, query, token_count)
+            .await
+    }
+
+    async fn mark_intent_state(
+        &self,
+        conversation_id: &ConversationId,
+        new_state: &str,
+    ) -> anyhow::Result<()> {
+        self.conversation_repository
+            .mark_intent_state(conversation_id, new_state)
+            .await
+    }
+
+    async fn list_prune_eligible(
+        &self,
+        workspace_id: Option<i64>,
+        limit: usize,
+    ) -> anyhow::Result<Vec<Conversation>> {
+        self.conversation_repository
+            .list_prune_eligible(workspace_id, limit)
+            .await
+    }
+
+    async fn prune_conversation(&self, conversation_id: &ConversationId) -> anyhow::Result<()> {
+        self.conversation_repository
+            .prune_conversation(conversation_id)
+            .await
+    }
+
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> anyhow::Result<Option<Conversation>> {
+        self.conversation_repository
+            .rewind_conversation(conversation_id)
+            .await
+    }
+
+    async fn compress_uncompressed_contexts(&self) -> anyhow::Result<(usize, usize, usize)> {
+        self.conversation_repository
+            .compress_uncompressed_contexts()
+            .await
+    }
+
+    async fn import_forge_db(&self, source: PathBuf) -> anyhow::Result<ForgeImportReport> {
+        self.conversation_repository.import_forge_db(source).await
+    }
+
+    async fn import_forge_db_with_options(
+        &self,
+        source: PathBuf,
+        options: &forge_domain::ForgeImportOptions,
+    ) -> anyhow::Result<ForgeImportReport> {
+        self.conversation_repository
+            .import_forge_db_with_options(source, options)
+            .await
+    }
+
+    async fn export_forge_db(
+        &self,
+        dest: PathBuf,
+        options: &forge_domain::ForgeExportOptions,
+    ) -> anyhow::Result<forge_domain::ForgeExportReport> {
+        self.conversation_repository
+            .export_forge_db(dest, options)
+            .await
+    }
+
+    async fn database_stats(&self) -> anyhow::Result<forge_domain::HeliosdoctorDbStats> {
+        self.conversation_repository.database_stats().await
+    }
+
+    async fn forget_conversations(
+        &self,
+        options: &forge_domain::ForgeForgetOptions,
+    ) -> anyhow::Result<forge_domain::ForgeForgetReport> {
+        self.conversation_repository
+            .forget_conversations(options)
+            .await
+    }
+
+    async fn migrate_data_dir(
+        &self,
+        options: &forge_domain::MigrateOptions,
+    ) -> anyhow::Result<forge_domain::ForgeMigrateReport> {
+        self.conversation_repository.migrate_data_dir(options).await
     }
 }
 
@@ -235,6 +440,20 @@ impl<F: EnvironmentInfra<Config = forge_config::ForgeConfig> + Send + Sync> Envi
 
     fn get_env_vars(&self) -> BTreeMap<String, String> {
         self.infra.get_env_vars()
+    }
+
+    fn database_stats(
+        &self,
+    ) -> impl std::future::Future<Output = anyhow::Result<forge_domain::HeliosdoctorDbStats>> + Send
+    {
+        self.infra.database_stats()
+    }
+
+    fn database_integrity(
+        &self,
+    ) -> impl std::future::Future<Output = anyhow::Result<forge_domain::HeliosdoctorDbStats>> + Send
+    {
+        self.infra.database_integrity()
     }
 }
 
@@ -676,5 +895,178 @@ impl<F: forge_domain::ConsoleWriter> forge_domain::ConsoleWriter for ForgeRepo<F
 
     fn flush_err(&self) -> std::io::Result<()> {
         self.infra.flush_err()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use forge_app::{EnvironmentInfra, FileReaderInfra, FileWriterInfra, GrpcInfra, HttpInfra};
+    use forge_config::ForgeConfig;
+    use forge_domain::{Environment, HeliosdoctorDbStats};
+
+    use super::*;
+
+    /// Minimal infra double that reports distinguishable `database_stats` and
+    /// `database_integrity` results so a forwarding regression (falling back
+    /// to the full-stats default) is observable.
+    struct MockInfra {
+        base_path: PathBuf,
+    }
+
+    #[allow(clippy::manual_async_fn)] // The trait intentionally uses RPIT futures; keep the mock signature identical.
+    impl EnvironmentInfra for MockInfra {
+        type Config = ForgeConfig;
+
+        fn get_env_var(&self, _key: &str) -> Option<String> {
+            None
+        }
+
+        fn get_env_vars(&self) -> BTreeMap<String, String> {
+            BTreeMap::new()
+        }
+
+        fn get_environment(&self) -> Environment {
+            Environment {
+                os: "test".to_string(),
+                cwd: self.base_path.clone(),
+                home: None,
+                shell: "bash".to_string(),
+                base_path: self.base_path.clone(),
+            }
+        }
+
+        fn get_config(&self) -> anyhow::Result<Self::Config> {
+            Ok(ForgeConfig::default())
+        }
+
+        fn update_environment(
+            &self,
+            _ops: Vec<forge_domain::ConfigOperation>,
+        ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+            async move { Ok(()) }
+        }
+
+        fn database_stats(
+            &self,
+        ) -> impl std::future::Future<Output = anyhow::Result<HeliosdoctorDbStats>> + Send {
+            async move { Ok(HeliosdoctorDbStats { total_conversations: 42, ..Default::default() }) }
+        }
+
+        fn database_integrity(
+            &self,
+        ) -> impl std::future::Future<Output = anyhow::Result<HeliosdoctorDbStats>> + Send {
+            async move {
+                Ok(HeliosdoctorDbStats { integrity_check: "ok".to_string(), ..Default::default() })
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FileReaderInfra for MockInfra {
+        async fn read_utf8(&self, _path: &Path) -> anyhow::Result<String> {
+            Ok(String::new())
+        }
+
+        fn read_batch_utf8(
+            &self,
+            _batch_size: usize,
+            _paths: Vec<PathBuf>,
+        ) -> impl futures::Stream<Item = (PathBuf, anyhow::Result<String>)> + Send {
+            futures::stream::empty()
+        }
+
+        async fn read(&self, _path: &Path) -> anyhow::Result<Vec<u8>> {
+            Ok(Vec::new())
+        }
+
+        async fn range_read_utf8(
+            &self,
+            _path: &Path,
+            _start_line: u64,
+            _end_line: u64,
+        ) -> anyhow::Result<(String, FileInfo)> {
+            anyhow::bail!("not implemented in mock")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FileWriterInfra for MockInfra {
+        async fn write(&self, _path: &Path, _contents: Bytes) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn append(&self, _path: &Path, _contents: Bytes) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn write_temp(
+            &self,
+            _prefix: &str,
+            _ext: &str,
+            _content: &str,
+        ) -> anyhow::Result<PathBuf> {
+            anyhow::bail!("not implemented in mock")
+        }
+    }
+
+    impl GrpcInfra for MockInfra {
+        fn channel(&self) -> anyhow::Result<tonic::transport::Channel> {
+            anyhow::bail!("not implemented in mock")
+        }
+
+        fn hydrate(&self) {}
+    }
+
+    #[async_trait::async_trait]
+    impl HttpInfra for MockInfra {
+        async fn http_get(
+            &self,
+            _url: &Url,
+            _headers: Option<HeaderMap>,
+        ) -> anyhow::Result<Response> {
+            anyhow::bail!("not implemented in mock")
+        }
+
+        async fn http_post(
+            &self,
+            _url: &Url,
+            _headers: Option<HeaderMap>,
+            _body: bytes::Bytes,
+        ) -> anyhow::Result<Response> {
+            anyhow::bail!("not implemented in mock")
+        }
+
+        async fn http_delete(&self, _url: &Url) -> anyhow::Result<Response> {
+            anyhow::bail!("not implemented in mock")
+        }
+
+        async fn http_eventsource(
+            &self,
+            _url: &Url,
+            _headers: Option<HeaderMap>,
+            _body: Bytes,
+        ) -> anyhow::Result<EventSource> {
+            anyhow::bail!("not implemented in mock")
+        }
+    }
+
+    #[tokio::test]
+    async fn environment_infra_database_integrity_forwards_to_inner_infra() -> anyhow::Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let infra = Arc::new(MockInfra { base_path: tmp.path().to_path_buf() });
+        let repo = ForgeRepo::new(infra.clone());
+
+        // The full-stats fallback would surface total_conversations=42;
+        // the PRAGMA-only forward must surface the integrity marker instead.
+        let stats = forge_app::EnvironmentInfra::database_integrity(&repo).await?;
+        assert_eq!(stats.integrity_check, "ok");
+        assert_eq!(stats.total_conversations, 0);
+
+        // And the stats path must still forward to the inner stats impl.
+        let stats = forge_app::EnvironmentInfra::database_stats(&repo).await?;
+        assert_eq!(stats.total_conversations, 42);
+        Ok(())
     }
 }

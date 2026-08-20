@@ -1,0 +1,31 @@
+{
+  "welcome": "Willkommen bei ForgeCode",
+  "errors": {
+    "file_not_found": "Datei nicht gefunden: {path}",
+    "permission_denied": "Berechtigung verweigert: {path}",
+    "network_error": "Netzwerkfehler: {message}",
+    "build_failed": "Build fehlgeschlagen: {reason}",
+    "test_failed": "{count} Test(s) fehlgeschlagen",
+    "coverage_below_threshold": "Abdeckung {current}% liegt unter dem Schwellenwert {threshold}%"
+  },
+  "status": {
+    "building": "Wird gebaut...",
+    "testing": "Tests werden ausgeführt...",
+    "deploying": "Wird bereitgestellt...",
+    "completed": "Erfolgreich abgeschlossen",
+    "failed": "Fehlgeschlagen"
+  },
+  "cli": {
+    "help_description": "ForgeCode CLI - KI-gestützter Softwareentwicklungsassistent",
+    "version": "Version {version}",
+    "init_success": "Projekt erfolgreich initialisiert",
+    "config_saved": "Konfiguration gespeichert unter {path}"
+  },
+  "quality_gates": {
+    "passed": "Qualitätsprüfung bestanden: {gate}",
+    "failed": "Qualitätsprüfung fehlgeschlagen: {gate} - {reason}",
+    "coverage_check": "Abdeckungsprüfung: {current}% (Schwellenwert: {threshold}%)",
+    "lint_check": "Lint-Prüfung: {count} Problem(e)",
+    "security_check": "Sicherheitsprüfung: {status}"
+  }
+}

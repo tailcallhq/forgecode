@@ -74,7 +74,34 @@ function _forge_exec_interactive() {
     [[ -n "$_FORGE_SESSION_MODEL" ]] && local -x FORGE_SESSION__MODEL_ID="$_FORGE_SESSION_MODEL"
     [[ -n "$_FORGE_SESSION_PROVIDER" ]] && local -x FORGE_SESSION__PROVIDER_ID="$_FORGE_SESSION_PROVIDER"
     [[ -n "$_FORGE_SESSION_REASONING_EFFORT" ]] && local -x FORGE_REASONING__EFFORT="$_FORGE_SESSION_REASONING_EFFORT"
-    "${cmd[@]}" </dev/tty >/dev/tty
+
+    # Run forge in its own process group so Ctrl+C (SIGINT) targets forge
+    # ONLY, never the ZLE widget that launched it. ZLE widgets run with the
+    # child in zsh's own foreground process group: a plain foreground call
+    # means Ctrl+C interrupts both zsh and forge. The widget aborts before
+    # _forge_reset runs, and forge's raw-mode terminal restoration never
+    # executes on SIGINT — leaving the terminal corrupted (broken echo,
+    # mis-timed input bursts, ghost prompts that come and go).
+    #
+    # Job control (MONITOR) makes `&` create a new process group, and `fg`
+    # makes it the terminal's foreground group. zsh simply waits while forge
+    # owns the terminal — the same isolation vim/fzf get. `zle -I` is
+    # required before job-control operations from inside a widget.
+    if [[ -n "${WIDGET:-}" ]]; then
+        zle -I
+    fi
+    setopt LOCAL_OPTIONS
+    if setopt MONITOR 2>/dev/null; then
+        "${cmd[@]}" </dev/tty >/dev/tty &
+        # `fg` should succeed in an interactive shell with job control;
+        # if it ever fails, still wait for forge to finish so the widget
+        # never returns while forge keeps owning the terminal.
+        fg 2>/dev/null || wait $!
+    else
+        # Non-interactive shell (no job control): fall back to a plain
+        # foreground execution.
+        "${cmd[@]}" </dev/tty >/dev/tty
+    fi
 }
 
 function _forge_select() {

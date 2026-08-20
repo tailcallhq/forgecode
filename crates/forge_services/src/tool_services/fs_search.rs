@@ -524,8 +524,8 @@ mod test {
 
     #[async_trait::async_trait]
     impl FileReaderInfra for MockInfra {
-        async fn read_utf8(&self, _path: &Path) -> anyhow::Result<String> {
-            unimplemented!()
+        async fn read_utf8(&self, path: &Path) -> anyhow::Result<String> {
+            Ok(self.read(path).await?.to_str_lossy().to_string())
         }
 
         fn read_batch_utf8(
@@ -544,11 +544,49 @@ mod test {
 
         async fn range_read_utf8(
             &self,
-            _path: &Path,
-            _start_line: u64,
-            _end_line: u64,
+            path: &Path,
+            start_line: u64,
+            end_line: u64,
         ) -> anyhow::Result<(String, forge_domain::FileInfo)> {
-            unimplemented!()
+            // Read the full content first, then apply line-range filtering.
+            let full_content = self.read_utf8(path).await?;
+            let all_lines: Vec<&str> = full_content.lines().collect();
+
+            let start_idx = start_line.saturating_sub(1) as usize;
+            let end_idx = if end_line > 0 {
+                std::cmp::min(end_line as usize, all_lines.len())
+            } else {
+                all_lines.len()
+            };
+
+            let filtered_lines = if start_idx < all_lines.len() {
+                &all_lines[start_idx..end_idx]
+            } else {
+                &[]
+            };
+
+            let filtered_content = filtered_lines.join("\n");
+            let actual_start = if filtered_lines.is_empty() {
+                0
+            } else {
+                start_line
+            };
+            let actual_end = if filtered_lines.is_empty() {
+                0
+            } else {
+                start_idx as u64 + filtered_lines.len() as u64
+            };
+
+            let content_hash = forge_app::utils::compute_hash(&full_content);
+            Ok((
+                filtered_content,
+                forge_domain::FileInfo::new(
+                    actual_start,
+                    actual_end,
+                    all_lines.len() as u64,
+                    content_hash,
+                ),
+            ))
         }
     }
 
@@ -571,8 +609,8 @@ mod test {
             Ok(tokio::fs::metadata(path).await.is_ok())
         }
 
-        async fn file_size(&self, _path: &Path) -> anyhow::Result<u64> {
-            unreachable!()
+        async fn file_size(&self, path: &Path) -> anyhow::Result<u64> {
+            Ok(tokio::fs::metadata(path).await?.len())
         }
     }
 

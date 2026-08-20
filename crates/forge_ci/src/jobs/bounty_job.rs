@@ -11,14 +11,18 @@
 //! - `sync-pr.ts --pr N` — propagates labels from linked issues to the PR;
 //!   handles the rewarded lifecycle on merge.
 
-use gh_workflow::*;
+use crate::workflow_model::{Job, Level, Permissions, Step};
 
 const SCRIPTS_DIR: &str = ".github/scripts/bounty/src";
-const TSX: &str = "npx tsx";
+const TSX: &str = "npx -y tsx@4.20.6";
 
 /// Returns a checkout step — required before script invocation.
-fn checkout_step() -> Step<Use> {
-    Step::new("Checkout").uses("actions", "checkout", "v6")
+fn checkout_step() -> Step {
+    Step::new("Checkout").uses(
+        "actions",
+        "checkout",
+        "d23441a48e516b6c34aea4fa41551a30e30af803",
+    )
 }
 
 /// Builds a three-step job: checkout + npm install + a single script
@@ -27,7 +31,9 @@ fn sync_job(job_name: &str, script: &str, args: String) -> Job {
     let cmd = format!("{TSX} {SCRIPTS_DIR}/{script} {args}");
     Job::new(job_name)
         .add_step(checkout_step())
-        .add_step(Step::new("Install npm packages").run("npm install"))
+        .add_step(
+            Step::new("Install npm packages").run("npm ci --ignore-scripts --no-audit --no-fund"),
+        )
         .add_step(Step::new("Sync bounty labels").run(cmd))
 }
 
@@ -47,7 +53,9 @@ pub fn sync_all_issues_job() -> Job {
     );
     Job::new("Sync all bounty issues")
         .add_step(checkout_step())
-        .add_step(Step::new("Install npm packages").run("npm install"))
+        .add_step(
+            Step::new("Install npm packages").run("npm ci --ignore-scripts --no-audit --no-fund"),
+        )
         .add_step(Step::new("Sync all bounty labels").run(cmd))
         .permissions(Permissions::default().issues(Level::Write))
 }
@@ -65,6 +73,12 @@ pub fn sync_pr_job() -> Job {
             --repo ${{ github.repository }} \
             --token ${{ secrets.GITHUB_TOKEN }}"
             .to_string(),
+    )
+    // The scheduled workflow invocation has no pull-request payload. Keep
+    // this job limited to the two events that provide the PR number consumed
+    // by `sync-pr.ts`.
+    .if_condition(
+        "github.event_name == 'pull_request' || github.event_name == 'pull_request_target'",
     )
     .permissions(
         Permissions::default()

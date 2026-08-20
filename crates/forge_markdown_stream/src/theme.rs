@@ -268,6 +268,14 @@ impl TableStyler for Theme {
 }
 
 impl Theme {
+    /// Selects the shared syntax palette that matches this markdown theme.
+    pub(crate) fn syntax_theme(&self) -> forge_syntax::Theme {
+        match self.code.fg {
+            Some(Color::Red) => forge_syntax::Theme::Light,
+            _ => forge_syntax::Theme::Dark,
+        }
+    }
+
     /// Detects the terminal theme (dark or light) and returns the appropriate
     /// theme.
     pub fn detect() -> Self {

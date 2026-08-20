@@ -165,6 +165,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn test_filter_and_resolve_excludes_symlinks() {
         let dir = tempdir().unwrap();
         let base = dir.path();
@@ -188,6 +189,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_filter_and_resolve_excludes_dangling_symlinks() {
         let dir = tempdir().unwrap();
         let base = dir.path();
@@ -208,6 +210,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_filter_and_resolve_excludes_symlinks_to_directories() {
         let dir = tempdir().unwrap();
         let base = dir.path();

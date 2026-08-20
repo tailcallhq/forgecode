@@ -104,7 +104,7 @@ mod tests {
             let yaml_content = forge_test_kit::fixture!("/src/fixtures/policies_test.yml").await;
 
             let policies: PolicyConfig =
-                serde_yml::from_str(&yaml_content).expect("Failed to parse policies YAML");
+                serde_yaml_ng::from_str(&yaml_content).expect("Failed to parse policies YAML");
 
             assert_eq!(policies.policies.len(), 3);
 
@@ -122,9 +122,10 @@ mod tests {
             }
 
             // Test round-trip serialization
-            let serialized = serde_yml::to_string(&policies).expect("Failed to serialize policies");
+            let serialized =
+                serde_yaml_ng::to_string(&policies).expect("Failed to serialize policies");
             let deserialized: PolicyConfig =
-                serde_yml::from_str(&serialized).expect("Failed to deserialize policies");
+                serde_yaml_ng::from_str(&serialized).expect("Failed to deserialize policies");
             assert_eq!(policies, deserialized);
         }
     }
