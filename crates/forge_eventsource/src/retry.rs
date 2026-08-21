@@ -118,3 +118,182 @@ pub const DEFAULT_RETRY: ExponentialBackoff = ExponentialBackoff::new(
     Some(Duration::from_secs(5)),
     None,
 );
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    /// Reusable error fixture; all policies ignore the error contents.
+    fn error_fixture() -> Error {
+        Error::StreamEnded
+    }
+
+    /// Reusable exponential backoff fixture starting at 100ms, doubling.
+    fn backoff_fixture() -> ExponentialBackoff {
+        ExponentialBackoff::new(Duration::from_millis(100), 2.0, None, None)
+    }
+
+    #[test]
+    fn test_exponential_first_retry_uses_start() {
+        let fixture = backoff_fixture();
+
+        let actual = fixture.retry(&error_fixture(), None);
+
+        let expected = Some(Duration::from_millis(100));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_exponential_multiplies_last_duration_by_factor() {
+        let fixture = backoff_fixture();
+
+        let actual = fixture.retry(&error_fixture(), Some((1, Duration::from_millis(100))));
+
+        let expected = Some(Duration::from_millis(200));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_exponential_clamps_to_max_duration() {
+        let fixture = ExponentialBackoff::new(
+            Duration::from_millis(100),
+            2.0,
+            Some(Duration::from_millis(150)),
+            None,
+        );
+
+        let actual = fixture.retry(&error_fixture(), Some((1, Duration::from_millis(100))));
+
+        let expected = Some(Duration::from_millis(150));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_exponential_stops_at_max_retries() {
+        let fixture = ExponentialBackoff::new(Duration::from_millis(100), 2.0, None, Some(3));
+
+        let actual = fixture.retry(&error_fixture(), Some((3, Duration::from_millis(100))));
+
+        let expected = None;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_exponential_retries_below_max_retries() {
+        let fixture = ExponentialBackoff::new(Duration::from_millis(100), 2.0, None, Some(3));
+
+        let actual = fixture.retry(&error_fixture(), Some((2, Duration::from_millis(100))));
+
+        let expected = Some(Duration::from_millis(200));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_exponential_set_reconnection_time_raises_start_and_max() {
+        let mut fixture = ExponentialBackoff::new(
+            Duration::from_millis(100),
+            2.0,
+            Some(Duration::from_millis(150)),
+            Some(5),
+        );
+
+        fixture.set_reconnection_time(Duration::from_millis(400));
+        let actual = (fixture.start, fixture.max_duration, fixture.max_retries);
+
+        let expected = (
+            Duration::from_millis(400),
+            Some(Duration::from_millis(400)),
+            Some(5),
+        );
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_exponential_set_reconnection_time_keeps_larger_max() {
+        let mut fixture = ExponentialBackoff::new(
+            Duration::from_millis(100),
+            2.0,
+            Some(Duration::from_secs(5)),
+            None,
+        );
+
+        fixture.set_reconnection_time(Duration::from_millis(400));
+        let actual = (fixture.start, fixture.max_duration);
+
+        let expected = (Duration::from_millis(400), Some(Duration::from_secs(5)));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_constant_returns_same_delay_regardless_of_last_retry() {
+        let fixture = Constant::new(Duration::from_millis(250), None);
+
+        let actual = (
+            fixture.retry(&error_fixture(), None),
+            fixture.retry(&error_fixture(), Some((9, Duration::from_secs(60)))),
+        );
+
+        let expected = (
+            Some(Duration::from_millis(250)),
+            Some(Duration::from_millis(250)),
+        );
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_constant_stops_at_max_retries() {
+        let fixture = Constant::new(Duration::from_millis(250), Some(2));
+
+        let actual = fixture.retry(&error_fixture(), Some((2, Duration::from_millis(250))));
+
+        let expected = None;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_constant_set_reconnection_time_replaces_delay() {
+        let mut fixture = Constant::new(Duration::from_millis(250), None);
+
+        fixture.set_reconnection_time(Duration::from_millis(900));
+        let actual = fixture.retry(&error_fixture(), None);
+
+        let expected = Some(Duration::from_millis(900));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_never_policy_never_retries() {
+        let mut fixture = Never;
+        fixture.set_reconnection_time(Duration::from_secs(1));
+
+        let actual = (
+            fixture.retry(&error_fixture(), None),
+            fixture.retry(&error_fixture(), Some((0, Duration::from_secs(1)))),
+        );
+
+        let expected = (None, None);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_default_retry_constant_values() {
+        let fixture = DEFAULT_RETRY;
+
+        let actual = (
+            fixture.start,
+            fixture.factor,
+            fixture.max_duration,
+            fixture.max_retries,
+        );
+
+        let expected = (
+            Duration::from_millis(300),
+            2.0,
+            Some(Duration::from_secs(5)),
+            None,
+        );
+        assert_eq!(actual, expected);
+    }
+}

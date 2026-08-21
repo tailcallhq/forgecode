@@ -104,3 +104,130 @@ impl std::str::FromStr for ModelId {
         Ok(ModelId(s.to_string()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    /// Reusable fixture producing a bare `Model` with default fields.
+    fn model_fixture() -> Model {
+        Model::new("gpt-4o")
+    }
+
+    #[test]
+    fn test_model_new_defaults_to_text_only() {
+        let actual = model_fixture();
+
+        let expected = Model {
+            id: ModelId::new("gpt-4o"),
+            name: None,
+            description: None,
+            context_length: None,
+            tools_supported: None,
+            supports_parallel_tool_calls: None,
+            supports_reasoning: None,
+            input_modalities: vec![InputModality::Text],
+        };
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_setters_strip_option_wraps_values() {
+        let actual = model_fixture()
+            .name("GPT-4o".to_string())
+            .context_length(128_000u64)
+            .tools_supported(true)
+            .supports_reasoning(false);
+
+        let expected = Model {
+            id: ModelId::new("gpt-4o"),
+            name: Some("GPT-4o".to_string()),
+            description: None,
+            context_length: Some(128_000),
+            tools_supported: Some(true),
+            supports_parallel_tool_calls: None,
+            supports_reasoning: Some(false),
+            input_modalities: vec![InputModality::Text],
+        };
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_model_id_new_and_as_str_roundtrip() {
+        let fixture = ModelId::new("claude-3");
+
+        let actual = fixture.as_str();
+
+        let expected = "claude-3";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_model_id_from_str_matches_from_string() {
+        let actual = ModelId::from_str("anthropic/claude").unwrap();
+
+        let expected = ModelId::from("anthropic/claude".to_string());
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_model_id_displays_inner_string() {
+        let fixture = ModelId::new("o1-mini");
+
+        let actual = fixture.to_string();
+
+        let expected = "o1-mini".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_model_id_serializes_transparently() {
+        let fixture = ModelId::new("gemini-pro");
+
+        let actual = serde_json::to_string(&fixture).unwrap();
+
+        let expected = "\"gemini-pro\"".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_input_modality_serializes_lowercase() {
+        let fixture = vec![InputModality::Text, InputModality::Image];
+
+        let actual = serde_json::to_string(&fixture).unwrap();
+
+        let expected = "[\"text\",\"image\"]".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_input_modality_from_str_is_case_insensitive() {
+        let actual = InputModality::from_str("IMAGE").unwrap();
+
+        let expected = InputModality::Image;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_deserialize_model_applies_default_input_modalities() {
+        let setup = r#"{"id":"gpt-4o","name":null,"description":null,"context_length":null,
+            "tools_supported":null,"supports_parallel_tool_calls":null,"supports_reasoning":null}"#;
+
+        let actual: Model = serde_json::from_str(setup).unwrap();
+
+        let expected = model_fixture();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parameters_new_sets_tool_supported() {
+        let actual = Parameters::new(true).tool_supported;
+
+        let expected = true;
+        assert_eq!(actual, expected);
+    }
+}

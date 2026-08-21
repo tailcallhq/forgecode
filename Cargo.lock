@@ -2324,6 +2324,7 @@ dependencies = [
  "derive_setters",
  "gh-workflow",
  "indexmap 2.14.0",
+ "pretty_assertions",
  "serde",
  "serde_json",
 ]
@@ -2433,6 +2434,7 @@ dependencies = [
  "nom",
  "pin-project-lite",
  "pin-utils",
+ "pretty_assertions",
  "reqwest 0.12.28",
  "rocket",
  "thiserror 2.0.19",

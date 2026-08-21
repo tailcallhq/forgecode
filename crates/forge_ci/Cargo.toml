@@ -12,4 +12,5 @@ indexmap.workspace = true
 derive_setters.workspace = true
 
 [dev-dependencies]
+pretty_assertions.workspace = true
 

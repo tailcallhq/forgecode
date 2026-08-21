@@ -92,3 +92,112 @@ impl<'de> serde::Deserialize<'de> for Decimal {
         Ok(Self(f64::deserialize(deserializer)?))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    /// Reusable fixture producing a `Decimal` from any `f64`.
+    fn fixture(value: f64) -> Decimal {
+        Decimal::from(value)
+    }
+
+    #[test]
+    fn test_value_returns_inner() {
+        let fixture = fixture(1.25);
+
+        let actual = fixture.value();
+
+        let expected = 1.25;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_default_is_zero() {
+        let actual = Decimal::default();
+
+        let expected = fixture(0.0);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_from_f32_widens_to_f64() {
+        let actual = Decimal::from(0.5f32);
+
+        let expected = fixture(0.5);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_into_f64_roundtrip() {
+        let fixture = fixture(3.75);
+
+        let actual: f64 = fixture.into();
+
+        let expected = 3.75;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_debug_delegates_to_inner_f64() {
+        let fixture = fixture(0.1);
+
+        let actual = format!("{fixture:?}");
+
+        let expected = format!("{:?}", 0.1f64);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_partial_ord_compares_by_inner_value() {
+        let setup = (fixture(0.1), fixture(0.2));
+
+        let actual = setup.0.partial_cmp(&setup.1);
+
+        let expected = Some(std::cmp::Ordering::Less);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_serialize_rounds_to_two_decimals() {
+        let fixture = fixture(0.100_000_001_490_116_12);
+
+        let actual = serde_json::to_string(&fixture).unwrap();
+
+        let expected = "0.1".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_serialize_rounds_half_away_from_zero() {
+        let fixture = fixture(1.567);
+
+        let actual = serde_json::to_string(&fixture).unwrap();
+
+        let expected = "1.57".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_deserialize_preserves_full_precision() {
+        let setup = "0.12345";
+
+        let actual: Decimal = serde_json::from_str(setup).unwrap();
+
+        let expected = fixture(0.12345);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_roundtrip_is_rounded() {
+        let fixture = fixture(2.349);
+
+        let actual: Decimal =
+            serde_json::from_str(&serde_json::to_string(&fixture).unwrap()).unwrap();
+
+        let expected = Decimal::from(2.35);
+        assert_eq!(actual, expected);
+    }
+}
