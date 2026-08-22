@@ -574,8 +574,13 @@ fn build_header_map(
 ///
 /// # Arguments
 /// * `server_url` - The URL of the MCP server to authenticate with
+/// * `scopes` - Explicit OAuth scopes, or an empty slice for discovery
 /// * `env` - The environment for file system paths
-pub async fn mcp_auth(server_url: &str, env: &Environment) -> anyhow::Result<()> {
+pub async fn mcp_auth(
+    server_url: &str,
+    scopes: &[String],
+    env: &Environment,
+) -> anyhow::Result<()> {
     use rmcp::transport::auth::{CredentialStore, OAuthState};
 
     use crate::auth::McpTokenStorage;
@@ -587,8 +592,9 @@ pub async fn mcp_auth(server_url: &str, env: &Environment) -> anyhow::Result<()>
 
     let redirect_uri = "http://127.0.0.1:8765/callback";
 
+    let scope_refs: Vec<&str> = scopes.iter().map(String::as_str).collect();
     oauth_state
-        .start_authorization(&[], redirect_uri, Some("Forge"))
+        .start_authorization(&scope_refs, redirect_uri, Some("Forge"))
         .await
         .map_err(|e| anyhow::anyhow!("OAuth authorization flow failed: {}", e))?;
 

@@ -1082,6 +1082,12 @@ forge mcp remove
 
 # Reload servers and rebuild caches
 forge mcp reload
+
+# Authenticate with a remote OAuth server
+forge mcp login server_name
+
+# Remove one server's stored OAuth credentials
+forge mcp logout server_name
 ```
 
 Or manually create a `.mcp.json` file with the following structure:
@@ -1094,12 +1100,22 @@ Or manually create a `.mcp.json` file with the following structure:
       "args": ["arg1", "arg2"],
       "env": { "ENV_VAR": "value" }
     },
-    "another_server": {
-      "url": "http://localhost:3000/events"
+    "xquik": {
+      "url": "https://xquik.com/mcp",
+      "oauth": {
+        "scopes": ["mcp:tools"]
+      }
     }
   }
 }
 ```
+
+Forge forwards configured scopes during `mcp login`. Without an `oauth`
+object, Forge discovers scopes from the server metadata.
+
+The Xquik example adds authenticated X (Twitter) search and automation tools.
+See the [Xquik MCP documentation](https://docs.xquik.com/mcp/overview) for its
+published server contract.
 
 MCP configurations are read from two locations (project-local takes precedence):
 
