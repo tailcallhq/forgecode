@@ -140,6 +140,15 @@ impl McpHttpServer {
             _ => None,
         }
     }
+
+    /// Returns explicitly configured OAuth scopes.
+    ///
+    /// An empty slice allows the OAuth client to discover scopes from server
+    /// metadata.
+    pub fn oauth_scopes(&self) -> &[String] {
+        self.oauth_config()
+            .map_or(&[], |config| config.scopes.as_slice())
+    }
 }
 
 /// Represents the OAuth setting for an MCP server.
@@ -605,6 +614,44 @@ mod tests {
             }
             _ => panic!("Expected Http variant"),
         }
+    }
+
+    #[test]
+    fn test_http_server_returns_configured_oauth_scopes() {
+        use pretty_assertions::assert_eq;
+
+        let fixture: McpConfig = serde_json::from_str(
+            r#"{
+                "mcpServers": {
+                    "remote": {
+                        "url": "https://mcp.example.com",
+                        "oauth": { "scopes": ["mcp:tools"] }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let actual = match fixture.mcp_servers.get(&"remote".to_string().into()) {
+            Some(McpServerConfig::Http(server)) => server.oauth_scopes(),
+            _ => panic!("Expected Http variant"),
+        };
+        let expected = vec!["mcp:tools".to_string()];
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_http_server_returns_no_oauth_scopes_for_auto_detection() {
+        use pretty_assertions::assert_eq;
+
+        let fixture = McpServerConfig::new_http("https://mcp.example.com");
+        let actual = match &fixture {
+            McpServerConfig::Http(server) => server.oauth_scopes(),
+            _ => panic!("Expected Http variant"),
+        };
+        let expected: Vec<String> = Vec::new();
+
+        assert_eq!(actual, expected);
     }
 
     #[test]

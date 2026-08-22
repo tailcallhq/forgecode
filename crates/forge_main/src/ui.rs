@@ -1057,7 +1057,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 let _ = self.api.mcp_logout(Some(&http.url)).await;
 
                 // Run the OAuth flow (opens browser, waits for callback)
-                match self.api.mcp_auth(&http.url).await {
+                match self.api.mcp_auth(&http.url, http.oauth_scopes()).await {
                     Ok(()) => {
                         self.writeln_title(TitleFormat::info(format!(
                             "Successfully authenticated with MCP server '{}'",

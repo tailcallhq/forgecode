@@ -421,9 +421,9 @@ impl<
         self.services.get_provider(model_config.provider).await
     }
 
-    async fn mcp_auth(&self, server_url: &str) -> Result<()> {
+    async fn mcp_auth(&self, server_url: &str, scopes: &[String]) -> Result<()> {
         let env = self.services.get_environment().clone();
-        forge_infra::mcp_auth(server_url, &env).await
+        forge_infra::mcp_auth(server_url, scopes, &env).await
     }
 
     async fn mcp_logout(&self, server_url: Option<&str>) -> Result<()> {
