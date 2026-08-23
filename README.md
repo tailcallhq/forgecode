@@ -1123,6 +1123,33 @@ MCP tools can be used as part of multi-agent workflows, allowing specialized age
 
 ---
 
+### Build Remote Agent (phone pairing)
+
+Pair a phone running [Build Remote Agent](https://grokbuildremote.com/) to this Forge session. Protocol `gbr/1`. Phone is spectator + veto, not orchestrator. Independent product; not affiliated with xAI or SpaceX.
+
+```bash
+curl -fsSL https://grokbuildremote.com/install.sh | bash
+gbr-agent version          # v0.6.0+
+gbr-agent pair && gbr-agent run
+```
+
+Example `.mcp.json` entry (stdio, loopback). Never put mailbox keys here.
+
+```json
+{
+  "mcpServers": {
+    "gbr": {
+      "command": "node",
+      "args": ["GrokBuildRemote-Agents/mcp/gbr-mcp/bin/gbr-mcp.js"]
+    }
+  }
+}
+```
+
+```bash
+curl -sS http://127.0.0.1:8788/health
+```
+
 ## Documentation
 
 For comprehensive documentation on all features and capabilities, please visit the [documentation site](https://github.com/tailcallhq/forgecode/tree/main/docs).
