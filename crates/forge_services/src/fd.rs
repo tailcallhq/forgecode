@@ -40,7 +40,7 @@ fn is_ignored_by_name(path: &Path) -> bool {
     let name_lower = name.to_lowercase();
 
     // Lock files: *-lock.json, *.lock, *.lockb, *.lock.json, etc.
-    if name_lower.ends_with(".lock")
+    name_lower.ends_with(".lock")
         || name_lower.ends_with(".lockb")
         || name_lower.ends_with("-lock.json")
         || name_lower.ends_with("-lock.yaml")
@@ -48,11 +48,6 @@ fn is_ignored_by_name(path: &Path) -> bool {
         || name_lower.ends_with(".lock.json")
         || name_lower.ends_with(".lockfile")
         || name == "Package.resolved"
-    {
-        return true;
-    }
-
-    false
 }
 
 /// Returns `true` if `path` is a symlink (does not follow the link).
