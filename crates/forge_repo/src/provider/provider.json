@@ -1299,6 +1299,16 @@
     "url": "https://api.z.ai/api/coding/paas/v4/chat/completions",
     "models": [
       {
+        "id": "glm-5.3",
+        "name": "GLM-5.3",
+        "description": "Latest flagship model with 50% better coding performance than GLM-5.2 on Z.ai Code Bench, 1M context window, 128K maximum output, and always-on reasoning with low/high/max effort levels",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text"]
+      },
+      {
         "id": "glm-5.2",
         "name": "GLM-5.2",
         "description": "New flagship model with powerful coding capabilities, 1M context support, and continued strengths in long-horizon tasks",
