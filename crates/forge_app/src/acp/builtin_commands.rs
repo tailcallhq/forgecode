@@ -101,6 +101,16 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
         let result = ForgeApp::new(self.services.clone())
             .compact_conversation(session.agent_id.clone(), &session.conversation_id)
             .await?;
+        // Forge only compacts once the conversation crosses its configured
+        // threshold, so say plainly when a run changed nothing.
+        if result.compacted_messages == result.original_messages
+            && result.compacted_tokens == result.original_tokens
+        {
+            return Ok(format!(
+                "Nothing to compact: {} messages, {} tokens, below the compaction threshold.",
+                result.original_messages, result.original_tokens,
+            ));
+        }
         Ok(format!(
             "Compacted the conversation: {} → {} messages, {} → {} tokens.",
             result.original_messages,
