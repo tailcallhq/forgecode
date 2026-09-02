@@ -307,22 +307,6 @@ mod tests {
 }
 
 impl<S> AcpAdapter<S> {
-    /// Sends a session notification and waits for the client to receive it.
-    /// Use this where the notification must reach the client before the
-    /// response it belongs to; [`Self::send_notification`] only queues.
-    pub(super) async fn send_notification_now(
-        &self,
-        notification: acp::SessionNotification,
-    ) -> Result<()> {
-        use agent_client_protocol::Client;
-
-        let client_conn = self.client_conn.lock().await.clone();
-        match client_conn {
-            Some(conn) => conn.session_notification(notification).await.map_err(Error::Protocol),
-            None => self.send_notification(notification),
-        }
-    }
-
     /// Answers a user question raised during tool execution by asking the
     /// ACP client for permission. Replies `None` when no prompt is running,
     /// the client is gone, or the user cancelled.

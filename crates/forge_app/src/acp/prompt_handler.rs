@@ -76,7 +76,11 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
                     acp::ContentBlock::Text(acp::TextContent::new(text)),
                 )),
             );
-            self.send_notification_now(notification).await.map_err(error::into_acp_error)?;
+            // Queue it like every other update. Anything awaited here — the
+            // connection itself, a delivery signal, even a timer — stalls the
+            // turn in this runtime, so the client may see this text just after
+            // the prompt response.
+            self.send_notification(notification).map_err(error::into_acp_error)?;
             return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
         }
 
