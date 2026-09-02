@@ -256,8 +256,10 @@ pub trait API: Sync + Send {
         &self,
         data_parameters: DataGenerationParameters,
     ) -> Result<BoxStream<'static, Result<serde_json::Value, anyhow::Error>>>;
-    /// Starts the ACP (Agent Communication Protocol) server over stdio.
-    async fn acp_start_stdio(&self) -> Result<()>;
+    /// Starts the ACP (Agent Client Protocol) server over stdio. User
+    /// questions raised during tool execution arrive on `user_choices` and
+    /// are forwarded to the client as permission requests.
+    async fn acp_start_stdio(&self, user_choices: forge_app::UserChoiceReceiver) -> Result<()>;
 
     /// Authenticate with an MCP server via OAuth flow
     async fn mcp_auth(&self, server_url: &str) -> Result<()>;

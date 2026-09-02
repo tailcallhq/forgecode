@@ -49,7 +49,20 @@ impl ForgeAPI<ForgeServices<ForgeRepo<ForgeInfra>>, ForgeRepo<ForgeInfra>> {
     /// * `config` - Pre-read application configuration (from startup)
     /// * `services_url` - Pre-validated URL for the gRPC workspace server
     pub fn init(cwd: PathBuf, config: ForgeConfig) -> Self {
-        let infra = Arc::new(ForgeInfra::new(cwd, config));
+        Self::from_infra(ForgeInfra::new(cwd, config))
+    }
+
+    /// Builds the API for `forge machine stdio`: user questions are answered
+    /// by the ACP client. The returned receiver must be handed to
+    /// [`API::acp_start_stdio`].
+    pub fn init_acp(cwd: PathBuf, config: ForgeConfig) -> (Self, forge_app::UserChoiceReceiver) {
+        let (interaction, choices) = forge_app::acp_user_interaction();
+        let infra = ForgeInfra::new(cwd, config).with_acp_user_interaction(interaction);
+        (Self::from_infra(infra), choices)
+    }
+
+    fn from_infra(infra: ForgeInfra) -> Self {
+        let infra = Arc::new(infra);
         let repo = Arc::new(ForgeRepo::new(infra.clone()));
         let app = Arc::new(ForgeServices::new(repo.clone()));
         ForgeAPI::new(app, repo)
@@ -408,9 +421,10 @@ impl<
         app.execute(data_parameters).await
     }
 
-    async fn acp_start_stdio(&self) -> Result<()> {
-        let acp_app = forge_app::AcpApp::new(self.services.clone());
-        acp_app.start_stdio().await
+    async fn acp_start_stdio(&self, user_choices: forge_app::UserChoiceReceiver) -> Result<()> {
+        forge_app::AcpApp::new(self.services.clone())
+            .start_stdio(user_choices)
+            .await
     }
 
     async fn get_session_config(&self) -> Option<forge_domain::ModelConfig> {

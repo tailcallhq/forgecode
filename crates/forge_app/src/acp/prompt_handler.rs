@@ -55,6 +55,7 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
             .await
             .map_err(error::into_acp_error)?;
 
+        *self.active_session.lock().await = Some(arguments.session_id.clone());
         let response = self
             .run_prompt_loop(
                 &arguments.session_id,
@@ -68,6 +69,7 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
             .await;
 
         let _ = self.set_cancel_notify(&session_key, None).await;
+        *self.active_session.lock().await = None;
         response
     }
 
@@ -162,7 +164,7 @@ impl<S> AcpAdapter<S> {
                         .map_err(error::into_acp_error)?;
                 }
             }
-            ChatResponse::ToolCallStart { tool_call, .. } => {
+            ChatResponse::ToolCallStart { tool_call, notifier } => {
                 let notification = acp::SessionNotification::new(
                     session_id.clone(),
                     acp::SessionUpdate::ToolCallUpdate(
@@ -171,6 +173,9 @@ impl<S> AcpAdapter<S> {
                 );
                 self.send_notification(notification)
                     .map_err(error::into_acp_error)?;
+                // The orchestrator waits for this acknowledgement before it
+                // executes the tool.
+                notifier.notify_one();
             }
             ChatResponse::ToolCallEnd(tool_result) => {
                 let content = conversion::convert_tool_output(&tool_result.output);

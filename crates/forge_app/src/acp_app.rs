@@ -11,9 +11,6 @@ pub struct AcpApp<S> {
     services: Arc<S>,
 }
 
-/// Maximum time to wait for ACP I/O before considering the client hung.
-const IO_TIMEOUT: Duration = Duration::from_secs(300);
-
 /// Maximum time to wait for pending notifications to drain on shutdown.
 const SHUTDOWN_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -31,7 +28,7 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpApp<S> {
     /// parent process (e.g. Acepe) that spawned `forge machine stdio` can
     /// read/write the stdin/stdout pipes. No network listener is opened.
     /// Authentication is therefore a no-op by design.
-    pub async fn start_stdio(&self) -> Result<()> {
+    pub async fn start_stdio(&self, mut user_choices: crate::UserChoiceReceiver) -> Result<()> {
         use agent_client_protocol as acp;
         use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
@@ -64,6 +61,13 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpApp<S> {
                         let conn = Arc::new(conn);
                         adapter.set_client_connection(conn.clone()).await;
 
+                        let adapter_for_choices = adapter.clone();
+                        let choice_task = tokio::task::spawn_local(async move {
+                            while let Some(request) = user_choices.recv().await {
+                                adapter_for_choices.answer_user_choice(request).await;
+                            }
+                        });
+
                         let conn_for_notifications = conn.clone();
                         let notification_task = tokio::task::spawn_local(async move {
                             while let Some(session_notification) = rx.recv().await {
@@ -82,19 +86,9 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpApp<S> {
                             }
                         });
 
-                        // Wait for I/O with a timeout to prevent indefinite hangs
-                        // when the client stalls.
-                        let io_result = match tokio::time::timeout(IO_TIMEOUT, handle_io).await {
-                            Ok(result) => result,
-                            Err(_) => {
-                                tracing::warn!("ACP I/O timed out after {:?}", IO_TIMEOUT);
-                                notification_task.abort();
-                                return Err(anyhow::anyhow!(
-                                    "ACP transport timed out after {:?}",
-                                    IO_TIMEOUT
-                                ));
-                            }
-                        };
+                        // Runs until the client closes the pipe.
+                        let io_result = handle_io.await;
+                        choice_task.abort();
 
                         // Graceful shutdown: give the notification task time to
                         // drain pending messages instead of aborting immediately.

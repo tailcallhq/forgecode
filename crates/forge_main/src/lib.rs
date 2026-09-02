@@ -1,5 +1,4 @@
 pub mod banner;
-mod acp_runner;
 mod cli;
 mod completer;
 mod conversation_selector;

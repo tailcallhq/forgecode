@@ -4,8 +4,10 @@ mod error;
 mod prompt_handler;
 mod session_handlers;
 mod state_builders;
+mod user_interaction;
 
 pub(crate) use adapter::AcpAdapter;
+pub use user_interaction::{AcpUserInteraction, UserChoiceReceiver, UserChoiceRequest, acp_user_interaction};
 
 #[async_trait::async_trait(?Send)]
 impl<S: crate::Services + crate::EnvironmentInfra<Config = forge_config::ForgeConfig>>

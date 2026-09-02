@@ -24,6 +24,11 @@ pub(crate) struct AcpAdapter<S> {
     pub(super) services: Arc<S>,
     pub(super) session_update_tx: mpsc::Sender<acp::SessionNotification>,
     pub(super) client_conn: Arc<Mutex<Option<Arc<acp::AgentSideConnection>>>>,
+    /// Session whose prompt is currently running. User questions raised by
+    /// tool execution are attributed to it. One ACP process serves one
+    /// client and prompts are sequential per connection, so a single slot
+    /// is sufficient.
+    pub(super) active_session: Arc<Mutex<Option<acp::SessionId>>>,
     sessions: Arc<Mutex<HashMap<String, SessionState>>>,
 }
 
@@ -34,6 +39,7 @@ impl<S> AcpAdapter<S> {
             services,
             session_update_tx: tx,
             client_conn: Arc::new(Mutex::new(None)),
+            active_session: Arc::new(Mutex::new(None)),
             sessions: Arc::new(Mutex::new(HashMap::new())),
         };
         (adapter, rx)
@@ -297,5 +303,59 @@ mod tests {
         assert_eq!(actual.agent_id, AgentId::new("new-agent"));
         assert_eq!(actual.model_id, Some(ModelId::new("new-model")));
         assert!(actual.cancel_notify.is_some());
+    }
+}
+
+impl<S> AcpAdapter<S> {
+    /// Answers a user question raised during tool execution by asking the
+    /// ACP client for permission. Replies `None` when no prompt is running,
+    /// the client is gone, or the user cancelled.
+    pub(crate) async fn answer_user_choice(&self, request: super::UserChoiceRequest) {
+        use agent_client_protocol::Client;
+
+        let super::UserChoiceRequest { message, options, reply } = request;
+        tracing::debug!(message, "Asking ACP client for permission");
+        let (Some(conn), Some(session_id)) = (
+            self.client_conn.lock().await.clone(),
+            self.active_session.lock().await.clone(),
+        ) else {
+            tracing::error!("User prompt raised outside an active ACP prompt: {message}");
+            let _ = reply.send(None);
+            return;
+        };
+
+        let options = options
+            .iter()
+            .enumerate()
+            .map(|(index, label)| {
+                let kind = match label.as_str() {
+                    l if l.starts_with("Reject") => acp::PermissionOptionKind::RejectOnce,
+                    l if l.contains("Remember") => acp::PermissionOptionKind::AllowAlways,
+                    _ => acp::PermissionOptionKind::AllowOnce,
+                };
+                acp::PermissionOption::new(index.to_string(), label.clone(), kind)
+            })
+            .collect();
+        let tool_call = acp::ToolCallUpdate::new(
+            "user-choice",
+            acp::ToolCallUpdateFields::new()
+                .status(acp::ToolCallStatus::Pending)
+                .title(message.clone()),
+        );
+        let request = acp::RequestPermissionRequest::new(session_id, tool_call, options);
+
+        let choice = match conn.request_permission(request).await {
+            Ok(response) => match response.outcome {
+                acp::RequestPermissionOutcome::Selected(selected) => {
+                    selected.option_id.0.parse::<usize>().ok()
+                }
+                _ => None,
+            },
+            Err(error) => {
+                tracing::error!("Permission request failed: {error}");
+                None
+            }
+        };
+        let _ = reply.send(choice);
     }
 }

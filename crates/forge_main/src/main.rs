@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use forge_api::ForgeAPI;
+use forge_api::{API, ForgeAPI};
 use forge_config::ForgeConfig;
 use forge_domain::TitleFormat;
 use forge_main::{Cli, Sandbox, TitleDisplayExt, TopLevelCommand, UI, tracker};
@@ -125,6 +125,14 @@ async fn run() -> Result<()> {
         },
         (_, _) => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     };
+
+    // `forge machine stdio` owns the process: no banner, no interactive UI,
+    // user questions go to the ACP client.
+    if let Some(TopLevelCommand::Machine(_)) = cli.subcommands {
+        let (api, user_choices) = ForgeAPI::init_acp(cwd, config);
+        let _guard = tracker::init_tracing(api.environment().log_path())?;
+        return api.acp_start_stdio(user_choices).await;
+    }
 
     let mut ui = UI::init(cli, config, move |config| {
         ForgeAPI::init(cwd.clone(), config)
