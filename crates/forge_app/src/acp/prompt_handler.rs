@@ -65,7 +65,9 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
 
         // Built-in commands are answered by forge directly: no model turn.
         if let Some((name, command_arguments)) = slash_command(&prompt_text)
-            && let Some(result) = self.run_builtin_command(&session, name, command_arguments).await
+            && let Some(result) = self
+                .run_builtin_command(&arguments.session_id, &session, name, command_arguments)
+                .await
         {
             *self.active_session.lock().await = None;
             let text = result

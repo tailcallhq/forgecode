@@ -17,18 +17,25 @@ use futures::StreamExt;
 
 use super::adapter::{AcpAdapter, SessionState};
 use crate::{
-    ConversationService, EnvironmentInfra, ForgeApp, GitApp, Services, WorkspaceService,
+    AgentRegistry, ConversationService, EnvironmentInfra, ForgeApp, GitApp, Services,
+    WorkspaceService,
 };
 
 /// Name, description, and whether the command reads the rest of the prompt as
 /// free-form input.
 const BUILTIN_COMMANDS: &[(&str, &str, bool)] = &[
     ("compact", "Compact the conversation context", false),
+    ("config", "Display the effective resolved configuration", false),
     ("commit", "Generate an AI commit message and commit changes", true),
     ("commit-preview", "Preview an AI-generated commit message", true),
     ("info", "Display session and environment information", false),
     ("tools", "List the tools available to this agent", false),
     ("usage", "Show token usage and cost for this conversation", false),
+    (
+        "workspace-init",
+        "Initialize a workspace for this directory without syncing files",
+        false,
+    ),
     (
         "workspace-info",
         "Show workspace information with sync details",
@@ -75,26 +82,62 @@ pub(super) fn builtin_commands() -> impl Iterator<Item = acp::AvailableCommand> 
 }
 
 impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
+    /// One command per agent, so a client whose UI has no mode picker can
+    /// still switch agents the way the terminal does with `:forge` or `:muse`.
+    pub(super) async fn agent_commands(&self) -> anyhow::Result<Vec<acp::AvailableCommand>> {
+        Ok(self
+            .services
+            .get_agents()
+            .await?
+            .into_iter()
+            .map(|agent| {
+                acp::AvailableCommand::new(agent.id.to_string(), agent.description.unwrap_or_default())
+            })
+            .collect())
+    }
+
     /// Runs `name` when it is a built-in, returning the text to show the user.
     /// `None` means the name belongs to a custom command or a plain prompt.
     pub(super) async fn run_builtin_command(
         &self,
+        session_id: &acp::SessionId,
         session: &SessionState,
         name: &str,
         arguments: &str,
     ) -> Option<anyhow::Result<String>> {
+        if let Ok(agents) = self.services.get_agents().await
+            && agents.iter().any(|agent| agent.id.as_str() == name)
+        {
+            return Some(self.builtin_switch_agent(session_id, name).await);
+        }
         Some(match name {
             "compact" => self.builtin_compact(session).await,
+            "config" => self.builtin_config(),
             "commit" => self.builtin_commit(false, arguments).await,
             "commit-preview" => self.builtin_commit(true, arguments).await,
             "info" => Ok(self.builtin_info(session)),
             "tools" => self.builtin_tools().await,
             "usage" => self.builtin_usage(session).await,
             "workspace-info" => self.builtin_workspace_info().await,
+            "workspace-init" => self.builtin_workspace_init().await,
             "workspace-status" => self.builtin_workspace_status().await,
             "workspace-sync" => self.builtin_workspace_sync().await,
             _ => return None,
         })
+    }
+
+    async fn builtin_switch_agent(
+        &self,
+        session_id: &acp::SessionId,
+        agent_id: &str,
+    ) -> anyhow::Result<String> {
+        self.handle_set_session_mode(acp::SetSessionModeRequest::new(
+            session_id.clone(),
+            acp::SessionModeId::new(agent_id.to_string()),
+        ))
+        .await
+        .map_err(|error| anyhow::anyhow!("{}", error.message))?;
+        Ok(format!("Switched to the {agent_id} agent."))
     }
 
     async fn builtin_compact(&self, session: &SessionState) -> anyhow::Result<String> {
@@ -188,6 +231,23 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
             write!(out, " Cost: ${cost:.4}.")?;
         }
         Ok(out)
+    }
+
+    fn builtin_config(&self) -> anyhow::Result<String> {
+        let config = self.services.get_config()?;
+        Ok(format!(
+            "Effective configuration:\n\n{}",
+            serde_json::to_string_pretty(&config)?
+        ))
+    }
+
+    async fn builtin_workspace_init(&self) -> anyhow::Result<String> {
+        let cwd = self.services.get_environment().cwd.clone();
+        let workspace_id = self.services.init_workspace(cwd.clone()).await?;
+        Ok(format!(
+            "Initialized workspace {workspace_id} for {}. Run /workspace-sync to index its files.",
+            cwd.display()
+        ))
     }
 
     async fn builtin_workspace_info(&self) -> anyhow::Result<String> {

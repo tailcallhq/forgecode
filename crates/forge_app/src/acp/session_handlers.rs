@@ -151,6 +151,11 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
                     ))
             })
             .chain(super::builtin_commands::builtin_commands())
+            .chain(
+                self.agent_commands()
+                    .await
+                    .map_err(|error| acp::Error::into_internal_error(&*error))?,
+            )
             .collect())
     }
 
