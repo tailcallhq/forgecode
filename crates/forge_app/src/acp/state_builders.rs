@@ -36,6 +36,35 @@ impl StateBuilders {
         ))
     }
 
+    /// The model list as a session configuration option.
+    ///
+    /// Clients apply a model with `session/set_config_option`, so the models
+    /// have to be declared as an option; `SessionModelState` alone only tells
+    /// a client what exists, not how to choose one.
+    pub(super) fn build_model_config_option(
+        model_state: &acp::SessionModelState,
+    ) -> acp::SessionConfigOption {
+        let options = model_state
+            .available_models
+            .iter()
+            .map(|model| {
+                acp::SessionConfigSelectOption::new(
+                    model.model_id.0.to_string(),
+                    model.name.clone(),
+                )
+                .description(model.description.clone())
+            })
+            .collect::<Vec<_>>();
+
+        acp::SessionConfigOption::select(
+            "model",
+            "Model",
+            model_state.current_model_id.0.to_string(),
+            acp::SessionConfigSelectOptions::Ungrouped(options),
+        )
+        .category(acp::SessionConfigOptionCategory::Model)
+    }
+
     pub(super) async fn build_session_model_state<S: Services>(
         services: &Arc<S>,
         current_agent: &Agent,

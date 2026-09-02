@@ -3941,9 +3941,19 @@
     "url": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
     "models": [
       {
-        "id": "qwen3.8-max-preview",
-        "name": "Qwen3.8 Max Preview",
-        "description": "Alibaba's flagship Qwen3.8 Max preview model with 1M context, multimodal input, reasoning, and tool calling capabilities",
+        "id": "qwen3.8-max-0902",
+        "name": "Qwen3.8 Max 0902",
+        "description": "Alibaba's flagship Qwen3.8 Max model, 0902 snapshot, with 1M context, multimodal input, reasoning, and tool calling capabilities",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "qwen3.8-flash",
+        "name": "Qwen3.8 Flash",
+        "description": "Alibaba's fast and economical Qwen3.8 Flash model with 1M context, multimodal input, reasoning, and tool calling capabilities",
         "context_length": 1000000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,

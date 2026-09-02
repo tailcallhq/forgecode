@@ -46,6 +46,22 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
                 .map_err(|error| acp::Error::into_internal_error(&error))?,
         );
 
+        // Models are session state in ACP too, so publish the active agent's
+        // list here as well; without it a client has nothing to show in a
+        // model picker until a session exists.
+        match self.default_model_state().await {
+            Ok(model_state) => {
+                meta.insert(
+                    "modelState".to_string(),
+                    serde_json::to_value(model_state)
+                        .map_err(|error| acp::Error::into_internal_error(&error))?,
+                );
+            }
+            // Listing models needs a configured, reachable provider. Failing
+            // here would fail the whole handshake, so leave the field out.
+            Err(error) => tracing::debug!("Models unavailable at initialize: {error}"),
+        }
+
         Ok(acp::InitializeResponse::new(acp::ProtocolVersion::V1)
             .agent_capabilities(
                 acp::AgentCapabilities::new().load_session(true).mcp_capabilities(
@@ -125,13 +141,34 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
 
         self.send_available_commands(&session_id).await?;
 
+        let model_config = StateBuilders::build_model_config_option(&model_state);
         Ok(acp::NewSessionResponse::new(session_id)
             .modes(mode_state)
-            .models(model_state))
+            .models(model_state)
+            .config_options(vec![model_config]))
     }
 
     /// Advertises forge's custom commands so ACP clients can offer them as
     /// slash commands. A prompt starting with `/name` runs that command.
+    /// Model state for the agent a new session would start with.
+    async fn default_model_state(&self) -> anyhow::Result<acp::SessionModelState> {
+        let agent_id = self
+            .services
+            .agent_registry()
+            .get_active_agent_id()
+            .await?
+            .unwrap_or_default();
+        let agent = self
+            .services
+            .agent_registry()
+            .get_agent(&agent_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Agent {agent_id} not found"))?;
+        StateBuilders::build_session_model_state(&self.services, &agent)
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
     /// Custom commands loaded from disk plus the built-ins forge can run for
     /// a client.
     pub(super) async fn available_commands(
@@ -226,9 +263,11 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
 
         self.send_available_commands(&arguments.session_id).await?;
 
+        let model_config = StateBuilders::build_model_config_option(&model_state);
         Ok(acp::LoadSessionResponse::new()
             .modes(mode_state)
-            .models(model_state))
+            .models(model_state)
+            .config_options(vec![model_config]))
     }
 
     /// Handles session model changes.
