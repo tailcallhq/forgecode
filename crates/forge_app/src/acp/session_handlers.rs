@@ -110,9 +110,38 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
             .await
             .map_err(error::into_acp_error)?;
 
+        self.send_available_commands(&session_id).await?;
+
         Ok(acp::NewSessionResponse::new(session_id)
             .modes(mode_state)
             .models(model_state))
+    }
+
+    /// Advertises forge's custom commands so ACP clients can offer them as
+    /// slash commands. A prompt starting with `/name` runs that command.
+    pub(super) async fn send_available_commands(
+        &self,
+        session_id: &acp::SessionId,
+    ) -> std::result::Result<(), acp::Error> {
+        use crate::CommandLoaderService;
+        let commands = self
+            .services
+            .get_commands()
+            .await
+            .map_err(|error| acp::Error::into_internal_error(&*error))?
+            .into_iter()
+            .map(|command| {
+                acp::AvailableCommand::new(command.name, command.description)
+                    .input(acp::AvailableCommandInput::Unstructured(
+                        acp::UnstructuredCommandInput::new("arguments"),
+                    ))
+            })
+            .collect();
+        let notification = acp::SessionNotification::new(
+            session_id.clone(),
+            acp::SessionUpdate::AvailableCommandsUpdate(acp::AvailableCommandsUpdate::new(commands)),
+        );
+        self.send_notification(notification).map_err(error::into_acp_error)
     }
 
     pub(super) async fn handle_load_session(
@@ -167,6 +196,8 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
         let model_state = StateBuilders::build_session_model_state(&self.services, &agent)
             .await
             .map_err(error::into_acp_error)?;
+
+        self.send_available_commands(&arguments.session_id).await?;
 
         Ok(acp::LoadSessionResponse::new()
             .modes(mode_state)

@@ -89,4 +89,36 @@ impl<S: crate::Services + crate::EnvironmentInfra<Config = forge_config::ForgeCo
     > {
         self.handle_set_session_model(arguments).await
     }
+
+    /// Newer clients set mode and model through config options rather than
+    /// `session/set_mode` / `session/set_model`. Forge exposes exactly those
+    /// two options, so map them onto the existing handlers.
+    async fn set_session_config_option(
+        &self,
+        arguments: agent_client_protocol::SetSessionConfigOptionRequest,
+    ) -> std::result::Result<
+        agent_client_protocol::SetSessionConfigOptionResponse,
+        agent_client_protocol::Error,
+    > {
+        use agent_client_protocol as acp;
+        let value = arguments.value.0.to_string();
+        match arguments.config_id.0.as_ref() {
+            "mode" => {
+                self.handle_set_session_mode(acp::SetSessionModeRequest::new(
+                    arguments.session_id,
+                    acp::SessionModeId::new(value),
+                ))
+                .await?;
+            }
+            "model" => {
+                self.handle_set_session_model(acp::SetSessionModelRequest::new(
+                    arguments.session_id,
+                    acp::ModelId::new(value),
+                ))
+                .await?;
+            }
+            _ => return Err(acp::Error::invalid_params()),
+        }
+        Ok(acp::SetSessionConfigOptionResponse::new(Vec::new()))
+    }
 }

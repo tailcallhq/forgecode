@@ -49,6 +49,9 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
         }
 
         let prompt_text = prompt_text_parts.join("\n");
+        let mut event = self.command_event(&prompt_text).await?
+            .unwrap_or_else(|| Event::new(EventValue::text(prompt_text)));
+        event.attachments = attachments;
         let cancel_notify = Arc::new(Notify::new());
         let cancelled = Arc::new(AtomicBool::new(false));
         self.set_cancel_notify(&session_key, Some(cancel_notify.clone()))
@@ -56,13 +59,15 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
             .map_err(error::into_acp_error)?;
 
         *self.active_session.lock().await = Some(arguments.session_id.clone());
+        // Clients may not be listening yet when session/new advertises
+        // commands; re-advertise at the start of every prompt (idempotent).
+        self.send_available_commands(&arguments.session_id).await?;
         let response = self
             .run_prompt_loop(
                 &arguments.session_id,
                 &session_key,
                 session,
-                prompt_text,
-                attachments,
+                event,
                 cancel_notify,
                 cancelled,
             )
@@ -73,19 +78,51 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
         response
     }
 
+    /// A prompt of the form `/name args` runs forge custom command `name`,
+    /// exactly as the terminal does: the arguments become the command's
+    /// value, falling back to the command's own prompt body.
+    async fn command_event(
+        &self,
+        prompt_text: &str,
+    ) -> std::result::Result<Option<Event>, acp::Error> {
+        use crate::CommandLoaderService;
+        let Some(rest) = prompt_text.trim_start().strip_prefix('/') else {
+            return Ok(None);
+        };
+        let mut parts = rest.split_whitespace();
+        let Some(name) = parts.next() else {
+            return Ok(None);
+        };
+        let commands = self
+            .services
+            .get_commands()
+            .await
+            .map_err(|error| acp::Error::into_internal_error(&*error))?;
+        let Some(command) = commands.into_iter().find(|command| command.name == name) else {
+            return Ok(None);
+        };
+        let parameters: Vec<String> = parts.map(str::to_string).collect();
+        let value = if parameters.is_empty() {
+            command.prompt.unwrap_or_default()
+        } else {
+            parameters.join(" ")
+        };
+        Ok(Some(Event::from(forge_domain::UserCommand::new(
+            command.name,
+            forge_domain::Template::<serde_json::Value>::new(value),
+            parameters,
+        ))))
+    }
+
     async fn run_prompt_loop(
         &self,
         session_id: &acp::SessionId,
         session_key: &str,
         session: super::adapter::SessionState,
-        prompt_text: String,
-        attachments: Vec<forge_domain::Attachment>,
+        event: Event,
         cancel_notify: Arc<Notify>,
         cancelled: Arc<AtomicBool>,
     ) -> std::result::Result<acp::PromptResponse, acp::Error> {
-        let mut event = Event::new(EventValue::text(prompt_text));
-        event.attachments = attachments;
-
         let mut chat_request = ChatRequest::new(event, session.conversation_id);
         loop {
             // Check if cancellation was requested before starting a new
