@@ -28,7 +28,11 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpApp<S> {
     /// parent process (e.g. Acepe) that spawned `forge machine stdio` can
     /// read/write the stdin/stdout pipes. No network listener is opened.
     /// Authentication is therefore a no-op by design.
-    pub async fn start_stdio(&self, mut user_choices: crate::UserChoiceReceiver) -> Result<()> {
+    pub async fn start_stdio(
+        &self,
+        mut user_choices: crate::UserChoiceReceiver,
+        protocol_out: std::fs::File,
+    ) -> Result<()> {
         use agent_client_protocol as acp;
         use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
@@ -46,7 +50,7 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpApp<S> {
                 let local_set = tokio::task::LocalSet::new();
                 local_set
                     .run_until(async move {
-                        let outgoing = tokio::io::stdout().compat_write();
+                        let outgoing = tokio::fs::File::from_std(protocol_out).compat_write();
                         let incoming = tokio::io::stdin().compat();
 
                         let (conn, handle_io) = acp::AgentSideConnection::new(

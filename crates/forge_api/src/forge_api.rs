@@ -421,9 +421,13 @@ impl<
         app.execute(data_parameters).await
     }
 
-    async fn acp_start_stdio(&self, user_choices: forge_app::UserChoiceReceiver) -> Result<()> {
+    async fn acp_start_stdio(
+        &self,
+        user_choices: forge_app::UserChoiceReceiver,
+        protocol_out: std::fs::File,
+    ) -> Result<()> {
         forge_app::AcpApp::new(self.services.clone())
-            .start_stdio(user_choices)
+            .start_stdio(user_choices, protocol_out)
             .await
     }
 

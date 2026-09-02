@@ -259,7 +259,13 @@ pub trait API: Sync + Send {
     /// Starts the ACP (Agent Client Protocol) server over stdio. User
     /// questions raised during tool execution arrive on `user_choices` and
     /// are forwarded to the client as permission requests.
-    async fn acp_start_stdio(&self, user_choices: forge_app::UserChoiceReceiver) -> Result<()>;
+    /// `protocol_out` is the pipe the JSON-RPC stream is written to; the
+    /// process's own stdout may already point elsewhere.
+    async fn acp_start_stdio(
+        &self,
+        user_choices: forge_app::UserChoiceReceiver,
+        protocol_out: std::fs::File,
+    ) -> Result<()>;
 
     /// Authenticate with an MCP server via OAuth flow
     async fn mcp_auth(&self, server_url: &str) -> Result<()>;
