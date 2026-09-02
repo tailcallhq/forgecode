@@ -17,8 +17,8 @@ use futures::StreamExt;
 
 use super::adapter::{AcpAdapter, SessionState};
 use crate::{
-    AgentRegistry, ConversationService, EnvironmentInfra, ForgeApp, GitApp, Services,
-    WorkspaceService,
+    AgentRegistry, AppConfigService, ConversationService, EnvironmentInfra, ForgeApp, GitApp,
+    Services, WorkspaceService,
 };
 
 /// Name, description, and whether the command reads the rest of the prompt as
@@ -115,7 +115,7 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
             "config" => self.builtin_config(),
             "commit" => self.builtin_commit(false, arguments).await,
             "commit-preview" => self.builtin_commit(true, arguments).await,
-            "info" => Ok(self.builtin_info(session)),
+            "info" => Ok(self.builtin_info(session).await),
             "tools" => self.builtin_tools().await,
             "usage" => self.builtin_usage(session).await,
             "workspace-info" => self.builtin_workspace_info().await,
@@ -184,13 +184,20 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
         })
     }
 
-    fn builtin_info(&self, session: &SessionState) -> String {
+    async fn builtin_info(&self, session: &SessionState) -> String {
         let environment = self.services.get_environment();
-        let model = session
-            .model_id
-            .as_ref()
-            .map(ToString::to_string)
-            .unwrap_or_else(|| "agent default".to_string());
+        // A client only sets a session model when it differs from the one
+        // forge is already configured with, so fall back to that rather than
+        // reporting "agent default" for the model actually in use.
+        let model = match session.model_id.as_ref() {
+            Some(model_id) => model_id.to_string(),
+            None => self
+                .services
+                .get_session_config()
+                .await
+                .map(|config| config.model.to_string())
+                .unwrap_or_else(|| "agent default".to_string()),
+        };
         format!(
             "Agent: {}\nModel: {}\nWorking directory: {}\nOS: {}\nForge home: {}",
             session.agent_id,
