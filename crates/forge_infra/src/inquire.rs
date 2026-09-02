@@ -2,7 +2,12 @@ use anyhow::Result;
 use forge_app::UserInfra;
 use forge_select::ForgeWidget;
 
-pub struct ForgeInquire;
+/// Where user questions go: an interactive terminal picker, or the ACP client
+/// when forge runs as an ACP agent and stdin is the protocol pipe.
+pub enum ForgeInquire {
+    Terminal,
+    Acp(forge_app::AcpUserInteraction),
+}
 
 impl Default for ForgeInquire {
     fn default() -> Self {
@@ -12,7 +17,7 @@ impl Default for ForgeInquire {
 
 impl ForgeInquire {
     pub fn new() -> Self {
-        Self
+        Self::Terminal
     }
 
     async fn prompt<T, F>(&self, f: F) -> Result<Option<T>>
@@ -27,6 +32,9 @@ impl ForgeInquire {
 #[async_trait::async_trait]
 impl UserInfra for ForgeInquire {
     async fn prompt_question(&self, question: &str) -> Result<Option<String>> {
+        if let Self::Acp(acp) = self {
+            return acp.prompt_question(question).await;
+        }
         let question = question.to_string();
         self.prompt(move || ForgeWidget::input(&question).allow_empty(true).prompt())
             .await
@@ -37,6 +45,9 @@ impl UserInfra for ForgeInquire {
         message: &str,
         options: Vec<T>,
     ) -> Result<Option<T>> {
+        if let Self::Acp(acp) = self {
+            return acp.select_one(message, options).await;
+        }
         if options.is_empty() {
             return Ok(None);
         }
@@ -51,6 +62,9 @@ impl UserInfra for ForgeInquire {
         message: &str,
         options: Vec<T>,
     ) -> Result<Option<Vec<T>>> {
+        if let Self::Acp(acp) = self {
+            return acp.select_many(message, options).await;
+        }
         if options.is_empty() {
             return Ok(None);
         }
