@@ -90,10 +90,14 @@ async fn run() -> Result<()> {
     // Initialize and run the UI
     let mut cli = Cli::parse();
 
-    // Check if there's piped input, but skip for `forge select` since that
-    // command uses stdin for its item list.
-    let is_select = matches!(cli.subcommands, Some(TopLevelCommand::Select(_)));
-    if !is_select && !std::io::stdin().is_terminal() {
+    // Check if there's piped input, but skip for commands that own stdin:
+    // `forge select` reads its item list from it and `forge machine stdio`
+    // speaks ACP JSON-RPC over it.
+    let owns_stdin = matches!(
+        cli.subcommands,
+        Some(TopLevelCommand::Select(_)) | Some(TopLevelCommand::Machine(_))
+    );
+    if !owns_stdin && !std::io::stdin().is_terminal() {
         let mut stdin_content = String::new();
         std::io::stdin().read_to_string(&mut stdin_content)?;
         let trimmed_content = stdin_content.trim();
