@@ -58,10 +58,16 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
 
         let prompt_text = prompt_text_parts.join("\n");
 
+        // A built-in may still ask the user something (MCP trust, a policy
+        // confirmation), so mark the session active before running one:
+        // questions are attributed to the session that raised them.
+        *self.active_session.lock().await = Some(arguments.session_id.clone());
+
         // Built-in commands are answered by forge directly: no model turn.
         if let Some((name, command_arguments)) = slash_command(&prompt_text)
             && let Some(result) = self.run_builtin_command(&session, name, command_arguments).await
         {
+            *self.active_session.lock().await = None;
             let text = result
                 .map_err(|error| acp::Error::into_internal_error(error.as_ref() as &dyn std::error::Error))?;
             let notification = acp::SessionNotification::new(
@@ -83,7 +89,6 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
             .await
             .map_err(error::into_acp_error)?;
 
-        *self.active_session.lock().await = Some(arguments.session_id.clone());
         // Clients may not be listening yet when session/new advertises
         // commands; re-advertise at the start of every prompt (idempotent).
         self.send_available_commands(&arguments.session_id).await?;
