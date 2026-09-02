@@ -11,25 +11,6 @@ use super::state_builders::StateBuilders;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 impl<S> AcpAdapter<S> {
-    pub(super) async fn handle_initialize(
-        &self,
-        arguments: acp::InitializeRequest,
-    ) -> std::result::Result<acp::InitializeResponse, acp::Error> {
-        tracing::info!("Received initialize request from client: {:?}", arguments.client_info);
-
-        Ok(acp::InitializeResponse::new(acp::ProtocolVersion::V1)
-            .agent_capabilities(
-                acp::AgentCapabilities::new().load_session(true).mcp_capabilities(
-                    acp::McpCapabilities::new()
-                        .http(true)
-                        .sse(true),
-                ),
-            )
-            .agent_info(
-                acp::Implementation::new("forge".to_string(), VERSION.to_string())
-                    .title("Forge Code".to_string()),
-            ))
-    }
 
     /// Handles ACP authentication.
     ///
@@ -48,6 +29,38 @@ impl<S> AcpAdapter<S> {
 }
 
 impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
+    pub(super) async fn handle_initialize(
+        &self,
+        arguments: acp::InitializeRequest,
+    ) -> std::result::Result<acp::InitializeResponse, acp::Error> {
+        tracing::info!("Received initialize request from client: {:?}", arguments.client_info);
+
+        // ACP can only advertise commands for a session, so a client has
+        // nothing to offer until the user sends a first message. Publish the
+        // same list here too, in the `_meta` field ACP reserves for exactly
+        // this; clients that do not read it still get the session update.
+        let mut meta = serde_json::Map::new();
+        meta.insert(
+            "availableCommands".to_string(),
+            serde_json::to_value(self.available_commands().await?)
+                .map_err(|error| acp::Error::into_internal_error(&error))?,
+        );
+
+        Ok(acp::InitializeResponse::new(acp::ProtocolVersion::V1)
+            .agent_capabilities(
+                acp::AgentCapabilities::new().load_session(true).mcp_capabilities(
+                    acp::McpCapabilities::new()
+                        .http(true)
+                        .sse(true),
+                ),
+            )
+            .agent_info(
+                acp::Implementation::new("forge".to_string(), VERSION.to_string())
+                    .title("Forge Code".to_string()),
+            )
+            .meta(meta))
+    }
+
     pub(super) async fn handle_new_session(
         &self,
         arguments: acp::NewSessionRequest,
@@ -119,12 +132,13 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
 
     /// Advertises forge's custom commands so ACP clients can offer them as
     /// slash commands. A prompt starting with `/name` runs that command.
-    pub(super) async fn send_available_commands(
+    /// Custom commands loaded from disk plus the built-ins forge can run for
+    /// a client.
+    pub(super) async fn available_commands(
         &self,
-        session_id: &acp::SessionId,
-    ) -> std::result::Result<(), acp::Error> {
+    ) -> std::result::Result<Vec<acp::AvailableCommand>, acp::Error> {
         use crate::CommandLoaderService;
-        let commands = self
+        Ok(self
             .services
             .get_commands()
             .await
@@ -136,7 +150,15 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
                         acp::UnstructuredCommandInput::new("arguments"),
                     ))
             })
-            .collect();
+            .chain(super::builtin_commands::builtin_commands())
+            .collect())
+    }
+
+    pub(super) async fn send_available_commands(
+        &self,
+        session_id: &acp::SessionId,
+    ) -> std::result::Result<(), acp::Error> {
+        let commands = self.available_commands().await?;
         let notification = acp::SessionNotification::new(
             session_id.clone(),
             acp::SessionUpdate::AvailableCommandsUpdate(acp::AvailableCommandsUpdate::new(commands)),

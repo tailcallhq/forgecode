@@ -1,4 +1,5 @@
 mod adapter;
+mod builtin_commands;
 mod conversion;
 mod error;
 mod prompt_handler;

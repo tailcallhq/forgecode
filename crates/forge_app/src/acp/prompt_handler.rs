@@ -16,6 +16,14 @@ use super::adapter::AcpAdapter;
 use super::conversion;
 use super::error::{self, Error, Result};
 
+/// Splits `/name rest` into the command name and the text after it.
+fn slash_command(prompt_text: &str) -> Option<(&str, &str)> {
+    let rest = prompt_text.trim_start().strip_prefix('/')?;
+    let name_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    let (name, arguments) = rest.split_at(name_end);
+    (!name.is_empty()).then(|| (name, arguments.trim()))
+}
+
 impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
     pub(super) async fn handle_prompt(
         &self,
@@ -49,6 +57,23 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
         }
 
         let prompt_text = prompt_text_parts.join("\n");
+
+        // Built-in commands are answered by forge directly: no model turn.
+        if let Some((name, command_arguments)) = slash_command(&prompt_text)
+            && let Some(result) = self.run_builtin_command(&session, name, command_arguments).await
+        {
+            let text = result
+                .map_err(|error| acp::Error::into_internal_error(error.as_ref() as &dyn std::error::Error))?;
+            let notification = acp::SessionNotification::new(
+                arguments.session_id.clone(),
+                acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk::new(
+                    acp::ContentBlock::Text(acp::TextContent::new(text)),
+                )),
+            );
+            self.send_notification_now(notification).await.map_err(error::into_acp_error)?;
+            return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
+        }
+
         let mut event = self.command_event(&prompt_text).await?
             .unwrap_or_else(|| Event::new(EventValue::text(prompt_text)));
         event.attachments = attachments;
@@ -86,11 +111,7 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
         prompt_text: &str,
     ) -> std::result::Result<Option<Event>, acp::Error> {
         use crate::CommandLoaderService;
-        let Some(rest) = prompt_text.trim_start().strip_prefix('/') else {
-            return Ok(None);
-        };
-        let mut parts = rest.split_whitespace();
-        let Some(name) = parts.next() else {
+        let Some((name, command_arguments)) = slash_command(prompt_text) else {
             return Ok(None);
         };
         let commands = self
@@ -101,7 +122,8 @@ impl<S: Services + EnvironmentInfra<Config = ForgeConfig>> AcpAdapter<S> {
         let Some(command) = commands.into_iter().find(|command| command.name == name) else {
             return Ok(None);
         };
-        let parameters: Vec<String> = parts.map(str::to_string).collect();
+        let parameters: Vec<String> =
+            command_arguments.split_whitespace().map(str::to_string).collect();
         let value = if parameters.is_empty() {
             command.prompt.unwrap_or_default()
         } else {
