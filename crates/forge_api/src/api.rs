@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use anyhow::Result;
 use forge_app::dto::ToolsOverview;
 use forge_app::{User, UserUsage};
-use forge_domain::{AgentId, Effort, ModelId, ProviderModels};
+use forge_domain::{
+    AgentId, Effort, ForgeExportOptions, ForgeExportReport, ForgeImportOptions, ForgeImportReport,
+    HeliosdoctorInfo, ModelId, ProviderModels,
+};
 use forge_stream::MpscStream;
 use futures::stream::BoxStream;
 use url::Url;
@@ -78,6 +81,103 @@ pub trait API: Sync + Send {
     /// # Errors
     /// Returns an error if the operation fails
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> Result<()>;
+
+    /// Lists all subagent conversations for a given parent conversation
+    async fn get_subagents(&self, parent_id: &ConversationId) -> Result<Vec<Conversation>>;
+
+    /// Lists all top-level (parent) conversations, excluding subagents
+    async fn get_parent_conversations(&self, limit: Option<usize>) -> Result<Vec<Conversation>>;
+
+    /// Lite variant that returns only metadata columns (no context blobs).
+    /// Use for the TUI conversation list selector to avoid loading multi-MB
+    /// context data for every conversation.
+    async fn get_parent_conversations_lite(
+        &self,
+        limit: Option<usize>,
+        all_workspaces: bool,
+    ) -> Result<Vec<ConversationSummary>>;
+
+    /// Lists conversations by source (e.g., "interactive", "headless",
+    /// "forge-p")
+    async fn get_conversations_by_source(
+        &self,
+        source: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<Conversation>>;
+
+    /// By-reference variant of [`Self::upsert_conversation`]. Avoids the
+    /// per-call `Conversation` clone on hot paths (orchestrator loop, service
+    /// `modify_conversation`). Preferred for code that already holds a
+    /// `&Conversation`.
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> Result<()>;
+
+    /// Full-text search over conversation titles and context, scoped to the
+    /// current workspace. Backed by the FTS5 virtual table installed by
+    /// migration `2026-06-14-000002_add_fts5_to_conversations`. Results are
+    /// ranked by BM25.
+    ///
+    /// Returns an empty `Vec` when the query matches zero rows (the underlying
+    /// repo returns `Option<Vec<...>>`; `None` is flattened to `vec![]`).
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<Conversation>>;
+
+    /// Reclaim FTS5 segment shadow data. Compacts per-segment shadow trees
+    /// back into a single segment, reducing query-time shadow-walk cost and
+    /// disk footprint. Safe to call at any time; safe to call repeatedly.
+    async fn optimize_fts_index(&self) -> Result<()>;
+
+    /// Rewinds the conversation to the most recent user turn that preceded
+    /// a tool call (treated as the implicit last compaction point). Truncates
+    /// all messages from that point forward and returns the updated
+    /// conversation. Returns `Ok(None)` if no compaction point was found.
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> Result<Option<Conversation>>;
+
+    /// Re-binds a subagent conversation to a different parent. Pass `None`
+    /// for `new_parent_id` to detach (promotes the subagent to a top-level
+    /// session). Atomic single-row update; does not recurse into descendants.
+    async fn update_parent_id(
+        &self,
+        conversation_id: &ConversationId,
+        new_parent_id: Option<&ConversationId>,
+    ) -> Result<()>;
+
+    /// Retrieves conversations whose `cwd` column matches the given path
+    /// exactly. Used by the session viewer to filter by current working
+    /// directory (per-project scoping).
+    async fn get_conversations_by_cwd(
+        &self,
+        cwd: &str,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<Conversation>>>;
+
+    /// Return an FTS5 snippet for a (conversation, query) pair — a short
+    /// highlighted excerpt of the matched passage. Used by the search UI
+    /// to render a preview pane when the user picks a search hit.
+    async fn get_conversation_snippet(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        token_count: usize,
+    ) -> Result<Option<String>>;
+
+    /// Return the full FTS5-highlighted context for a (conversation, query)
+    /// pair with caller-supplied opening/closing markup (e.g. `<b>`, `</b>`).
+    /// Returns the entire context column with each match span wrapped in
+    /// markup, or `None` if the conversation rowid is missing or the FTS5
+    /// query has no match for that row.
+    async fn get_conversation_highlight(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        open_mark: &str,
+        close_mark: &str,
+    ) -> Result<Option<String>>;
 
     /// Renames a conversation by setting its title
     ///
@@ -265,4 +365,60 @@ pub trait API: Sync + Send {
 
     /// Check the OAuth authentication status of an MCP server
     async fn mcp_auth_status(&self, server_url: &str) -> Result<String>;
+
+    /// Idempotent maintenance command: zstd-compress all conversation rows
+    /// where `is_compressed = 0` and `context IS NOT NULL`.
+    ///
+    /// Returns `(compressed, skipped, errors)` counts.
+    async fn compress_uncompressed_contexts(&self) -> Result<(usize, usize, usize)>;
+
+    /// One-way import from an official forge-lineage database.
+    ///
+    /// The source database is opened read-only and is never modified.
+    /// Existing conversation IDs are skipped, making the import idempotent.
+    async fn import_forge_db(&self, source: PathBuf) -> Result<ForgeImportReport>;
+
+    /// One-way import with explicit options (`dry_run`, `verbose`).
+    /// When `dry_run` is set, the source DB is scanned but no rows are
+    /// inserted. The inserts are wrapped in a single transaction.
+    async fn import_forge_db_with_options(
+        &self,
+        source: PathBuf,
+        options: &ForgeImportOptions,
+    ) -> Result<ForgeImportReport>;
+
+    /// One-way export to a freshly-created official-schema SQLite file.
+    /// Compressed rows are decompressed during the export.
+    async fn export_forge_db(
+        &self,
+        destination: PathBuf,
+        options: &ForgeExportOptions,
+    ) -> Result<ForgeExportReport>;
+
+    /// Returns environment diagnostics (base path, db path, updater channel,
+    /// binary identity). Cheap — no DB calls; reads config and argv[0].
+    async fn heliosdoctor(&self) -> Result<HeliosdoctorInfo>;
+
+    /// Same as `heliosdoctor`, but with database statistics populated when
+    /// `verbose` is `true`.
+    async fn heliosdoctor_verbose(&self, verbose: bool) -> Result<HeliosdoctorInfo>;
+
+    /// Fast health check: same as `heliosdoctor`, but `db_stats` is populated
+    /// by an integrity-only probe (PRAGMA integrity_check on the write DB and
+    /// legacy DB when split) that skips the COUNT queries the verbose variant
+    /// runs.
+    async fn heliosdoctor_integrity(&self) -> Result<HeliosdoctorInfo>;
+
+    /// Atomically migrate the legacy data directory to the canonical
+    /// location. For `helioslite`: `~/.forge` -> `~/.helioslite`. For
+    /// `forge`: `~/forge` -> `~/.forge`.
+    async fn migrate_data_dir(
+        &self,
+        options: &forge_domain::MigrateOptions,
+    ) -> Result<forge_domain::ForgeMigrateReport>;
+
+    /// Delete conversations matching the given filter. Idempotent and safe
+    /// to run while forge is otherwise idle.
+    async fn forget_conversations(&self, options: &ForgeForgetOptions)
+    -> Result<ForgeForgetReport>;
 }

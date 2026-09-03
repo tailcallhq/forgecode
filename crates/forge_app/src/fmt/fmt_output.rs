@@ -169,10 +169,14 @@ mod tests {
         let env = fixture_environment();
 
         let actual = fixture.to_content(&env);
+        let actual = match actual {
+            Some(ChatResponseContent::ToolOutput(output)) => Some(ChatResponseContent::ToolOutput(
+                strip_ansi_codes(&output).to_string(),
+            )),
+            value => value,
+        };
         let expected = Some(ChatResponseContent::ToolOutput(
-            DiffFormat::format("old content", "new content")
-                .diff()
-                .to_string(),
+            strip_ansi_codes(DiffFormat::format("old content", "new content").diff()).to_string(),
         ));
 
         assert_eq!(actual, expected);

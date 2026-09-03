@@ -1,0 +1,50 @@
+name: Platform Tests
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    types:
+    - opened
+    - synchronize
+    - reopened
+
+concurrency:
+  group: platform-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+jobs:
+  platform_matrix:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - os: macos-latest
+          target: aarch64-apple-darwin
+        - os: windows-latest
+          target: x86_64-pc-windows-msvc
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+    - name: Setup Protobuf Compiler
+      uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Setup Rust Toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+      with:
+        toolchain: stable
+        targets: ${{ matrix.target }}
+    - name: Run tests
+      run: cargo test --workspace
+      continue-on-error: true
+    - name: Run clippy
+      run: cargo clippy --workspace --all-targets --no-deps -- -D warnings
+    - name: Check formatting
+      run: cargo fmt --all -- --check

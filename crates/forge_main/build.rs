@@ -6,17 +6,14 @@ fn clean_version(version: &str) -> String {
 fn main() {
     // Priority order:
     // 1. APP_VERSION environment variable (for CI/CD builds)
-    // 2. Fallback to dev version
+    // 2. Package version from Cargo.toml for local/source builds
 
     let version = std::env::var("APP_VERSION")
         .map(|v| clean_version(&v))
-        .unwrap_or_else(|_| "0.1.0-dev".to_string());
+        .unwrap_or_else(|_| clean_version(&std::env::var("CARGO_PKG_VERSION").unwrap()));
 
     // Make version available to the application
     println!("cargo:rustc-env=CARGO_PKG_VERSION={version}");
-
-    // Make version available to the application
-    println!("cargo:rustc-env=CARGO_PKG_NAME=forge");
 
     // Ensure rebuild when environment changes
     println!("cargo:rerun-if-env-changed=APP_VERSION");

@@ -1,0 +1,20 @@
+[package]
+name = "perf_harness"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Per-agent resource-pooling harness (RSS, idle CPU, system-pool count)"
+
+[[bin]]
+name = "perf_harness"
+path = "src/main.rs"
+
+[dependencies]
+forge_daemon = { path = "../../crates/forge_daemon" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "time", "sync"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true

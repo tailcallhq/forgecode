@@ -348,7 +348,22 @@ fn into_response_failed_error(failed: oai::ResponseFailedEvent) -> anyhow::Error
         response_error = response_error.message(error.message);
     }
 
-    anyhow::Error::from(OpenAIError::Response(response_error)).context("Upstream response failed")
+    anyhow::Error::from(OpenAIError::Response(Box::new(response_error)))
+        .context("Upstream response failed")
+}
+
+fn into_response_error_error(error: oai::ResponseErrorEvent) -> anyhow::Error {
+    let mut response_error = OpenAIErrorResponse::default();
+    if let Some(code) = error.code {
+        response_error = response_error.code(OpenAIErrorCode::String(code));
+    }
+
+    if !error.message.is_empty() {
+        response_error = response_error.message(error.message);
+    }
+
+    anyhow::Error::from(OpenAIError::Response(Box::new(response_error)))
+        .context("Upstream response error")
 }
 
 impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
@@ -525,7 +540,7 @@ impl IntoDomain for BoxStream<StreamItem, anyhow::Error> {
                                 Some(Err(into_response_failed_error(failed)))
                             }
                             oai::ResponseStreamEvent::ResponseError(err) => {
-                                Some(Err(anyhow::anyhow!("Upstream error: {}", err.message)))
+                                Some(Err(into_response_error_error(err)))
                             }
                             _ => None,
                         },
@@ -888,10 +903,10 @@ mod tests {
         }
     }
 
-    fn fixture_response_error_event() -> oai::ResponseErrorEvent {
+    fn fixture_response_error_event(code: &str) -> oai::ResponseErrorEvent {
         oai::ResponseErrorEvent {
             sequence_number: 1,
-            code: Some("connection_error".to_string()),
+            code: Some(code.to_string()),
             message: "Connection error".to_string(),
             param: None,
         }
@@ -1461,7 +1476,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_stream_with_response_error() -> anyhow::Result<()> {
-        let error = fixture_response_error_event();
+        let error = fixture_response_error_event("server_error");
 
         let stream: ResponseStream = Box::pin(tokio_stream::iter([event(
             oai::ResponseStreamEvent::ResponseError(error),
@@ -1470,8 +1485,18 @@ mod tests {
         let mut stream_domain = stream.into_domain()?;
         let actual = stream_domain.next().await.unwrap();
 
-        assert!(actual.is_err());
-        assert!(actual.unwrap_err().to_string().contains("Upstream error"));
+        let actual = actual.unwrap_err();
+        assert!(actual.to_string().contains("Upstream response error"));
+        let code = actual
+            .downcast_ref::<OpenAIError>()
+            .and_then(|error| match error {
+                OpenAIError::Response(error) => {
+                    error.get_code_deep().and_then(|code| code.as_str())
+                }
+                OpenAIError::InvalidStatusCode(_) => None,
+            });
+
+        assert_eq!(code, Some("server_error"));
 
         Ok(())
     }

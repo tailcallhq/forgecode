@@ -1,0 +1,248 @@
+# =============================================================================
+# CircleCI — Parallel CI for multi-language projects
+# =============================================================================
+# Used alongside GitHub Actions for:
+#   - Parallel execution on free tier (3000 credits/mo)
+#   - Faster builds with machine executors
+#   - Additional build matrix coverage
+# =============================================================================
+
+version: 2.1
+
+# Orbs — reusable packages
+orbs:
+  rust: circleci/rust@1.6.1
+  python: circleci/python@2.1.1
+  node: circleci/node@6.3.0
+  go: circleci/go@1.11.2
+  trunk: trunk-io/trunk@1.0.0
+
+# Executors
+executors:
+  small:
+    docker:
+      - image: cimg/base:current
+    resource_class: small
+
+  medium:
+    docker:
+      - image: cimg/base:current
+    resource_class: medium
+
+  large:
+    docker:
+      - image: cimg/base:current
+    resource_class: large
+
+  rust-executor:
+    docker:
+      - image: cimg/rust:1.80
+    resource_class: medium
+
+  python-executor:
+    docker:
+      - image: cimg/python:3.12
+    resource_class: medium
+
+  go-executor:
+    docker:
+      - image: cimg/go:1.22
+    resource_class: medium
+
+  node-executor:
+    docker:
+      - image: cimg/node:22.0
+    resource_class: medium
+
+# Commands (reusable steps)
+commands:
+  install-rust-tools:
+    steps:
+      - run:
+          name: Install Rust tools
+          command: |
+            cargo install cargo-deny cargo-audit || true
+
+  install-python-tools:
+    steps:
+      - run:
+          name: Install Python tools
+          command: |
+            pip install uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+
+  install-go-tools:
+    steps:
+      - run:
+          name: Install Go tools
+          command: |
+            go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+  save-deps-cache:
+    parameters:
+      key:
+        type: string
+    steps:
+      - save_cache:
+          key: deps-{{ .Branch }}-<< parameters.key >>-{{ checksum "package-lock.json" }}{{ checksum "Cargo.lock" }}{{ checksum "go.sum" }}{{ checksum "uv.lock" }}
+          paths:
+            - ~/.cargo
+            - ~/.cache/pip
+            - node_modules
+            - vendor
+
+  restore-deps-cache:
+    parameters:
+      key:
+        type: string
+    steps:
+      - restore_cache:
+          keys:
+            - deps-{{ .Branch }}-<< parameters.key >>-{{ checksum "package-lock.json" }}{{ checksum "Cargo.lock" }}{{ checksum "go.sum" }}{{ checksum "uv.lock" }}
+            - deps-{{ .Branch }}-<< parameters.key >>-
+            - deps-main-<< parameters.key >>-
+
+# Jobs
+jobs:
+  # --- TRUNK CHECK (unified) ---
+  trunk-lint:
+    executor: small
+    steps:
+      - checkout
+      - trunk-check:
+          trunk-args: [--ci=fix]
+
+  # --- RUST ---
+  rust-check:
+    executor: rust-executor
+    steps:
+      - checkout
+      - restore-deps-cache:
+          key: rust
+      - run:
+          name: Check formatting
+          command: cargo fmt --all -- --check
+      - run:
+          name: Clippy lints
+          command: cargo clippy --all-targets --all-features -- -D warnings
+      - run:
+          name: Run tests
+          command: cargo test --all --workspace
+      - save-deps-cache:
+          key: rust
+
+  rust-build:
+    executor: rust-executor
+    steps:
+      - checkout
+      - restore-deps-cache:
+          key: rust
+      - run:
+          name: Build release
+          command: cargo build --release
+      - save-deps-cache:
+          key: rust
+      - persist_to_workspace:
+          root: target
+          paths:
+            - release
+
+  # --- PYTHON ---
+  python-check:
+    executor: python-executor
+    steps:
+      - checkout
+      - install-python-tools
+      - restore-deps-cache:
+          key: python
+      - run:
+          name: Install dependencies
+          command: uv sync --all-extras
+      - run:
+          name: Ruff lint
+          command: uv run ruff check .
+      - run:
+          name: Ruff format check
+          command: uv run ruff format --check .
+      - run:
+          name: Type check
+          command: uv run mypy . || true
+      - run:
+          name: Run tests
+          command: uv run pytest --cov -v
+      - save-deps-cache:
+          key: python
+      - store_test_results:
+          path: test-results
+
+  # --- GO ---
+  go-check:
+    executor: go-executor
+    steps:
+      - checkout
+      - restore-deps-cache:
+          key: go
+      - run:
+          name: Vet
+          command: go vet ./...
+      - run:
+          name: Lint
+          command: |
+            go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+            golangci-lint run
+      - run:
+          name: Test
+          command: go test -v -race -coverprofile=coverage.out ./...
+      - store_artifacts:
+          path: coverage.out
+      - save-deps-cache:
+          key: go
+
+  # --- TYPESCRIPT ---
+  node-check:
+    executor: node-executor
+    steps:
+      - checkout
+      - restore-deps-cache:
+          key: node
+      - run:
+          name: Install deps
+          command: npm ci || true
+      - run:
+          name: Lint
+          command: npx biome lint . || npx eslint . || true
+      - run:
+          name: Format check
+          command: npx biome format --check . || npx prettier --check . || true
+      - run:
+          name: Test
+          command: npm test || true
+      - save-deps-cache:
+          key: node
+
+# Workflows
+workflows:
+  version: 2
+  ci:
+    jobs:
+      - trunk-lint
+      - rust-check:
+          filters:
+            branches:
+              only: /.*/
+            tags:
+              only: /^v.*/
+      - rust-build:
+          requires:
+            - rust-check
+      - python-check:
+          filters:
+            branches:
+              only: /.*/
+      - go-check:
+          filters:
+            branches:
+              only: /.*/
+      - node-check:
+          filters:
+            branches:
+              only: /.*/

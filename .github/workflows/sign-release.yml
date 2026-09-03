@@ -1,0 +1,133 @@
+name: Sign Release Binaries
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+jobs:
+  sign:
+    name: sign-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            pattern: "*apple-darwin*"
+            platform: macos
+          - os: windows-latest
+            pattern: "*windows-msvc*"
+            platform: windows
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+      MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+      MACOS_NOTARIZATION_APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_APPLE_ID }}
+      MACOS_NOTARIZATION_PWD: ${{ secrets.MACOS_NOTARIZATION_PWD }}
+      MACOS_NOTARIZATION_TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PWD: ${{ secrets.WINDOWS_CERTIFICATE_PWD }}
+    steps:
+      - name: Download release binaries
+        run: |
+          set -euo pipefail
+          mkdir -p binaries
+          gh release download "${{ github.event.release.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --dir binaries \
+            --pattern "${{ matrix.pattern }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # ── macOS Signing + Notarization ──
+      - if: matrix.platform == 'macos'
+        name: Import macOS certificate
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ env.MACOS_CERTIFICATE }}
+          KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
+        run: |
+          CERTIFICATE_PATH="${{ runner.temp }}/certificate.p12"
+          echo "$MACOS_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          KEYCHAIN_PATH="${{ runner.temp }}/app-signing.keychain-db"
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$MACOS_CERTIFICATE_PWD" -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+      - if: matrix.platform == 'macos'
+        name: Codesign macOS binaries
+        run: |
+          for bin in binaries/forge-*-apple-darwin binaries/helioslite-*-apple-darwin; do
+            [ -f "$bin" ] || continue
+            echo "Signing $bin..."
+            codesign --force --options runtime --timestamp \
+              --sign "$MACOS_SIGNING_IDENTITY" \
+              --keychain "${{ runner.temp }}/app-signing.keychain-db" \
+              "$bin"
+            codesign --verify --verbose "$bin"
+          done
+
+      - if: matrix.platform == 'macos'
+        name: Notarize macOS binaries
+        run: |
+          mkdir -p notarize
+          for bin in binaries/forge-*-apple-darwin binaries/helioslite-*-apple-darwin; do
+            [ -f "$bin" ] || continue
+            cp "$bin" notarize/
+          done
+          cd notarize
+          ZIPFILE="notarize-bundle.zip"
+          zip -r "$ZIPFILE" .
+          xcrun notarytool submit "$ZIPFILE" \
+            --apple-id "$MACOS_NOTARIZATION_APPLE_ID" \
+            --password "$MACOS_NOTARIZATION_PWD" \
+            --team-id "$MACOS_NOTARIZATION_TEAM_ID" \
+            --wait
+          cd ..
+          for bin in binaries/forge-*-apple-darwin binaries/helioslite-*-apple-darwin; do
+            [ -f "$bin" ] || continue
+            xcrun stapler staple "$bin"
+          done
+
+      # ── Windows Authenticode ──
+      - if: matrix.platform == 'windows'
+        name: Setup SignPath
+        uses: signpath/github-action-signpath-setup@v1
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-application-id: ${{ secrets.AZURE_APPLICATION_ID }}
+          azure-service-connection-id: ${{ secrets.SIGNPATH_SERVICE_CONNECTION_ID }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: forgecode
+          artifact-configuration-slug: default
+
+      - if: matrix.platform == 'windows'
+        name: Sign Windows binaries via SignPath
+        uses: signpath/signpath-action@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: forgecode
+          artifact-configuration-slug: default
+          artifact-to-sign: binaries/*.exe
+
+      # ── Re-upload signed binaries ──
+      - name: Re-upload signed binaries
+        run: |
+          set -euo pipefail
+          for f in binaries/*; do
+            [ -f "$f" ] || continue
+            fname=$(basename "$f")
+            echo "Uploading $fname..."
+            gh release upload "${{ github.event.release.tag_name }}" "$f" \
+              --repo "${{ github.repository }}" \
+              --clobber
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}

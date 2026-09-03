@@ -383,4 +383,24 @@ impl<
     fn get_env_vars(&self) -> std::collections::BTreeMap<String, String> {
         self.infra.get_env_vars()
     }
+
+    fn database_stats(
+        &self,
+    ) -> impl std::future::Future<Output = anyhow::Result<forge_domain::HeliosdoctorDbStats>> + Send
+    {
+        // Forward via the `EnvironmentInfra` impl on `F` because that's the
+        // richer, ATTACH-aware impl. The `ConversationRepository::database_stats`
+        // method shares the same name and an unqualified call would hit the
+        // multiple-applicable-items error.
+        <F as EnvironmentInfra>::database_stats(&*self.infra)
+    }
+
+    fn database_integrity(
+        &self,
+    ) -> impl std::future::Future<Output = anyhow::Result<forge_domain::HeliosdoctorDbStats>> + Send
+    {
+        // Same reasoning as `database_stats`: forward to the inner infra's
+        // PRAGMA-only override so `heliosdoctor --integrity-only` stays cheap.
+        <F as EnvironmentInfra>::database_integrity(&*self.infra)
+    }
 }

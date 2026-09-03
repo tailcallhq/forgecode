@@ -1,12 +1,50 @@
 [package]
 name = "forge_main"
-version = "0.1.0"
+version = "2.13.21"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
+description = "HeliosLite (formerly Forgecode) CLI — main crate. Hosts the canonical `helioslite` binary alongside the legacy `forge`/`forge-dev` aliases during the deprecation window. See docs/RENAMES-STRATEGY.md."
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+documentation.workspace = true
 
 [[bin]]
 name = "forge"
 path = "src/main.rs"
+
+[features]
+dev-binary = []
+
+[[bin]]
+name = "forge-dev"
+path = "src/main.rs"
+required-features = ["dev-binary"]
+
+# HeliosLite canonical binary (Gate 1b, additive). Same entry point as forge /
+# forge-dev, distinct binary name. The package *name* on crates.io remains
+# `forge_main` until the canonical rename lands in a later gate.
+[[bin]]
+name = "helioslite"
+path = "src/main.rs"
+
+
+# Self-update helper.  Replaces the scaffolded PowerShell + cmd pair
+# (`helioslite-update.ps1` and `_helioslite_swap.cmd`) that the main binary
+# used to generate at runtime via `crates/forge_main/src/update.rs::
+# windows_update_command()`.  Doing the whole download+verify+wait+swap
+# +relaunch flow in one small binary removes the encoding traps the PS1
+# scaffold hit on Windows PowerShell 5.1 and collapses six process hops into
+# one detached subprocess.  See crates/forge_main/src/bin/helioslite_helper.rs
+# for the invocation contract.
+#
+# Cross-platform builds compile a stub that returns exit code 2; the helper
+# is Windows-only at runtime (the main binary's update.rs short-circuits to
+# the POSIX `curl | sh` path on non-Windows).
+[[bin]]
+name = "helioslite_helper"
+path = "src/bin/helioslite_helper.rs"
 
 
 [dependencies]
@@ -18,6 +56,7 @@ forge_app.workspace = true
 forge_api.workspace = true
 forge_domain.workspace = true
 forge_config.workspace = true
+forge_repo.workspace = true
 forge_walker.workspace = true
 forge_display.workspace = true
 forge_tracker.workspace = true
@@ -26,7 +65,6 @@ bstr.workspace = true
 forge_spinner.workspace = true
 forge_select.workspace = true
 
-merge.workspace = true
 nucleo.workspace = true
 nucleo-picker.workspace = true
 libc = "0.2"
@@ -67,19 +105,33 @@ include_dir.workspace = true
 indexmap.workspace = true
 async-recursion.workspace = true
 
+# ureq is in the dep graph transitively via `update-informer`, but we also
+# use it directly in `helioslite_helper` to download the new binary at
+# runtime. Pinned to the same major as the transitive dep so we share one
+# build of the crate.
+ureq = { version = "3.4", default-features = false, features = ["_tls"] }
+
 forge_markdown_stream.workspace = true
 strip-ansi-escapes.workspace = true
 terminal_size = "0.4"
 rustls.workspace = true
 tempfile.workspace = true
 tiny_http.workspace = true
+# jemalloc on macOS ARM64 triggers bug #2532 (HPA probes every 4KB page → 14s cold
+# init vs 25ms baseline). Gate to Linux only; use mimalloc on macOS for similar
+# fragmentation wins without the ARM64 regression.
+[target.'cfg(target_os = "linux")'.dependencies]
+tikv-jemallocator.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+mimalloc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 enable-ansi-support.workspace = true
 windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
-arboard = "3.4"
+arboard = { version = "3.4", default-features = false }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
@@ -88,3 +140,16 @@ pretty_assertions.workspace = true
 serial_test = "4.0"
 fake = { version = "5.1.0", features = ["derive"] }
 forge_domain = { path = "../forge_domain" }
+diesel = { version = "2.3.7", features = ["sqlite"] }
+
+[package.metadata.bundle]
+# Terminal-Forge visual identity (proposed 2026-07-06 by vision-pillar).
+# Phenotype-org addition (not present in upstream tailcallhq/forgecode).
+# Icon source of truth: ../../assets/brand/forgecode-icon.svg.
+name = "forgecode"
+identifier = "ai.kooshapari.forgecode"
+icon = ["../../assets/icons/forgecode.iconset"]
+resources = []
+category = "DeveloperTool"
+short_description = "AI-enhanced terminal development environment"
+long_description = "Agentic coding CLI/TUI with ZSH plugin support."

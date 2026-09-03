@@ -1,0 +1,34 @@
+[package]
+name = "forgecode-desktop"
+version = "0.1.0"
+edition = "2024"
+description = "ForgeCode Desktop — Tauri GUI wrapper for the ForgeCode AI coding agent"
+license = "MIT"
+rust-version = "1.97"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "fs"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Internal workspace crates — path deps that resolve within the monorepo.
+forge_api = { path = "../crates/forge_api" }
+forge_sdk = { path = "../crates/forge_sdk" }
+forge_config = { path = "../crates/forge_config" }
+forge_domain = { path = "../crates/forge_domain" }
+forge_infra = { path = "../crates/forge_infra" }
+forge_repo = { path = "../crates/forge_repo" }
+forge_services = { path = "../crates/forge_services" }
+tokio-stream = "0.1"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

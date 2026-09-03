@@ -46,6 +46,52 @@ pub struct Conversation {
     pub context: Option<Context>,
     pub metrics: Metrics,
     pub metadata: MetaData,
+    pub parent_id: Option<ConversationId>,
+    pub source: Option<String>,
+    /// Working directory of the agent when the conversation was created.
+    /// Used for grouping / filtering in the session selector and for FTS5
+    /// search so a user can find sessions by cwd fragment (e.g. "forgecode").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    /// Number of message entries in `context.messages` at the time of the
+    /// last write. Used to display a turn count in the session selector
+    /// and as a stable secondary sort key when the user picks "by turns".
+    /// Kept as a column (not a derived getter) so the selector does not
+    /// have to deserialize the full Context blob for every row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_count: Option<i32>,
+}
+
+/// Lightweight conversation summary for list selectors.
+///
+/// Contains only the metadata columns needed by the TUI conversation
+/// picker (id, title, timestamps, message_count, cwd, parent_id).
+/// Unlike [`Conversation`], this type does **not** include the `context`
+/// blob, so it can be fetched without decompressing/deserialising the
+/// full conversation history — a >100x reduction in per-row memory cost.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationSummary {
+    pub id: ConversationId,
+    pub title: Option<String>,
+    pub parent_id: Option<ConversationId>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: Option<DateTime<Utc>>,
+    pub message_count: Option<i32>,
+    pub cwd: Option<String>,
+}
+
+impl From<Conversation> for ConversationSummary {
+    fn from(c: Conversation) -> Self {
+        Self {
+            id: c.id,
+            title: c.title,
+            parent_id: c.parent_id,
+            created_at: c.metadata.created_at,
+            updated_at: c.metadata.updated_at,
+            message_count: c.message_count,
+            cwd: c.cwd,
+        }
+    }
 }
 
 #[derive(Debug, Setters, Serialize, Deserialize, Clone)]
@@ -61,6 +107,61 @@ impl MetaData {
     }
 }
 
+/// Sort key for the session viewer selector.
+///
+/// Each variant maps to an `ORDER BY` clause in the `conversations` table.
+/// `Default` is `Updated` because the most common workflow is "show me what
+/// I was working on most recently" — especially after a crash recovery when
+/// the user is trying to find the parent session of a stranded subagent.
+#[derive(Debug, Default, Display, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConversationSort {
+    /// Sort by `updated_at` DESC (most recent first). Default.
+    #[default]
+    #[display("updated")]
+    Updated,
+    /// Sort by `created_at` DESC (newest first).
+    #[display("created")]
+    Created,
+    /// Sort by `message_count` DESC, then `updated_at` DESC.
+    /// This is the canonical "turns" view the user asked for.
+    #[display("turns")]
+    Turns,
+    /// Sort by `title` ASC, NULLS LAST.
+    #[display("title")]
+    Title,
+    /// Sort by `cwd` ASC, NULLS LAST, then `updated_at` DESC.
+    /// Useful for finding all sessions in a specific repo.
+    #[display("cwd")]
+    Cwd,
+}
+
+impl ConversationSort {
+    /// Stable lowercase identifier used for CLI parsing and storage.
+    /// Also used by the UI handler for `:sort <key>` echo.
+    pub fn name(self) -> &'static str {
+        match self {
+            ConversationSort::Updated => "updated",
+            ConversationSort::Created => "created",
+            ConversationSort::Turns => "turns",
+            ConversationSort::Title => "title",
+            ConversationSort::Cwd => "cwd",
+        }
+    }
+
+    /// Parse a sort key from a user-supplied string. Unknown keys fall
+    /// back to `Updated` and the caller is expected to print a hint.
+    pub fn parse(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "created" => ConversationSort::Created,
+            "turns" | "messages" | "msgs" => ConversationSort::Turns,
+            "title" | "name" | "alphabetical" => ConversationSort::Title,
+            "cwd" | "dir" | "directory" => ConversationSort::Cwd,
+            _ => ConversationSort::Updated,
+        }
+    }
+}
+
 impl Conversation {
     pub fn new(id: ConversationId) -> Self {
         let created_at = Utc::now();
@@ -71,6 +172,10 @@ impl Conversation {
             metadata: MetaData::new(created_at),
             title: None,
             context: None,
+            parent_id: None,
+            source: None,
+            cwd: None,
+            message_count: None,
         }
     }
     /// Creates a new conversation with a new conversation ID.

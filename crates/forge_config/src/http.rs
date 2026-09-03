@@ -34,7 +34,6 @@ pub struct HttpConfig {
     pub pool_idle_timeout_secs: u64,
     pub pool_max_idle_per_host: usize,
     pub max_redirects: usize,
-    pub hickory: bool,
     pub tls_backend: TlsBackend,
     /// Minimum TLS protocol version to use
     pub min_tls_version: Option<TlsVersion>,
@@ -68,7 +67,6 @@ mod tests {
             pool_idle_timeout_secs: 90,
             pool_max_idle_per_host: 5,
             max_redirects: 10,
-            hickory: false,
             tls_backend: TlsBackend::Default,
             min_tls_version: None,
             max_tls_version: None,

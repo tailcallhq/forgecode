@@ -1,0 +1,81 @@
+name: Performance Benchmarks
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    name: benchmark (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Setup Protobuf Compiler
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          components: rustfmt
+      - name: Cache cargo registry
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: bench-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: bench-${{ runner.os }}-cargo-
+
+      - name: Build release binary
+        run: cargo build --release
+      - name: Build forge_dbd
+        run: cargo build --release -p forge_dbd
+
+      - name: Run startup benchmark
+        shell: bash
+        run: |
+          BINARY="target/release/forge"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            BINARY="target/release/forge.exe"
+          fi
+          echo "=== Startup Time Benchmark ==="
+          echo "Binary: $BINARY"
+          echo "Platform: $(uname -a)"
+          echo ""
+
+          echo "Cold starts (5 iterations):"
+          for i in 1 2 3 4 5; do
+            START=$(date +%s%N)
+            "$BINARY" --version > /dev/null 2>&1 || true
+            END=$(date +%s%N)
+            ELAPSED=$(( (END - START) / 1000000 ))
+            echo "  Run $i: ${ELAPSED}ms"
+          done
+          echo ""
+
+          # Binary size
+          echo "Binary sizes:"
+          ls -lh "$BINARY" target/release/forge_dbd* 2>/dev/null || true
+
+      - name: Upload benchmark results
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: benchmark-${{ runner.os }}
+          path: |
+            target/release/forge
+            target/release/forge_dbd
+          retention-days: 7

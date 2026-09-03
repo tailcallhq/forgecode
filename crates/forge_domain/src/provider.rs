@@ -88,6 +88,7 @@ impl ProviderId {
     pub const KIMI_CODING: ProviderId = ProviderId(Cow::Borrowed("kimi_coding"));
     pub const MOONSHOT: ProviderId = ProviderId(Cow::Borrowed("moonshot"));
     pub const ALIBABA_TOKEN_PLAN: ProviderId = ProviderId(Cow::Borrowed("alibaba_token_plan"));
+    pub const OLLAMA: ProviderId = ProviderId(Cow::Borrowed("ollama"));
 
     /// Returns all built-in provider IDs
     ///
@@ -135,6 +136,7 @@ impl ProviderId {
             ProviderId::KIMI_CODING,
             ProviderId::MOONSHOT,
             ProviderId::ALIBABA_TOKEN_PLAN,
+            ProviderId::OLLAMA,
         ]
     }
 

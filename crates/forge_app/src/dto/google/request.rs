@@ -482,6 +482,8 @@ impl From<forge_domain::TextMessage> for Content {
             forge_domain::Role::User => Some(Role::User),
             forge_domain::Role::Assistant => Some(Role::Model),
             forge_domain::Role::System => None, // System messages are handled separately
+            // Gemini represents function responses as user-role content.
+            forge_domain::Role::Tool => Some(Role::User),
         };
 
         let mut parts = Vec::new();

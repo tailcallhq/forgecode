@@ -54,6 +54,14 @@ impl ForgeCommandExecutorService {
         // Other common tools
         command.env("GREP_OPTIONS", "--color=always"); // GNU grep
 
+        // Windows cmd.exe stops resolving commands once PATH exceeds its
+        // ~2047-char batch limit. Pass a deduplicated, length-capped PATH so
+        // tools like `curl` still resolve even with a polluted PATH.
+        #[cfg(windows)]
+        if let Some(path) = sanitize_windows_path() {
+            command.env("PATH", path);
+        }
+
         let parameter = if is_windows { "/C" } else { "-c" };
         command.arg(parameter);
 
@@ -146,6 +154,59 @@ impl ForgeCommandExecutorService {
             exit_code: status.code(),
             command,
         })
+    }
+}
+
+/// Builds a sanitized PATH for child processes on Windows.
+///
+/// cmd.exe stops resolving commands once PATH exceeds its ~2047-char batch
+/// limit, so a PATH polluted with duplicates (e.g. the user PATH mirroring the
+/// whole system PATH) silently breaks every shell command. Deduplicate the
+/// entries, always keep the critical System directories first, and cap the
+/// total length so spawned cmd.exe instances can always resolve tools.
+#[cfg(windows)]
+fn sanitize_windows_path() -> Option<String> {
+    const MAX_PATH_LEN: usize = 1900;
+
+    let system_root =
+        std::env::var_os("SystemRoot").unwrap_or_else(|| std::ffi::OsString::from("C:\\Windows"));
+    let mut seen = std::collections::HashSet::new();
+    let mut parts: Vec<String> = Vec::new();
+
+    // Always resolve these even if the caller's PATH is completely broken.
+    let critical = [
+        PathBuf::from(&system_root).join("System32"),
+        PathBuf::from(&system_root).join("System32").join("Wbem"),
+        PathBuf::from(&system_root)
+            .join("System32")
+            .join("WindowsPowerShell")
+            .join("v1.0"),
+    ];
+    for dir in critical {
+        let key = dir.to_string_lossy().to_lowercase();
+        if seen.insert(key) {
+            parts.push(dir.to_string_lossy().into_owned());
+        }
+    }
+
+    let mut total: usize = parts.iter().map(|p| p.len() + 1).sum();
+    for entry in std::env::split_paths(&std::env::var_os("PATH")?) {
+        let entry = entry.to_string_lossy();
+        let key = entry.to_lowercase();
+        if entry.is_empty() || !seen.insert(key) {
+            continue;
+        }
+        total += entry.len() + 1;
+        if total > MAX_PATH_LEN {
+            break;
+        }
+        parts.push(entry.into_owned());
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(";"))
     }
 }
 
@@ -315,7 +376,15 @@ mod tests {
             expected.stdout = format!("'{}'", expected.stdout);
         }
 
-        assert_eq!(actual.stdout.trim(), expected.stdout.trim());
+        // cmd.exe emits the quotes literally and terminates the line with CRLF
+        // *after* the closing quote, while the expected string keeps the
+        // newline inside the quotes; strip line endings from both sides so
+        // the comparison is line-ending agnostic.
+        let strip_newlines = |s: &str| s.replace("\r", "").replace("\n", "");
+        assert_eq!(
+            strip_newlines(actual.stdout.trim()),
+            strip_newlines(expected.stdout.trim())
+        );
         assert_eq!(actual.stderr, expected.stderr);
         assert_eq!(actual.success(), expected.success());
     }
@@ -457,8 +526,14 @@ mod tests {
             expected.stdout = format!("'{}'", expected.stdout);
         }
 
-        // The output should still be captured in the CommandOutput
-        assert_eq!(actual.stdout.trim(), expected.stdout.trim());
+        // The output should still be captured in the CommandOutput. cmd.exe
+        // terminates the quoted output with CRLF *after* the closing quote,
+        // so strip line endings from both sides before comparing.
+        let strip_newlines = |s: &str| s.replace("\r", "").replace("\n", "");
+        assert_eq!(
+            strip_newlines(actual.stdout.trim()),
+            strip_newlines(expected.stdout.trim())
+        );
         assert_eq!(actual.stderr, expected.stderr);
         assert_eq!(actual.success(), expected.success());
     }

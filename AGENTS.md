@@ -244,3 +244,38 @@ impl<R: UserRepository, C: Cache, L: Logger> BadUserService<R, C, L> {
 // BAD: Usage becomes cumbersome
 let service = BadUserService::<PostgresRepo, RedisCache, FileLogger>::new(...);
 ```
+
+## Process Management
+
+**Never stop the user's interactive `forge` / `helioslite` sessions.**
+These are the user's live chats. Killing one drops the user's in-flight
+conversation. They look identical to background processes in
+`Get-Process`, but they are NOT — a running `forge.exe` or `helioslite.exe`
+on this machine is almost always an interactive session the user wants to
+keep alive.
+
+Hard rules:
+
+- `forge.exe`, `helioslite.exe`, `forge.exe` (rebranded heliosLite binary) —
+  **never** `Stop-Process`, `taskkill`, or otherwise kill. If a shell
+  command needs to overwrite one of these binaries and the live process
+  is holding a file lock, work around it (rename the live binary aside,
+  write the new one in its place, ask the user to relaunch — but do NOT
+  kill the live process).
+- `forge_dbd.exe` is the background daemon (spawned by `forge` when
+  `FORGE_DBD_ENABLED=1`). The user does not interact with it directly,
+  so a graceful shutdown is acceptable, but still ask first or warn
+  before killing.
+- If unsure whether a process is interactive, **assume it is interactive**
+  and ask.
+
+For binary upgrades of a locked interactive binary, prefer:
+
+1. Rename the live binary aside first (Windows allows rename of an
+   in-use file; only the open handles stay, and the file content is
+   replaced at the new path on next launch).
+2. `Copy-Item` the new binary to the original path.
+3. Tell the user to relaunch — do NOT kill the live process.
+
+Do not add `Stop-Process` steps to install / upgrade scripts without an
+explicit interactive confirmation from the user.

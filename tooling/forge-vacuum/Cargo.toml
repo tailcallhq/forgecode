@@ -1,0 +1,19 @@
+[workspace]
+
+[package]
+name = "forge-vacuum"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Phenotype-org tooling for safe SQLite vacuum maintenance in the forgecode project."
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4", features = ["derive", "env"] }
+dirs = "6"
+rusqlite = { version = "0.32", features = ["bundled"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+

@@ -34,7 +34,7 @@ pub struct ForgePolicyService<I> {
 /// Default policies loaded once at startup from the embedded YAML file
 static DEFAULT_POLICIES: LazyLock<PolicyConfig> = LazyLock::new(|| {
     let yaml_content = include_str!("./permissions.default.yaml");
-    serde_yml::from_str(yaml_content).expect(
+    serde_yaml_ng::from_str(yaml_content).expect(
         "Failed to parse default policies YAML. This should never happen as the YAML is embedded.",
     )
 });
@@ -82,7 +82,7 @@ where
         }
 
         let content = self.infra.read_utf8(&policies_path).await?;
-        let policies = serde_yml::from_str(&content)
+        let policies = serde_yaml_ng::from_str(&content)
             .with_context(|| format!("Failed to parse policy {}", policies_path.display()))?;
 
         Ok(Some(policies))
@@ -97,7 +97,7 @@ where
         policies = policies.add_policy(policy);
 
         // Serialize the updated policies to YAML
-        let new_content = serde_yml::to_string(&policies)
+        let new_content = serde_yaml_ng::to_string(&policies)
             .with_context(|| "Failed to serialize policies to YAML")?;
 
         // Write the updated content
@@ -119,7 +119,7 @@ where
 
         // Get the default policies content
         let default_policies = Self::load_default_policies();
-        let content = serde_yml::to_string(&default_policies)
+        let content = serde_yaml_ng::to_string(&default_policies)
             .with_context(|| "Failed to serialize default policies to YAML")?;
 
         // Write the default policies to the file

@@ -1223,10 +1223,28 @@ mod tests {
     use std::path::PathBuf;
 
     use pretty_assertions::assert_eq;
+    use serde_json::{Map, Value};
     use strum::IntoEnumIterator;
 
     use super::Shell;
     use crate::{ToolCatalog, ToolKind, ToolName};
+
+    fn canonical_json(value: Value) -> Value {
+        match value {
+            Value::Array(values) => Value::Array(values.into_iter().map(canonical_json).collect()),
+            Value::Object(object) => {
+                let mut entries = object.into_iter().collect::<Vec<_>>();
+                entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+                let mut sorted = Map::new();
+                for (key, value) in entries {
+                    sorted.insert(key, canonical_json(value));
+                }
+                Value::Object(sorted)
+            }
+            value => value,
+        }
+    }
 
     #[test]
     fn test_tool_definition() {
@@ -1251,7 +1269,7 @@ mod tests {
     fn test_tool_definition_json() {
         let tools = ToolCatalog::iter()
             .map(|tool| {
-                let definition = tool.definition().input_schema;
+                let definition = canonical_json(tool.definition().input_schema.into());
                 serde_json::to_string_pretty(&definition)
                     .expect("Failed to serialize tool definition to JSON")
             })

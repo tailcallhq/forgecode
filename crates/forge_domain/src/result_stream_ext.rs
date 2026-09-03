@@ -259,11 +259,10 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
         // Get phase from the last message that has one
         let phase = messages.iter().rev().find_map(|message| message.phase);
 
-        // A refusal/content-filter finish is deterministic - the provider
-        // will return the same result for the same request - so it must not
-        // enter the retry loop (issue #3624). Tool calls alongside a
-        // content-filter finish are left to the normal flow.
-        if finish_reason == Some(FinishReason::ContentFilter) && tool_calls.is_empty() {
+        // An Anthropic refusal finish is deterministic - the provider will
+        // return the same result for the same request - so it must not enter
+        // the retry loop. Content filters remain provider-neutral completions.
+        if finish_reason == Some(FinishReason::Refusal) && tool_calls.is_empty() {
             return Err(crate::Error::Refusal.into());
         }
 
@@ -1235,7 +1234,7 @@ mod tests {
         // request yields the same refusal. It must NOT surface as the
         // retryable EmptyCompletion error (issue #3624).
         let messages = vec![Ok(ChatCompletionMessage::assistant(Content::part(""))
-            .finish_reason(FinishReason::ContentFilter))];
+            .finish_reason(FinishReason::Refusal))];
         let fixture: BoxStream<ChatCompletionMessage, anyhow::Error> =
             Box::pin(tokio_stream::iter(messages));
 
@@ -1255,7 +1254,7 @@ mod tests {
                 "I was about to say",
             ))),
             Ok(ChatCompletionMessage::assistant(Content::part(""))
-                .finish_reason(FinishReason::ContentFilter)),
+                .finish_reason(FinishReason::Refusal)),
         ];
         let fixture: BoxStream<ChatCompletionMessage, anyhow::Error> =
             Box::pin(tokio_stream::iter(messages));
@@ -1264,6 +1263,19 @@ mod tests {
 
         let domain_error = actual.downcast_ref::<crate::Error>().unwrap();
         assert!(matches!(domain_error, crate::Error::Refusal));
+    }
+
+    #[tokio::test]
+    async fn test_into_full_content_filter_remains_a_completion() {
+        let messages = vec![Ok(ChatCompletionMessage::assistant(Content::part(""))
+            .finish_reason(FinishReason::ContentFilter))];
+        let fixture: BoxStream<ChatCompletionMessage, anyhow::Error> =
+            Box::pin(tokio_stream::iter(messages));
+
+        let actual = fixture.into_full(false).await.unwrap();
+
+        let expected = Some(FinishReason::ContentFilter);
+        assert_eq!(actual.finish_reason, expected);
     }
 
     #[tokio::test]

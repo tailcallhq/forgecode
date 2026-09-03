@@ -215,7 +215,7 @@ impl From<StopReason> for forge_domain::FinishReason {
             StopReason::MaxTokens => forge_domain::FinishReason::Length,
             StopReason::StopSequence => forge_domain::FinishReason::Stop,
             StopReason::ToolUse => forge_domain::FinishReason::ToolCalls,
-            StopReason::Refusal => forge_domain::FinishReason::ContentFilter,
+            StopReason::Refusal => forge_domain::FinishReason::Refusal,
         }
     }
 }
@@ -870,12 +870,12 @@ mod tests {
     }
 
     #[test]
-    fn test_refusal_maps_to_content_filter() {
+    fn test_refusal_maps_to_refusal() {
         let fixture = StopReason::Refusal;
 
         let actual = forge_domain::FinishReason::from(fixture);
 
-        let expected = forge_domain::FinishReason::ContentFilter;
+        let expected = forge_domain::FinishReason::Refusal;
         assert_eq!(actual, expected);
     }
 }

@@ -32,7 +32,12 @@ pub fn register_templates(hb: &mut Handlebars<'_>, dir: &'static Dir<'static>) {
         });
         let content = file
             .contents_utf8()
-            .unwrap_or_else(|| panic!("embedded template '{}' is not valid UTF-8", name));
+            .unwrap_or_else(|| panic!("embedded template '{}' is not valid UTF-8", name))
+            // git stores templates with LF endings; on Windows checkouts
+            // (autocrlf) the embedded bytes carry CRLF, which leaks into
+            // rendered output and breaks snapshot determinism. Normalize to
+            // the authored LF bytes so rendering is identical on all platforms.
+            .replace("\r\n", "\n");
         hb.register_template_string(name, content)
             .unwrap_or_else(|e| panic!("failed to register template '{}': {}", name, e));
     }

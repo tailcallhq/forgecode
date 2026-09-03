@@ -1,0 +1,57 @@
+# Phenotype forgecode — Cargo Deny Configuration
+# https://github.com/KooshaPari/forgecode
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",
+    "0BSD",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "Unlicense",
+    "CDLA-Permissive-2.0",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+]
+
+[advisories]
+db-path = "$CARGO_HOME/advisory-db"
+ignore = [
+    # Pre-existing fork-specific ignores inherited from tailcallhq/forgecode upstream.
+    # Tracked for resolution when upstream bumps affected transitive deps.
+    # Tracking: https://github.com/KooshaPari/forgecode/issues — upstream-dependency-advisories label.
+    { id = "RUSTSEC-2026-0118", reason = "Transitive dep from upstream forgecode workspace; no direct use in Phenotype additions; pending upstream resolution." },
+    { id = "RUSTSEC-2026-0119", reason = "Transitive dep from upstream forgecode workspace; no direct use in Phenotype additions; pending upstream resolution." },
+    # Unmaintained-transitive advisories surfaced via upstream forgecode workspace
+    # deps (no direct use in Phenotype additions). All have "no safe upgrade"
+    # per RustSec; resolution depends on upstream tailcallhq/forgecode bumps.
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1.x unmaintained; transitive via upstream workspace deps; bincode 2.x migration is upstream-owned." },
+    { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; transitive via proc-macro deps; paste! macro not invoked directly in Phenotype additions." },
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained (folded into rustls-pki-types); transitive via upstream rustls stack; pending upstream bump." },
+    # h2 0.3.x empty-DATA-frames (low severity). No fix exists in the 0.3 line
+    # (latest is 0.3.27; RustSec patched only 0.4.16), and the 0.3 instance is
+    # pinned by the dev-only chain rocket 0.5.1 -> rocket_http -> hyper 0.14
+    # (rocket 0.5.1 is the latest rocket; hyper 0.14.32 is the latest 0.14).
+    # Re-evaluate when hyper 0.14 / rocket ship a fix or the dev-dep moves to
+    # hyper 1 (which uses h2 0.4).
+    { id = "RUSTSEC-2026-0258", reason = "h2 0.3.27 via dev-only rocket->hyper 0.14 chain; no 0.3.x fix exists (patched in 0.4.16 only); low severity; pending upstream dep bump." },
+
+    # Note: RUSTSEC-2026-0049 (advisory-not-detected) entry already removed in 40114d8dc.
+]
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+highlight = "all"
+workspace-default-features = "warn"
+
+[sources]
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

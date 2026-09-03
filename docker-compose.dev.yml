@@ -1,0 +1,54 @@
+# docker-compose.dev.yml — Forgecode development environment
+# Mounts source for hot-reload, caches Rust/Python/Node artifacts.
+# Usage: docker compose -f docker-compose.dev.yml up --build
+#        docker compose -f docker-compose.dev.yml exec dev bash
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        BUILDKIT_INLINE_CACHE: "1"
+    container_name: forgecode-dev
+    working_dir: /workspace
+    volumes:
+      # ── Source mounts (hot-reload) ────────────────────────
+      - .:/workspace
+      # ── Rust build cache (speeds up incremental builds) ───
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/workspace/target
+      # ── Python cache ──────────────────────────────────────
+      - pip-cache:/root/.cache/pip
+      # ── Node modules (persist between rebuilds) ───────────
+      - node-modules:/workspace/node_modules
+    environment:
+      - CARGO_INCREMENTAL=1
+      - CARGO_NET_GIT_FETCH_WITH_CLI=true
+      - RUST_BACKTRACE=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8080:8080"   # Default server port
+    # Keep container alive for interactive use
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test: ["CMD", "cargo", "check", "--workspace"]
+      interval: 120s
+      timeout: 60s
+      retries: 2
+      start_period: 30s
+
+volumes:
+  cargo-registry:
+    driver: local
+  cargo-git:
+    driver: local
+  cargo-target:
+    driver: local
+  pip-cache:
+    driver: local
+  node-modules:
+    driver: local

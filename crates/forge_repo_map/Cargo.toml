@@ -1,0 +1,28 @@
+[package]
+name = "forge_repo_map"
+version = "0.1.1"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+ignore.workspace = true
+derive_setters.workspace = true
+thiserror.workspace = true
+streaming-iterator = "0.1"
+
+# Tree-sitter core and language grammars
+tree-sitter = "0.24"
+tree-sitter-rust = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-go = "0.23"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true

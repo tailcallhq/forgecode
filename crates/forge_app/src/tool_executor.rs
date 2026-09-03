@@ -339,6 +339,7 @@ impl<
         })
     }
 
+    #[tracing::instrument(skip(self, context), fields(tool = %tool_input.kind()))]
     pub async fn execute(
         &self,
         tool_input: ToolCatalog,

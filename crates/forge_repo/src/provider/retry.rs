@@ -80,11 +80,7 @@ enum RetryableApiErrorCode {
 }
 
 impl RetryableApiErrorCode {
-    fn matches(self, code: &ErrorCode) -> bool {
-        let Some(code) = code.as_str() else {
-            return false;
-        };
-
+    fn matches(self, code: &str) -> bool {
         match self {
             RetryableApiErrorCode::Transport => TRANSPORT_ERROR_CODES.contains(&code),
             RetryableApiErrorCode::OpenAIServer => OPENAI_RETRYABLE_ERROR_CODES.contains(&code),
@@ -97,7 +93,13 @@ fn has_error_code(error: &ErrorResponse, retryable_code: RetryableApiErrorCode) 
     let has_direct_code = error
         .code
         .as_ref()
-        .is_some_and(|code| retryable_code.matches(code));
+        .and_then(ErrorCode::as_str)
+        .is_some_and(|code| retryable_code.matches(code))
+        || error
+            .type_of
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|error_type| retryable_code.matches(error_type));
 
     if has_direct_code {
         return true;
@@ -177,12 +179,12 @@ mod tests {
         } else {
             ErrorResponse::default()
         };
-        anyhow::Error::from(Error::Response(error))
+        anyhow::Error::from(Error::Response(Box::new(error)))
     }
 
     fn fixture_transport_error(code: &str) -> anyhow::Error {
         let error = ErrorResponse::default().code(ErrorCode::String(code.to_string()));
-        anyhow::Error::from(Error::Response(error))
+        anyhow::Error::from(Error::Response(Box::new(error)))
     }
 
     fn fixture_nested_transport_error(code: &str, depth: usize) -> anyhow::Error {
@@ -190,7 +192,7 @@ mod tests {
         for _ in 0..depth {
             error = ErrorResponse::default().error(Box::new(error));
         }
-        anyhow::Error::from(Error::Response(error))
+        anyhow::Error::from(Error::Response(Box::new(error)))
     }
 
     #[test]
@@ -216,12 +218,12 @@ mod tests {
 
         // String status code that parses to retryable number
         let error = ErrorResponse::default().code(ErrorCode::String("429".to_string()));
-        let error = anyhow::Error::from(Error::Response(error));
+        let error = anyhow::Error::from(Error::Response(Box::new(error)));
         assert!(is_retryable(into_retry(error, &retry_config)));
 
         // String status code that parses to non-retryable number
         let error = ErrorResponse::default().code(ErrorCode::String("404".to_string()));
-        let error = anyhow::Error::from(Error::Response(error));
+        let error = anyhow::Error::from(Error::Response(Box::new(error)));
         assert!(!is_retryable(into_retry(error, &retry_config)));
     }
 
@@ -268,7 +270,7 @@ mod tests {
         let retry_config = fixture_retry_config(vec![]);
 
         // Empty error is retryable
-        let error = anyhow::Error::from(Error::Response(ErrorResponse::default()));
+        let error = anyhow::Error::from(Error::Response(Box::default()));
         assert!(is_retryable(into_retry(error, &retry_config)));
 
         // Generic error is not retryable
@@ -304,23 +306,23 @@ mod tests {
         assert!(has_error_code(&error, RetryableApiErrorCode::Transport));
 
         // is_empty_error
-        let error = anyhow::Error::from(Error::Response(ErrorResponse::default()));
+        let error = anyhow::Error::from(Error::Response(Box::default()));
         assert!(is_empty_error(&error));
 
-        let error = anyhow::Error::from(Error::Response(
+        let error = anyhow::Error::from(Error::Response(Box::new(
             ErrorResponse::default().message("Error".to_string()),
-        ));
+        )));
         assert!(!is_empty_error(&error));
 
-        let error = anyhow::Error::from(Error::Response(
+        let error = anyhow::Error::from(Error::Response(Box::new(
             ErrorResponse::default().code(ErrorCode::Number(500)),
-        ));
+        )));
         assert!(!is_empty_error(&error));
 
         let nested = ErrorResponse::default().message("Nested".to_string());
-        let error = anyhow::Error::from(Error::Response(
+        let error = anyhow::Error::from(Error::Response(Box::new(
             ErrorResponse::default().error(Box::new(nested)),
-        ));
+        )));
         assert!(!is_empty_error(&error));
 
         // is_api_transport_error
@@ -342,25 +344,42 @@ mod tests {
 
     #[test]
     fn test_openai_server_errors_are_retryable() {
-        let fixture = fixture_retry_config(vec![]);
+        let retry_config = fixture_retry_config(vec![]);
 
         for code in OPENAI_RETRYABLE_ERROR_CODES {
-            let error = anyhow::Error::from(Error::Response(
+            let fixture = anyhow::Error::from(Error::Response(Box::new(
                 ErrorResponse::default().code(ErrorCode::String(code.to_string())),
-            ));
-            let actual = is_retryable(into_retry(error, &fixture));
+            )));
+            let actual = is_retryable(into_retry(fixture, &retry_config));
             let expected = true;
 
             assert_eq!(actual, expected, "{code} should be retryable");
         }
 
-        let error = anyhow::Error::from(Error::Response(
+        let fixture = anyhow::Error::from(Error::Response(Box::new(
             ErrorResponse::default().code(ErrorCode::String("rate_limit".to_string())),
-        ));
-        let actual = is_retryable(into_retry(error, &fixture));
+        )));
+        let actual = is_retryable(into_retry(fixture, &retry_config));
         let expected = false;
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_type_only_openai_server_errors_are_retryable() {
+        let retry_config = fixture_retry_config(vec![]);
+
+        for error_type in ["server_is_overloaded", "server_error"] {
+            let fixture = anyhow::Error::from(Error::Response(Box::new(ErrorResponse {
+                type_of: Some(serde_json::Value::String(error_type.to_string())),
+                ..Default::default()
+            })));
+
+            assert!(
+                is_retryable(into_retry(fixture, &retry_config)),
+                "type {error_type} should be retryable"
+            );
+        }
     }
 
     #[test]

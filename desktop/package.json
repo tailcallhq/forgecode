@@ -1,0 +1,15 @@
+{
+  "name": "forgecode-desktop",
+  "version": "0.1.0",
+  "description": "ForgeCode Desktop — Tauri GUI for the AI coding agent",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "icon": "tauri icon"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

@@ -1,10 +1,10 @@
 ---
 source: crates/forge_repo/src/provider/openai_responses/request.rs
-expression: actual.tools
+expression: tools
 ---
 [
   {
-    "type": "function",
+    "description": "Run a shell command",
     "name": "shell",
     "parameters": {
       "additionalProperties": false,
@@ -39,6 +39,6 @@ expression: actual.tools
       "type": "object"
     },
     "strict": true,
-    "description": "Run a shell command"
+    "type": "function"
   }
 ]

@@ -1,12 +1,67 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use chrono::Utc;
-use forge_api::Conversation;
-use forge_domain::ConversationId;
+use forge_domain::{ConversationId, ConversationSort, ConversationSummary};
 use forge_select::{ForgeWidget, PreviewLayout, PreviewPlacement, SelectRow};
 
 use crate::display_constants::markers;
-use crate::info::Info;
-use crate::porcelain::Porcelain;
+
+/// Fast display format for a conversation row in the selector.
+/// Avoids the Info/Porcelain overhead for large conversation lists.
+struct FastConversationRow<'a> {
+    conv: &'a ConversationSummary,
+    now: chrono::DateTime<Utc>,
+}
+
+impl<'a> FastConversationRow<'a> {
+    fn new(conv: &'a ConversationSummary, now: chrono::DateTime<Utc>) -> Self {
+        Self { conv, now }
+    }
+}
+
+impl<'a> std::fmt::Display for FastConversationRow<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let title = self.conv.title.as_deref().unwrap_or(markers::EMPTY);
+
+        // Truncate title to fixed width (50 chars) with ellipsis if longer
+        let max_title_width = 50;
+        let title_display = if title.chars().count() > max_title_width {
+            format!(
+                "{}…",
+                title.chars().take(max_title_width).collect::<String>()
+            )
+        } else {
+            title.to_string()
+        };
+
+        // Pad title to fixed width for alignment
+        let title_padded = format!("{:<width$}", title_display, width = max_title_width + 1);
+
+        let duration = self
+            .now
+            .signed_duration_since(self.conv.updated_at.unwrap_or(self.conv.created_at));
+        let time_ago = if duration.num_seconds() < 60 {
+            "now".to_string()
+        } else if duration.num_minutes() < 60 {
+            format!("{}m ago", duration.num_minutes())
+        } else if duration.num_hours() < 24 {
+            format!("{}h ago", duration.num_hours())
+        } else {
+            format!("{}d ago", duration.num_days())
+        };
+
+        // Subagent breadcrumb: show ↳ prefix when conversation has a parent
+        let breadcrumb = if self.conv.parent_id.is_some() {
+            "↳ "
+        } else {
+            ""
+        };
+
+        // Fixed-column date alignment (right-aligned in 10-char field)
+        write!(f, "{}{} {:>10}", breadcrumb, title_padded, time_ago)
+    }
+}
 
 /// Logic for selecting conversations from a list
 pub struct ConversationSelector;
@@ -19,96 +74,138 @@ impl ConversationSelector {
     /// `forge conversation show` to display the selected conversation's
     /// metadata and last message side-by-side with the picker list.
     ///
-    /// Returns the selected conversation, or None if the user cancelled.
+    /// The `query` parameter filters/searches conversations if provided
+    /// (enables FTS). The `sort` parameter controls the display order
+    /// (updated, created, turns, title, cwd).
+    ///
+    /// Returns the selected conversation ID, or None if the user cancelled.
+    /// The caller should use `ForgeAPI::conversation()` to load the full
+    /// `Conversation` (with context) only when needed.
     pub async fn select_conversation(
-        conversations: &[Conversation],
+        conversations: &[ConversationSummary],
         _current_conversation_id: Option<ConversationId>,
         query: Option<String>,
-    ) -> Result<Option<Conversation>> {
+        sort: ConversationSort,
+    ) -> Result<Option<ConversationId>> {
         if conversations.is_empty() {
             return Ok(None);
         }
 
-        // Filter to conversations with titles and context
-        let valid_conversations: Vec<&Conversation> = conversations
+        // Build the list of conversations to display, optionally filtered by query
+        let mut final_conversations: Vec<&ConversationSummary> = conversations
             .iter()
-            .filter(|c| c.context.is_some())
+            .filter(|c| {
+                // Apply query filter if provided
+                if let Some(ref q) = query {
+                    let q_lower = q.to_lowercase();
+                    c.title
+                        .as_ref()
+                        .map(|t| t.to_lowercase().contains(&q_lower))
+                        .unwrap_or(false)
+                } else {
+                    true
+                }
+            })
             .collect();
 
-        if valid_conversations.is_empty() {
+        if final_conversations.is_empty() {
             return Ok(None);
         }
 
-        // Build Info structure for display
-        let now = Utc::now();
-        let mut info = Info::new();
-
-        for conv in &valid_conversations {
-            let title = conv
-                .title
-                .as_deref()
-                .map(|t| t.to_string())
-                .unwrap_or_else(|| markers::EMPTY.to_string());
-
-            let duration = now.signed_duration_since(
-                conv.metadata.updated_at.unwrap_or(conv.metadata.created_at),
-            );
-            let duration =
-                std::time::Duration::from_secs((duration.num_minutes() * 60).max(0) as u64);
-            let time_ago = if duration.is_zero() {
-                "now".to_string()
-            } else {
-                format!("{} ago", humantime::format_duration(duration))
-            };
-
-            info = info
-                .add_title(conv.id)
-                .add_key_value("Title", title)
-                .add_key_value("Updated", time_ago);
-        }
-
-        // Convert to porcelain, drop the UUID title column (col 0), truncate the
-        // Title column for display, uppercase headers
-        let porcelain_output = Porcelain::from(&info)
-            .drop_col(0)
-            .truncate(0, 60)
-            .uppercase_headers();
-        let porcelain_str = porcelain_output.to_string();
-
-        let all_lines: Vec<&str> = porcelain_str.lines().collect();
-        if all_lines.is_empty() {
-            return Ok(None);
-        }
-
-        // Build SelectRow items for the shared Rust selector UI.
-        // Each row stores the UUID in `fields[0]` so that `{1}` in the preview
-        // command resolves to the conversation ID. The `raw` field is what gets
-        // returned on selection (the UUID).
-        let mut rows: Vec<SelectRow> = Vec::with_capacity(all_lines.len());
-
-        // Header row (non-selectable via header_lines=1)
-        if let Some(header) = all_lines.first() {
-            rows.push(SelectRow::header(header.to_string()));
-        }
-
-        // Data rows: each maps to a conversation
-        for (i, line) in all_lines.iter().skip(1).enumerate() {
-            if let Some(conv) = valid_conversations.get(i) {
-                let uuid = conv.id.to_string();
-                rows.push(SelectRow {
-                    raw: uuid.clone(),
-                    display: line.to_string(),
-                    search: line.to_string(),
-                    fields: vec![uuid],
-                });
+        // Apply sorting based on the current sort order
+        final_conversations.sort_by(|a, b| {
+            match sort {
+                ConversationSort::Updated => {
+                    // Most recent first (DESC)
+                    let a_time = a.updated_at.unwrap_or(a.created_at);
+                    let b_time = b.updated_at.unwrap_or(b.created_at);
+                    b_time.cmp(&a_time)
+                }
+                ConversationSort::Created => {
+                    // Newest first (DESC)
+                    b.created_at.cmp(&a.created_at)
+                }
+                ConversationSort::Turns => {
+                    // By message count (DESC), then by updated_at (DESC)
+                    match (b.message_count, a.message_count) {
+                        (Some(b_count), Some(a_count)) => {
+                            let count_cmp = b_count.cmp(&a_count);
+                            if count_cmp != std::cmp::Ordering::Equal {
+                                count_cmp
+                            } else {
+                                let a_time = a.updated_at.unwrap_or(a.created_at);
+                                let b_time = b.updated_at.unwrap_or(b.created_at);
+                                b_time.cmp(&a_time)
+                            }
+                        }
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => {
+                            let a_time = a.updated_at.unwrap_or(a.created_at);
+                            let b_time = b.updated_at.unwrap_or(b.created_at);
+                            b_time.cmp(&a_time)
+                        }
+                    }
+                }
+                ConversationSort::Title => {
+                    // Alphabetical ASC, nulls last
+                    match (&a.title, &b.title) {
+                        (Some(a_title), Some(b_title)) => a_title.cmp(b_title),
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => std::cmp::Ordering::Equal,
+                    }
+                }
+                ConversationSort::Cwd => {
+                    // By cwd ASC, nulls last; then by updated_at DESC
+                    match (&a.cwd, &b.cwd) {
+                        (Some(a_cwd), Some(b_cwd)) => {
+                            let cwd_cmp = a_cwd.cmp(b_cwd);
+                            if cwd_cmp != std::cmp::Ordering::Equal {
+                                cwd_cmp
+                            } else {
+                                let a_time = a.updated_at.unwrap_or(a.created_at);
+                                let b_time = b.updated_at.unwrap_or(b.created_at);
+                                b_time.cmp(&a_time)
+                            }
+                        }
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => {
+                            let a_time = a.updated_at.unwrap_or(a.created_at);
+                            let b_time = b.updated_at.unwrap_or(b.created_at);
+                            b_time.cmp(&a_time)
+                        }
+                    }
+                }
             }
-        }
+        });
 
-        // Build a lookup map from UUID to Conversation for the result
-        let conv_map: std::collections::HashMap<String, Conversation> = valid_conversations
-            .into_iter()
-            .map(|c| (c.id.to_string(), c.clone()))
+        // Build a map from UUID to display index for quick lookup.
+        let uuid_to_idx: HashMap<String, usize> = final_conversations
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.id.to_string(), i))
             .collect();
+
+        // Build SelectRow items directly — no Info/Porcelain overhead.
+        // This keeps the selector fast even with thousands of conversations.
+        let now = Utc::now();
+        let mut rows: Vec<SelectRow> = Vec::with_capacity(final_conversations.len() + 1);
+        rows.push(SelectRow::header(
+            "Title                                          Updated   ",
+        ));
+
+        for conv in &final_conversations {
+            let uuid = conv.id.to_string();
+            let display = FastConversationRow::new(conv, now).to_string();
+            rows.push(SelectRow {
+                raw: uuid.clone(),
+                display: display.clone(),
+                search: display,
+                fields: vec![uuid],
+            });
+        }
 
         let preview_command =
             "CLICOLOR_FORCE=1 forge conversation info {1}; echo; CLICOLOR_FORCE=1 forge conversation show {1}"
@@ -125,47 +222,57 @@ impl ConversationSelector {
         })
         .await??;
 
-        Ok(selected_uuid.and_then(|uuid| conv_map.get(&uuid).cloned()))
+        Ok(selected_uuid.and_then(|uuid| {
+            uuid_to_idx
+                .get(&uuid)
+                .and_then(|_idx| ConversationId::parse(uuid).ok())
+        }))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use forge_api::Conversation;
-    use forge_domain::{ConversationId, MetaData, Metrics};
+    use forge_domain::ConversationId;
     use pretty_assertions::assert_eq;
 
     use super::*;
 
-    fn create_test_conversation(id: &str, title: Option<&str>) -> Conversation {
+    fn create_test_summary(id: &str, title: Option<&str>) -> ConversationSummary {
         let now = Utc::now();
-        Conversation {
+        ConversationSummary {
             id: ConversationId::parse(id).unwrap(),
             title: title.map(|t| t.to_string()),
-            context: None,
-            metrics: Metrics::default().started_at(now),
-            metadata: MetaData { created_at: now, updated_at: Some(now) },
+            parent_id: None,
+            created_at: now,
+            updated_at: Some(now),
+            message_count: None,
+            cwd: None,
         }
     }
 
     #[tokio::test]
     async fn test_select_conversation_empty_list() {
         let conversations = vec![];
-        let result = ConversationSelector::select_conversation(&conversations, None, None)
-            .await
-            .unwrap();
+        let result = ConversationSelector::select_conversation(
+            &conversations,
+            None,
+            None,
+            ConversationSort::Updated,
+        )
+        .await
+        .unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn test_select_conversation_with_titles() {
         let conversations = [
-            create_test_conversation(
+            create_test_summary(
                 "550e8400-e29b-41d4-a716-446655440000",
                 Some("First Conversation"),
             ),
-            create_test_conversation(
+            create_test_summary(
                 "550e8400-e29b-41d4-a716-446655440001",
                 Some("Second Conversation"),
             ),
@@ -177,8 +284,8 @@ mod tests {
     #[test]
     fn test_select_conversation_without_titles() {
         let conversations = [
-            create_test_conversation("550e8400-e29b-41d4-a716-446655440002", None),
-            create_test_conversation("550e8400-e29b-41d4-a716-446655440003", None),
+            create_test_summary("550e8400-e29b-41d4-a716-446655440002", None),
+            create_test_summary("550e8400-e29b-41d4-a716-446655440003", None),
         ];
 
         assert_eq!(conversations.len(), 2);

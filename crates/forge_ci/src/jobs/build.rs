@@ -1,4 +1,4 @@
-use gh_workflow::*;
+use crate::workflow_model::Job;
 
 use crate::jobs::release_build_job::release_build_job;
 
@@ -6,4 +6,3 @@ use crate::jobs::release_build_job::release_build_job;
 pub fn create_build_release_job_for_publishing() -> Job {
     release_build_job("${{ github.event.release.tag_name }}", true)
 }
-

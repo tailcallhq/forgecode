@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/KooshaPari/forgecode/docs/contracts/provider-models/provider-model.schema.json",
+  "title": "ProviderModelContract",
+  "description": "Language-agnostic contract for the provider/model registry shared across forgecode (Rust), OmniRoute (TypeScript), and cliproxy (Go). Version: 1.0.0. Each repo implements this contract in its native language; forgecode's forge_domain crate is the reference implementation.",
+  "version": "1.0.0",
+  "$defs": {
+    "ModelId": {
+      "type": "string",
+      "description": "Unique identifier for a model within a provider, e.g. 'claude-3-5-sonnet-20241022' or 'gpt-4o'.",
+      "minLength": 1
+    },
+    "ProviderId": {
+      "type": "string",
+      "description": "Unique identifier for a provider, e.g. 'anthropic', 'openai', 'open_router'. Built-in providers use snake_case.",
+      "minLength": 1
+    },
+    "InputModality": {
+      "type": "string",
+      "enum": ["text", "image"],
+      "description": "Input modality supported by a model. 'text' is universal; 'image' indicates vision capability."
+    },
+    "Model": {
+      "type": "object",
+      "description": "A single model offered by a provider.",
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ModelId"
+        },
+        "name": {
+          "type": ["string", "null"],
+          "description": "Human-readable display name, e.g. 'Claude 3.5 Sonnet'."
+        },
+        "description": {
+          "type": ["string", "null"],
+          "description": "Short description of the model's characteristics."
+        },
+        "context_length": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Maximum context window in tokens. Null when unknown."
+        },
+        "tools_supported": {
+          "type": ["boolean", "null"],
+          "description": "Whether the model supports tool/function calling."
+        },
+        "supports_parallel_tool_calls": {
+          "type": ["boolean", "null"],
+          "description": "Whether the model can invoke multiple tools in a single response turn."
+        },
+        "supports_reasoning": {
+          "type": ["boolean", "null"],
+          "description": "Whether the model exposes a reasoning/thinking trace (e.g. Claude extended thinking, o1-series)."
+        },
+        "input_modalities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/InputModality" },
+          "default": ["text"],
+          "description": "Input modalities accepted by the model. Defaults to ['text'] when omitted."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProviderType": {
+      "type": "string",
+      "enum": ["llm", "context_engine"],
+      "description": "Category of the provider. 'llm' for chat completion providers (default); 'context_engine' for code indexing / search providers."
+    },
+    "AuthKind": {
+      "type": "string",
+      "enum": ["api_key", "oauth2", "aws_bedrock", "none"],
+      "description": "Authentication mechanism required by the provider. 'api_key': static bearer token. 'oauth2': device-flow or token-refresh required. 'aws_bedrock': AWS SigV4 signing. 'none': no auth (local/open providers)."
+    },
+    "ProviderConfig": {
+      "type": "object",
+      "description": "Configuration for a single provider, merging built-in defaults with user overrides.",
+      "required": ["id", "base_url"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ProviderId"
+        },
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Base URL for the provider's API endpoint."
+        },
+        "provider_type": {
+          "$ref": "#/$defs/ProviderType",
+          "default": "llm"
+        },
+        "auth_kind": {
+          "$ref": "#/$defs/AuthKind",
+          "default": "api_key"
+        },
+        "models": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Model" },
+          "description": "Explicit model list. If absent, the registry fetches the live model list from the provider's models endpoint."
+        },
+        "env_key": {
+          "type": ["string", "null"],
+          "description": "Name of the environment variable that holds the API key for this provider, e.g. 'OPENAI_API_KEY'."
+        }
+      },
+      "additionalProperties": false
+    },
+    "SseStopRule": {
+      "type": "object",
+      "description": "Defines the terminal-marker rule set for SSE streams. Reference implementation: forge_eventsource::is_sse_terminal.",
+      "properties": {
+        "terminal_data_values": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["[DONE]", ""],
+          "description": "SSE event data field values that signal end-of-stream. '[DONE]' is the canonical OpenAI/Anthropic sentinel; '' (empty) is a keepalive/implicit-end marker."
+        },
+        "openai_finish_reasons": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["stop", "length", "content_filter", "tool_calls", "function_call"],
+          "description": "Values of choices[0].finish_reason that indicate the model has finished generating."
+        },
+        "anthropic_stop_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["stop_reason", "message_delta.stop_reason"],
+          "description": "Anthropic SSE event fields that carry the stop reason."
+        },
+        "synthetic_done_on_silent_close": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, implementations must emit a synthetic [DONE] marker when the upstream connection closes without an explicit terminal event."
+        }
+      },
+      "additionalProperties": false
+    },
+    "OAuthRefreshPolicy": {
+      "type": "object",
+      "description": "Parameterized OAuth token refresh policy. The refresh_lead_seconds field is per-provider-overridable; the default 300 s matches all three repos (forgecode, OmniRoute, cliproxy for most providers). Providers with non-standard leads (e.g. codebuddy 86400 s) set their own override.",
+      "properties": {
+        "default_refresh_lead_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 300,
+          "description": "Default number of seconds before token expiry at which a refresh should be triggered. Equivalent to forgecode `chrono::Duration::minutes(5)`, OmniRoute `TOKEN_EXPIRY_BUFFER = 5*60*1000`, cliproxy `5 * time.Minute`."
+        },
+        "needs_refresh_semantics": {
+          "type": "string",
+          "const": "now + lead >= expires_at",
+          "description": "Boolean predicate: a token needs refresh when the current time plus the lead window meets or exceeds the expiry timestamp."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "description": "Top-level contract document. A registry implementation MUST satisfy the constraints for Model and ProviderConfig; SSE and OAuth rules are normative for stream and auth layers respectively.",
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Contract version following semver.",
+      "default": "1.0.0"
+    },
+    "providers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ProviderConfig" },
+      "description": "Array of provider configurations."
+    },
+    "sse_stop_rule": {
+      "$ref": "#/$defs/SseStopRule",
+      "description": "Normative SSE terminal-marker rules for all stream implementations."
+    },
+    "oauth_refresh_policy": {
+      "$ref": "#/$defs/OAuthRefreshPolicy",
+      "description": "Normative OAuth token refresh policy."
+    }
+  }
+}

@@ -1,0 +1,17 @@
+[package]
+name = "forge_syntax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "forge_syntax"
+path = "src/lib.rs"
+
+[dependencies]
+unicode-segmentation = "1.12"
+unicode-width.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true

@@ -5,6 +5,7 @@
 //! remains compatible. The plugin at `shell-plugin/forge.plugin.zsh` implements
 //! shell completion and command shortcuts that depend on the CLI structure.
 
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -54,6 +55,10 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub verbose: bool,
 
+    /// Run accessibility audit on CLI output.
+    #[arg(long, default_value_t = false)]
+    pub check_a11y: bool,
+
     /// Agent ID to use for this session.
     #[arg(long, alias = "aid")]
     pub agent: Option<AgentId>,
@@ -71,9 +76,15 @@ impl Cli {
     /// Determines whether the CLI should start in interactive mode.
     ///
     /// Returns true when no prompt, piped input, or subcommand is provided,
-    /// indicating the user wants to enter interactive mode.
+    /// **and** stdin is a TTY. Returns false when stdin is not a TTY even if
+    /// no other input was provided, so non-interactive contexts (CI, pipes,
+    /// detached shells) don't enter the prompt loop and hang on
+    /// `console::Term::read_line()`.
     pub fn is_interactive(&self) -> bool {
-        self.prompt.is_none() && self.piped_input.is_none() && self.subcommands.is_none()
+        self.prompt.is_none()
+            && self.piped_input.is_none()
+            && self.subcommands.is_none()
+            && std::io::stdin().is_terminal()
     }
 }
 
@@ -109,6 +120,9 @@ pub enum TopLevelCommand {
     /// Manage conversation history and state.
     #[command(alias = "session")]
     Conversation(ConversationCommandGroup),
+
+    /// Import standard Forge sessions into the isolated HeliosLite store.
+    Sessions(SessionsCommandGroup),
 
     /// Generate and optionally commit changes with AI-generated message
     Commit(CommitCommandGroup),
@@ -155,6 +169,231 @@ pub enum TopLevelCommand {
 
     /// Interactive fuzzy item picker.
     Select(SelectCommandGroup),
+
+    /// Database maintenance commands. Safe to run at any time; idempotent.
+    Maintenance(MaintenanceCommandGroup),
+
+    /// One-way import of conversations from an official forge-lineage SQLite
+    /// database.
+    Import(ImportCommandGroup),
+
+    /// One-way export of conversations from this repository to a
+    /// freshly-created official-schema SQLite file.
+    Export(ExportCommandGroup),
+
+    /// Migrate the legacy ~/.forge data directory into the canonical
+    /// ~/.helioslite data directory.
+    Migrate(MigrateArgs),
+
+    /// Run tests or benchmarks using `cargo test` / `cargo bench`.
+    Test(TestCommandGroup),
+
+    /// Delete conversations by exact id, source, or age.
+    Forget(ForgetArgs),
+
+    /// Print heliosLite/forge environment diagnostics (base path, db path,
+    /// updater channel, binary identity).
+    Heliosdoctor(HeliosdoctorArgs),
+}
+
+/// Arguments for `helioslite heliosdoctor` (or `forge heliosdoctor`).
+#[derive(Parser, Debug, Clone)]
+pub struct HeliosdoctorArgs {
+    /// Output in machine-readable format (key=value, one per line).
+    #[arg(long)]
+    pub porcelain: bool,
+
+    /// Output the full diagnostics report as JSON.
+    #[arg(long)]
+    pub json: bool,
+
+    /// Include database statistics (compression health, agent fanout,
+    /// oversized contexts, integrity check).
+    #[arg(short, long)]
+    pub verbose: bool,
+
+    /// Run only the fast integrity check (PRAGMA integrity_check on the write
+    /// DB and legacy DB when split) without the COUNT queries `--verbose`
+    /// performs. Prints the integrity result and the paths checked.
+    #[arg(long)]
+    pub integrity_only: bool,
+}
+
+/// Arguments for `helioslite migrate` (or `forge migrate`).
+#[derive(Parser, Debug, Clone)]
+pub struct MigrateArgs {
+    /// Compute the migration and report what would happen, but do not move
+    /// or rename anything.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+/// Command group for running tests and benchmarks.
+#[derive(Parser, Debug, Clone)]
+pub struct TestCommandGroup {
+    #[command(subcommand)]
+    pub command: TestSubcommand,
+}
+
+/// Sub-commands for `forge test`.
+#[derive(Subcommand, Debug, Clone)]
+pub enum TestSubcommand {
+    /// Run tests with optional package and test name filters.
+    Run {
+        /// Package name to test (passes `--package` to cargo).
+        #[arg(long)]
+        package: Option<String>,
+
+        /// Test name filter (passed as a cargo test filter argument).
+        #[arg(long)]
+        test: Option<String>,
+
+        /// Run benchmarks via `cargo bench` instead of `cargo test`.
+        #[arg(long)]
+        bench: bool,
+    },
+
+    /// Run all tests in the workspace.
+    All,
+
+    /// Run benchmarks using `cargo bench`.
+    Bench,
+}
+
+/// Arguments for `helioslite forget` (or `forge forget`).
+#[derive(Parser, Debug, Clone)]
+pub struct ForgetArgs {
+    /// Exact conversation IDs to delete (repeatable).
+    #[arg(long, value_name = "ID")]
+    pub ids: Vec<String>,
+
+    /// Delete all rows whose `source` column equals this value
+    /// (e.g. `imported:forge`, `agent`, `user`).
+    #[arg(long)]
+    pub source: Option<String>,
+
+    /// Delete rows where `updated_at` is older than `now - SECONDS`.
+    #[arg(long, value_name = "SECONDS")]
+    pub older_than_secs: Option<i64>,
+
+    /// Report what would be deleted without deleting anything.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+/// Output format for `helioslite export forge` (or `forge export forge`).
+#[derive(clap::ValueEnum, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ForgeExportFormatArg {
+    /// SQLite database mirroring the upstream forge schema (default).
+    #[default]
+    Sqlite,
+    /// Newline-delimited JSON.
+    Jsonl,
+    /// CSV with header row.
+    Csv,
+}
+
+impl From<ForgeExportFormatArg> for forge_domain::ForgeExportFormat {
+    fn from(value: ForgeExportFormatArg) -> Self {
+        match value {
+            ForgeExportFormatArg::Sqlite => forge_domain::ForgeExportFormat::Sqlite,
+            ForgeExportFormatArg::Jsonl => forge_domain::ForgeExportFormat::Jsonl,
+            ForgeExportFormatArg::Csv => forge_domain::ForgeExportFormat::Csv,
+        }
+    }
+}
+
+/// Command group for `forge maintenance` sub-commands.
+///
+/// All maintenance operations are idempotent and safe to run while forge is
+/// otherwise idle. They do not modify conversation content — only the storage
+/// layout of context blobs.
+#[derive(Parser, Debug, Clone)]
+pub struct MaintenanceCommandGroup {
+    #[command(subcommand)]
+    pub command: MaintenanceSubcommand,
+}
+
+/// Sub-commands for `forge maintenance`.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum MaintenanceSubcommand {
+    /// zstd-compress all conversation context blobs that are still stored as
+    /// plain text (`is_compressed = 0`). Safe to interrupt and re-run.
+    ///
+    /// Reports: rows compressed, rows skipped (already compressed or no
+    /// context), and rows that failed compression. Titles and timestamps
+    /// remain queryable throughout — only the raw blob column is rewritten.
+    Compress,
+}
+
+/// Command group for `forge import` sub-commands.
+#[derive(Parser, Debug, Clone)]
+pub struct ImportCommandGroup {
+    #[command(subcommand)]
+    pub command: ImportSubcommand,
+}
+
+/// Sub-commands for `forge import`.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum ImportSubcommand {
+    /// Import conversations from an official forge-lineage SQLite database
+    /// (plain `context` schema) into this repository.
+    ///
+    /// The source database is opened **read-only** and is never modified.
+    /// Rows whose `conversation_id` already exists locally are skipped, so
+    /// re-running the import is safe and idempotent.
+    Forge {
+        /// Path to the source `.forge.db` file to import from.
+        #[arg(value_name = "DB_PATH")]
+        db: PathBuf,
+
+        /// Scan the source and report what would be imported, but do not
+        /// write any rows. Honors `verbose` for per-row output.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Log each row's outcome (imported / skipped / failed) to stderr.
+        #[arg(short, long)]
+        verbose: bool,
+    },
+}
+
+/// Command group for `forge export` sub-commands.
+#[derive(Parser, Debug, Clone)]
+pub struct ExportCommandGroup {
+    #[command(subcommand)]
+    pub command: ExportSubcommand,
+}
+
+/// Sub-commands for `forge export`.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum ExportSubcommand {
+    /// Write conversations from this repository to a freshly-created database
+    /// at `destination`. Compressed rows are decompressed during the export so
+    /// the resulting file is readable by the official lineage.
+    ///
+    /// With `--dry-run`, the destination is not created and the report
+    /// reflects what would have been written.
+    Forge {
+        /// Path to the destination database file to write.
+        #[arg(value_name = "DB_PATH")]
+        db: PathBuf,
+
+        /// Scan the source and report what would be exported, but do not
+        /// create the destination file.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Output format: `sqlite` (default, upstream forge schema), `jsonl`,
+        /// or `csv`.
+        #[arg(long, value_enum, default_value = "sqlite")]
+        format: ForgeExportFormatArg,
+
+        /// Include agent-launched conversations in the export (skipped by
+        /// default, matching the interactive picker).
+        #[arg(long)]
+        include_agent: bool,
+    },
 }
 
 /// Command group for the `forge select` interactive picker.
@@ -714,6 +953,33 @@ pub struct ConversationCommandGroup {
     #[command(subcommand)]
     pub command: ConversationCommand,
 }
+
+/// Command group for HeliosLite session synchronization.
+#[derive(Parser, Debug, Clone)]
+pub struct SessionsCommandGroup {
+    #[command(subcommand)]
+    pub command: SessionsCommand,
+}
+
+/// Explicit one-way session synchronization commands.
+#[derive(Subcommand, Debug, Clone)]
+pub enum SessionsCommand {
+    /// Import a read-only snapshot of standard Forge sessions.
+    ImportForge(ImportForgeArgs),
+}
+
+/// Paths for a read-only Forge session snapshot import.
+#[derive(Parser, Debug, Clone)]
+pub struct ImportForgeArgs {
+    /// Existing standard Forge SQLite database to read.
+    #[arg(long)]
+    pub source: PathBuf,
+
+    /// New HeliosLite-owned destination snapshot directory.
+    #[arg(long)]
+    pub dest: PathBuf,
+}
+
 #[derive(Subcommand, Debug, Clone)]
 pub enum ConversationCommand {
     /// List conversation history.
@@ -1102,6 +1368,36 @@ mod tests {
             _ => false,
         };
         assert_eq!(is_list, true);
+    }
+
+    #[test]
+    fn test_helioslite_sessions_import_forge_paths() {
+        let fixture = Cli::parse_from([
+            "helioslite",
+            "sessions",
+            "import-forge",
+            "--source",
+            "/tmp/forge.db",
+            "--dest",
+            "/tmp/helioslite/sessions/snapshot",
+        ]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Sessions(group)) => match group.command {
+                SessionsCommand::ImportForge(args) => Some((args.source, args.dest)),
+            },
+            _ => None,
+        };
+        let expected = Some((
+            PathBuf::from("/tmp/forge.db"),
+            PathBuf::from("/tmp/helioslite/sessions/snapshot"),
+        ));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_helioslite_sessions_requires_explicit_paths() {
+        let result = Cli::try_parse_from(["helioslite", "sessions", "import-forge"]);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -1706,8 +2002,11 @@ mod tests {
     #[test]
     fn test_is_interactive_without_flags() {
         let fixture = Cli::parse_from(["forge"]);
+        // With no prompt/piped-input/subcommand flags, interactivity is governed
+        // solely by whether stdin is a TTY. Assert against the real terminal state
+        // so the test is correct both interactively and under piped CI stdin.
         let actual = fixture.is_interactive();
-        let expected = true;
+        let expected = std::io::stdin().is_terminal();
         assert_eq!(actual, expected);
     }
 
@@ -1950,6 +2249,26 @@ mod tests {
     }
 
     #[test]
+    fn test_heliosdoctor_integrity_only_flag() {
+        let fixture = Cli::parse_from(["forge", "heliosdoctor", "--integrity-only"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Heliosdoctor(args)) => args.integrity_only,
+            _ => false,
+        };
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_heliosdoctor_defaults_to_full_verbose_path() {
+        let fixture = Cli::parse_from(["forge", "heliosdoctor"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Heliosdoctor(args)) => args.integrity_only,
+            _ => false,
+        };
+        assert_eq!(actual, false);
+    }
+
+    #[test]
     fn test_install_vscode_extension() {
         let fixture = Cli::parse_from(["forge", "vscode", "install-extension"]);
         let actual = matches!(
@@ -2033,5 +2352,87 @@ mod tests {
             _ => panic!("Expected Update command"),
         };
         assert!(!actual);
+    }
+
+    #[test]
+    fn test_test_subcommand_run() {
+        let fixture = Cli::parse_from(["forge", "test", "run"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Test(group)) => {
+                matches!(group.command, TestSubcommand::Run { .. })
+            }
+            _ => false,
+        };
+        assert!(actual);
+    }
+
+    #[test]
+    fn test_test_subcommand_all() {
+        let fixture = Cli::parse_from(["forge", "test", "all"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Test(group)) => {
+                matches!(group.command, TestSubcommand::All)
+            }
+            _ => false,
+        };
+        assert!(actual);
+    }
+
+    #[test]
+    fn test_test_subcommand_bench() {
+        let fixture = Cli::parse_from(["forge", "test", "bench"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Test(group)) => {
+                matches!(group.command, TestSubcommand::Bench)
+            }
+            _ => false,
+        };
+        assert!(actual);
+    }
+
+    #[test]
+    fn test_test_run_with_package() {
+        let fixture = Cli::parse_from(["forge", "test", "run", "--package", "forge_main"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Test(group)) => match group.command {
+                TestSubcommand::Run { package, .. } => package,
+                _ => None,
+            },
+            _ => None,
+        };
+        let expected = Some("forge_main".to_string());
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_test_run_with_test_name() {
+        let fixture = Cli::parse_from(["forge", "test", "run", "--test", "test_foo"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Test(group)) => match group.command {
+                TestSubcommand::Run { test, .. } => test,
+                _ => None,
+            },
+            _ => None,
+        };
+        let expected = Some("test_foo".to_string());
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_test_run_with_bench_flag() {
+        let fixture = Cli::parse_from(["forge", "test", "run", "--bench"]);
+        let actual = match fixture.subcommands {
+            Some(TopLevelCommand::Test(group)) => match group.command {
+                TestSubcommand::Run { bench, .. } => bench,
+                _ => false,
+            },
+            _ => false,
+        };
+        assert!(actual);
+    }
+
+    #[test]
+    fn release_version_matches_published_release_line() {
+        assert_eq!(env!("CARGO_PKG_VERSION"), "2.13.21");
     }
 }

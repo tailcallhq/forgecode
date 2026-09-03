@@ -1,0 +1,11 @@
+title = "gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+# Allow test/example keys
+allowlist = '''
+(?i)(test|example|dummy|mock|fake|placeholder).*
+'''

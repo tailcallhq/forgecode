@@ -1,48 +1,38 @@
-use gh_workflow::generate::Generate;
-use gh_workflow::*;
-use indexmap::indexmap;
-use serde_json::json;
+use crate::workflow_model::{Event, Job, Level, Permissions, Step, Workflow};
 
 /// Generate the stale issues and PRs workflow
 pub fn generate_stale_workflow() {
-    let workflow = Workflow::default()
-        .name("Close Stale Issues and PR")
-        .on(Event::default().add_schedule(Schedule::new("0 * * * *")))
+    let workflow = Workflow::new("Close Stale Issues and PR")
+        .on(Event::default().schedule("0 * * * *"))
         .permissions(
             Permissions::default()
                 .issues(Level::Write)
                 .pull_requests(Level::Write),
         )
-        .env(Env::from(indexmap! {
-            "DAYS_BEFORE_ISSUE_STALE".to_string() => json!("30"),
-            "DAYS_BEFORE_ISSUE_CLOSE".to_string() => json!("7"),
-            "DAYS_BEFORE_PR_STALE".to_string() => json!("5"),
-            "DAYS_BEFORE_PR_CLOSE".to_string() => json!("10"),
-        }))
+        .env("DAYS_BEFORE_ISSUE_STALE", "30")
+        .env("DAYS_BEFORE_ISSUE_CLOSE", "7")
+        .env("DAYS_BEFORE_PR_STALE", "5")
+        .env("DAYS_BEFORE_PR_CLOSE", "10")
         .add_job(
             "stale",
             Job::new("Stale Issues")
                 .add_step(
-                    Step::new("Mark Stale Issues").uses("actions", "stale", "v10")
-                        .with(Input::from(indexmap! {
-                            "stale-issue-label".to_string() => json!("state: inactive"),
-                            "stale-pr-label".to_string() => json!("state: inactive"),
-                            "stale-issue-message".to_string() => json!(r#"**Action required:** Issue inactive for ${{ env.DAYS_BEFORE_ISSUE_STALE }} days.
-Status update or closure in ${{ env.DAYS_BEFORE_ISSUE_CLOSE }} days."#),
-                            "close-issue-message".to_string() => json!("Issue closed after ${{ env.DAYS_BEFORE_ISSUE_CLOSE }} days of inactivity."),
-                            "stale-pr-message".to_string() => json!(r#"**Action required:** PR inactive for ${{ env.DAYS_BEFORE_PR_STALE }} days.
-Status update or closure in ${{ env.DAYS_BEFORE_PR_CLOSE }} days."#),
-                            "close-pr-message".to_string() => json!("PR closed after ${{ env.DAYS_BEFORE_PR_CLOSE }} days of inactivity."),
-                            "days-before-issue-stale".to_string() => json!("${{ env.DAYS_BEFORE_ISSUE_STALE }}"),
-                            "days-before-issue-close".to_string() => json!("${{ env.DAYS_BEFORE_ISSUE_CLOSE }}"),
-                            "days-before-pr-stale".to_string() => json!("${{ env.DAYS_BEFORE_PR_STALE }}"),
-                            "days-before-pr-close".to_string() => json!("${{ env.DAYS_BEFORE_PR_CLOSE }}"),
-                        })),
+                    Step::new("Mark Stale Issues")
+                        .uses("actions", "stale", "1e223db275d687790206a7acac4d1a11bd6fe629")
+                        .input("stale-issue-label", "state: inactive")
+                        .input("stale-pr-label", "state: inactive")
+                        .input("stale-issue-message", r#"**Action required:** Issue inactive for ${{ env.DAYS_BEFORE_ISSUE_STALE }} days.
+Status update or closure in ${{ env.DAYS_BEFORE_ISSUE_CLOSE }} days."#)
+                        .input("close-issue-message", "Issue closed after ${{ env.DAYS_BEFORE_ISSUE_CLOSE }} days of inactivity.")
+                        .input("stale-pr-message", r#"**Action required:** PR inactive for ${{ env.DAYS_BEFORE_PR_STALE }} days.
+Status update or closure in ${{ env.DAYS_BEFORE_PR_CLOSE }} days."#)
+                        .input("close-pr-message", "PR closed after ${{ env.DAYS_BEFORE_PR_CLOSE }} days of inactivity.")
+                        .input("days-before-issue-stale", "${{ env.DAYS_BEFORE_ISSUE_STALE }}")
+                        .input("days-before-issue-close", "${{ env.DAYS_BEFORE_ISSUE_CLOSE }}")
+                        .input("days-before-pr-stale", "${{ env.DAYS_BEFORE_PR_STALE }}")
+                        .input("days-before-pr-close", "${{ env.DAYS_BEFORE_PR_CLOSE }}"),
                 ),
         );
 
-    Generate::new(workflow)
-        .name("stale.yml")
-        .generate()
-        .unwrap();
+    super::generate_private_workflow(workflow, "stale.yml");
 }

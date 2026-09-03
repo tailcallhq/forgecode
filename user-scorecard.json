@@ -1,0 +1,289 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-08-20T02:13:02.596742+00:00",
+  "repo": "forgecode",
+  "repo_path": "C:\\Users\\koosh\\forgecode",
+  "head": {
+    "sha": "958178298",
+    "branch": "main"
+  },
+  "scoring": {
+    "scale": "0..3 (0=missing, 1=seeded, 2=partial, 3=complete)",
+    "total_pillars": 30,
+    "max_possible": 90,
+    "total_score": 58,
+    "percentage": 64.4,
+    "tier": "A"
+  },
+  "pillar_scores": [
+    {
+      "pillar": "L0_license",
+      "name": "License Present",
+      "category": "legal",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L1_ci_workflows",
+      "name": "CI Workflows",
+      "category": "ci_cd",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L2_source_builds",
+      "name": "Source Builds",
+      "category": "ci_cd",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L3_tests_pass",
+      "name": "Tests Pass",
+      "category": "ci_cd",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L4_cli_binary",
+      "name": "CLI Binary",
+      "category": "cli",
+      "score": 0,
+      "max_score": 3
+    },
+    {
+      "pillar": "L5_spec_or_prd",
+      "name": "Spec / PRD",
+      "category": "specification",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L6_worktree_clean",
+      "name": "Worktree Clean",
+      "category": "hygiene",
+      "score": 2,
+      "max_score": 3
+    },
+    {
+      "pillar": "L7_conventional_commits",
+      "name": "Conventional Commits",
+      "category": "hygiene",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L8_sqlite_sha256",
+      "name": "SQLite + SHA256",
+      "category": "sota",
+      "score": 0,
+      "max_score": 3
+    },
+    {
+      "pillar": "L9_harbor_fixtures",
+      "name": "Harbor Task Fixtures",
+      "category": "sota",
+      "score": 0,
+      "max_score": 3
+    },
+    {
+      "pillar": "L10_criterion_regression",
+      "name": "Criterion Regression",
+      "category": "sota",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L11_asgi_rust_python",
+      "name": "ASGI / Rust-Python Hybrid",
+      "category": "sota",
+      "score": 2,
+      "max_score": 3
+    },
+    {
+      "pillar": "L12_modernc_sqlite",
+      "name": "modernc SQLite (CGO-free)",
+      "category": "sota",
+      "score": 0,
+      "max_score": 3
+    },
+    {
+      "pillar": "L13_process_compose_nvms",
+      "name": "Process-Compose / NVMS",
+      "category": "sota",
+      "score": 0,
+      "max_score": 3
+    },
+    {
+      "pillar": "L14_gvisor_firecracker",
+      "name": "gVisor / Firecracker Tiers",
+      "category": "sota",
+      "score": 0,
+      "max_score": 3
+    },
+    {
+      "pillar": "L15_tauri_sveltekit",
+      "name": "Tauri + SvelteKit",
+      "category": "sota",
+      "score": 0,
+      "max_score": 3
+    },
+    {
+      "pillar": "L16_l7_propagation",
+      "name": "L7 Request-ID Propagation",
+      "category": "sota",
+      "score": 0,
+      "max_score": 3
+    },
+    {
+      "pillar": "L17_bench_harness",
+      "name": "Bench Harness",
+      "category": "cli",
+      "score": 2,
+      "max_score": 3
+    },
+    {
+      "pillar": "L18_pyproject_uv",
+      "name": "pyproject.toml + uv",
+      "category": "cli",
+      "score": 2,
+      "max_score": 3
+    },
+    {
+      "pillar": "L19_pre_commit",
+      "name": "Pre-commit Hooks",
+      "category": "hygiene",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L20_adaptive_concurrency",
+      "name": "Adaptive Concurrency",
+      "category": "sota",
+      "score": 0,
+      "max_score": 3
+    },
+    {
+      "pillar": "L21_dependency_audit",
+      "name": "Dependency Audit",
+      "category": "supply_chain",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L22_changelog",
+      "name": "Changelog",
+      "category": "specification",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L23_contributing",
+      "name": "Contributing Guide",
+      "category": "specification",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L24_security_policy",
+      "name": "Security Policy",
+      "category": "specification",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L25_codeowners",
+      "name": "CODEOWNERS",
+      "category": "sota",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L26_editorconfig",
+      "name": ".editorconfig",
+      "category": "hygiene",
+      "score": 2,
+      "max_score": 3
+    },
+    {
+      "pillar": "L27_devcontainer",
+      "name": "DevContainer / Dockerfile",
+      "category": "ci_cd",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L28_taskfile",
+      "name": "Taskfile / mise.toml",
+      "category": "hygiene",
+      "score": 3,
+      "max_score": 3
+    },
+    {
+      "pillar": "L29_renovate",
+      "name": "Renovate / Dependabot",
+      "category": "supply_chain",
+      "score": 3,
+      "max_score": 3
+    }
+  ],
+  "bottom_5_pillars": [
+    {
+      "pillar": "L4_cli_binary",
+      "name": "CLI Binary",
+      "category": "cli",
+      "current_score": 0,
+      "max_score": 3,
+      "recommendation": "[CRITICAL] Expose a CLI binary. In Rust, add a [[bin]] section. In Python, add [project.scripts]."
+    },
+    {
+      "pillar": "L8_sqlite_sha256",
+      "name": "SQLite + SHA256",
+      "category": "sota",
+      "current_score": 0,
+      "max_score": 3,
+      "recommendation": "[CRITICAL] Integrate SQLite (rusqlite/sqlx in Rust, sqlite3 in Python) + sha256 for identity tracking."
+    },
+    {
+      "pillar": "L9_harbor_fixtures",
+      "name": "Harbor Task Fixtures",
+      "category": "sota",
+      "current_score": 0,
+      "max_score": 3,
+      "recommendation": "[CRITICAL] Add Harbor-compatible task fixtures in a harbor/ directory (task.yaml + tests per fixture)."
+    },
+    {
+      "pillar": "L12_modernc_sqlite",
+      "name": "modernc SQLite (CGO-free)",
+      "category": "sota",
+      "current_score": 0,
+      "max_score": 3,
+      "recommendation": "[CRITICAL] Use modernc.org/sqlite for CGO-free portable SQLite. Enables single-binary deployment."
+    },
+    {
+      "pillar": "L13_process_compose_nvms",
+      "name": "Process-Compose / NVMS",
+      "category": "sota",
+      "current_score": 0,
+      "max_score": 3,
+      "recommendation": "[CRITICAL] Add process-compose.yml for service orchestration with NVMS-backed definitions."
+    }
+  ],
+  "summary": {
+    "strengths": [
+      "License Present",
+      "CI Workflows",
+      "Source Builds",
+      "Tests Pass",
+      "Spec / PRD"
+    ],
+    "gaps": [
+      "CLI Binary",
+      "SQLite + SHA256",
+      "Harbor Task Fixtures",
+      "modernc SQLite (CGO-free)",
+      "Process-Compose / NVMS"
+    ],
+    "action_count": 5
+  }
+}

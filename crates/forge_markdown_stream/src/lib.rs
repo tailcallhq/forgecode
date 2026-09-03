@@ -194,6 +194,19 @@ mod tests {
     }
 
     #[test]
+    fn test_streaming_renderer_preserves_chunked_fenced_code() {
+        let fixture = [
+            "```rust\nfn ma",
+            "in() {\n",
+            "    println!(\"ok\");\n",
+            "}\n```\n",
+        ];
+        let actual = fixture_rendered_output_from_chunks(&fixture, 80);
+        let expected = "fn main() {\n    println!(\"ok\");\n}";
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_streaming_renderer_wraps_blockquotes_with_prefix_width_and_long_tokens() {
         let fixture = "> supercalifragilistic\n> 한글 공백\n";
         let actual = fixture_rendered_output(fixture, 10);

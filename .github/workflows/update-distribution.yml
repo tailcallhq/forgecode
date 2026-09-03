@@ -1,0 +1,161 @@
+name: Update Distribution Files
+on:
+  release:
+    types:
+    - published
+permissions:
+  contents: read
+jobs:
+  update_distribution:
+    name: Update Homebrew and Scoop manifests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+    - name: Download SHA256 checksums
+      run: |
+        set -euo pipefail
+        TAG="${{ github.event.release.tag_name }}"
+        mkdir -p checksums
+        
+        # Download all SHA256 files
+        for asset in forge-x86_64-apple-darwin forge-aarch64-apple-darwin \
+                     forge-x86_64-unknown-linux-gnu forge-aarch64-unknown-linux-gnu \
+                     forge-x86_64-pc-windows-msvc.exe forge-aarch64-pc-windows-msvc.exe; do
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern "${asset}.sha256" \
+            --dir checksums \
+            || echo "Warning: Could not download ${asset}.sha256"
+        done
+      env:
+        GH_TOKEN: ${{ github.token }}
+    - name: Extract SHA256 values
+      run: |
+        set -euo pipefail
+        
+        # Extract SHA256 from each file (format: "hash  filename")
+        extract_sha() {
+          local file="$1"
+          if [ -f "checksums/${file}.sha256" ]; then
+            awk '{print $1}' "checksums/${file}.sha256"
+          else
+            echo "MISSING"
+          fi
+        }
+        
+        # Store in environment
+        echo "SHA_X86_64_MACOS=$(extract_sha forge-x86_64-apple-darwin)" >> $GITHUB_ENV
+        echo "SHA_AARCH64_MACOS=$(extract_sha forge-aarch64-apple-darwin)" >> $GITHUB_ENV
+        echo "SHA_X86_64_LINUX=$(extract_sha forge-x86_64-unknown-linux-gnu)" >> $GITHUB_ENV
+        echo "SHA_AARCH64_LINUX=$(extract_sha forge-aarch64-unknown-linux-gnu)" >> $GITHUB_ENV
+        echo "SHA_X86_64_WINDOWS=$(extract_sha forge-x86_64-pc-windows-msvc.exe)" >> $GITHUB_ENV
+        echo "SHA_AARCH64_WINDOWS=$(extract_sha forge-aarch64-pc-windows-msvc.exe)" >> $GITHUB_ENV
+    - name: Update Homebrew formula
+      run: |
+        set -euo pipefail
+        TAG="${{ github.event.release.tag_name }}"
+        VERSION="${TAG#v}"
+        
+        cat > distribution/homebrew/forge.rb << EOF
+        class Forge < Formula
+          desc "Fastest AI coding agent — 40+ models, local-first, zero data exfiltration"
+          homepage "https://github.com/KooshaPari/forgecode"
+          version "${VERSION}"
+          license "MIT"
+
+          on_macos do
+            if Hardware::CPU.intel?
+              url "https://github.com/KooshaPari/forgecode/releases/download/v#{version}/forge-x86_64-apple-darwin"
+              sha256 "${SHA_X86_64_MACOS}"
+            else
+              url "https://github.com/KooshaPari/forgecode/releases/download/v#{version}/forge-aarch64-apple-darwin"
+              sha256 "${SHA_AARCH64_MACOS}"
+            end
+          end
+
+          on_linux do
+            if Hardware::CPU.intel?
+              url "https://github.com/KooshaPari/forgecode/releases/download/v#{version}/forge-x86_64-unknown-linux-gnu"
+              sha256 "${SHA_X86_64_LINUX}"
+            else
+              url "https://github.com/KooshaPari/forgecode/releases/download/v#{version}/forge-aarch64-unknown-linux-gnu"
+              sha256 "${SHA_AARCH64_LINUX}"
+            end
+          end
+
+          def install
+            bin.install Dir["forge*"].first => "forge"
+            bin.install Dir["forge_dbd*"].first => "forge_dbd" if Dir["forge_dbd*"].any?
+          end
+
+          test do
+            assert_match "forge", shell_output("#{bin}/forge --version")
+          end
+        end
+        EOF
+    - name: Update Scoop manifest
+      run: |
+        set -euo pipefail
+        TAG="${{ github.event.release.tag_name }}"
+        VERSION="${TAG#v}"
+        
+        cat > distribution/scoop/forge.json << EOF
+        {
+            "version": "${VERSION}",
+            "description": "Fastest AI coding agent — 40+ models, local-first, zero data exfiltration",
+            "homepage": "https://github.com/KooshaPari/forgecode",
+            "license": "MIT",
+            "architecture": {
+                "64bit": {
+                    "url": "https://github.com/KooshaPari/forgecode/releases/download/v${VERSION}/forge-x86_64-pc-windows-msvc.exe",
+                    "hash": "${SHA_X86_64_WINDOWS}",
+                    "bin": "forge-x86_64-pc-windows-msvc.exe"
+                },
+                "arm64": {
+                    "url": "https://github.com/KooshaPari/forgecode/releases/download/v${VERSION}/forge-aarch64-pc-windows-msvc.exe",
+                    "hash": "${SHA_AARCH64_WINDOWS}",
+                    "bin": "forge-aarch64-pc-windows-msvc.exe"
+                }
+            },
+            "checkver": {
+                "url": "https://api.github.com/repos/KooshaPari/forgecode/releases/latest",
+                "jsonpath": "$.tag_name",
+                "regex": "v([\\\\d.]+(?:-h\\\\.\\\\d+\\\\.\\\\d+)?)"
+            },
+            "autoupdate": {
+                "architecture": {
+                    "64bit": {
+                        "url": "https://github.com/KooshaPari/forgecode/releases/download/v\$version/forge-x86_64-pc-windows-msvc.exe"
+                    },
+                    "arm64": {
+                        "url": "https://github.com/KooshaPari/forgecode/releases/download/v\$version/forge-aarch64-pc-windows-msvc.exe"
+                    }
+                }
+            }
+        }
+        EOF
+    - name: Commit and push changes
+      run: |
+        set -euo pipefail
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add distribution/
+        if git diff --staged --quiet; then
+          echo "No distribution changes to commit"
+          exit 0
+        fi
+        BRANCH="chore/distribution-${{ github.event.release.tag_name }}"
+        git checkout -b "$BRANCH"
+        git commit -m "chore(distribution): update Homebrew and Scoop manifests for ${{ github.event.release.tag_name }}"
+        git push origin "$BRANCH"
+        gh pr create \
+          --title "chore(distribution): update manifests for ${{ github.event.release.tag_name }}" \
+          --body "Auto-generated distribution manifest updates for release ${{ github.event.release.tag_name }}." \
+          --base main \
+          --head "$BRANCH" || echo "PR already exists or creation failed"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

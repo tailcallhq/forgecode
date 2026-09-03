@@ -1,56 +1,39 @@
 //! Code block rendering with syntax highlighting and line wrapping.
 
-use streamdown_render::code::code_wrap;
-use syntect::easy::HighlightLines;
-use syntect::highlighting::ThemeSet;
-use syntect::parsing::SyntaxSet;
-use syntect::util::as_24_bit_terminal_escaped;
+use forge_syntax::{Theme, code_wrap, highlight_line};
 
 use crate::utils::{ThemeMode, detect_theme_mode};
 
 const RESET: &str = "\x1b[0m";
 
-/// Code block highlighter using syntect.
+/// Code block highlighter using the internal ANSI lexer.
 pub struct CodeHighlighter {
-    syntax_set: SyntaxSet,
-    theme_set: ThemeSet,
-    theme_mode: ThemeMode,
+    theme: Theme,
 }
 
 impl Default for CodeHighlighter {
     fn default() -> Self {
-        Self {
-            syntax_set: SyntaxSet::load_defaults_newlines(),
-            theme_set: ThemeSet::load_defaults(),
-            theme_mode: detect_theme_mode(),
-        }
+        Self::new(match detect_theme_mode() {
+            ThemeMode::Dark => Theme::Dark,
+            ThemeMode::Light => Theme::Light,
+        })
     }
 }
 
 impl CodeHighlighter {
+    /// Creates a highlighter using the caller-selected terminal palette.
+    pub fn new(theme: Theme) -> Self {
+        Self { theme }
+    }
+
+    /// Replaces the terminal palette used for subsequent code lines.
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
+    }
+
     /// Highlight a single line of code.
     fn highlight_line(&self, line: &str, language: Option<&str>) -> String {
-        let syntax = language
-            .and_then(|lang| self.syntax_set.find_syntax_by_token(lang))
-            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
-
-        let theme_name = match self.theme_mode {
-            ThemeMode::Dark => "base16-ocean.dark",
-            ThemeMode::Light => "InspiredGitHub",
-        };
-        let theme = self.theme_set.themes.get(theme_name).unwrap_or_else(|| {
-            // Fallback to base16-ocean.dark if theme not found
-            self.theme_set
-                .themes
-                .get("base16-ocean.dark")
-                .expect("Default theme should exist")
-        });
-        let mut highlighter = HighlightLines::new(syntax, theme);
-
-        match highlighter.highlight_line(line, &self.syntax_set) {
-            Ok(ranges) => as_24_bit_terminal_escaped(&ranges[..], false),
-            Err(_) => line.to_string(),
-        }
+        highlight_line(line, language, self.theme)
     }
 
     /// Render a code line with margin, wrapping if needed.
@@ -91,7 +74,7 @@ impl CodeHighlighter {
 
 #[cfg(test)]
 mod tests {
-    use streamdown_render::code::code_wrap;
+    use super::{CodeHighlighter, code_wrap};
 
     #[test]
     fn test_code_wrap_short_line() {
@@ -120,5 +103,26 @@ mod tests {
         let (indent, lines) = code_wrap("", 80, true);
         assert_eq!(indent, 0);
         assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn test_code_wrap_preserves_indented_unicode_text() {
+        let fixture = "  abcdef\u{ac00}\u{b098}\u{b2e4}";
+        let (actual_indent, actual_lines) = code_wrap(fixture, 8, true);
+        let expected_indent = 2;
+        let expected_lines = vec!["  ab", "cd", "ef", "\u{ac00}", "\u{b098}", "\u{b2e4}"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>();
+        assert_eq!(actual_indent, expected_indent);
+        assert_eq!(actual_lines, expected_lines);
+    }
+
+    #[test]
+    fn test_unknown_language_line_has_only_terminal_reset() {
+        let fixture = CodeHighlighter::default();
+        let actual = fixture.render_code_line("launch --safe", Some("not-a-language"), "", 80);
+        let expected = vec!["launch --safe\x1b[0m".to_string()];
+        assert_eq!(actual, expected);
     }
 }

@@ -1,7 +1,8 @@
 [package]
 name = "forge_services"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
@@ -37,9 +38,8 @@ base64.workspace = true
 strum_macros.workspace = true
 strum.workspace = true
 bytes.workspace = true
-serde_yml.workspace = true
+serde_yaml_ng.workspace = true
 gray_matter.workspace = true
-merge.workspace = true
 strip-ansi-escapes.workspace = true
 bstr.workspace = true
 forge_app.workspace = true
@@ -61,5 +61,3 @@ pretty_assertions.workspace = true
 tempfile.workspace = true
 fake = { version = "5.1.0", features = ["derive"] }
 forge_test_kit.workspace = true
-
-

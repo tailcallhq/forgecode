@@ -1,0 +1,62 @@
+# Mergify Configuration — Optimized for multi-language monorepos
+# Docs: https://docs.mergify.com/
+
+pull_request_rules:
+  # Label PRs based on changed files
+  - name: Label Python changes
+    conditions:
+      - files~=\.py$
+    actions:
+      label:
+        add:
+          - python
+
+  - name: Label Rust changes
+    conditions:
+      - files~=\.rs$|Cargo\.
+    actions:
+      label:
+        add:
+          - rust
+
+  - name: Label Go changes
+    conditions:
+      - files~=\.go$|go\.
+    actions:
+      label:
+        add:
+          - go
+
+  - name: Label TypeScript changes
+    conditions:
+      - files~=\.ts$|\.tsx$|package\.json
+    actions:
+      label:
+        add:
+          - typescript
+
+  # Warn on large PRs
+  - name: Warn on large PRs
+    conditions:
+      - -closed
+      - -draft
+      - "#files>20"
+    actions:
+      comment:
+        message: >
+          **Large PR Alert**: This PR touches {{ number }} files.
+          Consider splitting into smaller PRs for easier review.
+
+  # Add ready-to-merge label when all checks pass
+  - name: Add ready-to-merge label
+    conditions:
+      - -closed
+      - -draft
+      - check-success=ci
+      - check-success=lint
+      - check-success=test
+      - "#approved-reviews-by>=1"
+    actions:
+      label:
+        add:
+          - ready-to-merge

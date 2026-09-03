@@ -48,7 +48,6 @@ suppress_errors = false
 accept_invalid_certs = false
 adaptive_window = true
 connect_timeout_secs = 30
-hickory = false
 keep_alive_interval_secs = 60
 keep_alive_timeout_secs = 10
 keep_alive_while_idle = true

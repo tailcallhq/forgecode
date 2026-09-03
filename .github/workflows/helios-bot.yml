@@ -1,0 +1,78 @@
+name: Helios Bot
+description: GitHub App that responds to @helios mentions on issues/PRs by running the HeliosLite agent
+
+on:
+  repository_dispatch:
+    types: [helios-bot-request]
+  workflow_dispatch:
+    inputs:
+      request:
+        description: 'User request to run helios on'
+        required: true
+        type: string
+      repo:
+        description: 'Repository (owner/repo)'
+        required: true
+        type: string
+      issue_number:
+        description: 'Issue or PR number (for context)'
+        required: false
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch-helios:
+    name: Dispatch @helios request
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          toolchain: stable
+
+      - name: Setup protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run helios on the request
+        env:
+          GITHUB_TOKEN: ${{ secrets.HELIOS_BOT_TOKEN }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_PROVIDER: anthropic
+          LLM_MODEL: claude-sonnet-4-5
+        run: |
+          REQUEST="${{ github.event.inputs.request || github.event.client_payload.request }}"
+          REPO="${{ github.event.inputs.repo || github.event.client_payload.repo }}"
+          ISSUE_NUMBER="${{ github.event.inputs.issue_number || github.event.client_payload.issue_number }}"
+
+          if [ -z "$REQUEST" ] || [ -z "$REPO" ]; then
+            echo "::error::request and repo are required"
+            exit 1
+          fi
+
+          # Clone the target repo
+          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git" /tmp/target
+          cd /tmp/target
+
+          # Build and run helios on the request, then post the result back
+          # as a comment on the originating issue/PR.
+          cargo install --git https://github.com/KooshaPari/forgecode forge || true
+
+          RESPONSE=$(forge --request "$REQUEST" --output-format json 2>&1) || true
+
+          # Post the response back as a comment
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "🤖 **Helios response to:** $REQUEST
+
+          $RESPONSE" || true
+          fi

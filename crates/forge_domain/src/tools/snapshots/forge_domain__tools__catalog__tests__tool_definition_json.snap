@@ -3,45 +3,44 @@ source: crates/forge_domain/src/tools/catalog.rs
 expression: tools
 ---
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "file_path": {
       "description": "Absolute path to the file to read.",
       "type": "string"
     },
     "range": {
+      "additionalProperties": false,
       "description": "Optional line range for partial reads.",
-      "type": "object",
+      "nullable": true,
       "properties": {
         "end_line": {
           "description": "Inclusive 1-based last line.",
-          "type": "integer",
           "format": "int32",
-          "nullable": true
+          "nullable": true,
+          "type": "integer"
         },
         "start_line": {
           "description": "1-based first line.",
-          "type": "integer",
           "format": "int32",
-          "nullable": true
+          "nullable": true,
+          "type": "integer"
         }
       },
-      "additionalProperties": false,
-      "nullable": true
+      "type": "object"
     },
     "show_line_numbers": {
+      "default": true,
       "description": "If true, prefixes each line with its line index (starting at 1).\nDefaults to true.",
-      "type": "boolean",
-      "default": true
+      "type": "boolean"
     }
   },
-  "additionalProperties": false,
   "required": [
     "file_path"
-  ]
+  ],
+  "type": "object"
 }
 {
-  "type": "object",
   "properties": {
     "content": {
       "description": "The content to write to the file",
@@ -59,81 +58,81 @@ expression: tools
   "required": [
     "file_path",
     "content"
-  ]
+  ],
+  "type": "object"
 }
 {
-  "type": "object",
   "properties": {
     "-A": {
       "description": "Number of lines to show after each match (rg -A). Requires output_mode:\n\"content\", ignored otherwise.",
-      "type": "integer",
       "format": "uint32",
       "minimum": 0,
-      "nullable": true
+      "nullable": true,
+      "type": "integer"
     },
     "-B": {
       "description": "Number of lines to show before each match (rg -B). Requires output_mode:\n\"content\", ignored otherwise.",
-      "type": "integer",
       "format": "uint32",
       "minimum": 0,
-      "nullable": true
+      "nullable": true,
+      "type": "integer"
     },
     "-C": {
       "description": "Number of lines to show before and after each match (rg -C). Requires\noutput_mode: \"content\", ignored otherwise.",
-      "type": "integer",
       "format": "uint32",
       "minimum": 0,
-      "nullable": true
+      "nullable": true,
+      "type": "integer"
     },
     "-i": {
       "description": "Case insensitive search (rg -i)",
-      "type": "boolean",
-      "nullable": true
+      "nullable": true,
+      "type": "boolean"
     },
     "-n": {
       "description": "Show line numbers in output (rg -n). Requires output_mode: \"content\",\nignored otherwise.",
-      "type": "boolean",
-      "nullable": true
+      "nullable": true,
+      "type": "boolean"
     },
     "glob": {
       "description": "Glob pattern to filter files (e.g. \"*.js\", \"*.{ts,tsx}\") - maps to rg\n--glob",
-      "type": "string",
-      "nullable": true
+      "nullable": true,
+      "type": "string"
     },
     "head_limit": {
       "description": "Limit output to first N lines/entries, equivalent to \"| head -N\". Works\nacross all output modes: content (limits output lines),\nfiles_with_matches (limits file paths), count (limits count entries).\nWhen unspecified, shows all results from ripgrep.",
-      "type": "integer",
       "format": "uint32",
       "minimum": 0,
-      "nullable": true
+      "nullable": true,
+      "type": "integer"
     },
     "multiline": {
       "description": "Enable multiline mode where . matches newlines and patterns can span\nlines (rg -U --multiline-dotall). Default: false.",
-      "type": "boolean",
-      "nullable": true
+      "nullable": true,
+      "type": "boolean"
     },
     "offset": {
       "description": "Skip first N lines/entries before applying head_limit",
-      "type": "integer",
       "format": "uint32",
       "minimum": 0,
-      "nullable": true
+      "nullable": true,
+      "type": "integer"
     },
     "output_mode": {
       "description": "Output mode: \"content\" shows matching lines (supports -A/-B/-C context,\n-n line numbers, head_limit), \"files_with_matches\" shows file paths\n(supports head_limit), \"count\" shows match counts (supports head_limit).\nDefaults to \"files_with_matches\".",
-      "type": "string",
       "enum": [
         "content",
         "files_with_matches",
         "count",
         null
       ],
-      "nullable": true
+      "nullable": true,
+      "type": "string"
     },
     "path": {
       "description": "File or directory to search in (rg PATH). Defaults to current working\ndirectory.",
-      "type": "string",
-      "nullable": true
+      "nullable": true,
+      "type": "string"
     },
     "pattern": {
       "description": "The regular expression pattern to search for in file contents.",
@@ -141,23 +140,21 @@ expression: tools
     },
     "type": {
       "description": "File type to search (rg --type). Common types: js, py, rust, go, java,\netc. More efficient than include for standard file types.",
-      "type": "string",
-      "nullable": true
+      "nullable": true,
+      "type": "string"
     }
   },
   "required": [
     "pattern"
-  ]
+  ],
+  "type": "object"
 }
 {
-  "type": "object",
   "properties": {
     "queries": {
       "description": "List of search queries to execute in parallel. Using multiple queries\n(2-3) with varied phrasings significantly improves results - each query\ncaptures different aspects of what you're looking for. Each query pairs\na search term with a use_case for reranking. Example: for\nauthentication, try \"user login verification\", \"token generation\",\n\"OAuth flow\".",
-      "type": "array",
       "items": {
         "description": "A paired query and use_case for semantic search. Each query must have a\ncorresponding use_case for document reranking.",
-        "type": "object",
         "properties": {
           "query": {
             "description": "The semantic embedding query that describes WHAT the code does or its\npurpose. This query is converted to a vector embedding and used to find\nsemantically similar code chunks in the vector database.\n\n**Guidelines for effective embedding queries:**\n- Use specific, targeted technical terms and domain concepts\n- Describe behavior, functionality, patterns, or implementation approach\n- Include concrete keywords like technology names, algorithms, data\n  structures\n- Balance specificity (focused results) with generality (avoid missing\n  relevant code)\n- Keep queries focused - overly broad queries cause timeouts and poor\n  results\n- **Align keywords with intent**: For documentation, use \"README\",\n  \"guide\", \"setup\"; for implementation, use \"function\", \"logic\",\n  \"handler\"\n\n**Good examples:**\n- \"exponential backoff retry mechanism with configurable delays\"\n- \"streaming LLM responses with SSE chunked transfer encoding\"\n- \"OAuth2 token refresh with automatic retry and expiry check\"\n- \"Diesel database migration runner with transaction support\"\n- \"semantic search reranker using cross-encoder model\"\n- \"README documentation configuration setup semantic search\"\n- \"markdown guide API documentation tool definitions\"\n\n**Bad examples:**\n- \"retry\" (too generic, will match everything)\n- \"authentication\" (overly broad - specify what aspect: login, tokens,\n  middleware?)\n- \"tool definitions schemas\" (too vague - be more specific about\n  structure or location)\n- \"how system works\" (meta-question, not searchable concept)\n- \"function that validates\" (focus on what it validates, not that it's a\n  function)",
@@ -171,16 +168,18 @@ expression: tools
         "required": [
           "query",
           "use_case"
-        ]
-      }
+        ],
+        "type": "object"
+      },
+      "type": "array"
     }
   },
   "required": [
     "queries"
-  ]
+  ],
+  "type": "object"
 }
 {
-  "type": "object",
   "properties": {
     "path": {
       "description": "The path of the file to remove (absolute path required)",
@@ -189,10 +188,10 @@ expression: tools
   },
   "required": [
     "path"
-  ]
+  ],
+  "type": "object"
 }
 {
-  "type": "object",
   "properties": {
     "file_path": {
       "description": "The absolute path to the file to modify",
@@ -207,26 +206,24 @@ expression: tools
       "type": "string"
     },
     "replace_all": {
+      "default": false,
       "description": "Replace all occurrences of old_string (default false)",
-      "type": "boolean",
-      "default": false
+      "type": "boolean"
     }
   },
   "required": [
     "file_path",
     "old_string",
     "new_string"
-  ]
+  ],
+  "type": "object"
 }
 {
-  "type": "object",
   "properties": {
     "edits": {
       "description": "Array of edit operations to perform sequentially on the file",
-      "type": "array",
       "items": {
         "description": "A single edit operation in a multi-patch",
-        "type": "object",
         "properties": {
           "new_string": {
             "description": "The text to replace it with (must be different from old_string)",
@@ -237,16 +234,18 @@ expression: tools
             "type": "string"
           },
           "replace_all": {
+            "default": false,
             "description": "Replace all occurrences of old_string (default false)",
-            "type": "boolean",
-            "default": false
+            "type": "boolean"
           }
         },
         "required": [
           "old_string",
           "new_string"
-        ]
-      }
+        ],
+        "type": "object"
+      },
+      "type": "array"
     },
     "file_path": {
       "description": "The absolute path to the file to modify",
@@ -256,10 +255,10 @@ expression: tools
   "required": [
     "file_path",
     "edits"
-  ]
+  ],
+  "type": "object"
 }
 {
-  "type": "object",
   "properties": {
     "path": {
       "description": "The absolute path of the file to revert to its previous state.",
@@ -268,10 +267,10 @@ expression: tools
   },
   "required": [
     "path"
-  ]
+  ],
+  "type": "object"
 }
 {
-  "type": "object",
   "properties": {
     "command": {
       "description": "The shell command to execute.",
@@ -279,21 +278,21 @@ expression: tools
     },
     "cwd": {
       "description": "The working directory where the command should be executed.\nIf not specified, defaults to the current working directory from the\nenvironment.",
-      "type": "string",
-      "nullable": true
+      "nullable": true,
+      "type": "string"
     },
     "description": {
       "description": "Clear, concise description of what this command does. Recommended to be\n5-10 words for simple commands. For complex commands with pipes or\nmultiple operations, provide more context. Examples: \"Lists files in\ncurrent directory\", \"Installs package dependencies\", \"Compiles Rust\nproject with release optimizations\".",
-      "type": "string",
-      "nullable": true
+      "nullable": true,
+      "type": "string"
     },
     "env": {
       "description": "Environment variable names to pass to command execution (e.g., [\"PATH\",\n\"HOME\", \"USER\"]). The system automatically reads the specified\nvalues and applies them during command execution.",
-      "type": "array",
       "items": {
         "type": "string"
       },
-      "nullable": true
+      "nullable": true,
+      "type": "array"
     },
     "keep_ansi": {
       "description": "Whether to preserve ANSI escape codes in the output.\nIf true, ANSI escape codes will be preserved in the output.\nIf false (default), ANSI escape codes will be stripped from the output.",
@@ -302,16 +301,16 @@ expression: tools
   },
   "required": [
     "command"
-  ]
+  ],
+  "type": "object"
 }
 {
   "description": "Input type for the net fetch tool",
-  "type": "object",
   "properties": {
     "raw": {
       "description": "Get raw content without any markdown conversion (default: false)",
-      "type": "boolean",
-      "nullable": true
+      "nullable": true,
+      "type": "boolean"
     },
     "url": {
       "description": "URL to fetch",
@@ -320,40 +319,40 @@ expression: tools
   },
   "required": [
     "url"
-  ]
+  ],
+  "type": "object"
 }
 {
-  "type": "object",
   "properties": {
     "multiple": {
       "description": "If true, allows selecting multiple options; if false (default), only one\noption can be selected",
-      "type": "boolean",
-      "nullable": true
+      "nullable": true,
+      "type": "boolean"
     },
     "option1": {
       "description": "First option to choose from",
-      "type": "string",
-      "nullable": true
+      "nullable": true,
+      "type": "string"
     },
     "option2": {
       "description": "Second option to choose from",
-      "type": "string",
-      "nullable": true
+      "nullable": true,
+      "type": "string"
     },
     "option3": {
       "description": "Third option to choose from",
-      "type": "string",
-      "nullable": true
+      "nullable": true,
+      "type": "string"
     },
     "option4": {
       "description": "Fourth option to choose from",
-      "type": "string",
-      "nullable": true
+      "nullable": true,
+      "type": "string"
     },
     "option5": {
       "description": "Fifth option to choose from",
-      "type": "string",
-      "nullable": true
+      "nullable": true,
+      "type": "string"
     },
     "question": {
       "description": "Question to ask the user",
@@ -362,10 +361,10 @@ expression: tools
   },
   "required": [
     "question"
-  ]
+  ],
+  "type": "object"
 }
 {
-  "type": "object",
   "properties": {
     "content": {
       "description": "The content to write to the plan file. This should be the complete\nplan content in markdown format.",
@@ -384,10 +383,10 @@ expression: tools
     "plan_name",
     "version",
     "content"
-  ]
+  ],
+  "type": "object"
 }
 {
-  "type": "object",
   "properties": {
     "name": {
       "description": "The name of the skill to fetch (e.g., \"pdf\", \"code_review\")",
@@ -396,17 +395,15 @@ expression: tools
   },
   "required": [
     "name"
-  ]
+  ],
+  "type": "object"
 }
 {
-  "type": "object",
   "properties": {
     "todos": {
       "description": "List of todo items to create or update. Each item must have `content`\nand `status`. The server matches on `content` — if an item with the\nsame content exists it is updated; otherwise a new item is added.\nSet `status` to `cancelled` to remove an item.",
-      "type": "array",
       "items": {
         "description": "A single todo item sent by the model.\n\nThe model always provides `content` and `status`. The server uses `content`\nas the key: if an item with the same content already exists it is updated,\notherwise a new item is added. Setting `status` to `cancelled` removes the\nitem from the list entirely. IDs are managed by the server and never\nexposed to the model.",
-        "type": "object",
         "properties": {
           "content": {
             "description": "Description of the task. Used as the unique key to match existing todos.",
@@ -414,32 +411,34 @@ expression: tools
           },
           "status": {
             "description": "Current status of the task. Use `cancelled` to remove the item.",
-            "type": "string",
             "enum": [
               "pending",
               "in_progress",
               "completed",
               "cancelled"
-            ]
+            ],
+            "type": "string"
           }
         },
         "required": [
           "content",
           "status"
-        ]
-      }
+        ],
+        "type": "object"
+      },
+      "type": "array"
     }
   },
   "required": [
     "todos"
-  ]
+  ],
+  "type": "object"
 }
 {
   "type": "object"
 }
 {
   "description": "Input structure for the Task tool - delegates work to specialized agents",
-  "type": "object",
   "properties": {
     "agent_id": {
       "description": "The ID of the specialized agent to delegate to (e.g., \"forge\", \"muse\",\n\"sage\")",
@@ -447,19 +446,20 @@ expression: tools
     },
     "session_id": {
       "description": "Optional session ID to continue an existing agent session. If not\nprovided, a new stateless session will be created. Use this to\nmaintain context across multiple task invocations with the same\nagent.",
-      "type": "string",
-      "nullable": true
+      "nullable": true,
+      "type": "string"
     },
     "tasks": {
       "description": "A list of clear and detailed descriptions of the tasks to be performed\nby the agent in parallel. Provide sufficient context and specific\nrequirements to enable the agent to understand and execute the work\naccurately.",
-      "type": "array",
       "items": {
         "type": "string"
-      }
+      },
+      "type": "array"
     }
   },
   "required": [
     "tasks",
     "agent_id"
-  ]
+  ],
+  "type": "object"
 }

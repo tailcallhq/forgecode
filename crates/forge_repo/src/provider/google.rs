@@ -267,15 +267,19 @@ mod tests {
 
         async fn http_post(
             &self,
-            _url: &Url,
-            _headers: Option<HeaderMap>,
-            _body: Bytes,
+            url: &Url,
+            headers: Option<HeaderMap>,
+            body: Bytes,
         ) -> anyhow::Result<reqwest::Response> {
-            unimplemented!()
+            let mut request = self.client.post(url.clone()).body(body);
+            if let Some(headers) = headers {
+                request = request.headers(headers);
+            }
+            Ok(request.send().await?)
         }
 
-        async fn http_delete(&self, _url: &Url) -> anyhow::Result<reqwest::Response> {
-            unimplemented!()
+        async fn http_delete(&self, url: &Url) -> anyhow::Result<reqwest::Response> {
+            Ok(self.client.delete(url.clone()).send().await?)
         }
 
         async fn http_eventsource(

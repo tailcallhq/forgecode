@@ -1,0 +1,17 @@
+[package]
+name = "forge_pheno_shell"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Shell abstraction layer for forgecode: unified detection + completion emission for ZSH, Bash, Fish, PowerShell (Windows + Core), Nushell, Elvish, Cmd, Tcsh, Oil"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+tracing = "0.1"
+
+[dev-dependencies]
+pretty_assertions = "1"

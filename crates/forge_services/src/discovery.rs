@@ -102,7 +102,8 @@ mod tests {
         }
 
         async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
-            unimplemented!()
+            // Test double: no environment to persist.
+            Ok(())
         }
 
         fn get_env_var(&self, _key: &str) -> Option<String> {
@@ -111,6 +112,10 @@ mod tests {
 
         fn get_env_vars(&self) -> std::collections::BTreeMap<String, String> {
             std::collections::BTreeMap::new()
+        }
+
+        async fn database_stats(&self) -> anyhow::Result<forge_domain::HeliosdoctorDbStats> {
+            Ok(forge_domain::HeliosdoctorDbStats::default())
         }
     }
 

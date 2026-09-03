@@ -1,9 +1,14 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
 use forge_app::ConversationService;
-use forge_app::domain::{Conversation, ConversationId};
-use forge_domain::ConversationRepository;
+use forge_app::domain::{Conversation, ConversationId, ConversationSummary};
+use forge_domain::{
+    ConversationRepository, ForgeExportOptions, ForgeExportReport, ForgeForgetOptions,
+    ForgeForgetReport, ForgeImportOptions, ForgeImportReport, ForgeMigrateReport,
+    HeliosdoctorDbStats,
+};
 
 /// Service for managing conversations, including creation, retrieval, and
 /// updates
@@ -64,6 +69,169 @@ impl<S: ConversationRepository> ConversationService for ForgeConversationService
     async fn delete_conversation(&self, conversation_id: &ConversationId) -> Result<()> {
         self.conversation_repository
             .delete_conversation(conversation_id)
+            .await
+    }
+
+    async fn get_conversations_by_parent(
+        &self,
+        parent_id: &ConversationId,
+    ) -> Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_conversations_by_parent(parent_id)
+            .await
+    }
+
+    async fn get_parent_conversations(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_parent_conversations(limit)
+            .await
+    }
+
+    async fn get_parent_conversations_lite(
+        &self,
+        limit: Option<usize>,
+        all_workspaces: bool,
+    ) -> Result<Option<Vec<ConversationSummary>>> {
+        self.conversation_repository
+            .get_parent_conversations_lite(limit, all_workspaces)
+            .await
+    }
+
+    async fn get_conversations_by_source(
+        &self,
+        source: &str,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_conversations_by_source(source, limit)
+            .await
+    }
+
+    async fn upsert_conversation_ref(&self, conversation: &Conversation) -> Result<()> {
+        let _ = self
+            .conversation_repository
+            .upsert_conversation_ref(conversation)
+            .await?;
+        Ok(())
+    }
+
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<Conversation>> {
+        self.conversation_repository
+            .search_conversations(query, limit)
+            .await
+    }
+
+    async fn get_conversation_snippet(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        token_count: usize,
+    ) -> Result<Option<String>> {
+        self.conversation_repository
+            .get_conversation_snippet(conversation_id, query, token_count)
+            .await
+    }
+
+    async fn get_conversation_highlight(
+        &self,
+        conversation_id: &ConversationId,
+        query: &str,
+        open_mark: &str,
+        close_mark: &str,
+    ) -> Result<Option<String>> {
+        self.conversation_repository
+            .get_conversation_highlight(conversation_id, query, open_mark, close_mark)
+            .await
+    }
+
+    async fn optimize_fts_index(&self) -> Result<()> {
+        let _ = self.conversation_repository.optimize_fts_index().await?;
+        Ok(())
+    }
+
+    async fn update_parent_id(
+        &self,
+        conversation_id: &ConversationId,
+        new_parent_id: Option<&ConversationId>,
+    ) -> Result<()> {
+        self.conversation_repository
+            .update_parent_id(conversation_id, new_parent_id)
+            .await
+    }
+
+    async fn get_conversations_by_cwd(
+        &self,
+        cwd: &str,
+        limit: Option<usize>,
+    ) -> Result<Option<Vec<Conversation>>> {
+        self.conversation_repository
+            .get_conversations_by_cwd(cwd, limit)
+            .await
+    }
+
+    async fn rewind_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> Result<Option<Conversation>> {
+        self.conversation_repository
+            .rewind_conversation(conversation_id)
+            .await
+    }
+
+    async fn compress_uncompressed_contexts(&self) -> Result<(usize, usize, usize)> {
+        self.conversation_repository
+            .compress_uncompressed_contexts()
+            .await
+    }
+
+    async fn import_forge_db(&self, source: PathBuf) -> Result<ForgeImportReport> {
+        self.conversation_repository.import_forge_db(source).await
+    }
+
+    async fn import_forge_db_with_options(
+        &self,
+        source: PathBuf,
+        options: &ForgeImportOptions,
+    ) -> Result<ForgeImportReport> {
+        self.conversation_repository
+            .import_forge_db_with_options(source, options)
+            .await
+    }
+
+    async fn export_forge_db(
+        &self,
+        destination: PathBuf,
+        options: &ForgeExportOptions,
+    ) -> Result<ForgeExportReport> {
+        self.conversation_repository
+            .export_forge_db(destination, options)
+            .await
+    }
+
+    async fn database_stats(&self) -> Result<HeliosdoctorDbStats> {
+        self.conversation_repository.database_stats().await
+    }
+
+    async fn migrate_data_dir(
+        &self,
+        options: &forge_domain::MigrateOptions,
+    ) -> Result<ForgeMigrateReport> {
+        self.conversation_repository.migrate_data_dir(options).await
+    }
+
+    async fn forget_conversations(
+        &self,
+        options: &ForgeForgetOptions,
+    ) -> Result<ForgeForgetReport> {
+        self.conversation_repository
+            .forget_conversations(options)
             .await
     }
 }

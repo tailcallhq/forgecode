@@ -1,0 +1,87 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.3",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-08-09T00:11:04.000000000Z",
+    "tools": [
+      {
+        "vendor": "CycloneDX",
+        "name": "cargo-cyclonedx",
+        "version": "0.5.9"
+      }
+    ],
+    "component": {
+      "type": "library",
+      "bom-ref": "path+file:///Users/kooshapari/CodeProjects/Phenotype/repos/forgecode-release-hygiene/crates/forge_template#0.1.1",
+      "name": "forge_template",
+      "version": "0.1.1",
+      "scope": "required",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:cargo/forge_template@0.1.1?download_url=file://.",
+      "components": [
+        {
+          "type": "library",
+          "bom-ref": "path+file:///Users/kooshapari/CodeProjects/Phenotype/repos/forgecode-release-hygiene/crates/forge_template#0.1.1 bin-target-0",
+          "name": "forge_template",
+          "version": "0.1.1",
+          "purl": "pkg:cargo/forge_template@0.1.1?download_url=file://.#src/lib.rs"
+        }
+      ]
+    },
+    "properties": [
+      {
+        "name": "cdx:rustc:sbom:target:triple",
+        "value": "aarch64-apple-darwin"
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#html-escape@0.2.14",
+      "author": "Magic Len <len@magiclen.org>",
+      "name": "html-escape",
+      "version": "0.2.14",
+      "description": "This library is for encoding/escaping special characters in HTML and decoding/unescaping HTML entities as well.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "46c1ff2d1cbf39efe5af0900ced8a069b5e61557a17544eb0c4a50239937389e"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:cargo/html-escape@0.2.14",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://magiclen.org/html-escape"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/magiclen/html-escape"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "path+file:///Users/kooshapari/CodeProjects/Phenotype/repos/forgecode-release-hygiene/crates/forge_template#0.1.1",
+      "dependsOn": [
+        "registry+https://github.com/rust-lang/crates.io-index#html-escape@0.2.14"
+      ]
+    },
+    {
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#html-escape@0.2.14"
+    }
+  ]
+}

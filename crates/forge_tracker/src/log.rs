@@ -28,8 +28,14 @@ pub fn init_tracing(log_path: PathBuf, tracker: Tracker) -> anyhow::Result<Guard
         .with_writer(writer)
         .with_filter(filter);
 
+    let env_filter = std::env::var("HELIOSLITE_LOG")
+        .or_else(|_| std::env::var("FORGE_LOG"))
+        .ok()
+        .and_then(|value| tracing_subscriber::EnvFilter::try_new(value).ok())
+        .unwrap_or(level);
+
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_env("FORGE_LOG").unwrap_or(level))
+        .with(env_filter)
         .with(fmt_layer)
         .init();
 

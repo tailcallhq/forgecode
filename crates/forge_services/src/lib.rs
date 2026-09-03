@@ -17,7 +17,7 @@ mod mcp;
 mod policy;
 
 mod provider_auth;
-mod provider_service;
+pub mod provider_service;
 mod range;
 mod sync;
 mod template;

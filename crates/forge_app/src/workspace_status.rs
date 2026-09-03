@@ -175,7 +175,9 @@ mod tests {
 
     use super::*;
 
+    #[cfg(unix)]
     #[test]
+    #[cfg(unix)]
     fn test_file_statuses() {
         let base = "/workspace";
         let local = vec![

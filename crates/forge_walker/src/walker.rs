@@ -398,7 +398,7 @@ mod tests {
         let actual_files: Vec<_> = actual
             .iter()
             .filter(|f| !f.is_dir())
-            .map(|f| f.path.as_str())
+            .map(|f| f.path.replace('\\', "/"))
             .collect();
 
         assert_eq!(
@@ -418,10 +418,12 @@ mod tests {
             .await
             .unwrap();
 
+        // Windows emits backslash-separated paths; normalize to forward
+        // slashes so the expectations are platform-agnostic (test hygiene).
         let expected = DEFAULT_MAX_BREADTH;
         let actual_file_count = actual
             .iter()
-            .filter(|f| f.path.starts_with("files/") && !f.is_dir())
+            .filter(|f| f.path.replace('\\', "/").starts_with("files/") && !f.is_dir())
             .count();
 
         assert_eq!(
@@ -444,7 +446,7 @@ mod tests {
         let actual_max_depth = actual
             .iter()
             .filter(|f| !f.is_dir())
-            .map(|f| f.path.split('/').count())
+            .map(|f| f.path.replace('\\', "/").split('/').count())
             .max()
             .unwrap();
 
@@ -528,7 +530,7 @@ mod tests {
         let mut actual_files: Vec<_> = actual
             .iter()
             .filter(|f| !f.is_dir())
-            .map(|f| f.path.as_str())
+            .map(|f| f.path.replace('\\', "/"))
             .collect();
         actual_files.sort();
 
@@ -653,7 +655,7 @@ mod tests {
         let mut actual: Vec<_> = actual
             .iter()
             .filter(|f| !f.is_dir())
-            .map(|f| f.path.as_str())
+            .map(|f| f.path.replace('\\', "/"))
             .collect();
         actual.sort();
         // .gitignore files are dotfiles and visible when hidden: false (matches fd
@@ -698,7 +700,7 @@ mod tests {
         let mut actual: Vec<_> = actual
             .iter()
             .filter(|f| !f.is_dir())
-            .map(|f| f.path.as_str())
+            .map(|f| f.path.replace('\\', "/"))
             .collect();
         actual.sort();
         // .gitignore files are dotfiles and visible when hidden: false (matches fd
@@ -716,6 +718,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_walker_excludes_symlinks() {
         let fixture = fixtures::Fixture::default();
@@ -736,7 +739,7 @@ mod tests {
         let actual_files: Vec<_> = actual
             .iter()
             .filter(|f| !f.is_dir())
-            .map(|f| f.path.as_str())
+            .map(|f| f.path.replace('\\', "/"))
             .collect();
 
         let expected = vec!["real.txt"];
@@ -746,6 +749,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_walker_excludes_dangling_symlinks() {
         let fixture = fixtures::Fixture::default();
@@ -766,7 +770,7 @@ mod tests {
         let actual_files: Vec<_> = actual
             .iter()
             .filter(|f| !f.is_dir())
-            .map(|f| f.path.as_str())
+            .map(|f| f.path.replace('\\', "/"))
             .collect();
 
         let expected = vec!["present.txt"];

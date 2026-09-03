@@ -1,0 +1,86 @@
+# .dockerignore — Forgecode dev builds
+# Complements .gitignore; strips heavy dirs from Docker build context.
+
+# ── Version control ──────────────────────────────────────────
+.git
+.github
+.circleci
+.trunk
+.forge
+.config
+
+# ── Build artifacts (rebuilt inside container) ────────────────
+target/
+debug/
+release/
+dist/
+build/
+out/
+**/target/
+**/debug/
+**/release/
+
+# ── Python caches ────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+*.egg-info/
+.eggs/
+.venv/
+venv/
+
+# ── Node ─────────────────────────────────────────────────────
+node_modules/
+
+# ── Rust backups ─────────────────────────────────────────────
+*.rs.bk
+*.pdb
+
+# ── IDE / editor ─────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Logs & temp ──────────────────────────────────────────────
+*.log
+*.log*
+*.tmp
+*.bak
+tmp/
+temp/
+
+# ── Environment secrets (never in image) ─────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Coverage / profiling ─────────────────────────────────────
+*.profraw
+*.profdata
+llvm-cov-*
+coverage/
+
+# ── Documentation (not needed in dev image) ──────────────────
+docs/
+*.md
+!README.md
+
+# ── Large test fixtures ──────────────────────────────────────
+tests/fixtures/large/
+snapshots/baselines/
+
+# ── Docker files (avoid recursive inclusion) ─────────────────
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+.dockerignore

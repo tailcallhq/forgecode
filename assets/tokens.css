@@ -1,0 +1,36 @@
+/* forgecode — Terminal-Forge design tokens (single source of truth)
+ *
+ * Canonical token source for the brand palette. Provenance:
+ * assets/brand/README.md (palette, proposed 2026-07-06 by vision-pillar).
+ * Referenced by docs/assets/identity/README.md and docs/VISUAL_SPEC.md.
+ *
+ * Dark-first identity: there is no light variant by design (org convention).
+ * When a light theme is introduced it must define tokens under a [data-theme]
+ * scope below without changing the dark defaults.
+ */
+
+:root {
+  /* Color tokens */
+  --forge-bg: #0e0e10;            /* deep-charcoal — background */
+  --forge-bg-secondary: #1c1c1f;  /* deep-charcoal-2 — window frame / panel secondary */
+  --forge-accent: #f5a623;        /* amber-crt — primary accent, CRT phosphor, the F> prompt */
+  --forge-accent-secondary: #d946a8; /* synthwave-magenta — AI glow / spark */
+  --forge-accent-tertiary: #6ee7b7;  /* mint-prompt — command-line success / echo line */
+
+  /* Motion tokens (L102) */
+  --forge-motion-scanline: 4s;   /* SMIL scanline shimmer loop (assets/brand/forgecode-icon-animated.svg) */
+  --forge-motion-caret: 1.2s;    /* caret blink oscillation */
+  --forge-motion-spark: 1.6s;    /* magenta spark opacity pulse 0.55 -> 1 -> 0.55 */
+
+  /* Typography tokens (L97) — terminal fonts are user-owned; these are conventions */
+  --forge-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+/* Prefers-reduced-motion: disable animated brand assets for motion-sensitive users */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --forge-motion-scanline: 0s;
+    --forge-motion-caret: 0s;
+    --forge-motion-spark: 0s;
+  }
+}

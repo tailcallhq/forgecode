@@ -1,0 +1,42 @@
+[package]
+name = "helios-bot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GitHub bot that responds to @helios mentions on issues and PRs"
+homepage.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "helios-bot"
+path = "src/main.rs"
+# The bot has no lib.rs; the modules (agent, cli, github, webhook) are
+# only reachable from main.rs's runtime. Workspace's -D warnings turns
+# dead-code on the bin test build into hard errors. Disable bin tests
+# so dead-code doesn't trip CI; lib-style unit tests can be added by
+# converting the modules to a library target later.
+test = false
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+bstr = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+forge_api.workspace = true
+forge_config.workspace = true
+forge_domain.workspace = true
+futures.workspace = true
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+reqwest = { workspace = true, features = ["rustls-tls"], default-features = false }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "sync", "io-util"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints.rust]
+unknown_lints = "allow"

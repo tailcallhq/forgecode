@@ -1,0 +1,29 @@
+name: fuzz
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 6'
+
+permissions:
+  contents: read
+
+jobs:
+  json-repair:
+    name: json-repair fuzz target
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run bounded fuzz smoke
+        run: cargo fuzz run json_repair --fuzz-dir fuzz --sanitizer none -- -runs=1000

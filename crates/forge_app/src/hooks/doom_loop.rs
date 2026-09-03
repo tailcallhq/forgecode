@@ -286,6 +286,10 @@ mod tests {
             context: Some(context),
             metrics: Default::default(),
             metadata: forge_domain::MetaData::new(chrono::Utc::now()),
+            parent_id: None,
+            source: None,
+            cwd: None,
+            message_count: None,
         }
     }
 

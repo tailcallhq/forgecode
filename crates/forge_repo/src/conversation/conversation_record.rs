@@ -8,6 +8,8 @@ use anyhow::Context as _;
 use forge_domain::{Context, ConversationId};
 use serde::{Deserialize, Serialize};
 
+use crate::codec;
+
 /// Repository-specific representation of ModelId
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(transparent)]
@@ -278,6 +280,7 @@ pub enum RoleRecord {
     System,
     User,
     Assistant,
+    Tool,
 }
 
 impl From<&forge_domain::Role> for RoleRecord {
@@ -286,6 +289,7 @@ impl From<&forge_domain::Role> for RoleRecord {
             forge_domain::Role::System => Self::System,
             forge_domain::Role::User => Self::User,
             forge_domain::Role::Assistant => Self::Assistant,
+            forge_domain::Role::Tool => Self::Tool,
         }
     }
 }
@@ -296,6 +300,7 @@ impl From<RoleRecord> for forge_domain::Role {
             RoleRecord::System => Self::System,
             RoleRecord::User => Self::User,
             RoleRecord::Assistant => Self::Assistant,
+            RoleRecord::Tool => Self::Tool,
         }
     }
 }
@@ -938,7 +943,14 @@ impl From<MetricsRecord> for forge_domain::Metrics {
 }
 
 /// Database model for conversations table
-#[derive(Debug, diesel::Queryable, diesel::Selectable, diesel::Insertable, diesel::AsChangeset)]
+#[derive(
+    Debug,
+    diesel::Queryable,
+    diesel::Selectable,
+    diesel::Insertable,
+    diesel::AsChangeset,
+    diesel::QueryableByName,
+)]
 #[diesel(table_name = crate::database::schema::conversations)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub(super) struct ConversationRecord {
@@ -949,6 +961,16 @@ pub(super) struct ConversationRecord {
     pub created_at: chrono::NaiveDateTime,
     pub updated_at: Option<chrono::NaiveDateTime>,
     pub metrics: Option<String>,
+    pub parent_id: Option<String>,
+    pub source: Option<String>,
+    pub cwd: Option<String>,
+    pub message_count: Option<i32>,
+    pub intent_state: String,
+    pub extracted_at: Option<chrono::NaiveDateTime>,
+    pub memory_id: Option<String>,
+    pub intent_hash: Option<String>,
+    pub context_zstd: Option<Vec<u8>>,
+    pub is_compressed: i32,
 }
 
 impl ConversationRecord {
@@ -957,15 +979,24 @@ impl ConversationRecord {
         conversation: forge_domain::Conversation,
         workspace_id: forge_domain::WorkspaceHash,
     ) -> Self {
-        let context = conversation
-            .context
-            .as_ref()
-            .filter(|ctx| !ctx.messages.is_empty() || ctx.initiator.is_some())
-            .map(ContextRecord::from)
-            .and_then(|ctx_record| serde_json::to_string(&ctx_record).ok());
-        let updated_at = context.as_ref().map(|_| chrono::Utc::now().naive_utc());
+        let persisted_context =
+            forge_dbd::conversation_storage::persist_context(conversation.context.as_ref());
+        let context = persisted_context.context;
+        let context_zstd = persisted_context.context_zstd;
+        let is_compressed = persisted_context.is_compressed;
+
+        let updated_at = if context.is_some() || context_zstd.is_some() {
+            Some(chrono::Utc::now().naive_utc())
+        } else {
+            None
+        };
         let metrics_record = MetricsRecord::from(&conversation.metrics);
         let metrics = serde_json::to_string(&metrics_record).ok();
+        // `message_count` is a denormalised count of the context's messages,
+        // written once at upsert time. `context.as_ref().map(...)` returns
+        // `None` for tombstone conversations (no Context blob), and we
+        // leave the column NULL in that case.
+        let message_count = persisted_context.message_count;
 
         Self {
             conversation_id: conversation.id.into_string(),
@@ -975,6 +1006,110 @@ impl ConversationRecord {
             updated_at,
             workspace_id: workspace_id.id() as i64,
             metrics,
+            parent_id: conversation.parent_id.map(|id| id.into_string()),
+            source: conversation.source.clone(),
+            cwd: conversation.cwd.clone(),
+            message_count,
+            intent_state: "pending".to_string(),
+            extracted_at: None,
+            memory_id: None,
+            intent_hash: None,
+            context_zstd,
+            is_compressed,
+        }
+    }
+
+    /// Creates a new ConversationRecord from a borrowed `Conversation`.
+    ///
+    /// Equivalent to [`Self::new`] but takes the conversation by reference so
+    /// callers on the hot path (the orchestrator loop, the
+    /// `ConversationService::modify_conversation` closure) can avoid cloning
+    /// the full `Conversation` just to insert it.
+    ///
+    /// Each owned field on the record is built by cloning only the inner
+    /// scalars/strings from the source `Conversation` (not the whole struct),
+    /// so the cost is roughly proportional to the size of the
+    /// `Option<String>` columns (title, parent_id, source) plus the
+    /// serialised metrics/context blobs.
+    pub fn new_ref(
+        conversation: &forge_domain::Conversation,
+        workspace_id: forge_domain::WorkspaceHash,
+    ) -> Self {
+        let persisted_context =
+            forge_dbd::conversation_storage::persist_context(conversation.context.as_ref());
+        let context = persisted_context.context;
+        let context_zstd = persisted_context.context_zstd;
+        let is_compressed = persisted_context.is_compressed;
+
+        let updated_at = if context.is_some() || context_zstd.is_some() {
+            Some(chrono::Utc::now().naive_utc())
+        } else {
+            None
+        };
+        let metrics_record = MetricsRecord::from(&conversation.metrics);
+        let metrics = serde_json::to_string(&metrics_record).ok();
+        let message_count = persisted_context.message_count;
+
+        Self {
+            conversation_id: conversation.id.into_string(),
+            title: conversation.title.clone(),
+            context,
+            created_at: conversation.metadata.created_at.naive_utc(),
+            updated_at,
+            workspace_id: workspace_id.id() as i64,
+            metrics,
+            parent_id: conversation.parent_id.map(|id| id.into_string()),
+            source: conversation.source.clone(),
+            cwd: conversation.cwd.clone(),
+            message_count,
+            intent_state: "pending".to_string(),
+            extracted_at: None,
+            memory_id: None,
+            intent_hash: None,
+            context_zstd,
+            is_compressed,
+        }
+    }
+}
+
+/// Lightweight Diesel record for conversation list queries.
+///
+/// Selects only metadata columns — no `context` / `context_zstd` blobs.
+/// Used by [`super::conversation_repo::ConversationRepositoryImpl::get_parent_conversations_lite`].
+///
+/// `table_name = conversations_all` so `as_select()` reads from the
+/// split-DB `conversations_all` view (TEMP VIEW installed by
+/// `SqliteCustomizer` on every connection acquire). The view unions
+/// the primary write DB with the legacy read-only DB, so picker
+/// queries see legacy rows transparently.
+#[derive(Debug, diesel::Queryable, diesel::Selectable)]
+#[diesel(table_name = crate::database::schema::conversations_all)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub(super) struct ConversationRecordLite {
+    pub conversation_id: String,
+    pub title: Option<String>,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: Option<chrono::NaiveDateTime>,
+    pub parent_id: Option<String>,
+    pub cwd: Option<String>,
+    pub message_count: Option<i32>,
+}
+
+impl From<ConversationRecordLite> for forge_domain::ConversationSummary {
+    fn from(record: ConversationRecordLite) -> Self {
+        let id = ConversationId::parse(&record.conversation_id)
+            .unwrap_or_else(|_| ConversationId::generate());
+
+        forge_domain::ConversationSummary {
+            id,
+            title: record.title,
+            parent_id: record
+                .parent_id
+                .and_then(|pid| ConversationId::parse(pid).ok()),
+            created_at: record.created_at.and_utc(),
+            updated_at: record.updated_at.map(|u| u.and_utc()),
+            message_count: record.message_count,
+            cwd: record.cwd,
         }
     }
 }
@@ -987,7 +1122,29 @@ impl TryFrom<ConversationRecord> for forge_domain::Conversation {
         let id = ConversationId::parse(conversation_id.clone())
             .with_context(|| format!("Failed to parse conversation ID: {}", conversation_id))?;
 
-        let context = if let Some(context_str) = record.context {
+        // Dual-read path: decompress if is_compressed=1, else fall back to plain
+        // context
+        let context_str = if record.is_compressed == 1 {
+            if let Some(compressed) = record.context_zstd {
+                codec::decompress(&compressed).with_context(|| {
+                    format!(
+                        "Failed to decompress context_zstd for conversation {}",
+                        conversation_id
+                    )
+                })?
+            } else {
+                // Corrupted record: is_compressed=1 but context_zstd is None
+                return Err(anyhow::anyhow!(
+                    "Record marked compressed but context_zstd is None for conversation {}",
+                    conversation_id
+                ));
+            }
+        } else {
+            // Fallback: plain context column for old uncompressed rows
+            record.context.unwrap_or_default()
+        };
+
+        let context = if !context_str.is_empty() {
             Some(
                 serde_json::from_str::<ContextRecord>(&context_str)
                     .with_context(|| {
@@ -1021,6 +1178,14 @@ impl TryFrom<ConversationRecord> for forge_domain::Conversation {
             .context(context)
             .title(record.title)
             .metrics(metrics)
+            .parent_id(
+                record
+                    .parent_id
+                    .and_then(|id| ConversationId::parse(id).ok()),
+            )
+            .source(record.source)
+            .cwd(record.cwd)
+            .message_count(record.message_count)
             .metadata(
                 forge_domain::MetaData::new(record.created_at.and_utc())
                     .updated_at(record.updated_at.map(|updated_at| updated_at.and_utc())),

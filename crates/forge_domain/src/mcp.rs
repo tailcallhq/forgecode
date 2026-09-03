@@ -6,7 +6,6 @@ use std::ops::Deref;
 
 use derive_more::{Deref, Display, From};
 use derive_setters::Setters;
-use merge::Merge;
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display as StrumDisplay, EnumIter, EnumString};
 
@@ -266,10 +265,9 @@ pub struct McpOAuthConfig {
 )]
 pub struct ServerName(String);
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Merge)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpConfig {
-    #[merge(strategy = std::collections::BTreeMap::extend)]
     #[serde(default)]
     pub mcp_servers: BTreeMap<ServerName, McpServerConfig>,
 }
@@ -289,6 +287,16 @@ impl From<BTreeMap<ServerName, McpServerConfig>> for McpConfig {
 }
 
 impl McpConfig {
+    /// Merges server definitions, giving same-name servers in `other`
+    /// precedence.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The higher-precedence MCP configuration.
+    pub fn merge_from(&mut self, other: Self) {
+        self.mcp_servers.extend(other.mcp_servers);
+    }
+
     /// Compute a deterministic u64 identifier for this config.
     ///
     /// Uses FNV-64 (a non-cryptographic but stable, seed-free hasher) so the
@@ -301,7 +309,7 @@ impl McpConfig {
     pub fn cache_key(&self) -> u64 {
         use std::hash::{Hash, Hasher};
 
-        let mut hasher = fnv_rs::Fnv64::default();
+        let mut hasher = fnv::FnvHasher::default();
         Hash::hash(self, &mut hasher);
         hasher.finish()
     }
@@ -367,6 +375,46 @@ impl McpTrustStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_mcp_config_merge_from_unions_servers_and_prefers_other_by_name() {
+        let mut fixture = McpConfig::from(BTreeMap::from([
+            (
+                "shared".to_string().into(),
+                McpServerConfig::new_http("http://user.example"),
+            ),
+            (
+                "user-only".to_string().into(),
+                McpServerConfig::new_stdio("user", vec![], None),
+            ),
+        ]));
+        let other = McpConfig::from(BTreeMap::from([
+            (
+                "shared".to_string().into(),
+                McpServerConfig::new_http("http://local.example"),
+            ),
+            (
+                "local-only".to_string().into(),
+                McpServerConfig::new_stdio("local", vec![], None),
+            ),
+        ]));
+        fixture.merge_from(other);
+        assert_eq!(fixture.mcp_servers.len(), 3);
+        assert_eq!(
+            fixture.mcp_servers.get(&"shared".to_string().into()),
+            Some(&McpServerConfig::new_http("http://local.example"))
+        );
+        assert!(
+            fixture
+                .mcp_servers
+                .contains_key(&"user-only".to_string().into())
+        );
+        assert!(
+            fixture
+                .mcp_servers
+                .contains_key(&"local-only".to_string().into())
+        );
+    }
 
     #[test]
     fn test_mcp_config_hash_consistency() {

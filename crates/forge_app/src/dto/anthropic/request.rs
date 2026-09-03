@@ -266,6 +266,7 @@ impl TryFrom<ContextMessage> for Message {
                             forge_domain::Error::UnsupportedRole("System".to_string()).into()
                         );
                     }
+                    forge_domain::Role::Tool => Message { role: Role::User, content },
                 }
             }
             ContextMessage::Tool(tool_result) => {

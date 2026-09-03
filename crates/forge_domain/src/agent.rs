@@ -2,7 +2,6 @@ use std::borrow::Cow;
 
 use derive_more::derive::Display;
 use derive_setters::Setters;
-use merge::Merge;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display as StrumDisplay, EnumString};
@@ -45,9 +44,40 @@ impl Default for AgentId {
     }
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize, Merge, Setters, JsonSchema, PartialEq)]
+#[cfg(test)]
+mod reasoning_config_tests {
+    use pretty_assertions::assert_eq;
+
+    use super::{Effort, ReasoningConfig};
+
+    #[test]
+    fn test_reasoning_config_merge_from_fills_only_unset_values() {
+        let mut fixture = ReasoningConfig {
+            effort: Some(Effort::High),
+            max_tokens: None,
+            exclude: Some(true),
+            enabled: None,
+        };
+        fixture.merge_from(ReasoningConfig {
+            effort: Some(Effort::Low),
+            max_tokens: Some(2048),
+            exclude: Some(false),
+            enabled: Some(false),
+        });
+        assert_eq!(
+            fixture,
+            ReasoningConfig {
+                effort: Some(Effort::High),
+                max_tokens: Some(2048),
+                exclude: Some(true),
+                enabled: Some(false),
+            }
+        );
+    }
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize, Setters, JsonSchema, PartialEq)]
 #[setters(strip_option)]
-#[merge(strategy = merge::option::overwrite_none)]
 pub struct ReasoningConfig {
     /// Controls the effort level of the agent's reasoning
     /// supported by openrouter and forge provider
@@ -69,6 +99,29 @@ pub struct ReasoningConfig {
     /// supported by openrouter, anthropic and forge provider
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+}
+
+impl ReasoningConfig {
+    /// Fills fields that are absent from this configuration with values from
+    /// `other`.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The lower-precedence configuration to use as a fallback.
+    pub fn merge_from(&mut self, other: Self) {
+        if self.effort.is_none() {
+            self.effort = other.effort;
+        }
+        if self.max_tokens.is_none() {
+            self.max_tokens = other.max_tokens;
+        }
+        if self.exclude.is_none() {
+            self.exclude = other.exclude;
+        }
+        if self.enabled.is_none() {
+            self.enabled = other.enabled;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, StrumDisplay, EnumString)]

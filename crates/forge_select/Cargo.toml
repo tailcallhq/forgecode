@@ -1,7 +1,8 @@
 [package]
 name = "forge_select"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
@@ -14,6 +15,7 @@ derive_setters.workspace = true
 nucleo.workspace = true
 nucleo-picker.workspace = true
 rustyline.workspace = true
+signal-hook = "0.3"
 tracing.workspace = true
 
 [dev-dependencies]

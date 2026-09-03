@@ -1,23 +1,18 @@
 use ::std::collections::HashMap;
 use ::std::hash::Hash;
 
-pub mod std {
-    pub fn overwrite<T>(base: &mut T, other: T) {
-        *base = other;
-    }
-}
-
 pub mod vec {
 
     use std::collections::HashMap;
 
-    use merge::Merge;
-
     use super::Key;
 
     #[allow(unused)]
-    pub fn unify_by_key<T: Merge + Key>(base: &mut Vec<T>, other: Vec<T>)
-    where
+    pub fn unify_by_key<T: Key>(
+        base: &mut Vec<T>,
+        other: Vec<T>,
+        mut merge_from: impl FnMut(&mut T, T),
+    ) where
         T::Id: Clone + std::hash::Hash + Eq,
     {
         // Create a HashMap for O(1) lookup of base agents by their key
@@ -30,21 +25,18 @@ pub mod vec {
             if let Some(&index) = base_map.get(other_agent.key()) {
                 // If the base contains an agent with the same Key, merge them
                 if let Some(base_agent) = base.get_mut(index) {
-                    base_agent.merge(other_agent);
+                    merge_from(base_agent, other_agent);
                 }
             } else {
+                let key = other_agent.key().clone();
                 // Otherwise, append the other agent to the base list
                 base.push(other_agent);
+                base_map.insert(key, base.len() - 1);
             }
         }
     }
 }
 
-pub fn option<A>(base: &mut Option<A>, other: Option<A>) {
-    if other.is_some() {
-        *base = other;
-    }
-}
 #[allow(unused)]
 pub trait Key {
     type Id: Eq;
@@ -55,5 +47,35 @@ pub trait Key {
 pub fn hashmap<K: Eq + Hash, V>(base: &mut HashMap<K, V>, other: HashMap<K, V>) {
     for (key, value) in other {
         base.insert(key, value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Key;
+    use super::vec::unify_by_key;
+
+    #[derive(Debug, PartialEq)]
+    struct Item(&'static str, usize);
+
+    impl Key for Item {
+        type Id = &'static str;
+
+        fn key(&self) -> &Self::Id {
+            &self.0
+        }
+    }
+
+    #[test]
+    fn duplicate_incoming_keys_merge_into_the_first_appended_item() {
+        let mut fixture = vec![Item("base", 1)];
+        let other = vec![Item("new", 2), Item("new", 3)];
+
+        unify_by_key(&mut fixture, other, |base, incoming| {
+            base.1 += incoming.1;
+        });
+
+        let expected = vec![Item("base", 1), Item("new", 5)];
+        assert_eq!(fixture, expected);
     }
 }

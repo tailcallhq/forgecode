@@ -10,8 +10,8 @@ use crate::apply_tunable_parameters::ApplyTunableParameters;
 use crate::changed_files::ChangedFiles;
 use crate::dto::ToolsOverview;
 use crate::hooks::{
-    CompactionHandler, DoomLoopDetector, PendingTodosHandler, TitleGenerationHandler,
-    TracingHandler,
+    AutoRepairHook, CompactionHandler, DoomLoopDetector, PendingTodosHandler, SandboxHook,
+    TitleGenerationHandler, TracingHandler,
 };
 use crate::init_conversation_metrics::InitConversationMetrics;
 use crate::orch::Orchestrator;
@@ -168,7 +168,12 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
                     .and(CompactionHandler::new(agent.clone(), environment.clone())),
             )
             .on_toolcall_start(tracing_handler.clone())
-            .on_toolcall_end(tracing_handler)
+            .on_toolcall_end(
+                tracing_handler
+                    .clone()
+                    .and(AutoRepairHook::new())
+                    .and(SandboxHook::new()),
+            )
             .on_end(on_end_hook);
 
         let orch = Orchestrator::new(
@@ -329,9 +334,32 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
             .collect();
 
         // Execute all provider fetches concurrently.
-        futures::future::join_all(futures)
-            .await
-            .into_iter()
-            .collect::<anyhow::Result<Vec<_>>>()
+        let results: Vec<Result<ProviderModels>> = futures::future::join_all(futures).await;
+
+        // Separate successes from failures, logging each failure.
+        let mut models = Vec::with_capacity(results.len());
+        let mut first_error: Option<anyhow::Error> = None;
+
+        for result in results {
+            match result {
+                Ok(provider_models) => models.push(provider_models),
+                Err(err) => {
+                    tracing::warn!("Failed to fetch models for a provider: {err}");
+                    if first_error.is_none() {
+                        first_error = Some(err);
+                    }
+                }
+            }
+        }
+
+        // If every provider failed, surface the first error so the caller
+        // knows why rather than seeing a confusing empty list.
+        if models.is_empty()
+            && let Some(err) = first_error
+        {
+            return Err(err);
+        }
+
+        Ok(models)
     }
 }

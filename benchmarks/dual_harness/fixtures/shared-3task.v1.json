@@ -1,0 +1,64 @@
+{
+  "schema_version": "pheno.dual_harness.fixture.v1",
+  "fixture_id": "dual-harness-shared-3task-20260722-forgecode",
+  "purpose": "Minimal forgecode shared task set without model serving.",
+  "score_planes": ["harness"],
+  "tasks": [
+    {
+      "task_id": "dh-t1-echo-ok",
+      "title": "Echo OK",
+      "kind": "process_smoke",
+      "prompt": "Run a no-op process that prints OK and exits 0.",
+      "acceptance": {
+        "exit_code": 0,
+        "stdout_contains": "OK"
+      },
+      "adapters": {
+        "forgecode": {
+          "cmd": "printf",
+          "args": ["OK\n"]
+        }
+      }
+    },
+    {
+      "task_id": "dh-t2-workdir-isolation",
+      "title": "Working-dir isolation",
+      "kind": "process_smoke",
+      "prompt": "Run pwd under an explicit working directory and assert the path prefix.",
+      "acceptance": {
+        "exit_code": 0,
+        "stdout_path_prefix_env": "DUAL_HARNESS_WORKDIR"
+      },
+      "adapters": {
+        "forgecode": {
+          "cmd": "pwd",
+          "args": [],
+          "working_dir_env": "DUAL_HARNESS_WORKDIR"
+        }
+      }
+    },
+    {
+      "task_id": "dh-t3-timeout-guard",
+      "title": "Timeout guard",
+      "kind": "process_smoke",
+      "prompt": "Start a sleep longer than the runner timeout and assert timeout handling.",
+      "acceptance": {
+        "must_error": true,
+        "error_class": "timeout",
+        "timeout_secs": 1,
+        "sleep_secs": 5
+      },
+      "adapters": {
+        "forgecode": {
+          "cmd": "sleep",
+          "args": ["5"],
+          "timeout_secs": 1
+        }
+      }
+    }
+  ],
+  "runner_notes": [
+    "Semantic/SWE cases are intentionally excluded from v1; this fixture gates harness reliability only.",
+    "Set DUAL_HARNESS_WORKDIR to a writable temp dir before t2."
+  ]
+}

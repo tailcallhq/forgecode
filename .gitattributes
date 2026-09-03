@@ -1,1 +1,13 @@
+# Normalize line endings for text files; mark common binary types
+* text=auto eol=lf
 *.zsh eol=lf
+*.sh eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary

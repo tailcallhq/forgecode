@@ -23,6 +23,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn test_unix_absolute_path() {
         let path = Path::new("/absolute/path");
         assert!(assert_absolute_path(path).is_ok());

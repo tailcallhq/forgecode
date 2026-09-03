@@ -1,0 +1,21 @@
+[package]
+name = "forge_dbd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "SQLite write daemon for persistent conversation storage (P3 single-writer; wired into forge_repo via FORGE_DBD_ENABLED)"
+
+[dependencies]
+anyhow = { workspace = true }
+dirs = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "macros", "sync", "time", "fs", "io-util", "signal"] }
+tracing = { workspace = true }
+forge_domain = { workspace = true }
+rusqlite = { version = "0.40.0", features = ["bundled"] }
+zstd.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

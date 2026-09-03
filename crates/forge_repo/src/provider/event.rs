@@ -1,7 +1,7 @@
 use anyhow::Context;
 use forge_app::domain::ChatCompletionMessage;
 use forge_app::dto::openai::Error;
-use forge_eventsource::{Event, EventSource};
+use forge_eventsource::{Event, EventSource, is_sse_terminal};
 use reqwest::Url;
 use serde::de::DeserializeOwned;
 use tokio_stream::{Stream, StreamExt};
@@ -23,8 +23,7 @@ where
                 match event {
                     Ok(event) => match event {
                         Event::Open => None,
-                        Event::Message(event) if ["[DONE]", ""].contains(&event.data.as_str()) => {
-
+                        Event::Message(event) if is_sse_terminal(&event.data) => {
                             debug!("Received completion from Upstream");
                             None
                         }

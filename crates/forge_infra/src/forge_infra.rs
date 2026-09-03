@@ -98,7 +98,7 @@ impl ForgeInfra {
                 output_printer.clone(),
             )),
             inquire_service: Arc::new(ForgeInquire::new()),
-            mcp_server: ForgeMcpServer,
+            mcp_server: ForgeMcpServer::new(config.retry.clone().unwrap_or_default()),
             walker_service: Arc::new(ForgeWalkerService::new()),
             strategy_factory: Arc::new(ForgeAuthStrategyFactory::new(env.clone())),
             http_service,
@@ -144,6 +144,20 @@ impl EnvironmentInfra for ForgeInfra {
         ops: Vec<forge_domain::ConfigOperation>,
     ) -> anyhow::Result<()> {
         self.config_infra.update_environment(ops).await
+    }
+
+    fn database_stats(
+        &self,
+    ) -> impl std::future::Future<Output = anyhow::Result<forge_domain::HeliosdoctorDbStats>> + Send
+    {
+        self.config_infra.database_stats()
+    }
+
+    fn database_integrity(
+        &self,
+    ) -> impl std::future::Future<Output = anyhow::Result<forge_domain::HeliosdoctorDbStats>> + Send
+    {
+        self.config_infra.database_integrity()
     }
 }
 

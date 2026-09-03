@@ -1,0 +1,20 @@
+[package]
+name = "forge_mux"
+version = "0.1.0"
+description = "MuxBridge trait + tmux implementation for forgecode terminal multiplexer integration"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+bstr.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true

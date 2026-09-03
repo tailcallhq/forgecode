@@ -1,0 +1,23 @@
+# Generated 2026-08-27 by forgecode Scorecard remediation. Closes the
+# last 3 PinnedDependencies findings (pipCommand not pinned by hash).
+#
+# Target platform: python:3.12-slim-bookworm on x86_64 (Dockerfile.dev L20).
+# pip install --require-hashes will refuse install if the resolved
+# artifact's sha256 does not match the --hash listed below.
+#
+# Verify by:
+#   pip install --no-cache-dir --require-hashes --dry-run \
+#       -r requirements/dev.txt
+# Regenerate when any package version is bumped:
+#   python scripts/gen_requirements_dev.py
+
+pip==26.2.1    --hash=sha256:71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e    # pip-26.2.1-py3-none-any.whl
+pytest==9.1.1    --hash=sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c    # pytest-9.1.1-py3-none-any.whl
+pytest-cov==7.1.0    --hash=sha256:a0461110b7865f9a271aa1b51e516c9a95de9d696734a2f71e3e78f46e1d4678    # pytest_cov-7.1.0-py3-none-any.whl
+pytest-xdist==3.8.0    --hash=sha256:202ca578cfeb7370784a8c33d6d05bc6e13b4f25b5053c30a152269fd10f0b88    # pytest_xdist-3.8.0-py3-none-any.whl
+ruff==0.16.5    --hash=sha256:ef0f69e191a13a3c9816f63163c88790cb12cd157bbbb384e9c44745702ab105    # ruff-0.16.5-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+mypy==2.3.1    --hash=sha256:858fc57d3d91fa728e33e7ad71def60fc6272694607b306cd3292db53ae39080    # mypy-2.3.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
+pip-audit==2.10.1    --hash=sha256:99ef3f600a317c1945f1e89e227ef26e1c2d618429b8bd3fa6f4f7c440c4611a    # pip_audit-2.10.1-py3-none-any.whl
+build==1.6.0    --hash=sha256:f7aaf1ebbb79178a02ba248bb524f2176b256017e17e8e4bd4289c7b38cc2bad    # build-1.6.0-py3-none-any.whl
+pyyaml==6.0.3    --hash=sha256:ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc    # pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
+requests==2.34.2    --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0    # requests-2.34.2-py3-none-any.whl

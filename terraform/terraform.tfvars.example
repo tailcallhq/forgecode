@@ -1,0 +1,4 @@
+environment        = "production"
+container_image    = "my-account.dkr.ecr.us-east-1.amazonaws.com/forgecode:latest"
+s3_bucket_name     = "forgecode-app-data"
+db_password        = "changeme"

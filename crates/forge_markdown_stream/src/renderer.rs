@@ -40,11 +40,12 @@ impl<W: Write> Renderer<W> {
     }
 
     pub fn with_theme(writer: W, width: usize, theme: Theme) -> Self {
+        let highlighter = CodeHighlighter::new(theme.syntax_theme());
         Self {
             writer,
             width,
             theme,
-            highlighter: CodeHighlighter::default(),
+            highlighter,
             current_language: None,
             code_buffer: String::new(),
             table_rows: Vec::new(),
@@ -58,6 +59,7 @@ impl<W: Write> Renderer<W> {
     /// Set a new theme.
     #[allow(dead_code)]
     pub fn set_theme(&mut self, theme: Theme) {
+        self.highlighter.set_theme(theme.syntax_theme());
         self.theme = theme;
     }
 
@@ -311,5 +313,63 @@ impl<W: Write> Renderer<W> {
         }
 
         self.writer.flush()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+    use streamdown_parser::ParseEvent;
+
+    use super::Renderer;
+    use crate::theme::Theme;
+
+    #[test]
+    fn test_configured_light_theme_controls_code_palette() {
+        let mut output = Vec::new();
+        let mut fixture = Renderer::with_theme(&mut output, 80, Theme::light());
+        fixture
+            .render_event(&ParseEvent::CodeBlockStart {
+                language: Some("rust".to_string()),
+                indent: 0,
+            })
+            .unwrap();
+        fixture
+            .render_event(&ParseEvent::CodeBlockLine("let value = 1;".to_string()))
+            .unwrap();
+
+        let actual = String::from_utf8(output).unwrap();
+        let expected = concat!(
+            "\x1b[38;5;25mlet\x1b[0m value = ",
+            "\x1b[38;5;90m1\x1b[0m;\x1b[0m\n"
+        )
+        .to_string();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_replaced_theme_updates_code_palette() {
+        let mut output = Vec::new();
+        let mut fixture = Renderer::with_theme(&mut output, 80, Theme::dark());
+        fixture.set_theme(Theme::light());
+        fixture
+            .render_event(&ParseEvent::CodeBlockStart {
+                language: Some("rust".to_string()),
+                indent: 0,
+            })
+            .unwrap();
+        fixture
+            .render_event(&ParseEvent::CodeBlockLine("let value = 1;".to_string()))
+            .unwrap();
+
+        let actual = String::from_utf8(output).unwrap();
+        let expected = concat!(
+            "\x1b[38;5;25mlet\x1b[0m value = ",
+            "\x1b[38;5;90m1\x1b[0m;\x1b[0m\n"
+        )
+        .to_string();
+
+        assert_eq!(actual, expected);
     }
 }

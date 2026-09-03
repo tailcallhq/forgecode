@@ -1,0 +1,47 @@
+name: ci
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: ci / test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install system deps
+        run: sudo apt-get update -q && sudo apt-get install -y libsqlite3-dev protobuf-compiler
+
+      - name: Setup Rust toolchain (stable)
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          toolchain: stable
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+        with:
+          version: 0.16.0
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@7e35be21c2b94d972b1143087fabc27d7dc881ef
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@c44f6b046f1c29ae5918b1e0bfdbb2f1813836fd
+        with:
+          tool: cargo-nextest
+
+      - name: cargo nextest run
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: cargo nextest run --all-features --workspace

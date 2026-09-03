@@ -547,6 +547,7 @@ impl From<forge_domain::Role> for Role {
             forge_domain::Role::System => Role::System,
             forge_domain::Role::User => Role::User,
             forge_domain::Role::Assistant => Role::Assistant,
+            forge_domain::Role::Tool => Role::Tool,
         }
     }
 }
@@ -774,19 +775,24 @@ mod tests {
                 .model(ModelId::new("gpt-3.5-turbo")),
         );
         let actual = Message::from(assistant_message);
-        let actual =
-            serde_json::to_value(actual.tool_calls.expect("Tool calls should exist")).unwrap();
-        let expected = serde_json::json!([
-            {
-                "id": "123",
-                "type": "function",
-                "function": {
-                    "arguments": "{\"file_path\":\"/tmp/file.txt\",\"new_string\":\"new text\",\"old_string\":\"old text\",\"replace_all\":false}",
-                    "name": "patch"
-                }
-            }
-        ]);
-        assert_eq!(actual, expected);
+        let tool_calls = actual.tool_calls.expect("Tool calls should exist");
+        let tool_call = tool_calls.first().expect("one tool call should exist");
+        let arguments =
+            serde_json::from_str::<serde_json::Value>(&tool_call.function.arguments).unwrap();
+
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_call.id, Some(ToolCallId::new("123")));
+        assert_eq!(tool_call.r#type, FunctionType);
+        assert_eq!(tool_call.function.name, Some(ToolName::new("patch")));
+        assert_eq!(
+            arguments,
+            serde_json::json!({
+                "file_path": "/tmp/file.txt",
+                "new_string": "new text",
+                "old_string": "old text",
+                "replace_all": false
+            })
+        );
     }
 
     #[test]

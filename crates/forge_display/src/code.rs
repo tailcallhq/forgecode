@@ -1,12 +1,8 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use std::time::Duration;
 
-use syntect::easy::HighlightLines;
-use syntect::highlighting::ThemeSet;
-use syntect::parsing::SyntaxSet;
-use syntect::util::as_24_bit_terminal_escaped;
+use forge_syntax::{Theme, highlight_line};
 use terminal_colorsaurus::{QueryOptions, ThemeMode, theme_mode};
-use two_face::theme::EmbeddedThemeName;
 
 /// Maximum time to wait for a terminal color query response.
 const THEME_DETECT_TIMEOUT: Duration = Duration::from_millis(100);
@@ -14,19 +10,20 @@ const THEME_DETECT_TIMEOUT: Duration = Duration::from_millis(100);
 /// Process-wide cache for whether the terminal uses a dark background.
 static IS_DARK_THEME: OnceLock<bool> = OnceLock::new();
 
-/// Loads and caches syntax highlighting resources.
+/// Applies terminal-aware ANSI highlighting without a syntax database.
 #[derive(Clone)]
 pub struct SyntaxHighlighter {
-    syntax_set: Arc<SyntaxSet>,
-    theme_set: Arc<ThemeSet>,
+    theme: Theme,
 }
 
 impl Default for SyntaxHighlighter {
     fn default() -> Self {
-        // Use two-face's extended syntax set which includes TOML, Rust, Python, etc.
         Self {
-            syntax_set: Arc::new(two_face::syntax::extra_newlines()),
-            theme_set: Arc::new(two_face::theme::extra().into()),
+            theme: if Self::is_dark_theme() {
+                Theme::Dark
+            } else {
+                Theme::Light
+            },
         }
     }
 }
@@ -47,30 +44,18 @@ impl SyntaxHighlighter {
         })
     }
 
-    /// Syntax-highlights `code` for the given language token (e.g. `"toml"`,
-    /// `"rust"`), returning an ANSI-escaped string ready for terminal output.
-    ///
-    /// The theme is chosen automatically based on the terminal background
-    /// (dark → `base16-ocean.dark`, light → `InspiredGitHub`). Falls back to
-    /// plain text if the language is unrecognised.
+    /// Highlights supported language tokens and leaves unknown languages
+    /// literal.
     pub fn highlight(&self, code: &str, lang: &str) -> String {
-        let syntax = self
-            .syntax_set
-            .find_syntax_by_token(lang)
-            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
-        let theme_name = if Self::is_dark_theme() {
-            EmbeddedThemeName::Base16OceanDark
-        } else {
-            EmbeddedThemeName::InspiredGithub
-        };
-        let Some(theme) = self.theme_set.themes.get(theme_name.as_name()) else {
-            return code.to_string();
-        };
-        let mut hl = HighlightLines::new(syntax, theme);
-
-        code.lines()
-            .filter_map(|line| hl.highlight_line(line, &self.syntax_set).ok())
-            .map(|ranges| format!("{}\x1b[0m", as_24_bit_terminal_escaped(&ranges, false)))
+        code.split('\n')
+            .map(|line| {
+                let highlighted = highlight_line(line, Some(lang), self.theme);
+                if highlighted.contains('\x1b') {
+                    format!("{highlighted}\x1b[0m")
+                } else {
+                    highlighted
+                }
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -300,5 +285,25 @@ mod tests {
 
         assert!(actual1.contains("let x = 1"));
         assert!(actual2.contains("print('hello')"));
+    }
+
+    #[test]
+    fn test_unsupported_language_returns_literal_code() {
+        let fixture = "launch --safe";
+        let highlighter = SyntaxHighlighter::default();
+        let actual = highlighter.highlight(fixture, "not-a-language");
+        let expected = fixture.to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_unsupported_language_neutralizes_terminal_controls() {
+        let fixture = "launch\x1b[2J --safe";
+        let highlighter = SyntaxHighlighter::default();
+
+        let actual = highlighter.highlight(fixture, "not-a-language");
+        let expected = "launch\\u{1b}[2J --safe".to_string();
+
+        assert_eq!(actual, expected);
     }
 }

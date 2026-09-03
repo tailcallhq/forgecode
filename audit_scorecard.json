@@ -1,0 +1,34 @@
+{
+  "repo": "forgecode",
+  "rubric": "audit-v38",
+  "date": "2026-08-08",
+  "commit_audited": "121a2a5e68ea012eab5620c699c567664e2b584f",
+  "repo_type": "CLI+TUI (Rust workspace, 39 crates)",
+  "overall": 54,
+  "grade": "D",
+  "overall_tier1_double_weight": 55,
+  "supersedes": "legacy Python 30-pillar auto-scan card (2026-06-28, overall 50 D+)",
+  "scorecard": "phenotype-org-audits/audit-v38/output/forgecode/SCORECARD-v38.md",
+  "clusters": {
+    "C00 Architecture + Module": { "score": "18/30", "pct": 60, "grade": "C" },
+    "C01 CI, DX, Observability": { "score": "17/30", "pct": 57, "grade": "D" },
+    "C02 Error handling, API, Governance": { "score": "17/30", "pct": 57, "grade": "D" },
+    "C03 Agent Readiness": { "score": "19/36", "pct": 53, "grade": "D" },
+    "C04 Security": { "score": "19/30", "pct": 63, "grade": "C" },
+    "C05 Observability (deep)": { "score": "10/30", "pct": 33, "grade": "F" },
+    "C06 Supply Chain": { "score": "15/30", "pct": 50, "grade": "D" },
+    "C07 DX, QEng, Portability": { "score": "18/30", "pct": 60, "grade": "C" },
+    "C08 Eval Coverage": { "score": "18/30", "pct": 60, "grade": "C" },
+    "C09 Accessibility + UX": { "score": "25/45", "pct": 56, "grade": "D" },
+    "C10 Visual Identity": { "score": "23/36", "pct": 64, "grade": "C" },
+    "C11 Packaging + Distribution": { "score": "18/45", "pct": 40, "grade": "D" }
+  },
+  "top_gaps": {
+    "C03": "no FR catalog; PR template missing; journey manifests stub",
+    "C04": "cargo-deny gates sources only; no OSV/trivy",
+    "C05": "no OTel; no metrics; no dashboards/alerting",
+    "C06": "no SOURCE_DATE_EPOCH/repro; SBOM not in CI",
+    "C10": "tokens.css missing; no golden tests; no VISUAL_SPEC.md",
+    "C11": "no codesign/notarize; installers spec-only; brew sha placeholder"
+  }
+}

@@ -15,6 +15,11 @@ use crate::event::Event;
 use crate::parser::{RawEventLine, is_bom, is_lf, line};
 use crate::utf8_stream::{Utf8Stream, Utf8StreamError};
 
+/// Maximum number of bytes accumulated in the line-parse buffer before the
+/// stream is considered invalid and an error is emitted.  This prevents a
+/// slow / adversarial producer from growing the buffer without bound.
+const MAX_EVENT_BUFFER: usize = 1024 * 1024; // 1 MiB
+
 #[derive(Default, Debug)]
 struct EventBuilder {
     event: Event,
@@ -269,6 +274,17 @@ where
                         *this.state = EventStreamState::Started;
                         string.strip_prefix(is_bom).unwrap_or(&string)
                     };
+                    // Guard: cap the line-accumulation buffer to prevent
+                    // unbounded growth from a slow / adversarial producer.
+                    if this.buffer.len() + slice.len() > MAX_EVENT_BUFFER {
+                        this.buffer.clear();
+                        return Poll::Ready(Some(Err(EventStreamError::Parser(
+                            nom::error::Error::new(
+                                "event buffer exceeded MAX_EVENT_BUFFER".to_string(),
+                                nom::error::ErrorKind::TooLarge,
+                            ),
+                        ))));
+                    }
                     this.buffer.push_str(slice);
 
                     match parse_event(this.buffer, this.builder) {

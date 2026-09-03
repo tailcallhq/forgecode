@@ -1,15 +1,82 @@
 [workspace]
-members = ["crates/*"]
+# HeliosLite (formerly Forgecode) — additive rename policy (Gate 1b).
+# Crate paths and internal identifiers are preserved verbatim for upstream-merge
+# safety. Publish-surface aliases are added below; canonical renames land in
+# later gates. See docs/RENAMES-STRATEGY.md.
+
+members = [
+  "crates/forge_api",
+  "crates/forge_app",
+  "crates/forge_ci",
+  "crates/forge_cloud",
+  "crates/forge_config",
+  "crates/forge_daemon",
+  "crates/forge_dbd",
+  "crates/forge_display",
+  "crates/forge_domain",
+  "crates/forge_drift",
+  "crates/forge_e2e",
+  "crates/forge_embed",
+  "crates/forge_eventsource",
+  "crates/forge_eventsource_stream",
+  "crates/forge_fs",
+  "crates/forge_gpu",
+  "crates/forge_infra",
+  "crates/forge_json_repair",
+  "crates/forge_main",
+  "crates/forge_markdown_stream",
+  "crates/forge_mux",
+  "crates/forge_pheno_shell",
+  "crates/forge_pheno_winterminal",
+  "crates/forge_plugin",
+  "crates/forge_repo",
+  "crates/forge_repo_map",
+  "crates/forge_sandbox",
+  "crates/forge_sdk",
+  "crates/forge_select",
+  "crates/forge_services",
+  "crates/forge_similarity",
+  "crates/forge_snaps",
+  "crates/forge_spinner",
+  "crates/forge_syntax",
+  "crates/forge_stream",
+  "crates/forge_template",
+  "crates/forge_test_kit",
+  "crates/forge_tool_macros",
+  "crates/forge_tracker",
+  "crates/forge_tui",
+  "crates/forge_walker",
+  "crates/forge_graph",
+  "crates/forge3d",
+  "crates/helios-bot",
+  "benchmarks/forge_daemon_bench",
+  "benchmarks/perf_harness",
+  "benchmarks/dual_harness",
+]
 resolver = "2"
 
 
 [workspace.package]
-version = "0.1.0"
-rust-version = "1.94"
+license = "MIT"
+# HeliosLite version. Keep this aligned with the published Forgecode release;
+# the first HeliosLite-only tag will be 3.0.0 at GA. See docs/RENAMES-STRATEGY.md.
+version = "2.13.21"
+rust-version = "1.92"
 edition = "2024"
+# Publish surface flip — the canonical crate *name* (helioslite) is published
+# under the [package] section of the binary crate (crates/forge_main/Cargo.toml).
+# The forge_* internal crate names remain in place for upstream-merge safety.
+authors = ["KooshaPari / Phenotype."]
+description = "HeliosLite (formerly Forgecode) — AI agentic coding CLI."
+homepage = "https://helioslite.phenotype.space"
+repository = "https://github.com/KooshaPari/heliosLite"
+documentation = "https://helioslite.phenotype.space/docs"
+readme = "README.md"
+keywords = ["ai", "agent", "cli", "helios", "phenotype"]
+categories = ["command-line-utilities", "development-tools"]
 
 [profile.release]
-lto = true
+lto = "thin"
 codegen-units = 1
 opt-level = 3
 strip = true
@@ -19,8 +86,8 @@ anyhow = "1.0.102"
 async-recursion = "1.1.1"
 async-stream = "0.3"
 async-trait = "0.1.89"
-aws-config = { version = "1.8.13", features = ["behavior-version-latest", "sso"], default-features = false }
-aws-sdk-bedrockruntime = { version = "1.129.0", features = ["behavior-version-latest"], default-features = false }
+aws-config = { version = "1.8.13", features = ["behavior-version-latest", "sso", "default-https-client"], default-features = false }
+aws-sdk-bedrockruntime = { version = "1.129.0", features = ["behavior-version-latest", "default-https-client"], default-features = false }
 aws-credential-types = "1.2.14"
 aws-smithy-types = "1.4.3"
 aws-smithy-runtime-api = "1.11.3"
@@ -42,7 +109,6 @@ dirs = "6.0.0"
 dissimilar = "1.0.9"
 dotenvy = "0.15.7"
 futures = "0.3.32"
-gh-workflow = "0.8.1"
 glob = "0.3.3"
 grep-searcher = "0.1.14"
 grep-regex = "0.1.13"
@@ -51,7 +117,7 @@ html2md = "0.2.15"
 http = "1.2.0"
 ignore = "0.4.23"
 is_ci = "1.2.0"
-indexmap = "2.13.0"
+indexmap = { version = "2.13.0", features = ["serde"] }
 infer = "0.22.0"
 insta = { version = "1.47.2", features = ["json", "yaml"] }
 lazy_static = "1.4.0"
@@ -68,7 +134,6 @@ regex = "1.12.3"
 reqwest = { version = "0.12.23", features = [
     "json",
     "rustls-tls",
-    "hickory-dns",
     "http2",
 ], default-features = false }
 rustls = { version = "0.23", features = ["ring"], default-features = false }
@@ -76,7 +141,7 @@ include_dir = "0.7.4"
 schemars = "1.2"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.143"
-serde_yml = "0.0.13"
+serde_yaml_ng = "0.10.0"
 sha2 = "0.11"
 similar = { version = "3.0", features = ["inline"] }
 strip-ansi-escapes = "0.2.1"
@@ -117,8 +182,7 @@ uuid = { version = "1.23.0", features = [
     "serde",
 ] }
 whoami = "2.1.0"
-fnv_rs = "0.4.3"
-merge = { version = "0.2", features = ["derive"] }
+fnv = "1.0.7"
 hex = "0.4.3"
 rmcp = { version = "1.0.0", features = [
     "client",
@@ -136,27 +200,43 @@ dashmap = "7.0.0-rc2"
 async-openai = { version = "0.41.0", default-features = false, features = ["response-types"] } # Using only types, not the API client - reduces dependencies
 gix = "0.86"
 google-cloud-auth = "1.8.0" # Google Cloud authentication with automatic token refresh
+zstd = "0.13"
+
+# Benchmarking & profiling
+criterion = { version = "0.5", features = ["html_reports"] }
+dhat = "0.3"
+
+# Allocator — Linux only: jemalloc (lower fragmentation for long-running servers)
+# macOS ARM64: jemalloc bug #2532 causes 20x slower cold init (14s vs 25ms) due
+# to HPA probing every 4KB page — use mimalloc on macOS, system alloc on other targets.
+tikv-jemallocator = "0.6"
+mimalloc = { version = "0.1", default-features = false }
 
 # Internal crates
 forge_embed = { path = "crates/forge_embed" }
 forge_api = { path = "crates/forge_api" }
 forge_app = { path = "crates/forge_app" }
+forge_sdk = { path = "crates/forge_sdk" }
 forge_ci = { path = "crates/forge_ci" }
+forge_cloud = { path = "crates/forge_cloud" }
 forge_display = { path = "crates/forge_display" }
 forge_domain = { path = "crates/forge_domain" }
 forge_fs = { path = "crates/forge_fs" }
 forge_infra = { path = "crates/forge_infra" }
 forge_repo = { path = "crates/forge_repo" }
 forge_main = { path = "crates/forge_main" }
+forge_sandbox = { path = "crates/forge_sandbox" }
 forge_services = { path = "crates/forge_services" }
 forge_snaps = { path = "crates/forge_snaps" }
 forge_spinner = { path = "crates/forge_spinner" }
+forge_syntax = { path = "crates/forge_syntax" }
 forge_stream = { path = "crates/forge_stream" }
 forge_template = { path = "crates/forge_template" }
 forge_tool_macros = { path = "crates/forge_tool_macros" }
 forge_tracker = { path = "crates/forge_tracker" }
 forge_walker = { path = "crates/forge_walker" }
 forge_json_repair = { path = "crates/forge_json_repair" }
+forge_plugin = { path = "crates/forge_plugin" }
 forge_select = { path = "crates/forge_select" }
 forge_test_kit = { path = "crates/forge_test_kit" }
 
@@ -164,3 +244,12 @@ forge_markdown_stream = { path = "crates/forge_markdown_stream" }
 forge_config = { path = "crates/forge_config" }
 forge_eventsource = { path = "crates/forge_eventsource" }
 forge_eventsource_stream = { path = "crates/forge_eventsource_stream" }
+
+forge3d = { path = "crates/forge3d" }
+forge_drift = { path = "crates/forge_drift" }
+forge_similarity = { path = "crates/forge_similarity" }
+forge_mux = { path = "crates/forge_mux" }
+forge_graph = { path = "crates/forge_graph" }
+
+[workspace.dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }

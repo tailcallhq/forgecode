@@ -364,6 +364,7 @@ pub enum Role {
     System,
     User,
     Assistant,
+    Tool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, Setters, PartialEq)]
 #[setters(into, strip_option)]

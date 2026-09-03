@@ -156,15 +156,21 @@ impl<F: CommandInfra + WalkerInfra + 'static> FileDiscovery for FdDefault<F> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::fs::{self, File};
+    #[cfg(unix)]
     use std::io::Write;
 
+    #[cfg(unix)]
     use pretty_assertions::assert_eq;
+    #[cfg(unix)]
     use tempfile::tempdir;
 
+    #[cfg(unix)]
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn test_filter_and_resolve_excludes_symlinks() {
         let dir = tempdir().unwrap();
         let base = dir.path();
@@ -188,6 +194,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_filter_and_resolve_excludes_dangling_symlinks() {
         let dir = tempdir().unwrap();
         let base = dir.path();
@@ -208,6 +215,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_filter_and_resolve_excludes_symlinks_to_directories() {
         let dir = tempdir().unwrap();
         let base = dir.path();
