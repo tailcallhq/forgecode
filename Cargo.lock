@@ -2842,6 +2842,7 @@ version = "2.13.21"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bstr",
  "serde",
  "serde_json",
  "tokio",
@@ -4638,6 +4639,10 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bstr",
+ "forge_api",
+ "forge_config",
+ "forge_domain",
+ "futures",
  "hex",
  "hmac 0.12.1",
  "pretty_assertions",

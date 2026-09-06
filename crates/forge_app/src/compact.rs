@@ -133,15 +133,17 @@ impl Compactor {
                 _ => None,
             });
 
-        // Accumulate usage from all messages in the compaction range before they are
-        // destroyed
-        let compacted_usage = context.messages.get(start..=end).and_then(|slice| {
-            slice
-                .iter()
-                .filter_map(|entry| entry.usage.as_ref())
-                .cloned()
-                .reduce(|a, b| a.accumulate(&b))
-        });
+        // Carry forward the usage of the **most recent** message in the
+        // compaction range. Each per-message `prompt_tokens` value already
+        // represents the cumulative prompt size at that turn (as reported
+        // by LLM providers), so summing or max-reducing would double-count
+        // or carry forward a stale snapshot. The last message's snapshot
+        // is the most accurate representation of the prompt size after
+        // compaction.
+        let compacted_usage = context
+            .messages
+            .get(start..=end)
+            .and_then(|slice| slice.iter().rev().find_map(|entry| entry.usage.clone()));
 
         // Replace the range with the summary, transferring the accumulated usage
         let mut summary_entry = MessageEntry::from(ContextMessage::user(summary, None));
@@ -631,9 +633,29 @@ mod tests {
             "Expected 3 messages after compaction: summary + 2 remaining messages"
         );
 
-        // The summary entry at index 0 should carry the accumulated usage from
-        // indices 1 and 3 (inside_usage + inside_usage2)
+        // The summary entry at index 0 should carry forward the usage of the
+        // **most recent** message in the compacted range (inside_usage2 at
+        // index 3). Each per-message `prompt_tokens` is already a cumulative
+        // snapshot of the prompt size at that turn, so the latest snapshot
+        // in the range best represents the prompt size after compaction.
         let expected_compacted_usage = Usage {
+            total_tokens: TokenCount::Actual(30000),
+            prompt_tokens: TokenCount::Actual(27000),
+            completion_tokens: TokenCount::Actual(3000),
+            cached_tokens: TokenCount::Actual(0),
+            cost: Some(1.0),
+        };
+
+        assert_eq!(
+            compacted.messages[0].usage,
+            Some(expected_compacted_usage),
+            "Summary message should carry forward the latest usage from compacted messages"
+        );
+
+        // accumulate_usage() returns the most recent message with usage.
+        // After compaction: [summary (carries inside_usage2), U3, A3 (carries
+        // outside_usage)]. The latest message with usage is A3 (outside_usage).
+        let expected_total_usage = Usage {
             total_tokens: TokenCount::Actual(50000),
             prompt_tokens: TokenCount::Actual(45000),
             completion_tokens: TokenCount::Actual(5000),
@@ -642,25 +664,9 @@ mod tests {
         };
 
         assert_eq!(
-            compacted.messages[0].usage,
-            Some(expected_compacted_usage),
-            "Summary message should carry accumulated usage from compacted messages"
-        );
-
-        // accumulate_usage() must sum both the compacted range usage (on the summary
-        // message) and the surviving outside_usage — total = inside + inside2 + outside
-        let expected_total_usage = Usage {
-            total_tokens: TokenCount::Actual(100000),
-            prompt_tokens: TokenCount::Actual(90000),
-            completion_tokens: TokenCount::Actual(10000),
-            cached_tokens: TokenCount::Actual(0),
-            cost: Some(3.0),
-        };
-
-        assert_eq!(
             compacted.accumulate_usage(),
             Some(expected_total_usage),
-            "accumulate_usage() must include usage from both compacted and surviving messages"
+            "accumulate_usage() should return the most recent message's usage"
         );
     }
 
