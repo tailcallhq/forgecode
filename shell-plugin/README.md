@@ -1,6 +1,20 @@
-# Forge ZSH Plugin
+# Forge Shell Plugin
 
-A powerful ZSH plugin that provides intelligent command transformation, file tagging, and conversation management for the Forge AI assistant.
+A powerful shell plugin that provides intelligent command transformation, file tagging, and conversation management for the Forge AI assistant. Available for **ZSH** (this directory) and **Fish** (`fish/` directory).
+
+## Fish Plugin
+
+The Fish port lives in `fish/` and mirrors the standard `~/.config/fish` layout (`conf.d/`, `functions/`, `completions/`), so it can be installed by copying or symlinking those directories into your fish config:
+
+```bash
+cp -r fish/conf.d/forge.fish ~/.config/fish/conf.d/
+cp -r fish/functions/_forge*.fish ~/.config/fish/functions/
+cp -r fish/completions/forge.fish ~/.config/fish/completions/
+```
+
+It provides the same `:command` transformation, `@[file]` tagging, tab completion, session management, and right-prompt integration as the ZSH version. Requires **fish 3.6+** and the same prerequisites (`fd`, `forge`) listed below.
+
+## ZSH Plugin
 
 ## Features
 
