@@ -335,8 +335,9 @@ mod tests {
 
     #[test]
     fn test_cap_compact_token_threshold_caps_to_safe_margin_when_within_context_window() {
-        // With the fix, thresholds are capped to 70% of context window for safety
-        // even when they're technically "within" the context window
+        // With the fix, thresholds are capped to 70% of context window for
+        // safety even when they're technically "within" the context
+        // window
         let fixture = Agent::new(
             AgentId::new("test"),
             ProviderId::OPENAI,
@@ -392,8 +393,9 @@ mod tests {
 
     #[test]
     fn test_cap_compact_token_threshold_uses_default_when_selected_model_is_missing() {
-        // With the fix, even without model info, we set a safe default threshold
-        // based on a default context window of 128K (70% = 89.6K)
+        // With the fix, even without model info, we set a safe default
+        // threshold based on a default context window of 128K (70% =
+        // 89.6K)
         let fixture = Agent::new(
             AgentId::new("test"),
             ProviderId::OPENAI,
@@ -427,8 +429,9 @@ mod tests {
 
         let actual = fixture.compaction_threshold(Some(&selected_model));
 
-        // EXPECTED: Should set default threshold to 70% of context window (128000 * 0.7
-        // = 89600) ACTUAL BUG: Returns early with token_threshold still as None
+        // EXPECTED: Should set default threshold to 70% of context window
+        // (128000 * 0.7 = 89600) ACTUAL BUG: Returns early with
+        // token_threshold still as None
         let expected_threshold = Some(89_600);
         assert_eq!(
             actual.compact.token_threshold, expected_threshold,
@@ -457,16 +460,18 @@ mod tests {
         let actual = fixture.compaction_threshold(Some(&selected_model));
 
         // The current logic keeps 100000 because 100000 < 128000
-        // But this leaves only 28000 tokens of headroom for tool outputs and new
-        // messages When context is at 105000 tokens, compaction won't trigger
-        // (below 100K threshold) But adding tool outputs (5000 tokens) + new
-        // user message (2000 tokens) = 112000 API request with 112000 tokens
-        // succeeds Next turn: context at 112000, still below 100K threshold
-        // Adding more tool outputs: 112000 + 20000 = 132000 > 128000 limit →
+        // But this leaves only 28000 tokens of headroom for tool outputs and
+        // new messages When context is at 105000 tokens, compaction
+        // won't trigger (below 100K threshold) But adding tool outputs
+        // (5000 tokens) + new user message (2000 tokens) = 112000 API
+        // request with 112000 tokens succeeds Next turn: context at
+        // 112000, still below 100K threshold Adding more tool outputs:
+        // 112000 + 20000 = 132000 > 128000 limit →
         // context_length_exceeded!
 
-        // EXPECTED: Threshold should be capped to provide safety margin (70% = 89600)
-        // ACTUAL BUG: Threshold stays at 100000, causing eventual overflow
+        // EXPECTED: Threshold should be capped to provide safety margin (70% =
+        // 89600) ACTUAL BUG: Threshold stays at 100000, causing
+        // eventual overflow
         let expected_safe_threshold = Some(89_600);
         assert_eq!(
             actual.compact.token_threshold, expected_safe_threshold,
@@ -493,9 +498,10 @@ mod tests {
 
         let actual = fixture.compaction_threshold(Some(&selected_model));
 
-        // EXPECTED: Should set a reasonable default threshold (e.g., 64000 for 128K
-        // default window) or at least set SOME threshold to prevent unbounded
-        // growth ACTUAL BUG: Returns early with token_threshold still as None
+        // EXPECTED: Should set a reasonable default threshold (e.g., 64000 for
+        // 128K default window) or at least set SOME threshold to
+        // prevent unbounded growth ACTUAL BUG: Returns early with
+        // token_threshold still as None
         assert!(
             actual.compact.token_threshold.is_some(),
             "BUG: compaction_threshold should set a default threshold even when model context_length is unknown. \

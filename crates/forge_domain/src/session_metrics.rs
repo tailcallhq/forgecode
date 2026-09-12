@@ -150,7 +150,8 @@ mod tests {
 
         let actual = fixture;
 
-        // Check file1 has the last operation recorded (second add overwrites the first)
+        // Check file1 has the last operation recorded (second add overwrites
+        // the first)
         let file1_metrics = actual.file_operations.get("file1.rs").unwrap();
         assert_eq!(file1_metrics.lines_added, 5);
         assert_eq!(file1_metrics.lines_removed, 1);

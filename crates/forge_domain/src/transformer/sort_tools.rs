@@ -73,7 +73,8 @@ mod tests {
         let mut transformer = SortTools::new(custom_order);
         let actual = transformer.transform(fixture);
 
-        // zebra_tool and alpha_tool come first (in that order), rest alphabetically
+        // zebra_tool and alpha_tool come first (in that order), rest
+        // alphabetically
         let expected_order = vec!["zebra_tool", "alpha_tool", "beta_tool"];
         let actual_order: Vec<String> = actual
             .tools

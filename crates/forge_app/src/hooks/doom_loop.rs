@@ -130,12 +130,13 @@ impl DoomLoopDetector {
         // For a partial match, we consider it as the start of a new repetition
         let mut check_len = total_len;
 
-        // Special case: if total length is not evenly divisible by pattern_length,
-        // we have a partial match at the end
+        // Special case: if total length is not evenly divisible by
+        // pattern_length, we have a partial match at the end
         if !total_len.is_multiple_of(pattern_length) {
             let partial_len = total_len % pattern_length;
-            // Check if the partial segment matches the start of what would be the pattern
-            // We need to look back to find what the pattern would be
+            // Check if the partial segment matches the start of what would be
+            // the pattern We need to look back to find what the
+            // pattern would be
             if total_len < pattern_length + partial_len {
                 return 0;
             }
@@ -596,7 +597,8 @@ mod tests {
 
         let conversation = create_conversation_with_messages(vec![msg1, msg2, msg3]);
 
-        // Third consecutive identical call - should be caught by consecutive check
+        // Third consecutive identical call - should be caught by consecutive
+        // check
         let actual = detector.detect_from_conversation(&conversation);
 
         assert_eq!(actual, Some(3));
@@ -711,8 +713,8 @@ mod tests {
         let actual = detector.detect_from_conversation(&conversation);
 
         // Should detect the [4,5][4,5][4,5] pattern at the end
-        // The detector looks for the longest repeating pattern, starting from the most
-        // recent calls
+        // The detector looks for the longest repeating pattern, starting from
+        // the most recent calls
         // The pattern [4,5] repeats 3 times at the end
         assert_eq!(actual, Some(3));
     }
@@ -779,7 +781,8 @@ mod tests {
         let conv = create_conversation_with_messages(messages.clone());
         assert_eq!(detector.detect_from_conversation(&conv), None);
 
-        // Step 9: [1,2,3,4,5,4,6,4,5] - no loop yet (only 1.5 repetitions of [4,5])
+        // Step 9: [1,2,3,4,5,4,6,4,5] - no loop yet (only 1.5 repetitions of
+        // [4,5])
         messages.push(create_assistant_message(&tool_5));
         let conv = create_conversation_with_messages(messages.clone());
         assert_eq!(detector.detect_from_conversation(&conv), None);
@@ -799,8 +802,8 @@ mod tests {
         let conv = create_conversation_with_messages(messages.clone());
         assert_eq!(detector.detect_from_conversation(&conv), None);
 
-        // Step 13: [1,2,3,4,5,4,6,4,5,4,5,4,5] - [4,5] pattern now repeats 3 times at
-        // end
+        // Step 13: [1,2,3,4,5,4,6,4,5,4,5,4,5] - [4,5] pattern now repeats 3
+        // times at end
         messages.push(create_assistant_message(&tool_5));
         let conv = create_conversation_with_messages(messages.clone());
 

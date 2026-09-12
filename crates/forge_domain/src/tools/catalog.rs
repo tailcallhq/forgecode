@@ -1154,7 +1154,8 @@ impl TryFrom<ToolCallFull> for ToolCatalog {
 
     fn try_from(value: ToolCallFull) -> Result<Self, Self::Error> {
         // Normalize the tool name: trim whitespace and perform case-insensitive
-        // catalog match so the serde deserialization receives the canonical name.
+        // catalog match so the serde deserialization receives the canonical
+        // name.
         let normalized_name = normalize_tool_name(&value.name);
 
         let mut map = Map::new();
@@ -1265,7 +1266,8 @@ mod tests {
     fn test_coerce_string_integers_to_i32() {
         use crate::{ToolCallArguments, ToolCallFull};
 
-        // Simulate the exact error case: read tool with string integers instead of i32
+        // Simulate the exact error case: read tool with string integers instead
+        // of i32
         let tool_call = ToolCallFull {
             name: ToolName::new("read"),
             call_id: None,
