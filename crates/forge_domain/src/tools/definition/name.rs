@@ -24,7 +24,8 @@ impl ToolName {
         let re_special = Regex::new(r"[^a-z0-9_]+").unwrap();
         let cleaned = re_special.replace_all(&input, "_");
 
-        // Remove leading/trailing underscores and collapse consecutive underscores
+        // Remove leading/trailing underscores and collapse consecutive
+        // underscores
         let re_trimmed = Regex::new(r"_+").unwrap();
 
         let sanitized_str = re_trimmed

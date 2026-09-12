@@ -99,8 +99,8 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> SkillR
         let cwd_skills = self.load_skills_from_dir(&cwd_dir).await?;
         skills.extend(cwd_skills);
 
-        // Resolve conflicts by keeping the last occurrence (CWD > Agents > Global >
-        // Built-in)
+        // Resolve conflicts by keeping the last occurrence (CWD > Agents >
+        // Global > Built-in)
         let skills = resolve_skill_conflicts(skills);
 
         // Render all skills with environment context
@@ -163,7 +163,8 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
                                 .unwrap_or("unknown")
                                 .to_string();
 
-                            // Get all resource files in the skill directory recursively
+                            // Get all resource files in the skill directory
+                            // recursively
                             let walker = Walker::unlimited().cwd(subdir.clone());
                             let mut resources = infra
                                 .walk(walker)
@@ -171,7 +172,8 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
                                 .unwrap_or_default()
                                 .into_iter()
                                 .filter_map(|walked| {
-                                    // Only include files (not directories) and exclude SKILL.md
+                                    // Only include files (not directories) and
+                                    // exclude SKILL.md
                                     if !walked.is_dir() {
                                         let full_path = subdir.join(&walked.path);
                                         if full_path.file_name() != skill_path.file_name() {
@@ -186,12 +188,14 @@ impl<I: FileInfoInfra + EnvironmentInfra + FileReaderInfra + WalkerInfra> ForgeS
                                 .collect::<Vec<_>>();
                             sort_paths(&mut resources);
 
-                            // Try to extract skill from front matter, otherwise create with
-                            // directory name
+                            // Try to extract skill from front matter, otherwise
+                            // create with directory
+                            // name
                             if let Some(skill) = extract_skill(&path_str, &content) {
                                 Ok(Some(skill.resources(resources)))
                             } else {
-                                // Fallback: create skill with directory name if front matter is
+                                // Fallback: create skill with directory name if
+                                // front matter is
                                 // missing
                                 Ok(Some(
                                     Skill::new(skill_name, content, String::new())

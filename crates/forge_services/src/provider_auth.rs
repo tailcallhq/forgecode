@@ -55,7 +55,8 @@ where
         )?;
         let mut request = strategy.init().await?;
 
-        // For API key flow and Google ADC, attach existing credential if available
+        // For API key flow and Google ADC, attach existing credential if
+        // available
         if let AuthContextRequest::ApiKey(ref mut api_key_request) = request
             && let Ok(Some(existing_credential)) = self.infra.get_credential(&provider_id).await
         {
@@ -85,10 +86,12 @@ where
         _timeout: Duration,
     ) -> anyhow::Result<()> {
         // Extract auth method from context response
-        // For ApiKey responses, we need to check if it's Google ADC or regular API key
+        // For ApiKey responses, we need to check if it's Google ADC or regular
+        // API key
         let auth_method = match &auth_context_response {
             AuthContextResponse::ApiKey(response) => {
-                // Check if provider supports Google ADC and if it's the Google ADC marker
+                // Check if provider supports Google ADC and if it's the Google
+                // ADC marker
                 let is_vertex_provider = provider_id == forge_domain::ProviderId::VERTEX_AI
                     || provider_id == forge_domain::ProviderId::VERTEX_AI_ANTHROPIC;
                 if is_vertex_provider && response.response.api_key.as_ref() == "google_adc_marker" {
@@ -167,7 +170,8 @@ where
                                     },
                                 )?;
 
-                            // Get required params (only used for API key, but needed for factory)
+                            // Get required params (only used for API key, but
+                            // needed for factory)
                             let required_params = if matches!(auth_method, AuthMethod::ApiKey) {
                                 provider.url_params.clone()
                             } else {
@@ -192,7 +196,8 @@ where
                                             continue;
                                         }
 
-                                        // Update provider with refreshed credential
+                                        // Update provider with refreshed
+                                        // credential
                                         provider.credential = Some(refreshed);
                                         break; // Success, stop trying other methods
                                     }

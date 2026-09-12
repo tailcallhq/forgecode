@@ -134,7 +134,8 @@ mod tests {
 
     #[test]
     fn test_status_values_use_square_brackets() {
-        // Status values use square brackets to distinguish them from raw strings
+        // Status values use square brackets to distinguish them from raw
+        // strings
         assert!(status::YES.starts_with('['));
         assert!(status::YES.ends_with(']'));
         assert!(status::NO.starts_with('['));

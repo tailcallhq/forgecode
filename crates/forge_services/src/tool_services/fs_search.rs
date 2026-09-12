@@ -102,8 +102,8 @@ impl<W: WalkerInfra + FileReaderInfra + FileInfoInfra> ForgeFsSearch<W> {
         params: &FSSearch,
     ) -> anyhow::Result<Vec<PathBuf>> {
         // Build type matcher once if file_type is specified (for efficiency)
-        // Filter out empty strings that may arrive from LLM tool calls with nullable
-        // parameters
+        // Filter out empty strings that may arrive from LLM tool calls with
+        // nullable parameters
         let types_matcher =
             if let Some(file_type) = params.file_type.as_deref().filter(|s| !s.is_empty()) {
                 use ignore::types::TypesBuilder;
@@ -362,8 +362,8 @@ impl Sink for ContextSink {
     type Error = std::io::Error;
 
     fn matched(&mut self, _searcher: &Searcher, mat: &SinkMatch<'_>) -> Result<bool, Self::Error> {
-        // If we have a pending match, save it first (it's now complete with all after
-        // context)
+        // If we have a pending match, save it first (it's now complete with all
+        // after context)
         if let Some((line_num, line)) = self.current_match.take() {
             self.matches.push(Match {
                 path: self.path.clone(),
@@ -384,8 +384,8 @@ impl Sink for ContextSink {
             self.current_after_context.clear();
         }
 
-        // Store the current match (before_context is already accumulated, after_context
-        // will be added via context() calls)
+        // Store the current match (before_context is already accumulated,
+        // after_context will be added via context() calls)
         let line_num = mat.line_number().unwrap_or(0) as usize;
         let line = mat.bytes().to_str_lossy().trim_end().to_string();
         self.current_match = Some((line_num, line));

@@ -67,8 +67,8 @@ impl ConversationSelector {
                 .add_key_value("Updated", time_ago);
         }
 
-        // Convert to porcelain, drop the UUID title column (col 0), truncate the
-        // Title column for display, uppercase headers
+        // Convert to porcelain, drop the UUID title column (col 0), truncate
+        // the Title column for display, uppercase headers
         let porcelain_output = Porcelain::from(&info)
             .drop_col(0)
             .truncate(0, 60)

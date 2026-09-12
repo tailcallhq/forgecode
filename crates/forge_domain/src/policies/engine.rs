@@ -36,8 +36,8 @@ impl<'a> PolicyEngine<'a> {
 
         let mut last_allow: Option<Permission> = None;
 
-        // Evaluate all policies in order: workflow policies first, then extended
-        // policies
+        // Evaluate all policies in order: workflow policies first, then
+        // extended policies
 
         if let Some(permission) = self.evaluate_policy_set(self.policies.policies.iter(), operation)
         {

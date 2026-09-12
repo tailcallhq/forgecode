@@ -408,7 +408,8 @@ mod tests {
     #[test]
     fn test_usage_merge_anthropic_cumulative() {
         // Fixture: Simulates Anthropic's message_start + message_delta pattern
-        // where output_tokens in message_delta is CUMULATIVE (total), not a delta.
+        // where output_tokens in message_delta is CUMULATIVE (total), not a
+        // delta.
         let fixture_message_start = Usage {
             prompt_tokens: TokenCount::Actual(1000),
             completion_tokens: TokenCount::Actual(1), // Initial output token

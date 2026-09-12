@@ -58,8 +58,8 @@ impl<'a> Sandbox<'a> {
 
         // Check if worktree already exists
         if worktree_path.exists() {
-            // Check if it's already a git worktree by checking if it has a .git file
-            // (worktree marker)
+            // Check if it's already a git worktree by checking if it has a .git
+            // file (worktree marker)
             let git_file = worktree_path.join(".git");
             if git_file.exists() {
                 let worktree_check = Command::new("git")

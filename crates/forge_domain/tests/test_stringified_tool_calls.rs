@@ -13,9 +13,9 @@ use forge_domain::{Context, ContextMessage, Role};
 /// it should be a proper object.
 #[test]
 fn test_stringified_tool_call_arguments_roundtrip() {
-    // Simulate what kimi-k2p5-turbo sends: arguments as a string containing JSON
-    // Note: This is what the API sends us - a JSON string value containing JSON
-    // object
+    // Simulate what kimi-k2p5-turbo sends: arguments as a string containing
+    // JSON Note: This is what the API sends us - a JSON string value
+    // containing JSON object
     let conversation_json = r#"{
         "messages": [
             {
@@ -46,7 +46,8 @@ fn test_stringified_tool_call_arguments_roundtrip() {
         ]
     }"#;
 
-    // Deserialize the conversation (this is what happens when we receive from API)
+    // Deserialize the conversation (this is what happens when we receive from
+    // API)
     let context: Context =
         serde_json::from_str(conversation_json).expect("Failed to parse conversation");
 
@@ -115,7 +116,8 @@ fn test_stringified_tool_call_arguments_roundtrip() {
 /// Test with patch tool (the actual error case from kimi-k2p5-turbo)
 #[test]
 fn test_kimi_k2p5_turbo_patch_tool_scenario() {
-    // This simulates the exact error case: patch tool with stringified arguments
+    // This simulates the exact error case: patch tool with stringified
+    // arguments
     let conversation_json = r#"{
         "messages": [
             {

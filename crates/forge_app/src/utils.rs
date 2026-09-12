@@ -455,9 +455,9 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
                 // supported OpenAI fields; Forge keeps raw JSON schemas, so we
                 // explicitly remove unsupported validation/meta keywords here.
                 normalize_openai_schema_subset_keywords(map);
-                // Convert oneOf to anyOf because the Responses API rejects oneOf
-                // in tool parameter schemas while accepting equivalent anyOf
-                // unions.
+                // Convert oneOf to anyOf because the Responses API rejects
+                // oneOf in tool parameter schemas while
+                // accepting equivalent anyOf unions.
                 normalize_one_of_keyword(map, strict_mode);
             }
 
@@ -465,8 +465,9 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
 
             let is_object = is_object_schema(map);
 
-            // If this looks like an object schema but has no explicit type, add it
-            // OpenAI requires all schemas to have a type when they represent objects
+            // If this looks like an object schema but has no explicit type, add
+            // it OpenAI requires all schemas to have a type when
+            // they represent objects
             if is_object && !map.contains_key("type") {
                 map.insert(
                     "type".to_string(),
@@ -510,10 +511,12 @@ pub fn enforce_strict_schema(schema: &mut serde_json::Value, strict_mode: bool) 
                 && !map.contains_key("anyOf")
                 && !map.contains_key("allOf")
             {
-                // In strict mode, OpenAI/Codex requires all property schemas to have a
-                // 'type' key. External MCP tool schemas may define properties with only a
-                // description and no type. Default such typeless leaf schemas to "string"
-                // so the request is not rejected with "schema must have a 'type' key".
+                // In strict mode, OpenAI/Codex requires all property schemas to
+                // have a 'type' key. External MCP tool schemas
+                // may define properties with only a description
+                // and no type. Default such typeless leaf schemas to "string"
+                // so the request is not rejected with "schema must have a
+                // 'type' key".
                 map.insert(
                     "type".to_string(),
                     serde_json::Value::String("string".to_string()),
@@ -639,8 +642,8 @@ pub fn sanitize_gemini_schema(schema: &mut serde_json::Value) {
             // OpenAPI 3.0 doesn't support type arrays, so we convert them:
             // - ["string", "null"] -> type: "string", nullable: true
             // - ["string", "number"] -> anyOf: [{type: string}, {type: number}]
-            // - ["string", "number", "null"] -> anyOf: [{type: string}, {type: number}],
-            //   nullable: true
+            // - ["string", "number", "null"] -> anyOf: [{type: string}, {type:
+            //   number}], nullable: true
             if map.contains_key("type") && map["type"].is_array() {
                 let types = map.remove("type").unwrap();
                 if let serde_json::Value::Array(type_arr) = types {
@@ -655,8 +658,8 @@ pub fn sanitize_gemini_schema(schema: &mut serde_json::Value) {
                             serde_json::Value::String("null".to_string()),
                         );
                     } else if non_null_types.len() == 1 {
-                        // Single non-null type: ["string", "null"] -> type: "string", nullable:
-                        // true
+                        // Single non-null type: ["string", "null"] -> type:
+                        // "string", nullable: true
                         map.insert(
                             "type".to_string(),
                             non_null_types.into_iter().next().unwrap(),
@@ -679,10 +682,10 @@ pub fn sanitize_gemini_schema(schema: &mut serde_json::Value) {
             }
 
             // Handle anyOf with null type — elevate null to nullable.
-            // { anyOf: [{type: string, ...}, {type: null}] } -> { type: string, nullable:
-            // true, ... } { anyOf: [{type: string, ...}, {type: number, ...},
-            // {type: null}] } -> { anyOf: [{type: string}, {type: number}], nullable: true
-            // }
+            // { anyOf: [{type: string, ...}, {type: null}] } -> { type: string,
+            // nullable: true, ... } { anyOf: [{type: string, ...},
+            // {type: number, ...}, {type: null}] } -> { anyOf:
+            // [{type: string}, {type: number}], nullable: true }
             if let Some(serde_json::Value::Array(any_of)) = map.remove("anyOf") {
                 let (null_schemas, non_null_schemas): (Vec<_>, Vec<_>) =
                     any_of.into_iter().partition(|s| {
@@ -692,11 +695,13 @@ pub fn sanitize_gemini_schema(schema: &mut serde_json::Value) {
                     });
 
                 if !null_schemas.is_empty() && non_null_schemas.len() == 1 {
-                    // Single non-null branch with nullable: merge into this schema
+                    // Single non-null branch with nullable: merge into this
+                    // schema
                     let mut merged = non_null_schemas.into_iter().next().unwrap();
                     if let serde_json::Value::Object(merged_map) = &mut merged {
                         // Copy current schema's keys into the merged branch
-                        // (anyOf was already removed, so we copy everything else)
+                        // (anyOf was already removed, so we copy everything
+                        // else)
                         let current_keys: Vec<(String, serde_json::Value)> =
                             map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                         for (key, value) in current_keys {
@@ -723,9 +728,10 @@ pub fn sanitize_gemini_schema(schema: &mut serde_json::Value) {
                 }
             }
 
-            // Convert integer/number enum values to strings (Gemini rejects integer
-            // enums). Only change the type when there's an enum — a bare integer/number
-            // type without enum is valid for Gemini.
+            // Convert integer/number enum values to strings (Gemini rejects
+            // integer enums). Only change the type when there's an
+            // enum — a bare integer/number type without enum is
+            // valid for Gemini.
             let has_numeric_type_with_enum = map
                 .get("type")
                 .and_then(|v| v.as_str())
@@ -766,8 +772,9 @@ pub fn sanitize_gemini_schema(schema: &mut serde_json::Value) {
                         map.insert("items".to_string(), serde_json::json!({ "type": "string" }));
                     }
                     Some(serde_json::Value::Object(items_map)) => {
-                        // Items exists but may be empty — ensure it has at least a
-                        // type if it has no schema-defining keywords
+                        // Items exists but may be empty — ensure it has at
+                        // least a type if it has no
+                        // schema-defining keywords
                         let has_schema_intent = items_map.contains_key("type")
                             || items_map.contains_key("$ref")
                             || items_map.contains_key("enum")
@@ -808,7 +815,8 @@ pub fn sanitize_gemini_schema(schema: &mut serde_json::Value) {
                 map.remove("required");
             }
 
-            // Filter required array to only include fields present in properties
+            // Filter required array to only include fields present in
+            // properties
             let property_keys: Option<Vec<String>> = map
                 .get("properties")
                 .and_then(|v| v.as_object())
@@ -994,9 +1002,10 @@ mod tests {
 
     #[test]
     fn test_typeless_property_gets_string_type_in_strict_mode() {
-        // MCP tool schemas from external servers (e.g. Affine) may define properties
-        // with only a description and no type key. The OpenAI/Codex endpoint rejects
-        // such schemas with "schema must have a 'type' key". This test verifies that
+        // MCP tool schemas from external servers (e.g. Affine) may define
+        // properties with only a description and no type key. The
+        // OpenAI/Codex endpoint rejects such schemas with "schema must
+        // have a 'type' key". This test verifies that
         // enforce_strict_schema defaults typeless leaf properties to "string".
         let mut schema = json!({
             "type": "object",
@@ -1363,7 +1372,8 @@ mod tests {
 
     #[test]
     fn test_notion_mcp_create_comment_schema() {
-        // Simulates the actual Notion MCP create_comment schema that was failing
+        // Simulates the actual Notion MCP create_comment schema that was
+        // failing
         let mut schema = json!({
             "type": "object",
             "properties": {
@@ -1419,15 +1429,16 @@ mod tests {
         assert_eq!(schema["type"], "object");
         assert_eq!(schema["properties"]["rich_text"]["type"], "array");
 
-        // 2. Check that the anyOf items have proper types and additionalProperties:
-        //    false
+        // 2. Check that the anyOf items have proper types and
+        //    additionalProperties: false
         let any_of = schema["properties"]["rich_text"]["items"]["anyOf"]
             .as_array()
             .unwrap();
         for branch in any_of {
             assert_eq!(branch["type"], "object");
             assert_eq!(branch["additionalProperties"], false);
-            // All nested object properties should also have type and additionalProperties
+            // All nested object properties should also have type and
+            // additionalProperties
             if let Some(props) = branch["properties"].as_object() {
                 for (_, prop_schema) in props {
                     if let Some(obj) = prop_schema.as_object()
@@ -1457,7 +1468,8 @@ mod tests {
     #[test]
     fn test_property_names_is_removed_in_strict_mode() {
         // This test ensures we don't regress on propertyNames removal
-        // propertyNames is a JSON Schema keyword that OpenAI/Codex doesn't support
+        // propertyNames is a JSON Schema keyword that OpenAI/Codex doesn't
+        // support
         let mut schema = json!({
             "type": "object",
             "properties": {
@@ -2091,7 +2103,8 @@ mod tests {
 
     #[test]
     fn test_gemini_converts_multi_type_array_with_null() {
-        // Should become: anyOf: [{type: string}, {type: number}], nullable: true
+        // Should become: anyOf: [{type: string}, {type: number}], nullable:
+        // true
         let mut schema = json!({
             "type": "object",
             "properties": {

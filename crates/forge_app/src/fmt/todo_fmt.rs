@@ -67,7 +67,8 @@ pub(crate) fn format_todos_diff(before: &[Todo], after: &[Todo]) -> String {
     // items, or the removed rendering for items that were dropped.
     for before_todo in before {
         if let Some(after_todo) = after_map.get(before_todo.id.as_str()).copied() {
-            // Item still exists — render with bold/dim based on whether it changed.
+            // Item still exists — render with bold/dim based on whether it
+            // changed.
             let is_changed = before_todo.status != after_todo.status
                 || before_todo.content != after_todo.content;
             let line_style = if is_changed {
@@ -276,8 +277,9 @@ mod tests {
 
     #[test]
     fn test_format_todos_preserves_insertion_order() {
-        // Items are given in insertion order: Second was added first, First second.
-        // Output must reflect that insertion order, not alphabetical or id-sorted.
+        // Items are given in insertion order: Second was added first, First
+        // second. Output must reflect that insertion order, not
+        // alphabetical or id-sorted.
         let setup = vec![
             fixture_todo("Second", "2", TodoStatus::Pending),
             fixture_todo("First", "1", TodoStatus::Pending),
