@@ -45,6 +45,7 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
 
         if provider.id == ProviderId::CODEX
             || provider.id == ProviderId::OPENCODE_ZEN
+            || provider.id == ProviderId::OPENCODE_GO
             || provider.id == ProviderId::OPENAI_RESPONSES_COMPATIBLE
         {
             // These providers already configure a complete Responses endpoint,
@@ -122,6 +123,10 @@ impl<H: HttpInfra> OpenAIResponsesProvider<H> {
                 forge_domain::AuthMethod::GoogleAdc => {}
                 forge_domain::AuthMethod::AwsProfile => {}
             });
+
+        if let Some(custom_headers) = &self.provider.custom_headers {
+            headers.extend(custom_headers.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
 
         // Codex provider requires the ChatGPT-Account-Id header extracted
         // from the JWT at login.
