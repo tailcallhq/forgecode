@@ -313,6 +313,9 @@ pub struct OAuthWithApiKeyStrategy {
 
 impl OAuthWithApiKeyStrategy {
     pub fn new(provider_id: ProviderId, oauth_config: OAuthConfig) -> anyhow::Result<Self> {
+        if provider_id == ProviderId::GITHUB_COPILOT {
+            oauth_config.validate_copilot()?;
+        }
         let api_key_exchange_url = oauth_config
             .token_refresh_url
             .clone()
@@ -353,6 +356,17 @@ impl AuthStrategy for OAuthWithApiKeyStrategy {
                 AuthError::InitiationFailed(format!("Device authorization request failed: {e}"))
             })?;
 
+        if self.provider_id == ProviderId::GITHUB_COPILOT {
+            self.oauth_config
+                .validate_copilot_verification(&Url::parse(
+                    device_auth_response.verification_uri().as_str(),
+                )?)?;
+            if let Some(uri) = device_auth_response.verification_uri_complete() {
+                self.oauth_config
+                    .validate_copilot_verification(&Url::parse(uri.secret())?)?;
+            }
+        }
+
         Ok(AuthContextRequest::DeviceCode(DeviceCodeRequest {
             user_code: device_auth_response.user_code().secret().to_string().into(),
             device_code: device_auth_response
@@ -386,10 +400,11 @@ impl AuthStrategy for OAuthWithApiKeyStrategy {
                 .await?;
 
                 // Exchange for API key
-                let (api_key, expires_at) = exchange_oauth_for_api_key(
+                let (api_key, expires_at, api_url) = exchange_oauth_for_api_key(
                     &token_response.access_token,
                     &self.api_key_exchange_url,
                     &self.oauth_config,
+                    self.provider_id == ProviderId::GITHUB_COPILOT,
                 )
                 .await?;
 
@@ -399,21 +414,43 @@ impl AuthStrategy for OAuthWithApiKeyStrategy {
                     expires_at,
                 );
 
-                Ok(AuthCredential::new_oauth_with_api_key(
+                let mut credential = AuthCredential::new_oauth_with_api_key(
                     self.provider_id.clone(),
                     oauth_tokens,
                     api_key,
                     self.oauth_config.clone(),
-                ))
+                );
+                if let Some(url) = api_url {
+                    credential
+                        .url_params
+                        .insert("copilot_api_url".to_string().into(), url.to_string().into());
+                }
+                Ok(credential)
             }
             _ => Err(AuthError::InvalidContext("Expected DeviceCode context".to_string()).into()),
         }
     }
 
     async fn refresh(&self, credential: &AuthCredential) -> anyhow::Result<AuthCredential> {
+        // The catalog still contains github.com defaults. Refresh must use the
+        // selected host saved with the credential, never send enterprise OAuth
+        // tokens to those defaults.
+        let config = if self.provider_id == ProviderId::GITHUB_COPILOT {
+            anyhow::ensure!(
+                credential.id == self.provider_id,
+                "Mismatched Copilot credential"
+            );
+            let config = credential
+                .oauth_config()
+                .ok_or_else(|| anyhow::anyhow!("Missing Copilot OAuth configuration"))?;
+            config.validate_copilot()?;
+            config
+        } else {
+            &self.oauth_config
+        };
         refresh_oauth_credential(
             credential,
-            &self.oauth_config,
+            config,
             chrono::Duration::hours(1), // Unused for API key flow
             true,                       // WITH API key exchange
         )
@@ -733,6 +770,10 @@ async fn refresh_oauth_credential(
     expiry_duration: chrono::Duration,
     with_api_key_exchange: bool,
 ) -> anyhow::Result<AuthCredential> {
+    let is_copilot = credential.id == ProviderId::GITHUB_COPILOT;
+    if is_copilot {
+        config.validate_copilot()?;
+    }
     // Extract tokens (works for OAuth and OAuthWithApiKey)
     let tokens = extract_oauth_tokens(credential)?;
 
@@ -757,15 +798,16 @@ async fn refresh_oauth_credential(
         };
 
     // Exchange for API key if needed (GitHub Copilot pattern)
-    let (api_key, expires_at) = if with_api_key_exchange {
+    let (api_key, expires_at, api_url) = if with_api_key_exchange {
         let url = config.token_refresh_url.as_ref().ok_or_else(|| {
             AuthError::RefreshFailed("Missing token_refresh_url for API key exchange".to_string())
         })?;
-        let (key, expiry) = exchange_oauth_for_api_key(&oauth_access_token, url, config).await?;
-        (Some(key), expiry)
+        let (key, expiry, api_url) =
+            exchange_oauth_for_api_key(&oauth_access_token, url, config, is_copilot).await?;
+        (Some(key), expiry, api_url)
     } else {
         let expiry = calculate_token_expiry(None, expiry_duration);
-        (None, expiry)
+        (None, expiry, None)
     };
 
     // Build new tokens with refreshed OAuth access token
@@ -783,7 +825,13 @@ async fn refresh_oauth_credential(
         AuthCredential::new_oauth(credential.id.clone(), new_tokens, config.clone())
     };
 
-    Ok(refreshed.url_params(credential.url_params.clone()))
+    let mut refreshed = refreshed.url_params(credential.url_params.clone());
+    if let Some(url) = api_url {
+        refreshed
+            .url_params
+            .insert("copilot_api_url".to_string().into(), url.to_string().into());
+    }
+    Ok(refreshed)
 }
 
 /// Poll for OAuth tokens during device flow
@@ -1014,7 +1062,15 @@ async fn exchange_oauth_for_api_key(
     oauth_token: &str,
     api_key_exchange_url: &Url,
     config: &OAuthConfig,
-) -> anyhow::Result<(ApiKey, chrono::DateTime<chrono::Utc>)> {
+    is_copilot: bool,
+) -> anyhow::Result<(ApiKey, chrono::DateTime<chrono::Utc>, Option<Url>)> {
+    if is_copilot {
+        config.validate_copilot()?;
+        anyhow::ensure!(
+            config.token_refresh_url.as_ref() == Some(api_key_exchange_url),
+            "Invalid Copilot token exchange destination"
+        );
+    }
     // Build request headers
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
@@ -1045,23 +1101,40 @@ async fn exchange_oauth_for_api_key(
             )
             .into());
         }
-        return Err(AuthError::CompletionFailed(format!(
-            "API key fetch failed ({}): {}",
-            status,
-            response.text().await.unwrap_or_default()
-        ))
-        .into());
+        return Err(AuthError::CompletionFailed(format!("API key fetch failed ({status})")).into());
     }
 
-    let OAuthTokenResponse { access_token, expires_at, .. } =
-        response.json().await.map_err(|e| {
-            AuthError::CompletionFailed(format!("Failed to parse API key response: {e}"))
-        })?;
+    #[derive(serde::Deserialize)]
+    struct ExchangeResponse {
+        #[serde(flatten)]
+        token: OAuthTokenResponse,
+        endpoints: Option<std::collections::HashMap<String, String>>,
+    }
+    let response: ExchangeResponse = response
+        .json()
+        .await
+        .map_err(|_| AuthError::CompletionFailed("Failed to parse API key response".to_string()))?;
+    let api_url = if is_copilot {
+        let endpoint = response.endpoints.as_ref().and_then(|e| e.get("api"));
+        let url = match endpoint {
+            Some(endpoint) => Url::parse(endpoint)?,
+            None if config.auth_url.host_str() == Some("github.com") => {
+                Url::parse("https://api.githubcopilot.com")?
+            }
+            None => anyhow::bail!("Enterprise Copilot token response is missing its API endpoint"),
+        };
+        config.validate_copilot_api(&url)?;
+        Some(url)
+    } else {
+        None
+    };
+    let OAuthTokenResponse { access_token, expires_at, .. } = response.token;
 
     Ok((
         access_token.into(),
         chrono::DateTime::from_timestamp(expires_at.unwrap_or(0), 0)
             .unwrap_or_else(chrono::Utc::now),
+        api_url,
     ))
 }
 
@@ -1485,5 +1558,160 @@ mod tests {
 
         let expected = fixture_url_params;
         assert_eq!(actual.url_params, expected);
+    }
+}
+
+#[cfg(test)]
+mod copilot_tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    fn fixture_config(host: &str) -> OAuthConfig {
+        serde_json::from_value::<OAuthConfig>(serde_json::json!({
+            "auth_url": "https://github.com/login/device/code",
+            "token_url": "https://github.com/login/oauth/access_token",
+            "client_id": "test-client", "scopes": ["read:user"]
+        }))
+        .unwrap()
+        .with_copilot_host(host)
+        .unwrap()
+    }
+
+    #[test]
+    fn copilot_strategy_rejects_invalid_destination_before_network() {
+        let mut fixture = fixture_config("company.ghe.com");
+        fixture.token_url = Url::parse("https://attacker.example/token").unwrap();
+        let actual = OAuthWithApiKeyStrategy::new(ProviderId::GITHUB_COPILOT, fixture);
+        assert!(actual.is_err());
+    }
+
+    #[tokio::test]
+    async fn copilot_refresh_validates_saved_config_not_catalog_defaults() {
+        let fixture =
+            OAuthWithApiKeyStrategy::new(ProviderId::GITHUB_COPILOT, fixture_config("github.com"))
+                .unwrap();
+        let mut config = fixture_config("company.ghe.com");
+        config.token_refresh_url = Some(Url::parse("http://127.0.0.1:1/token").unwrap());
+        let tokens = OAuthTokens::new("fake-oauth", None::<String>, chrono::Utc::now());
+        let credential = AuthCredential::new_oauth_with_api_key(
+            ProviderId::GITHUB_COPILOT,
+            tokens,
+            "fake-key".to_string().into(),
+            config,
+        );
+        let actual = fixture.refresh(&credential).await.unwrap_err().to_string();
+        let expected =
+            "Invalid Copilot destination: use github.com or <enterprise>.ghe.com over HTTPS";
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn mocked_token_exchange_does_not_follow_redirects_or_echo_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = Url::parse(&format!("http://{}/token", listener.local_addr().unwrap())).unwrap();
+        let trap = TcpListener::bind("127.0.0.1:0").unwrap();
+        trap.set_nonblocking(true).unwrap();
+        let location = format!("http://{}/stolen", trap.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut bytes = [0; 4096];
+            assert!(stream.read(&mut bytes).unwrap() > 0);
+            let body = "fake-secret-must-not-be-logged";
+            write!(stream, "HTTP/1.1 307 Temporary Redirect\r\nLocation: {location}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        });
+        let fixture = fixture_config("github.com");
+
+        let actual = exchange_oauth_for_api_key("fake-oauth", &url, &fixture, false)
+            .await
+            .unwrap_err()
+            .to_string();
+        server.join().unwrap();
+
+        assert!(actual.contains("307"));
+        assert!(!actual.contains("fake-secret"));
+        assert!(matches!(
+            trap.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        ));
+    }
+
+    // Exercise the real hybrid device/poll/exchange implementation entirely on
+    // loopback with synthetic tokens. A non-Copilot fixture ID permits HTTP here;
+    // production Copilot validation is never relaxed for the mock server.
+    #[tokio::test]
+    async fn mocked_hybrid_authentication_and_refresh() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server_base = base.clone();
+        let server = std::thread::spawn(move || {
+            let mut requests = Vec::new();
+            for body in [
+                serde_json::json!({"device_code":"fake-device", "user_code":"FAKE-CODE", "verification_uri":format!("{server_base}/login/device"), "expires_in":600, "interval":1}).to_string(),
+                serde_json::json!({"access_token":"fake-oauth", "token_type":"bearer", "scope":"read:user"}).to_string(),
+                serde_json::json!({"token":"fake-api", "expires_at":2000000000}).to_string(),
+                serde_json::json!({"token":"fake-refreshed-api", "expires_at":2000000000}).to_string(),
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
+                let mut request = Vec::new();
+                loop {
+                    let mut bytes = [0; 4096];
+                    let len = stream.read(&mut bytes).unwrap();
+                    assert!(len > 0);
+                    request.extend_from_slice(&bytes[..len]);
+                    let text = String::from_utf8_lossy(&request);
+                    if let Some((headers, content)) = text.split_once("\r\n\r\n") {
+                        let length = headers.lines().find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length: ").and_then(|v| v.parse::<usize>().ok())).unwrap_or(0);
+                        if content.len() >= length { break; }
+                    }
+                }
+                requests.push(String::from_utf8(request).unwrap());
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+            requests
+        });
+        let mut config = fixture_config("github.com");
+        config.auth_url = Url::parse(&format!("{base}/login/device/code")).unwrap();
+        config.token_url = Url::parse(&format!("{base}/login/oauth/access_token")).unwrap();
+        config.token_refresh_url =
+            Some(Url::parse(&format!("{base}/copilot_internal/v2/token")).unwrap());
+        let fixture =
+            OAuthWithApiKeyStrategy::new("mock-hybrid".to_string().into(), config.clone()).unwrap();
+
+        let AuthContextRequest::DeviceCode(request) = fixture.init().await.unwrap() else {
+            unreachable!()
+        };
+        let credential = fixture
+            .complete(AuthContextResponse::device_code(request))
+            .await
+            .unwrap();
+        let actual = fixture.refresh(&credential).await.unwrap();
+        let requests = server.join().unwrap();
+
+        let expected = AuthCredential::new_oauth_with_api_key(
+            "mock-hybrid".to_string().into(),
+            OAuthTokens::new(
+                "fake-oauth",
+                None::<String>,
+                chrono::DateTime::from_timestamp(2000000000, 0).unwrap(),
+            ),
+            "fake-refreshed-api".to_string().into(),
+            config,
+        );
+        assert_eq!(actual, expected);
+        assert!(requests[0].starts_with("POST /login/device/code "));
+        assert!(requests[1].starts_with("POST /login/oauth/access_token "));
+        assert!(requests[1].contains("device_code=fake-device"));
+        for request in &requests[2..] {
+            assert!(request.starts_with("GET /copilot_internal/v2/token "));
+            assert!(request.contains("Bearer fake-oauth"));
+        }
     }
 }
