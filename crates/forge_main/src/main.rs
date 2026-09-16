@@ -143,7 +143,8 @@ mod tests {
         // We can't easily test the actual stdin reading in a unit test,
         // but we can verify the logic flow
 
-        // Test that when prompt is provided, it remains independent of piped input
+        // Test that when prompt is provided, it remains independent of piped
+        // input
         let cli_with_prompt = Cli::parse_from(["forge", "--prompt", "existing prompt"]);
         let original_prompt = cli_with_prompt.prompt.clone();
 

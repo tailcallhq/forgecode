@@ -305,8 +305,9 @@ fn try_coerce_string(
                 return Some(coerce_array_value(parsed, schema, root_schema));
             }
 
-            // If direct parsing fails, try to extract array portion from the string
-            // This handles cases like: "[\"item\"]{\n}" or "garbage[\"item\"]more"
+            // If direct parsing fails, try to extract array portion from the
+            // string This handles cases like: "[\"item\"]{\n}" or
+            // "garbage[\"item\"]more"
             if let Some(extracted) = extract_array_from_string(s) {
                 // Recursively coerce the extracted array items
                 return Some(coerce_array_value(extracted, schema, root_schema));
@@ -410,7 +411,8 @@ fn parse_json_like_value(s: &str) -> Result<Value, serde_json::Error> {
         return Ok(parsed);
     }
 
-    // If that fails, try parsing as JSON5 (handles single quotes, comments, etc.)
+    // If that fails, try parsing as JSON5 (handles single quotes, comments,
+    // etc.)
     if let Ok(parsed) = serde_json5::from_str::<Value>(s) {
         return Ok(parsed);
     }
@@ -764,7 +766,8 @@ mod tests {
 
     #[test]
     fn test_read_tool_line_numbers() {
-        // Simulate the exact case from the task: read tool with string line numbers
+        // Simulate the exact case from the task: read tool with string line
+        // numbers
         let fixture = json!({
             "path": "/Users/amit/code-forge/crates/forge_main/src/ui.rs",
             "start_line": "2255",
@@ -840,8 +843,8 @@ mod tests {
         let fixture = json!({"value": "2.14"});
         let schema = schema_for!(IntOrNull);
         let actual = coerce_to_schema(fixture, &schema);
-        // The anyOf schema tries each subschema; since "2.14" can't be parsed as i64,
-        // it returns the original value
+        // The anyOf schema tries each subschema; since "2.14" can't be parsed
+        // as i64, it returns the original value
         let expected = json!({"value": "2.14"});
         assert_eq!(actual, expected);
     }
@@ -868,7 +871,8 @@ mod tests {
 
     #[test]
     fn test_array_with_tuple_schema_extra_items() {
-        // Test that Vec<serde_json::Value> doesn't coerce items (no type constraints)
+        // Test that Vec<serde_json::Value> doesn't coerce items (no type
+        // constraints)
         let fixture = json!({"items": ["1", "2", "3", "4"]});
         let schema = schema_for!(ExtraItemsData);
         let actual = coerce_to_schema(fixture, &schema);
@@ -994,8 +998,8 @@ mod tests {
 
     #[test]
     fn test_repairs_invalid_json_string_when_schema_expects_array() {
-        // Invalid JSON-like array strings are repaired into arrays when the schema
-        // expects one.
+        // Invalid JSON-like array strings are repaired into arrays when the
+        // schema expects one.
         let fixture = json!({"data": "[invalid json"});
         let schema = schema_for!(DataArray);
         let actual = coerce_to_schema(fixture, &schema);
@@ -1074,8 +1078,8 @@ mod tests {
 
     #[test]
     fn test_coerce_malformed_string_array_with_trailing_garbage() {
-        // This is the exact case from the issue: string that looks like an array but
-        // has trailing garbage
+        // This is the exact case from the issue: string that looks like an
+        // array but has trailing garbage
         let fixture = json!({
             "tasks": "[\"Find where the main function is defined in the code-forge codebase. Search for main function definitions and entry points.\"]{\n}"
         });
@@ -1216,7 +1220,8 @@ mod tests {
 
     #[test]
     fn test_coerce_nested_array_with_string_numbers() {
-        // Test that nested coercion works - string numbers inside objects inside arrays
+        // Test that nested coercion works - string numbers inside objects
+        // inside arrays
         #[derive(JsonSchema)]
         #[allow(dead_code)]
         struct Item {
@@ -1276,8 +1281,9 @@ mod tests {
 
     #[test]
     fn test_coerce_empty_string_to_null_for_nullable_field() {
-        // Simulates LLM sending "" for a nullable string field (e.g., file_type in
-        // fs_search). The schema uses "nullable: true" (OpenAPI 3.0 style).
+        // Simulates LLM sending "" for a nullable string field (e.g., file_type
+        // in fs_search). The schema uses "nullable: true" (OpenAPI 3.0
+        // style).
         #[derive(JsonSchema)]
         #[allow(dead_code)]
         struct NullableStringData {
@@ -1306,7 +1312,8 @@ mod tests {
 
     #[test]
     fn test_preserve_non_empty_string_for_nullable_field() {
-        // Non-empty strings should NOT be converted to null, even for nullable fields
+        // Non-empty strings should NOT be converted to null, even for nullable
+        // fields
         #[derive(JsonSchema)]
         #[allow(dead_code)]
         struct NullableStringData {

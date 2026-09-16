@@ -124,8 +124,8 @@ fn resolve_agent_conflicts(agents: Vec<AgentDefinition>) -> Vec<AgentDefinition>
         agent_map.insert(agent.id.to_string(), agent);
     }
 
-    // Convert back to vector (order is not guaranteed but doesn't matter for the
-    // service)
+    // Convert back to vector (order is not guaranteed but doesn't matter for
+    // the service)
     agent_map.into_values().collect()
 }
 

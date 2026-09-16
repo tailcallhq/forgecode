@@ -144,7 +144,8 @@ impl BedrockProvider {
             _ => "",
         };
 
-        // Only prefix Anthropic models that don't already have a regional prefix
+        // Only prefix Anthropic models that don't already have a regional
+        // prefix
         if model_id.contains("anthropic.")
             && !model_id.starts_with("us.")
             && !model_id.starts_with("eu.")
@@ -236,15 +237,17 @@ impl BedrockProvider {
             .map_err(|sdk_error| {
                 use aws_sdk_bedrockruntime::error::SdkError;
 
-                // Check if this is a retryable error by matching on SDK error types
+                // Check if this is a retryable error by matching on SDK error
+                // types
                 let is_retryable = match &sdk_error {
                     SdkError::ServiceError(err) => Self::is_retryable_converse_error(err.err()),
                     _ => Self::is_retryable_sdk_error(&sdk_error),
                 };
 
                 // Extract the source error for better error messages
-                // SAFETY: into_source() always returns Ok for all SdkError variants
-                // (see aws-smithy-runtime-api/src/client/result.rs:448-459)
+                // SAFETY: into_source() always returns Ok for all SdkError
+                // variants (see aws-smithy-runtime-api/src/
+                // client/result.rs:448-459)
                 let source = sdk_error.into_source().unwrap();
 
                 if is_retryable {
@@ -265,7 +268,8 @@ impl BedrockProvider {
                 Err(stream_error) => {
                     use aws_sdk_bedrockruntime::error::SdkError;
 
-                    // Check if this is a retryable stream error by matching on SDK error types
+                    // Check if this is a retryable stream error by matching on
+                    // SDK error types
                     let is_retryable = match &stream_error {
                         SdkError::ServiceError(err) => {
                             Self::is_retryable_stream_output_error(err.err())
@@ -413,8 +417,9 @@ impl IntoDomain for aws_sdk_bedrockruntime::types::ConverseStreamOutput {
             ConverseStreamOutput::Metadata(metadata) => {
                 // Metadata contains usage information
                 let usage = metadata.usage.map(|u| {
-                    // AWS Bedrock supports cache tokens but not reasoning tokens
-                    // Sum both cache read and cache write tokens into cached_tokens field
+                    // AWS Bedrock supports cache tokens but not reasoning
+                    // tokens Sum both cache read and cache
+                    // write tokens into cached_tokens field
                     let cached_tokens = u
                         .cache_read_input_tokens
                         .unwrap_or(0)
@@ -453,12 +458,14 @@ impl FromDomain<forge_domain::Context>
         use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamInput;
         use aws_sdk_bedrockruntime::types::{InferenceConfiguration, Message, SystemContentBlock};
 
-        // Capture reasoning-related flags before `context.messages` / other fields
-        // are consumed below. `ModelSpecificReasoning` runs earlier in the pipeline
-        // and has already normalized `reasoning` per model family, so here we just
-        // branch on the shape it produced:
+        // Capture reasoning-related flags before `context.messages` / other
+        // fields are consumed below. `ModelSpecificReasoning` runs
+        // earlier in the pipeline and has already normalized
+        // `reasoning` per model family, so here we just branch on the
+        // shape it produced:
         // - `max_tokens.is_some()` -> legacy `thinking.enabled` budget shape
-        // - otherwise              -> `thinking.adaptive` (Opus 4.7 / 4.6 / Sonnet 4.6)
+        // - otherwise              -> `thinking.adaptive` (Opus 4.7 / 4.6 /
+        //   Sonnet 4.6)
         let reasoning_on = context.is_reasoning_supported();
         let emits_legacy_thinking = reasoning_on
             && context
@@ -482,8 +489,8 @@ impl FromDomain<forge_domain::Context>
             .collect();
 
         // Convert user and assistant messages
-        // Group consecutive tool results into single User messages as required by
-        // Bedrock API
+        // Group consecutive tool results into single User messages as required
+        // by Bedrock API
         let messages: Vec<Message> = {
             let mut result = Vec::new();
             let mut pending_tool_results: Vec<forge_domain::ContextMessage> = Vec::new();
@@ -499,7 +506,8 @@ impl FromDomain<forge_domain::Context>
                         pending_tool_results.push(message.message);
                     }
                     _ => {
-                        // Flush pending tool results before processing non-tool message
+                        // Flush pending tool results before processing non-tool
+                        // message
                         if !pending_tool_results.is_empty() {
                             let tool_results: Vec<_> = std::mem::take(&mut pending_tool_results);
                             result.push(Message::from_domain(tool_results)?);
@@ -551,11 +559,13 @@ impl FromDomain<forge_domain::Context>
 
         // Convert inference configuration
         // When `thinking.enabled` (legacy budget shape) is being emitted below,
-        // Anthropic-on-Bedrock requires `top_p >= 0.95` or unset. `thinking.adaptive`
-        // (Opus 4.7 / Opus 4.6 / Sonnet 4.6) has no such constraint, and
-        // `ModelSpecificReasoning` already strips `top_p` entirely for Opus 4.7.
+        // Anthropic-on-Bedrock requires `top_p >= 0.95` or unset.
+        // `thinking.adaptive` (Opus 4.7 / Opus 4.6 / Sonnet 4.6) has no
+        // such constraint, and `ModelSpecificReasoning` already strips
+        // `top_p` entirely for Opus 4.7.
         let adjusted_top_p = if emits_legacy_thinking {
-            // If legacy thinking is emitted and top_p is set, ensure it's at least 0.95
+            // If legacy thinking is emitted and top_p is set, ensure it's at
+            // least 0.95
             context.top_p.map(|p| {
                 let value = p.value();
                 if value < 0.95 {
@@ -590,11 +600,11 @@ impl FromDomain<forge_domain::Context>
         // `reasoning.max_tokens`, which `ModelSpecificReasoning` has already
         // normalized per family:
         //
-        //   - `max_tokens: Some(N)` → `{type: "enabled", budget_tokens: N}` (Opus 4.5
-        //     and older; budget is backfilled to 10k when absent.)
-        //   - `max_tokens: None`    → `{type: "adaptive", display: ...}` (Opus 4.7
-        //     rejects the legacy shape with 400; Opus 4.6 / Sonnet 4.6 accept adaptive
-        //     natively.)
+        //   - `max_tokens: Some(N)` → `{type: "enabled", budget_tokens: N}`
+        //     (Opus 4.5 and older; budget is backfilled to 10k when absent.)
+        //   - `max_tokens: None`    → `{type: "adaptive", display: ...}` (Opus
+        //     4.7 rejects the legacy shape with 400; Opus 4.6 / Sonnet 4.6
+        //     accept adaptive natively.)
         //
         // When present, `reasoning.effort` is emitted as `output_config.effort`
         // for families that support it (`ModelSpecificReasoning` drops effort
@@ -761,8 +771,9 @@ impl FromDomain<forge_domain::ContextMessage> for aws_sdk_bedrockruntime::types:
             forge_domain::ContextMessage::Text(text_msg) => {
                 let mut content_blocks = Vec::new();
 
-                // Add thought signature FIRST if present (for Assistant messages)
-                // AWS requires that when thinking is enabled, assistant messages MUST start
+                // Add thought signature FIRST if present (for Assistant
+                // messages) AWS requires that when thinking is
+                // enabled, assistant messages MUST start
                 // with reasoning blocks
                 if text_msg.role == forge_domain::Role::Assistant
                     && let Some(reasoning_details) = &text_msg.reasoning_details
@@ -1031,8 +1042,9 @@ impl FromDomain<forge_domain::ToolChoice> for aws_sdk_bedrockruntime::types::Too
                     .map_err(|e| anyhow::anyhow!("Failed to build tool choice: {}", e))?,
             ),
             forge_domain::ToolChoice::None => {
-                // For None, we'll return a default Auto choice, but the caller should handle
-                // this by not setting tool_choice at all
+                // For None, we'll return a default Auto choice, but the caller
+                // should handle this by not setting tool_choice
+                // at all
                 ToolChoice::Auto(AutoToolChoice::builder().build())
             }
         };

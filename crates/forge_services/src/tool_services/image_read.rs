@@ -59,8 +59,8 @@ impl<
 
         let max_image_size_bytes = self.infra.get_config()?.max_image_size_bytes;
 
-        // Validate file size before reading content using image-specific file size
-        // limit
+        // Validate file size before reading content using image-specific file
+        // size limit
         crate::tool_services::fs_read::assert_file_size(&*self.infra, path, max_image_size_bytes)
             .await
             .with_context(

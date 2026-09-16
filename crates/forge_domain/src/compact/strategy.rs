@@ -103,8 +103,8 @@ fn find_sequence_preserving_last_n(
     }
 
     // Calculate the end index based on preservation window
-    // If we need to preserve all or more messages than we have, there's nothing to
-    // compact
+    // If we need to preserve all or more messages than we have, there's nothing
+    // to compact
     if max_retention >= length {
         return None;
     }
@@ -119,8 +119,9 @@ fn find_sequence_preserving_last_n(
 
     // Don't break between a tool call and its result
     if messages.get(end).is_some_and(|msg| msg.has_tool_call()) {
-        // If the last message has a tool call, adjust end to include the tool result
-        // This means either not compacting at all, or reducing the end by 1
+        // If the last message has a tool call, adjust end to include the tool
+        // result This means either not compacting at all, or reducing
+        // the end by 1
         if end == start {
             // If start == end and it has a tool call, don't compact
             return None;
@@ -135,8 +136,8 @@ fn find_sequence_preserving_last_n(
             .get(end.saturating_add(1))
             .is_some_and(|msg| msg.has_tool_result())
     {
-        // If the last message is a tool result and the next one is also a tool result,
-        // we need to adjust the end.
+        // If the last message is a tool result and the next one is also a tool
+        // result, we need to adjust the end.
         while end >= start && messages.get(end).is_some_and(|msg| msg.has_tool_result()) {
             end = end.saturating_sub(1);
         }
@@ -342,13 +343,16 @@ mod tests {
         let fixture = context_from_pattern("sua");
 
         // Test Percentage strategy conversion
-        // Context: System (3 tokens), User (3 tokens), Assistant (3 tokens) = 9 total
-        // tokens Eviction budget: 40% of 9 = 3.6 → 4 tokens (rounded up)
-        // Strategy skips system messages, so calculation for non-system messages:
-        // - User message (index 1): 3 tokens → budget: 4 - 3 = 1 token remaining
-        // - Assistant message (index 2): 3 tokens → budget: 1 - 3 = 0 (saturating_sub)
-        // Result: Eviction budget exhausted at index 2 (Assistant), so to_fixed returns
-        // 2
+        // Context: System (3 tokens), User (3 tokens), Assistant (3 tokens) = 9
+        // total tokens Eviction budget: 40% of 9 = 3.6 → 4 tokens
+        // (rounded up) Strategy skips system messages, so calculation
+        // for non-system messages:
+        // - User message (index 1): 3 tokens → budget: 4 - 3 = 1 token
+        //   remaining
+        // - Assistant message (index 2): 3 tokens → budget: 1 - 3 = 0
+        //   (saturating_sub)
+        // Result: Eviction budget exhausted at index 2 (Assistant), so to_fixed
+        // returns 2
         let percentage_strategy = CompactionStrategy::evict(0.4);
         let actual = percentage_strategy.to_fixed(&fixture);
         let expected = 2;
@@ -362,8 +366,8 @@ mod tests {
 
         // Test invalid percentage (gets clamped to 1.0 = 100%)
         // With 100% eviction budget (9 tokens), we can evict all messages
-        // With 9 tokens budget, all 3 messages (3+3+3) exhaust the budget at message
-        // index 2
+        // With 9 tokens budget, all 3 messages (3+3+3) exhaust the budget at
+        // message index 2
         let invalid_strategy = CompactionStrategy::evict(1.5);
         let actual = invalid_strategy.to_fixed(&fixture);
         let expected = 2; // Returns index 2 (last message) when all messages fit in budget
@@ -394,8 +398,8 @@ mod tests {
         let percentage_strategy = CompactionStrategy::evict(0.4);
         percentage_strategy.to_fixed(&fixture);
 
-        // Use fixed window strategy - preserve last 1 message, starting from first
-        // assistant
+        // Use fixed window strategy - preserve last 1 message, starting from
+        // first assistant
         let preserve_strategy = CompactionStrategy::retain(1);
         let actual_sequence = preserve_strategy.eviction_range(&fixture);
         let expected = Some((1, 2)); // Start from first assistant at index 1

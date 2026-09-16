@@ -148,8 +148,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
         let tracing_handler = TracingHandler::new();
         let title_handler = TitleGenerationHandler::new(services.clone());
 
-        // Build the on_end hook, conditionally adding PendingTodosHandler based on
-        // config
+        // Build the on_end hook, conditionally adding PendingTodosHandler based
+        // on config
         let on_end_hook = if forge_config.verify_todos {
             tracing_handler
                 .clone()
@@ -194,7 +194,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
                     let conversation = orch.get_conversation().clone();
                     let save_result = services.upsert_conversation(conversation).await;
 
-                    // Send any error to the stream (prioritize dispatch error over save error)
+                    // Send any error to the stream (prioritize dispatch error
+                    // over save error)
                     #[allow(clippy::collapsible_if)]
                     if let Some(err) = dispatch_result.err().or(save_result.err()) {
                         if let Err(e) = tx.send(Err(err)).await {
@@ -299,39 +300,187 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
 
     /// Gets available models from all configured providers concurrently.
     ///
-    /// Returns a list of `ProviderModels` for each configured provider that
-    /// successfully returned models. If every configured provider fails (e.g.
-    /// due to an invalid API key), the first error encountered is returned so
-    /// the caller receives the real underlying cause rather than an empty list.
-    pub async fn get_all_provider_models(&self) -> Result<Vec<ProviderModels>> {
+    /// Returns models for the configured providers in the requested scope.
+    ///
+    /// # Arguments
+    /// * `provider_filter` - Restricts model discovery and credential refresh
+    ///   to this provider after the configured providers have been resolved.
+    ///
+    /// # Errors
+    /// Returns an error if provider discovery, credential refresh, or a model
+    /// request in the requested scope fails.
+    pub async fn get_all_provider_models(
+        &self,
+        provider_filter: Option<&ProviderId>,
+    ) -> Result<Vec<ProviderModels>> {
         let all_providers = self.services.get_all_providers().await?;
 
-        // Build one future per configured provider, preserving the error on failure.
-        let futures: Vec<_> = all_providers
-            .into_iter()
-            .filter_map(|any_provider| any_provider.into_configured())
-            .map(|provider| {
-                let provider_id = provider.id.clone();
-                let services = self.services.clone();
-                async move {
-                    let result: Result<ProviderModels> = async {
-                        let refreshed = services
-                            .provider_auth_service()
-                            .refresh_provider_credential(provider)
-                            .await?;
-                        let models = services.models(refreshed).await?;
-                        Ok(ProviderModels { provider_id, models })
-                    }
-                    .await;
-                    result
-                }
-            })
-            .collect();
+        fetch_provider_models(all_providers, provider_filter, |provider| async move {
+            let provider_id = provider.id.clone();
+            let refreshed = self
+                .services
+                .provider_auth_service()
+                .refresh_provider_credential(provider)
+                .await?;
+            let models = self.services.models(refreshed).await?;
+            Ok(ProviderModels { provider_id, models })
+        })
+        .await
+    }
+}
 
-        // Execute all provider fetches concurrently.
-        futures::future::join_all(futures)
+/// Filters resolved providers before starting credential refresh or model
+/// requests, then fetches concurrently. Selected-provider failures remain
+/// errors.
+async fn fetch_provider_models<F, Fut>(
+    providers: Vec<AnyProvider>,
+    provider_filter: Option<&ProviderId>,
+    fetch: F,
+) -> Result<Vec<ProviderModels>>
+where
+    F: Fn(Provider<url::Url>) -> Fut,
+    Fut: std::future::Future<Output = Result<ProviderModels>>,
+{
+    let futures = providers
+        .into_iter()
+        .filter_map(AnyProvider::into_configured)
+        .filter(|provider| provider_filter.is_none_or(|id| &provider.id == id))
+        .map(fetch);
+
+    futures::future::join_all(futures)
+        .await
+        .into_iter()
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    fn fixture(id: &str, configured: bool) -> Result<AnyProvider> {
+        let mut provider: Provider<url::Url> = serde_json::from_value(serde_json::json!({
+            "id": id,
+            "url": "http://127.0.0.1:1337/v1/chat/completions",
+            "auth_methods": []
+        }))?;
+        if configured {
+            provider.credential = Some(AuthCredential::new_api_key(
+                provider.id.clone(),
+                ApiKey::from("fixture".to_string()),
+            ));
+        }
+        Ok(AnyProvider::Url(provider))
+    }
+
+    async fn fetch_fixture(provider: Provider<url::Url>) -> Result<ProviderModels> {
+        if provider.id.as_ref() == "offline" {
+            anyhow::bail!("Connection refused");
+        }
+        Ok(ProviderModels {
+            provider_id: provider.id,
+            models: vec![Model::new("fixture-model")],
+        })
+    }
+
+    #[tokio::test]
+    async fn test_filtered_discovery_does_not_contact_previous_provider() {
+        let fixtures = vec![
+            fixture("offline", true).unwrap(),
+            fixture("healthy", true).unwrap(),
+        ];
+        let selected = ProviderId::from("healthy".to_string());
+        let calls = std::sync::Mutex::new(Vec::new());
+
+        let actual = fetch_provider_models(fixtures, Some(&selected), |provider| {
+            calls.lock().unwrap().push(provider.id.clone());
+            fetch_fixture(provider)
+        })
+        .await
+        .unwrap();
+
+        let expected = vec![ProviderModels {
+            provider_id: selected.clone(),
+            models: vec![Model::new("fixture-model")],
+        }];
+        assert_eq!(actual, expected);
+        assert_eq!(calls.into_inner().unwrap(), vec![selected]);
+    }
+
+    #[tokio::test]
+    async fn test_filtered_discovery_preserves_selected_provider_error() {
+        let fixtures = vec![
+            fixture("offline", true).unwrap(),
+            fixture("healthy", true).unwrap(),
+        ];
+        let selected = ProviderId::from("offline".to_string());
+
+        let actual = fetch_provider_models(fixtures, Some(&selected), fetch_fixture)
             .await
-            .into_iter()
-            .collect::<anyhow::Result<Vec<_>>>()
+            .unwrap_err()
+            .to_string();
+
+        let expected = "Connection refused";
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn test_unfiltered_discovery_fetches_all_configured_providers() {
+        let fixtures = vec![
+            fixture("first", true).unwrap(),
+            fixture("unconfigured", false).unwrap(),
+            fixture("second", true).unwrap(),
+        ];
+
+        let actual = fetch_provider_models(fixtures, None, fetch_fixture)
+            .await
+            .unwrap();
+
+        let expected = vec![
+            ProviderModels {
+                provider_id: ProviderId::from("first".to_string()),
+                models: vec![Model::new("fixture-model")],
+            },
+            ProviderModels {
+                provider_id: ProviderId::from("second".to_string()),
+                models: vec![Model::new("fixture-model")],
+            },
+        ];
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn test_unfiltered_discovery_preserves_errors() {
+        let fixtures = vec![
+            fixture("offline", true).unwrap(),
+            fixture("healthy", true).unwrap(),
+        ];
+
+        let actual = fetch_provider_models(fixtures, None, fetch_fixture)
+            .await
+            .unwrap_err()
+            .to_string();
+
+        let expected = "Connection refused";
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn test_filtered_discovery_never_falls_back_to_another_provider() {
+        let fixtures = vec![
+            fixture("healthy", true).unwrap(),
+            fixture("unconfigured", false).unwrap(),
+        ];
+        for selected in ["missing", "unconfigured"] {
+            let selected = ProviderId::from(selected.to_string());
+
+            let actual = fetch_provider_models(fixtures.clone(), Some(&selected), fetch_fixture)
+                .await
+                .unwrap();
+
+            let expected: Vec<ProviderModels> = Vec::new();
+            assert_eq!(actual, expected);
+        }
     }
 }

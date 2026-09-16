@@ -39,10 +39,10 @@ impl Transformer for ReasoningNormalizer {
     type Value = Context;
 
     fn transform(&mut self, mut context: Self::Value) -> Self::Value {
-        // Walk backwards to find the last assistant message (forward index) whose
-        // model differs from the current one.  That is the cutoff: everything at
-        // or before it has reasoning stripped; the same-model tail after it is
-        // kept intact.
+        // Walk backwards to find the last assistant message (forward index)
+        // whose model differs from the current one.  That is the
+        // cutoff: everything at or before it has reasoning stripped;
+        // the same-model tail after it is kept intact.
         let cutoff = context
             .messages
             .iter()
@@ -278,7 +278,8 @@ mod tests {
 
     #[test]
     fn test_a_to_b_to_c_strips_reasoning() {
-        // A → B → C: every model switch must strip; here B→C triggers the strip.
+        // A → B → C: every model switch must strip; here B→C triggers the
+        // strip.
         let fixture = Context::default()
             .reasoning(ReasoningConfig::default().enabled(true))
             .add_message(ContextMessage::user("q1", None))
@@ -293,8 +294,8 @@ mod tests {
 
     #[test]
     fn test_alternating_a_b_a_b_strips_reasoning() {
-        // A → B → A → B: after the full alternation the last assistant is model_a;
-        // switching to model_b must strip all reasoning.
+        // A → B → A → B: after the full alternation the last assistant is
+        // model_a; switching to model_b must strip all reasoning.
         let fixture = Context::default()
             .reasoning(ReasoningConfig::default().enabled(true))
             .add_message(ContextMessage::user("q1", None))
@@ -312,8 +313,8 @@ mod tests {
     #[test]
     fn test_alternating_a_b_a_stay_a_strips_ab_keeps_last_a() {
         // A → B → A (stay on A): the cutoff is at b2 (the first mismatch going
-        // backwards), so a1 and b2 lose reasoning; only a3 (the same-model tail)
-        // is preserved.
+        // backwards), so a1 and b2 lose reasoning; only a3 (the same-model
+        // tail) is preserved.
         let fixture = Context::default()
             .reasoning(ReasoningConfig::default().enabled(true))
             .add_message(ContextMessage::user("q1", None))
@@ -367,9 +368,10 @@ mod tests {
     fn test_mixed_sequence_preserves_only_same_model_tail() {
         // Sequence: a a a a b a c a b b b  (current = b)
         //                             ↑↑↑  preserved tail
-        //           ↑↑↑↑↑↑↑↑↑↑↑      stripped (everything before the tail break)
-        // The earlier `b` in the middle is also stripped because it is before
-        // the cutoff — only the contiguous tail from the end matters.
+        //           ↑↑↑↑↑↑↑↑↑↑↑      stripped (everything before the tail
+        // break) The earlier `b` in the middle is also stripped because
+        // it is before the cutoff — only the contiguous tail from the
+        // end matters.
         let fixture = Context::default()
             .reasoning(ReasoningConfig::default().enabled(true))
             .add_message(ContextMessage::user("q1", None))
