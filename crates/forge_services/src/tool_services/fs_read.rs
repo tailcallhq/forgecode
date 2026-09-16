@@ -118,7 +118,8 @@ impl<F: FileInfoInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + I
 
         let config = self.infra.get_config()?;
 
-        // Validate with the larger limit initially since we don't know file type yet
+        // Validate with the larger limit initially since we don't know file
+        // type yet
         let initial_size_limit = config.max_file_size_bytes.max(config.max_image_size_bytes);
         assert_file_size(&*self.infra, path, initial_size_limit).await?;
 

@@ -27,8 +27,9 @@ impl<S: McpService> McpExecutor<S> {
 
     pub async fn contains_tool(&self, tool_name: &ToolName) -> anyhow::Result<bool> {
         let mcp_servers = self.services.get_mcp_servers().await?;
-        // Convert Claude Code format (mcp__{server}__{tool}) to the internal legacy
-        // format (mcp_{server}_tool_{tool}) before checking, so both name styles match.
+        // Convert Claude Code format (mcp__{server}__{tool}) to the internal
+        // legacy format (mcp_{server}_tool_{tool}) before checking, so
+        // both name styles match.
         let legacy = tool_name.to_legacy_mcp_name();
         let found = mcp_servers.get_servers().values().any(|tools| {
             tools

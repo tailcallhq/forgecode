@@ -62,7 +62,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
     ) -> anyhow::Result<Vec<(ToolCallFull, ToolResult)>> {
         let task_tool_name = ToolKind::Task.name();
 
-        // Use a case-insensitive comparison since the model may send "Task" or "task".
+        // Use a case-insensitive comparison since the model may send "Task" or
+        // "task".
         let is_task = |tc: &ToolCallFull| {
             tc.name
                 .as_str()
@@ -76,8 +77,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             |tc: &&ToolCallFull| tc.name.as_str().to_lowercase() == task_tool_name.as_str();
         let (task_calls, other_calls): (Vec<_>, Vec<_>) = tool_calls.iter().partition(is_task_call);
 
-        // Execute task tool calls in parallel — mirrors how direct agent-as-tool calls
-        // work.
+        // Execute task tool calls in parallel — mirrors how direct
+        // agent-as-tool calls work.
         let task_results: Vec<(ToolCallFull, ToolResult)> = join_all(
             task_calls
                 .iter()
@@ -95,12 +96,13 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             .map(|tool| &tool.name)
             .collect::<HashSet<_>>();
 
-        // Process non-task tool calls sequentially (preserving UI notifier handshake
-        // and hooks).
+        // Process non-task tool calls sequentially (preserving UI notifier
+        // handshake and hooks).
         let mut other_results: Vec<(ToolCallFull, ToolResult)> =
             Vec::with_capacity(other_calls.len());
         for tool_call in &other_calls {
-            // Send the start notification for system tools and not agent as a tool
+            // Send the start notification for system tools and not agent as a
+            // tool
             let is_system_tool = system_tools.contains(&tool_call.name);
             if is_system_tool {
                 let notifier = Arc::new(Notify::new());
@@ -109,9 +111,10 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                     notifier: notifier.clone(),
                 })
                 .await?;
-                // Wait for the UI to acknowledge it has rendered the tool header
-                // before we execute the tool. This prevents tool stdout from
-                // appearing before the tool name is printed.
+                // Wait for the UI to acknowledge it has rendered the tool
+                // header before we execute the tool. This
+                // prevents tool stdout from appearing before
+                // the tool name is printed.
                 notifier.notified().await;
             }
 
@@ -131,7 +134,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .call(&self.agent, tool_context, (*tool_call).clone())
                 .await;
 
-            // Fire the ToolcallEnd lifecycle event (fires on both success and failure)
+            // Fire the ToolcallEnd lifecycle event (fires on both success and
+            // failure)
             let toolcall_end_event = LifecycleEvent::ToolcallEnd(EventData::new(
                 self.agent.clone(),
                 self.agent.model.clone(),
@@ -141,7 +145,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .handle(&toolcall_end_event, &mut self.conversation)
                 .await?;
 
-            // Send the end notification for system tools and not agent as a tool
+            // Send the end notification for system tools and not agent as a
+            // tool
             if is_system_tool {
                 self.send(ChatResponse::ToolCallEnd(tool_result.clone()))
                     .await?;
@@ -252,7 +257,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             .handle(&start_event, &mut self.conversation)
             .await?;
 
-        // Signals that the loop should suspend (task may or may not be completed)
+        // Signals that the loop should suspend (task may or may not be
+        // completed)
         let mut should_yield = false;
 
         // Signals that the task is completed
@@ -294,7 +300,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                     let model_id = model_id.clone();
                     move |error: &anyhow::Error, duration: Duration| {
                         let root_cause = error.root_cause();
-                        // Log retry attempts - critical for debugging API failures
+                        // Log retry attempts - critical for debugging API
+                        // failures
                         tracing::error!(
                             agent_id = %agent_id,
                             error = ?root_cause,
@@ -319,8 +326,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .handle(&response_event, &mut self.conversation)
                 .await?;
 
-            // Turn is completed, if finish_reason is 'stop'. Gemini models return stop as
-            // finish reason with tool calls.
+            // Turn is completed, if finish_reason is 'stop'. Gemini models
+            // return stop as finish reason with tool calls.
             is_complete =
                 message.finish_reason == Some(FinishReason::Stop) && message.tool_calls.is_empty();
 
@@ -336,7 +343,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .execute_tool_calls(&message.tool_calls, &tool_context)
                 .await?;
 
-            // Update context from conversation after response / tool-call hooks run
+            // Update context from conversation after response / tool-call hooks
+            // run
             if let Some(updated_context) = &self.conversation.context {
                 context = updated_context.clone();
             }
@@ -346,7 +354,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             for (_, result) in tool_call_records.iter_mut() {
                 if result.is_error() {
                     let attempts_left = self.error_tracker.remaining_attempts(&result.name);
-                    // Add attempt information to the error message so the agent can reflect on it.
+                    // Add attempt information to the error message so the agent
+                    // can reflect on it.
                     let context = serde_json::json!({
                         "attempts_left": attempts_left,
                         "allowed_max_attempts": allowed_max_attempts,
@@ -390,7 +399,8 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             if !should_yield && let Some(max_request_allowed) = max_requests_per_turn {
                 // Check if agent has reached the maximum request per turn limit
                 if request_count >= max_request_allowed {
-                    // Log warning - important for understanding conversation interruptions
+                    // Log warning - important for understanding conversation
+                    // interruptions
                     warn!(
                         agent_id = %self.agent.id,
                         model_id = %model_id,

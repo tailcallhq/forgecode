@@ -23,7 +23,8 @@ pub struct SyntaxHighlighter {
 
 impl Default for SyntaxHighlighter {
     fn default() -> Self {
-        // Use two-face's extended syntax set which includes TOML, Rust, Python, etc.
+        // Use two-face's extended syntax set which includes TOML, Rust, Python,
+        // etc.
         Self {
             syntax_set: Arc::new(two_face::syntax::extra_newlines()),
             theme_set: Arc::new(two_face::theme::extra().into()),
@@ -136,7 +137,8 @@ impl CodeBlockParser {
     fn detect_code_fence(line: &str) -> Option<String> {
         let trimmed = line.trim_start();
         if let Some(stripped) = trimmed.strip_prefix("```") {
-            // Extract language tag (everything after ``` until whitespace or end)
+            // Extract language tag (everything after ``` until whitespace or
+            // end)
             let lang = stripped.split_whitespace().next().unwrap_or("");
             Some(lang.to_string())
         } else {

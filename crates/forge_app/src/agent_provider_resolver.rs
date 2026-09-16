@@ -28,7 +28,8 @@ where
             // Load all agent definitions and find the one we need
 
             if let Some(agent) = self.0.get_agent(&agent_id).await? {
-                // If the agent definition has a provider, use it; otherwise use default
+                // If the agent definition has a provider, use it; otherwise use
+                // default
                 agent.provider
             } else {
                 // TODO: Needs review, should we throw an err here?

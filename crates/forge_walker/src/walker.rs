@@ -118,7 +118,8 @@ impl Walker {
     pub fn get_blocking(&self) -> Result<Vec<File>> {
         // Shared state collected across parallel walker threads.
         let collected: Arc<Mutex<Vec<File>>> = Arc::new(Mutex::new(Vec::new()));
-        // Per-directory entry counters for breadth limiting (shared across threads).
+        // Per-directory entry counters for breadth limiting (shared across
+        // threads).
         let dir_entries: Arc<Mutex<HashMap<String, usize>>> = Arc::new(Mutex::new(HashMap::new()));
         // Global counters protected by a single mutex to enforce total limits.
         // Layout: (total_size, file_count, quit)
@@ -141,7 +142,8 @@ impl Walker {
             // Skip files that exceed size limit
             .max_filesize(Some(self.max_file_size))
             .filter_entry(|entry| {
-                // Always exclude the `.git` directory, matching `fd --exclude .git`.
+                // Always exclude the `.git` directory, matching `fd --exclude
+                // .git`.
                 entry.file_name() != ".git"
             })
             .build_parallel();
@@ -253,8 +255,9 @@ impl Walker {
                     path_string
                 };
 
-                // Filter out entries whose file_size exceeds the per-file limit.
-                // (WalkBuilder::max_filesize only applies to regular files; double-check.)
+                // Filter out entries whose file_size exceeds the per-file
+                // limit. (WalkBuilder::max_filesize only
+                // applies to regular files; double-check.)
                 if !is_dir && file_size > max_file_size {
                     return ignore::WalkState::Continue;
                 }
@@ -520,8 +523,8 @@ mod tests {
             .await
             .unwrap();
 
-        // .ignore itself is a dotfile and is visible when hidden: false (matches fd
-        // --hidden).
+        // .ignore itself is a dotfile and is visible when hidden: false
+        // (matches fd --hidden).
         let mut expected = vec![".ignore", "included/main.rs", "included/test.rs", "base.rs"];
         expected.sort();
 
@@ -656,8 +659,8 @@ mod tests {
             .map(|f| f.path.as_str())
             .collect();
         actual.sort();
-        // .gitignore files are dotfiles and visible when hidden: false (matches fd
-        // --hidden).
+        // .gitignore files are dotfiles and visible when hidden: false (matches
+        // fd --hidden).
         let expected = vec![
             ".gitignore",
             "frontend/.gitignore",
@@ -701,9 +704,9 @@ mod tests {
             .map(|f| f.path.as_str())
             .collect();
         actual.sort();
-        // .gitignore files are dotfiles and visible when hidden: false (matches fd
-        // --hidden). .git directory is always excluded (matching fd --exclude
-        // .git).
+        // .gitignore files are dotfiles and visible when hidden: false (matches
+        // fd --hidden). .git directory is always excluded (matching fd
+        // --exclude .git).
         let expected = vec![
             ".gitignore",
             "frontend/.gitignore",

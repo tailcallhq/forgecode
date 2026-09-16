@@ -107,7 +107,8 @@ pub fn parse(input: &str) -> Result<Vec<ToolCallFull>, Error> {
                         if tool_calls.is_empty() {
                             return Err(Error::ToolCallParse(e.to_string()));
                         }
-                        // If we've already found some tool calls, we can stop here
+                        // If we've already found some tool calls, we can stop
+                        // here
                         break;
                     }
                 }

@@ -643,7 +643,8 @@ mod tests {
             ],
         ]);
 
-        // truncate(2, 5): "very_long_name" has 14 chars > 5, keep 5 then append "..."
+        // truncate(2, 5): "very_long_name" has 14 chars > 5, keep 5 then append
+        // "..."
         let actual = info.truncate(2, 5).into_rows();
 
         let expected = vec![
@@ -664,7 +665,8 @@ mod tests {
 
     #[test]
     fn test_truncate_unicode_multibyte_chars() {
-        // Each emoji is 4 bytes but 1 char — byte-based truncation would misbehave here
+        // Each emoji is 4 bytes but 1 char — byte-based truncation would
+        // misbehave here
         let fixture = Porcelain(vec![vec![
             Some("🦀🦀🦀🦀🦀🦀".into()), // 6 chars, 24 bytes
             Some("hi".into()),           // 2 chars, under limit
@@ -688,7 +690,8 @@ mod tests {
 
     #[test]
     fn test_truncate_unicode_exceeds_max_len() {
-        // 'é' is 2 bytes but 1 char — byte-based slicing would panic or cut wrong
+        // 'é' is 2 bytes but 1 char — byte-based slicing would panic or cut
+        // wrong
         let fixture = Porcelain(vec![vec![Some("héllo world".into())]]); // 11 chars
         let actual = fixture.truncate(0, 8).into_rows();
         let expected = vec![vec![Some("héllo wo...".into())]]; // 8 chars kept + "..."

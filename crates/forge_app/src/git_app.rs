@@ -269,7 +269,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> GitApp<
         let staged_diff = staged_diff.context("Failed to get staged changes")?;
         let unstaged_diff = unstaged_diff.context("Failed to get unstaged changes")?;
 
-        // Use staged changes if available, otherwise fall back to unstaged changes
+        // Use staged changes if available, otherwise fall back to unstaged
+        // changes
         let has_staged_files = !staged_diff.output.stdout.trim().is_empty();
         let diff_output = if has_staged_files {
             staged_diff
@@ -308,9 +309,10 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> GitApp<
         )?;
         let agent_provider_resolver = AgentProviderResolver::new(self.services.clone());
 
-        // Resolve provider and model: commit config takes priority over agent defaults.
-        // If the configured provider is unavailable (e.g. logged out), fall back to the
-        // agent's provider/model with a warning.
+        // Resolve provider and model: commit config takes priority over agent
+        // defaults. If the configured provider is unavailable (e.g.
+        // logged out), fall back to the agent's provider/model with a
+        // warning.
         let (provider, model) = match commit_config {
             Some(mc) => match self.services.get_provider(mc.provider).await {
                 Ok(provider) => match self.services.refresh_provider_credential(provider).await {
@@ -367,12 +369,13 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> GitApp<
         let stream = self.services.chat(&model, context, provider).await?;
         let message = stream.into_full(false).await?;
 
-        // Parse the response - try JSON first (structured output), fallback to plain
-        // text
+        // Parse the response - try JSON first (structured output), fallback to
+        // plain text
         let commit_message = match serde_json::from_str::<CommitMessageResponse>(&message.content) {
             Ok(response) => response.commit_message,
             Err(_) => {
-                // Fallback: Some providers don't support structured output, treat as plain text
+                // Fallback: Some providers don't support structured output,
+                // treat as plain text
                 message.content.trim().to_string()
             }
         };

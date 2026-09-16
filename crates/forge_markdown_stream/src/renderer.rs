@@ -256,7 +256,8 @@ impl<W: Write> Renderer<W> {
             ParseEvent::BlockquoteLine(text) => {
                 let margin = self.left_margin();
                 let content_width = self.width.saturating_sub(visible_length(&margin));
-                // Parse inline formatting (bold, italic, etc.) in blockquote content
+                // Parse inline formatting (bold, italic, etc.) in blockquote
+                // content
                 let rendered_content = render_inline_content(text, &self.theme);
                 let wrapped = wrap_text_preserving_spaces(
                     &rendered_content,

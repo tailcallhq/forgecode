@@ -140,7 +140,8 @@ impl Compact {
     fn should_compact_due_to_tokens(&self, token_count: usize) -> bool {
         if let Some(token_threshold) = self.token_threshold {
             debug!(tokens = ?token_count, "Token count");
-            // use provided prompt_tokens if available, otherwise estimate token count
+            // use provided prompt_tokens if available, otherwise estimate token
+            // count
             token_count >= token_threshold
         } else {
             false

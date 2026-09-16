@@ -231,7 +231,8 @@ impl From<&Context> for ContextSummary {
                     }
 
                     if current_role != text_msg.role {
-                        // Only push if buffer is not empty (avoid empty System role at start)
+                        // Only push if buffer is not empty (avoid empty System
+                        // role at start)
                         if !buffer.is_empty() {
                             messages.push(SummaryBlock {
                                 role: current_role,

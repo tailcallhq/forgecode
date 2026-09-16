@@ -125,8 +125,9 @@ impl ForgeCommandExecutorService {
             )?;
 
             // If the command's stdout did not end with a newline, the terminal
-            // cursor is left mid-line. Write a newline so that subsequent output
-            // (e.g. the LLM response) starts on a fresh line.
+            // cursor is left mid-line. Write a newline so that subsequent
+            // output (e.g. the LLM response) starts on a fresh
+            // line.
             if result.1.last() != Some(&b'\n') && !result.1.is_empty() {
                 let _ = self.output_printer.write(b"\n");
                 let _ = self.output_printer.flush();
@@ -191,8 +192,9 @@ async fn stream<A: AsyncReadExt + Unpin, W: Write>(
     let mut output = Vec::new();
     if let Some(io) = io.as_mut() {
         let mut buff = [0; 1024];
-        // Carry incomplete trailing UTF-8 codepoint bytes across reads — Windows
-        // console stdio rejects even one byte of a split codepoint.
+        // Carry incomplete trailing UTF-8 codepoint bytes across reads —
+        // Windows console stdio rejects even one byte of a split
+        // codepoint.
         let mut pending = Vec::<u8>::new();
         loop {
             let n = io.read(&mut buff).await?;
@@ -205,7 +207,8 @@ async fn stream<A: AsyncReadExt + Unpin, W: Write>(
             let mut working = std::mem::take(&mut pending);
             working.extend_from_slice(chunk);
             pending = write_lossy_utf8(&mut writer, &working)?;
-            // note: flush is necessary else we get the cursor could not be found error.
+            // note: flush is necessary else we get the cursor could not be
+            // found error.
             writer.flush()?;
         }
         // Flush dangling bytes from a stream that ended mid-codepoint.

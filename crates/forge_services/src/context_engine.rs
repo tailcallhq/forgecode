@@ -313,7 +313,8 @@ impl<
     /// Deletes multiple workspaces in parallel from both the server and local
     /// database.
     async fn delete_workspaces(&self, workspace_ids: &[forge_domain::WorkspaceId]) -> Result<()> {
-        // Delete all workspaces in parallel by calling delete_workspace for each
+        // Delete all workspaces in parallel by calling delete_workspace for
+        // each
         let delete_tasks: Vec<_> = workspace_ids
             .iter()
             .map(|workspace_id| self.delete_workspace(workspace_id))
@@ -355,8 +356,8 @@ impl<
 
         let workspace = self.get_workspace_by_path(path, &token).await?;
 
-        // Reuse the canonical path already stored in the workspace (resolved during
-        // sync), avoiding a redundant canonicalize() IO call.
+        // Reuse the canonical path already stored in the workspace (resolved
+        // during sync), avoiding a redundant canonicalize() IO call.
         let canonical_path = PathBuf::from(&workspace.working_dir);
 
         let batch_size = self.infra.get_config()?.max_file_read_batch_size;
