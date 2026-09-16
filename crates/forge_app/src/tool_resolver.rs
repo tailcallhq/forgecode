@@ -333,8 +333,8 @@ mod tests {
 
         let actual = tool_resolver.resolve(&fixture);
         // fs_write matches fs_* at pos 0
-        // fs_read has exact match at pos 1 (takes precedence over pattern matches)
-        // So order is: fs_write (pos 0), fs_read (pos 1)
+        // fs_read has exact match at pos 1 (takes precedence over pattern
+        // matches) So order is: fs_write (pos 0), fs_read (pos 1)
         let expected = vec![
             &tool_resolver.all_tool_definitions[1], // fs_write
             &tool_resolver.all_tool_definitions[0], // fs_read
@@ -392,8 +392,8 @@ mod tests {
         .tools(vec![ToolName::new("read"), ToolName::new("search")]);
 
         let actual = tool_resolver.resolve(&fixture);
-        // Tools are ordered as specified in the tools list: read, then search (->
-        // fs_search)
+        // Tools are ordered as specified in the tools list: read, then search
+        // (-> fs_search)
         let expected = vec![
             &tool_resolver.all_tool_definitions[0], // read
             &tool_resolver.all_tool_definitions[1], // fs_search (from "search" alias)

@@ -20,7 +20,8 @@ impl Serialize for ToolCallArguments {
     {
         match self {
             ToolCallArguments::Unparsed(value) => {
-                // Use RawValue to serialize the JSON string without double serialization
+                // Use RawValue to serialize the JSON string without double
+                // serialization
                 match RawValue::from_string(value.clone()) {
                     Ok(raw) => raw.serialize(serializer),
                     Err(_) => value.serialize(serializer), // Fallback if not valid JSON
@@ -80,8 +81,9 @@ impl ToolCallArguments {
                 if let Ok(repaired) = json_repair(&json_str) {
                     ToolCallArguments::Parsed(repaired)
                 } else {
-                    // If it's not valid JSON, create a fallback object with the raw content
-                    // This ensures we always send valid JSON to the API
+                    // If it's not valid JSON, create a fallback object with the
+                    // raw content This ensures we always
+                    // send valid JSON to the API
                     let mut map = Map::new();
                     map.insert("_raw_content".to_string(), Value::String(json_str));
                     ToolCallArguments::Parsed(Value::Object(map))
@@ -134,8 +136,8 @@ fn convert_string_to_value(value: &str) -> Value {
     }
 
     if let Ok(float_val) = value.parse::<f64>() {
-        // Create number from float, handling special case where float is actually an
-        // integer
+        // Create number from float, handling special case where float is
+        // actually an integer
         return if float_val.fract() == 0.0 {
             Value::Number(serde_json::Number::from(float_val as i64))
         } else if let Some(num) = serde_json::Number::from_f64(float_val) {
@@ -252,8 +254,8 @@ mod tests {
     fn test_serialize_unparsed_empty_string() {
         let fixture = ToolCallArguments::from_json("");
         let actual = serde_json::to_string(&fixture).unwrap();
-        // Empty string is not valid JSON, so it falls back to string serialization
-        // which produces a JSON string (quoted)
+        // Empty string is not valid JSON, so it falls back to string
+        // serialization which produces a JSON string (quoted)
         assert_eq!(actual, "\"\"");
     }
 

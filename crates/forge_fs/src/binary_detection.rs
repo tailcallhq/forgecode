@@ -55,11 +55,12 @@ fn is_binary_internal(buffer: &[u8], bytes_read: usize) -> bool {
         let mut could_be_utf16be = true; // e.g. 0x00 0xAA
         let mut contains_zero_byte = false;
 
-        // This is a simplified guess to detect UTF-16 BE or LE by just checking if
-        // the first 512 bytes have the 0-byte at a specific location. For UTF-16 LE
-        // this would be the odd byte index and for UTF-16 BE the even one.
-        // Note: this can produce false positives (a binary file that uses a 2-byte
-        // encoding of the same format as UTF-16) and false negatives (a UTF-16 file
+        // This is a simplified guess to detect UTF-16 BE or LE by just checking
+        // if the first 512 bytes have the 0-byte at a specific
+        // location. For UTF-16 LE this would be the odd byte index and
+        // for UTF-16 BE the even one. Note: this can produce false
+        // positives (a binary file that uses a 2-byte encoding of the
+        // same format as UTF-16) and false negatives (a UTF-16 file
         // that is using 4 bytes to encode a character).
         const ZERO_BYTE_DETECTION_BUFFER_MAX_LEN: usize = 512;
         for (i, &byte) in buffer
@@ -84,7 +85,8 @@ fn is_binary_internal(buffer: &[u8], bytes_read: usize) -> bool {
                 could_be_utf16be = false;
             }
 
-            // Return if this is neither UTF16-LE nor UTF16-BE and thus treat as binary
+            // Return if this is neither UTF16-LE nor UTF16-BE and thus treat as
+            // binary
             if is_zero_byte && !could_be_utf16le && !could_be_utf16be {
                 break;
             }
@@ -152,7 +154,8 @@ mod tests {
         let fixture = create_test_file_fixture(&content).await?;
         let actual = is_binary(fixture.path()).await?;
 
-        // Should not detect as binary because zero byte is beyond 512-byte limit
+        // Should not detect as binary because zero byte is beyond 512-byte
+        // limit
         let expected = false;
         assert_eq!(actual, expected);
         Ok(())

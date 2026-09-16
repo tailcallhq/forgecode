@@ -110,7 +110,8 @@ mod tests {
 
     #[test]
     fn test_reasoning_detail_from_parts_groups_by_type() {
-        // Create a fixture with parts of different types across streaming deltas
+        // Create a fixture with parts of different types across streaming
+        // deltas
         let fixture = vec![
             // First delta: reasoning.text
             vec![ReasoningPart {
@@ -323,8 +324,8 @@ mod tests {
         let mut actual = Reasoning::from_parts(fixture);
         actual.sort_by(|a, b| a.type_of.cmp(&b.type_of)); // Sort by type for consistent ordering
 
-        // Now grouped by type: reasoning.text and reasoning.encrypted are separate
-        // entries
+        // Now grouped by type: reasoning.text and reasoning.encrypted are
+        // separate entries
         let mut expected = vec![
             ReasoningFull {
                 type_of: Some("reasoning.text".to_string()),

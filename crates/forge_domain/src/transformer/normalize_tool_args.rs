@@ -32,7 +32,8 @@ impl Transformer for NormalizeToolCallArguments {
                 && let Some(ref mut tool_calls) = text_msg.tool_calls
             {
                 for tool_call in tool_calls.iter_mut() {
-                    // Normalize the arguments - converts Unparsed JSON strings to Parsed
+                    // Normalize the arguments - converts Unparsed JSON strings
+                    // to Parsed
                     let args = std::mem::take(&mut tool_call.arguments);
                     tool_call.arguments = args.normalize();
                 }
@@ -52,7 +53,8 @@ mod tests {
 
     #[test]
     fn test_normalize_stringified_tool_call_arguments() {
-        // Create a context with stringified tool call arguments (like from old dump)
+        // Create a context with stringified tool call arguments (like from old
+        // dump)
         let context = Context::default()
             .add_message(ContextMessage::system("You are Forge."))
             .add_message(ContextMessage::Text(TextMessage {

@@ -35,9 +35,10 @@ impl ModelSpecificReasoning {
             || id.contains("mythos")
             || id.contains("fable")
         {
-            // Opus 5 and Opus 4.8 share Opus 4.7's API contract: adaptive thinking only
-            // (legacy `budget_tokens` returns 400) and non-default sampling
-            // params (`temperature`/`top_p`/`top_k`) return 400.
+            // Opus 5 and Opus 4.8 share Opus 4.7's API contract: adaptive
+            // thinking only (legacy `budget_tokens` returns 400)
+            // and non-default sampling params (`temperature`/
+            // `top_p`/`top_k`) return 400.
             AnthropicModelFamily::AdaptiveOnly
         } else if id.contains("opus-4-6")
             || id.contains("46-opus")
@@ -415,8 +416,8 @@ mod tests {
     #[test]
     fn test_legacy_no_effort_drops_effort_for_all_pre_4_5_ids() {
         // All pre-Opus-4.5 Claude ids (plus the newer non-effort family members
-        // Sonnet 4.5 and Haiku 4.5) should land in LegacyNoEffort and have their
-        // effort stripped.
+        // Sonnet 4.5 and Haiku 4.5) should land in LegacyNoEffort and have
+        // their effort stripped.
         for model in [
             "claude-sonnet-4-5-20250929",
             "claude-haiku-4-5-20251001",

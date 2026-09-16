@@ -11,6 +11,10 @@ use tokio::sync::Mutex;
 
 use crate::console::StdConsoleWriter;
 
+/// Environment variables that let supported shells select startup files before
+/// executing the requested command.
+const SHELL_STARTUP_ENV_VARS: [&str; 3] = ["BASH_ENV", "ENV", "ZDOTDIR"];
+
 /// Service for executing shell commands
 #[derive(Clone, Debug)]
 pub struct ForgeCommandExecutorService {
@@ -87,6 +91,12 @@ impl ForgeCommandExecutorService {
             }
         }
 
+        // Project `.env` files are loaded into Forge's process environment.
+        // Do not let them configure shell startup behavior for subprocesses.
+        for env_var in SHELL_STARTUP_ENV_VARS {
+            command.env_remove(env_var);
+        }
+
         command
     }
 
@@ -125,8 +135,9 @@ impl ForgeCommandExecutorService {
             )?;
 
             // If the command's stdout did not end with a newline, the terminal
-            // cursor is left mid-line. Write a newline so that subsequent output
-            // (e.g. the LLM response) starts on a fresh line.
+            // cursor is left mid-line. Write a newline so that subsequent
+            // output (e.g. the LLM response) starts on a fresh
+            // line.
             if result.1.last() != Some(&b'\n') && !result.1.is_empty() {
                 let _ = self.output_printer.write(b"\n");
                 let _ = self.output_printer.flush();
@@ -191,8 +202,9 @@ async fn stream<A: AsyncReadExt + Unpin, W: Write>(
     let mut output = Vec::new();
     if let Some(io) = io.as_mut() {
         let mut buff = [0; 1024];
-        // Carry incomplete trailing UTF-8 codepoint bytes across reads — Windows
-        // console stdio rejects even one byte of a split codepoint.
+        // Carry incomplete trailing UTF-8 codepoint bytes across reads —
+        // Windows console stdio rejects even one byte of a split
+        // codepoint.
         let mut pending = Vec::<u8>::new();
         loop {
             let n = io.read(&mut buff).await?;
@@ -205,7 +217,8 @@ async fn stream<A: AsyncReadExt + Unpin, W: Write>(
             let mut working = std::mem::take(&mut pending);
             working.extend_from_slice(chunk);
             pending = write_lossy_utf8(&mut writer, &working)?;
-            // note: flush is necessary else we get the cursor could not be found error.
+            // note: flush is necessary else we get the cursor could not be
+            // found error.
             writer.flush()?;
         }
         // Flush dangling bytes from a stream that ended mid-codepoint.
@@ -273,6 +286,7 @@ impl CommandInfra for ForgeCommandExecutorService {
 mod tests {
 
     use pretty_assertions::assert_eq;
+    use serial_test::serial;
 
     use super::*;
 
@@ -291,6 +305,32 @@ mod tests {
 
     fn test_printer() -> Arc<StdConsoleWriter> {
         Arc::new(StdConsoleWriter::default())
+    }
+
+    #[cfg(unix)]
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    #[cfg(unix)]
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &Path) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe { std::env::set_var(key, value) };
+            Self { key, previous }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                unsafe { std::env::set_var(self.key, previous) };
+            } else {
+                unsafe { std::env::remove_var(self.key) };
+            }
+        }
     }
 
     #[tokio::test]
@@ -319,6 +359,64 @@ mod tests {
         assert_eq!(actual.stderr, expected.stderr);
         assert_eq!(actual.success(), expected.success());
     }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    #[serial]
+    async fn test_command_executor_does_not_source_bash_env() {
+        let fixture_dir = tempfile::tempdir().unwrap();
+        let marker = fixture_dir.path().join("marker.txt");
+        let startup = fixture_dir.path().join("startup.sh");
+        std::fs::write(&startup, "touch marker.txt\n").unwrap();
+        let _guard = EnvVarGuard::set("BASH_ENV", &startup);
+        let fixture = ForgeCommandExecutorService::new(test_env(), test_printer());
+
+        let actual = fixture
+            .execute_command(
+                "echo ok".to_string(),
+                fixture_dir.path().to_path_buf(),
+                true,
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(actual.success());
+        assert!(
+            !marker.exists(),
+            "BASH_ENV startup script ran before the requested command"
+        );
+    }
+
+    #[test]
+    fn test_prepare_command_removes_shell_startup_environment() {
+        let fixture = ForgeCommandExecutorService::new(test_env(), test_printer());
+
+        let command = fixture.prepare_command("echo ok", Path::new("."), None);
+        let mut actual = command
+            .as_std()
+            .get_envs()
+            .filter(|(key, _)| {
+                SHELL_STARTUP_ENV_VARS
+                    .iter()
+                    .any(|candidate| *key == std::ffi::OsStr::new(candidate))
+            })
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.map(|value| value.to_string_lossy().into_owned()),
+                )
+            })
+            .collect::<Vec<_>>();
+        actual.sort();
+        let expected = vec![
+            ("BASH_ENV".to_string(), None),
+            ("ENV".to_string(), None),
+            ("ZDOTDIR".to_string(), None),
+        ];
+
+        assert_eq!(actual, expected);
+    }
+
     #[tokio::test]
     async fn test_command_executor_with_env_vars_success() {
         // Set up test environment variables

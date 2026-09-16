@@ -61,8 +61,8 @@ impl DiffFormat {
             return DiffResult { result: output, lines_added, lines_removed };
         }
 
-        // First pass: Calculate dynamic width based on max line numbers in actual
-        // changes
+        // First pass: Calculate dynamic width based on max line numbers in
+        // actual changes
         let mut max_line_number = 0;
         for group in &ops {
             for op in group {
@@ -201,8 +201,8 @@ mod tests {
         let diff = DiffFormat::format(&old, &new);
         let clean_diff = strip_ansi_codes(diff.diff());
 
-        // Diff only shows lines 3-8 (context), so width should be 1 (for single digit
-        // numbers) NOT 4 (which would be needed for line 1000)
+        // Diff only shows lines 3-8 (context), so width should be 1 (for single
+        // digit numbers) NOT 4 (which would be needed for line 1000)
         assert!(clean_diff.contains("3 3 | line 3"));
         assert!(clean_diff.contains("5   |-line 5"));
         assert_eq!(diff.lines_added(), 1);

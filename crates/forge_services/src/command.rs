@@ -108,8 +108,8 @@ fn resolve_command_conflicts(commands: Vec<Command>) -> Vec<Command> {
         command_map.insert(command.name.clone(), command);
     }
 
-    // Convert back to vector (order is not guaranteed but doesn't matter for the
-    // service)
+    // Convert back to vector (order is not guaranteed but doesn't matter for
+    // the service)
     command_map.into_values().collect()
 }
 
@@ -263,8 +263,8 @@ mod tests {
 
         let actual = resolve_command_conflicts(fixture);
 
-        // Should have 3 commands: command1 (CWD version), command2 (global), command3
-        // (CWD)
+        // Should have 3 commands: command1 (CWD version), command2 (global),
+        // command3 (CWD)
         assert_eq!(actual.len(), 3);
 
         let command1 = actual
@@ -301,7 +301,8 @@ mod tests {
 
         let actual = resolve_command_conflicts(fixture);
 
-        // Should have 4 commands: common (CWD version), unique1, unique2, unique3
+        // Should have 4 commands: common (CWD version), unique1, unique2,
+        // unique3
         assert_eq!(actual.len(), 4);
 
         let common = actual

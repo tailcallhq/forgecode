@@ -17,8 +17,8 @@ impl Transformer for SetToolChoice {
 
     fn transform(&mut self, mut request: Self::Value) -> Self::Value {
         // Only set tool_choice if there are tools defined
-        // This prevents "Function calling config is set without function_declarations"
-        // error
+        // This prevents "Function calling config is set without
+        // function_declarations" error
         if request
             .tools
             .as_ref()

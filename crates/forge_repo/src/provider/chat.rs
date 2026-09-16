@@ -89,7 +89,8 @@ impl<F: EnvironmentInfra<Config = forge_config::ForgeConfig> + HttpInfra + Sync>
             tracing::debug!(provider_id = %provider.id, "returning cached models; refreshing in background");
 
             // Spawn a background task to refresh the disk cache. The abort
-            // handle is stored so the task is cancelled if the service is dropped.
+            // handle is stored so the task is cancelled if the service is
+            // dropped.
             let cache = self.model_cache.clone();
             let router = self.router.clone();
             let key = cache_key;

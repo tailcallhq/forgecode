@@ -69,9 +69,9 @@ impl<S: EnvironmentInfra<Config = forge_config::ForgeConfig>> TerminalContextSer
             .iter()
             .map(|s| s.parse::<u64>().unwrap_or(0))
             .collect();
-        // Zip the three lists together; pad missing exit codes/timestamps with 0.
-        // The outer zip() truncates to the length of `commands`, so the
-        // repeat() padding never produces extra entries.
+        // Zip the three lists together; pad missing exit codes/timestamps with
+        // 0. The outer zip() truncates to the length of `commands`, so
+        // the repeat() padding never produces extra entries.
         let mut entries: Vec<TerminalCommand> = commands
             .into_iter()
             .zip(exit_codes.into_iter().chain(std::iter::repeat(0)))
@@ -260,7 +260,8 @@ mod tests {
 
     #[test]
     fn test_commands_sorted_by_timestamp_oldest_first() {
-        // Supply commands in reverse-timestamp order to confirm sorting is applied.
+        // Supply commands in reverse-timestamp order to confirm sorting is
+        // applied.
         let sep = ENV_LIST_SEPARATOR;
         let fixture = TerminalContextService::new(MockInfra::new(&[
             (

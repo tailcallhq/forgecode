@@ -97,9 +97,10 @@ impl<S: SkillFetchService + ShellService> SystemPrompt<S> {
             // Fetch extension statistics from git
             let extensions = self.fetch_extensions(self.max_extensions).await;
 
-            // Build tool_names map filtered to only the tools this agent actually has.
-            // This allows templates to use {{#if tool_names.task}} to conditionally
-            // render content based on whether the agent has access to a given tool.
+            // Build tool_names map filtered to only the tools this agent
+            // actually has. This allows templates to use {{#if
+            // tool_names.task}} to conditionally render content
+            // based on whether the agent has access to a given tool.
             let agent_tool_names: std::collections::HashSet<String> = self
                 .tool_definitions
                 .iter()
@@ -193,7 +194,8 @@ fn parse_extensions(extensions: &str, max_extensions: usize) -> Option<Extension
         return None;
     }
 
-    // Count files by extension; files without extensions are tracked as "(no ext)"
+    // Count files by extension; files without extensions are tracked as "(no
+    // ext)"
     let mut counts = HashMap::<&str, usize>::new();
     all_files
         .iter()
@@ -206,7 +208,8 @@ fn parse_extensions(extensions: &str, max_extensions: usize) -> Option<Extension
         })
         .for_each(|ext| *counts.entry(ext).or_default() += 1);
 
-    // Convert to ExtensionStat and sort by count descending, then alphabetically
+    // Convert to ExtensionStat and sort by count descending, then
+    // alphabetically
     let mut stats: Vec<_> = counts
         .into_iter()
         .map(|(extension, count)| {
@@ -258,7 +261,8 @@ mod tests {
         let fixture = include_str!("fixtures/git_ls_files_mixed.txt");
         let actual = parse_extensions(fixture, MAX_EXTENSIONS).unwrap();
 
-        // 9 files: 4 rs, 2 md, 2 no-ext, 1 toml — sorted by count desc then alpha
+        // 9 files: 4 rs, 2 md, 2 no-ext, 1 toml — sorted by count desc then
+        // alpha
         let expected = Extension::new(
             vec![
                 ExtensionStat::new("rs", 4, "44"),
@@ -277,9 +281,9 @@ mod tests {
 
     #[test]
     fn test_parse_extensions_truncates_to_max() {
-        // Real `git ls-files` output from this repo: 822 files, 19 distinct extensions.
-        // Top 15 are shown; the remaining 4 (html, jsonl, lock, proto — 1 each) are
-        // rolled up.
+        // Real `git ls-files` output from this repo: 822 files, 19 distinct
+        // extensions. Top 15 are shown; the remaining 4 (html, jsonl,
+        // lock, proto — 1 each) are rolled up.
         let fixture = include_str!("fixtures/git_ls_files_many_extensions.txt");
         let actual = parse_extensions(fixture, MAX_EXTENSIONS).unwrap();
 

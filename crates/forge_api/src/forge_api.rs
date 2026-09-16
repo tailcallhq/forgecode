@@ -241,8 +241,8 @@ impl<
     }
 
     async fn update_config(&self, ops: Vec<forge_domain::ConfigOperation>) -> anyhow::Result<()> {
-        // Determine whether any op affects provider/model resolution before writing,
-        // so we can invalidate the agent cache afterwards.
+        // Determine whether any op affects provider/model resolution before
+        // writing, so we can invalidate the agent cache afterwards.
         let needs_agent_reload = ops
             .iter()
             .any(|op| matches!(op, forge_domain::ConfigOperation::SetSessionConfig(_)));

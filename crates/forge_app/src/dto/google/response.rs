@@ -435,7 +435,8 @@ impl TryFrom<Part> for ChatCompletionMessage {
                 ),
             ),
             Part::InlineData { .. } => {
-                // For now, skip inline data in responses (it's typically for inputs)
+                // For now, skip inline data in responses (it's typically for
+                // inputs)
                 Ok(ChatCompletionMessage::assistant(
                     forge_domain::Content::part(""),
                 ))
