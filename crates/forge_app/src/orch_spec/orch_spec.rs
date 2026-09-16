@@ -570,8 +570,8 @@ async fn test_is_complete_when_stop_with_no_tool_calls() {
 
 #[tokio::test]
 async fn test_not_complete_when_stop_with_tool_calls() {
-    // Test: is_complete = false when finish_reason is Stop BUT there are tool calls
-    // (Gemini models return stop as finish reason with tool calls)
+    // Test: is_complete = false when finish_reason is Stop BUT there are tool
+    // calls (Gemini models return stop as finish reason with tool calls)
     let tool_call = ToolCallFull::new("fs_read")
         .arguments(ToolCallArguments::from(json!({"path": "test.txt"})));
     let tool_result = ToolResult::new("fs_read").output(Ok(ToolOutput::text("file content")));
@@ -603,9 +603,9 @@ async fn test_not_complete_when_stop_with_tool_calls() {
 
 #[tokio::test]
 async fn test_todo_enforcement_injects_reminder() {
-    // Test: When the orchestrator receives a Stop response but there are pending
-    // todos, the PendingTodosHandler hook should inject a formatted reminder
-    // message into the context listing all outstanding items.
+    // Test: When the orchestrator receives a Stop response but there are
+    // pending todos, the PendingTodosHandler hook should inject a formatted
+    // reminder message into the context listing all outstanding items.
     // NOTE: Since the End hook now adds reminders and triggers the outer loop
     // to continue, the orchestrator will loop until todos are completed. We
     // provide enough mock responses to verify the reminder is injected, and

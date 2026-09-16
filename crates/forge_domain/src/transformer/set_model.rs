@@ -16,7 +16,8 @@ impl Transformer for SetModel {
     type Value = Context;
 
     fn transform(&mut self, mut value: Self::Value) -> Self::Value {
-        // Set the model for all text messages that don't already have a model set
+        // Set the model for all text messages that don't already have a model
+        // set
         for message in value.messages.iter_mut() {
             if let crate::ContextMessage::Text(text_msg) = &mut **message
                 && text_msg.model.is_none()

@@ -69,8 +69,9 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync>
     ) -> Provider<Url> {
         let backend = self.get_backend(model_id);
         let mut new_provider = provider.clone();
-        // This clone belongs to one chat request, never to the shared provider config.
-        // Keep session metadata outside the body transformations used by each adapter.
+        // This clone belongs to one chat request, never to the shared provider
+        // config. Keep session metadata outside the body
+        // transformations used by each adapter.
         let headers = new_provider.custom_headers.get_or_insert_default();
         headers.retain(|name, _| !name.eq_ignore_ascii_case("x-opencode-session"));
         headers.insert(
@@ -112,8 +113,8 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync>
         provider: Provider<Url>,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
         let backend = self.get_backend(model_id);
-        // Standalone requests without a conversation still need a session, but must
-        // not share a provider-wide ID with unrelated requests.
+        // Standalone requests without a conversation still need a session, but
+        // must not share a provider-wide ID with unrelated requests.
         let conversation_id = context
             .conversation_id
             .unwrap_or_else(ConversationId::generate);

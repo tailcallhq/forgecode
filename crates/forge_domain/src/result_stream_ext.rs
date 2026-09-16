@@ -72,13 +72,14 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
             //   in MessageDelta (values are CUMULATIVE, not incremental)
             //   ref: https://platform.claude.com/docs/en/build-with-claude/streaming#event-types
             // - For OpenAI-style streaming: all tokens in the final chunk
-            // - For GLM-style: may send complete usage in every chunk (need to replace, not
-            //   accumulate)
+            // - For GLM-style: may send complete usage in every chunk (need to
+            //   replace, not accumulate)
             // - For Google-style: cumulative usage in every chunk
             // - Cost-only events: have 0 tokens but a cost value
             if let Some(current_usage) = message.usage.as_ref() {
-                // If current usage has both prompt and completion tokens, it's a "complete"
-                // usage. In this case, replace instead of merge (handles GLM-style streaming
+                // If current usage has both prompt and completion tokens, it's
+                // a "complete" usage. In this case, replace
+                // instead of merge (handles GLM-style streaming
                 // where every chunk has full usage).
                 let is_complete_usage =
                     *current_usage.prompt_tokens > 0 && *current_usage.completion_tokens > 0;
@@ -89,7 +90,8 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
                     && current_usage.cost.is_some();
 
                 if is_complete_usage {
-                    // Replace with the latest complete usage, but preserve cost if already set
+                    // Replace with the latest complete usage, but preserve cost
+                    // if already set
                     let existing_cost = usage.cost;
                     usage = *current_usage;
                     if usage.cost.is_none() && existing_cost.is_some() {
@@ -104,11 +106,14 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
                         (None, None) => None,
                     };
                 } else {
-                    // Merge partial usage using "max" strategy. This correctly handles
-                    // providers like Anthropic where usage values are CUMULATIVE across
-                    // events (message_start has input tokens, message_delta has the
-                    // total output tokens). Using max instead of sum prevents
-                    // double-counting when message_start includes output_tokens=1.
+                    // Merge partial usage using "max" strategy. This correctly
+                    // handles providers like Anthropic
+                    // where usage values are CUMULATIVE across
+                    // events (message_start has input tokens, message_delta has
+                    // the total output tokens). Using max
+                    // instead of sum prevents
+                    // double-counting when message_start includes
+                    // output_tokens=1.
                     usage = usage.merge(current_usage);
                 }
             }
@@ -121,7 +126,8 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
                     if let Some(reasoning_part) = message.reasoning.as_ref() {
                         let delta = reasoning_part.as_str();
                         if !delta.is_empty() {
-                            // Ignore send errors - the receiver may have been dropped
+                            // Ignore send errors - the receiver may have been
+                            // dropped
                             let _ = sender
                                 .send(Ok(ChatResponse::TaskReasoning {
                                     content: delta.to_string(),
@@ -133,7 +139,8 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
                     if let Some(content_part) = message.content.as_ref() {
                         let delta = content_part.as_str();
                         if !delta.is_empty() {
-                            // Ignore send errors - the receiver may have been dropped
+                            // Ignore send errors - the receiver may have been
+                            // dropped
                             let _ = sender
                                 .send(Ok(ChatResponse::TaskMessage {
                                     content: ChatResponseContent::Markdown {
@@ -150,7 +157,8 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
                 if let Some(content_part) = message.content.as_ref() {
                     content.push_str(content_part.as_str());
 
-                    // Check for XML tool calls in the content, but only interrupt if flag is set
+                    // Check for XML tool calls in the content, but only
+                    // interrupt if flag is set
                     if should_interrupt_for_xml {
                         // Use match instead of ? to avoid propagating errors
                         if let Some(tool_call) = ToolCallFull::try_from_xml(&content)
@@ -198,8 +206,9 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
             }
         }
 
-        // Extract all tool calls in a fully declarative way with combined sources
-        // Start with complete tool calls (for non-streaming mode)
+        // Extract all tool calls in a fully declarative way with combined
+        // sources Start with complete tool calls (for non-streaming
+        // mode)
         let initial_tool_calls: Vec<ToolCallFull> = messages
             .iter()
             .flat_map(|message| &message.tool_calls)
@@ -214,8 +223,8 @@ impl ResultStreamExt<anyhow::Error> for crate::BoxStream<ChatCompletionMessage, 
             .collect();
 
         // Process partial tool calls
-        // Convert parse failures to retryable errors so they can be retried by asking
-        // LLM to try again
+        // Convert parse failures to retryable errors so they can be retried by
+        // asking LLM to try again
         let partial_tool_calls = ToolCallFull::try_from_parts(&tool_call_parts)
             .with_context(|| "Failed to parse tool call".to_string())
             .map_err(crate::Error::Retryable)?;
@@ -346,9 +355,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_into_full_glm_style_usage_replacement() {
-        // Fixture: Simulate GLM-style streaming where complete usage is sent in every
-        // chunk This tests that we replace instead of accumulate to avoid
-        // multiplying tokens
+        // Fixture: Simulate GLM-style streaming where complete usage is sent in
+        // every chunk This tests that we replace instead of accumulate
+        // to avoid multiplying tokens
         let messages = vec![
             Ok(ChatCompletionMessage::default()
                 .content(Content::part("Hello "))
@@ -400,7 +409,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_into_full_cost_only_event_adds_cost_to_usage() {
-        // Fixture: Simulate GLM-style streaming with a separate cost event at the end
+        // Fixture: Simulate GLM-style streaming with a separate cost event at
+        // the end
         let messages = vec![
             // Content with complete usage
             Ok(ChatCompletionMessage::default()
@@ -428,8 +438,8 @@ mod tests {
         // Actual: Convert stream to full message
         let actual = result_stream.into_full(false).await.unwrap();
 
-        // Expected: Usage should have tokens from first chunk, cost from cost-only
-        // event
+        // Expected: Usage should have tokens from first chunk, cost from
+        // cost-only event
         let expected = ChatCompletionMessageFull {
             content: "Hello world!".to_string(),
             tool_calls: vec![],
@@ -481,8 +491,8 @@ mod tests {
         // Actual: Convert stream to full message
         let actual = result_stream.into_full(false).await.unwrap();
 
-        // Expected: Cost from cost-only event should NOT be lost when complete usage
-        // replaces it
+        // Expected: Cost from cost-only event should NOT be lost when complete
+        // usage replaces it
         let expected = ChatCompletionMessageFull {
             content: "Hello world!".to_string(),
             tool_calls: vec![],
@@ -506,9 +516,9 @@ mod tests {
     #[tokio::test]
     async fn test_into_full_anthropic_streaming_usage_merge() {
         // Fixture: Simulate Anthropic streaming pattern where message_start has
-        // output_tokens=1 (the common case) and message_delta has the cumulative total.
-        // This tests that merge (max) is used instead of accumulate (sum) to prevent
-        // double-counting.
+        // output_tokens=1 (the common case) and message_delta has the
+        // cumulative total. This tests that merge (max) is used instead
+        // of accumulate (sum) to prevent double-counting.
         let messages = vec![
             // MessageStart with input token usage AND output_tokens=1
             Ok(ChatCompletionMessage::default().usage(Usage {
@@ -542,8 +552,8 @@ mod tests {
         // Expected: Usage should use max (merge) not sum (accumulate).
         // message_start has completion_tokens=1 and prompt_tokens=1000, so
         // is_complete_usage=true -> replace: usage = {1000, 1, 1001, 300}
-        // message_delta has prompt=0, completion=50 -> is_complete_usage=false ->
-        // merge:   prompt = max(1000, 0) = 1000
+        // message_delta has prompt=0, completion=50 -> is_complete_usage=false
+        // -> merge:   prompt = max(1000, 0) = 1000
         //   completion = max(1, 50) = 50 (NOT 1+50=51)
         //   total = max(1001, 50) = 1001
         //   cached = max(300, 0) = 300
@@ -602,7 +612,8 @@ mod tests {
         // Actual: Convert stream to full message
         let actual = result_stream.into_full(false).await.unwrap();
 
-        // Expected: Usage should be merged from both MessageStart and MessageDelta
+        // Expected: Usage should be merged from both MessageStart and
+        // MessageDelta
         let expected = ChatCompletionMessageFull {
             content: "Hello world!".to_string(),
             tool_calls: vec![],
@@ -787,7 +798,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_into_full_with_reasoning() {
-        // Fixture: Create a stream with reasoning content across multiple messages
+        // Fixture: Create a stream with reasoning content across multiple
+        // messages
         let messages = vec![
             Ok(ChatCompletionMessage::default()
                 .content(Content::part("Hello "))
@@ -932,7 +944,8 @@ mod tests {
         // Actual: Convert stream to full message with XML interruption enabled
         let actual = result_stream.into_full(true).await.unwrap();
 
-        // Expected: Should contain the XML tool call and final usage from last message
+        // Expected: Should contain the XML tool call and final usage from last
+        // message
         let expected_final_usage = Usage {
             prompt_tokens: TokenCount::Actual(5),
             completion_tokens: TokenCount::Actual(15),
@@ -948,7 +961,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_into_full_xml_tool_call_no_interruption_when_disabled() {
-        // Fixture: Create a stream with XML tool call content but interruption disabled
+        // Fixture: Create a stream with XML tool call content but interruption
+        // disabled
         let xml_content = r#"<forge_tool_call>
 {"name": "test_tool", "arguments": {"arg": "value"}}
 </forge_tool_call>"#;
@@ -996,7 +1010,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_into_full_usage_always_from_last_message_even_without_interruption() {
-        // Fixture: Create a stream where usage progresses through multiple messages
+        // Fixture: Create a stream where usage progresses through multiple
+        // messages
         let messages = vec![
             Ok(ChatCompletionMessage::default().content(Content::part("Starting"))),
             Ok(ChatCompletionMessage::default().content(Content::part(" processing"))),
@@ -1016,7 +1031,8 @@ mod tests {
         // Actual: Convert stream to full message
         let actual = result_stream.into_full(false).await.unwrap();
 
-        // Expected: Usage should be from the last message (even if it has no content)
+        // Expected: Usage should be from the last message (even if it has no
+        // content)
         let expected = ChatCompletionMessageFull {
             content: "Starting processing complete".to_string(),
             tool_calls: vec![],
@@ -1041,7 +1057,8 @@ mod tests {
     async fn test_into_full_with_finish_reason() {
         use crate::FinishReason;
 
-        // Fixture: Create a stream with multiple messages, some with finish reasons
+        // Fixture: Create a stream with multiple messages, some with finish
+        // reasons
         let messages = vec![
             Ok(ChatCompletionMessage::default()
                 .content(Content::part("Processing..."))
@@ -1164,8 +1181,8 @@ mod tests {
         // Actual: Convert stream to full message with XML interruption enabled
         let actual = result_stream.into_full(true).await.unwrap();
 
-        // Expected: Should have XML tool call, content only from before interruption,
-        // but final usage
+        // Expected: Should have XML tool call, content only from before
+        // interruption, but final usage
         assert_eq!(actual.content, xml_content);
         assert_eq!(actual.tool_calls.len(), 1);
         assert_eq!(actual.tool_calls[0].name.as_str(), "test_tool");
@@ -1177,8 +1194,8 @@ mod tests {
     async fn test_into_full_empty_completion_creates_unparsed_tool_calls() {
         use crate::Error;
 
-        // Fixture: Create a stream with empty content, no tool calls, and no finish
-        // reason
+        // Fixture: Create a stream with empty content, no tool calls, and no
+        // finish reason
         let messages = vec![
             Ok(ChatCompletionMessage::default()), // Completely empty message
             Ok(ChatCompletionMessage::default().content(Content::part(""))), // Empty content

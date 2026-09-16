@@ -167,7 +167,8 @@ mod tests {
     #[test]
     fn test_reasoning_with_budget_defaults_to_medium_effort() {
         // max_tokens (budget) is independent from effort; when only budget is
-        // set and enabled=true, the transformer falls back to the default effort.
+        // set and enabled=true, the transformer falls back to the default
+        // effort.
         let fixture = Request::default().reasoning(ReasoningConfig {
             enabled: Some(true),
             effort: None,
@@ -184,7 +185,8 @@ mod tests {
 
     #[test]
     fn test_reasoning_with_budget_high_defaults_to_medium_effort() {
-        // Even a large budget does not elevate the effort; use explicit effort instead.
+        // Even a large budget does not elevate the effort; use explicit effort
+        // instead.
         let fixture = Request::default().reasoning(ReasoningConfig {
             enabled: Some(true),
             effort: None,
@@ -201,7 +203,8 @@ mod tests {
 
     #[test]
     fn test_effort_takes_precedence_over_budget() {
-        // When both effort and max_tokens are set, effort should take precedence
+        // When both effort and max_tokens are set, effort should take
+        // precedence
         let fixture = Request::default().reasoning(ReasoningConfig {
             enabled: Some(true),
             effort: Some(Effort::High),

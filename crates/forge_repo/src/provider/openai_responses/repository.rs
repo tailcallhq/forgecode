@@ -169,7 +169,8 @@ impl<T: HttpInfra> OpenAIResponsesProvider<T> {
         let mut request = oai::CreateResponse::from_domain(context)?;
         request.model = Some(model.as_str().to_string());
 
-        // Apply Codex-specific request adjustments via the transformer pipeline.
+        // Apply Codex-specific request adjustments via the transformer
+        // pipeline.
         if self.provider.id == forge_domain::ProviderId::CODEX {
             use forge_domain::Transformer;
             request = super::codex_transformer::CodexTransformer.transform(request);

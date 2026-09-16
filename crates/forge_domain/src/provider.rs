@@ -974,7 +974,8 @@ mod tests {
     fn test_azure_provider() {
         let fixture = azure("test_key", "my-resource", "gpt-4", "2024-02-15-preview");
 
-        // Check chat completion URL (url field now contains the chat completion URL)
+        // Check chat completion URL (url field now contains the chat completion
+        // URL)
         let actual_chat = fixture.url.clone();
         let expected_chat = Url::parse("https://my-resource.openai.azure.com/openai/deployments/gpt-4/chat/completions?api-version=2024-02-15-preview").unwrap();
         assert_eq!(actual_chat, expected_chat);

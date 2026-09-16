@@ -322,8 +322,8 @@ impl From<Context> for Request {
         };
 
         // Convert messages (excluding system messages)
-        // Group consecutive tool results into single Content objects to match Google's
-        // API requirements
+        // Group consecutive tool results into single Content objects to match
+        // Google's API requirements
         let mut contents: Vec<Content> = Vec::new();
         let mut pending_tool_parts: Vec<Part> = Vec::new();
 
@@ -564,8 +564,8 @@ mod tests {
 
     #[test]
     fn test_tool_call_args_serialization() {
-        // Create a ToolCallFull with Unparsed JSON arguments (as it would come from
-        // API)
+        // Create a ToolCallFull with Unparsed JSON arguments (as it would come
+        // from API)
         let tool_call = ToolCallFull {
             name: ToolName::new("patch"),
             call_id: None,
@@ -649,8 +649,8 @@ mod tests {
     fn test_consecutive_tool_results_grouped() {
         use forge_domain::{Context, ContextMessage, ModelId};
 
-        // Create a context with multiple consecutive tool results (simulating 13 read
-        // calls)
+        // Create a context with multiple consecutive tool results (simulating
+        // 13 read calls)
         let mut context = Context::default();
 
         // Add initial user message
@@ -675,7 +675,8 @@ mod tests {
 
         // Verify structure:
         // 1. First content: user message
-        // 2. Second content: assistant message (might be empty and filtered out)
+        // 2. Second content: assistant message (might be empty and filtered
+        //    out)
         // 3. Third content: ALL 13 tool results grouped together
 
         // Find the content with tool results
@@ -756,7 +757,8 @@ mod tests {
             })
             .collect();
 
-        // Should have 2 separate Content objects for the 2 non-consecutive tool results
+        // Should have 2 separate Content objects for the 2 non-consecutive tool
+        // results
         assert_eq!(
             contents_with_tool_results.len(),
             2,
@@ -939,7 +941,8 @@ mod tests {
                 "Schema should still contain other properties"
             );
 
-            // Verify additionalProperties is also removed by Gemini sanitization
+            // Verify additionalProperties is also removed by Gemini
+            // sanitization
             assert!(
                 !obj.contains_key("additionalProperties"),
                 "additionalProperties should be removed by Gemini sanitization"

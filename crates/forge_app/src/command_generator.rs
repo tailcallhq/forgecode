@@ -229,7 +229,8 @@ mod tests {
                 .map(|(path, is_dir)| File { path: path.clone(), is_dir: *is_dir })
                 .collect();
 
-            // Sort: directories first (alphabetically), then files (alphabetically)
+            // Sort: directories first (alphabetically), then files
+            // (alphabetically)
             files.sort_by(|a, b| match (a.is_dir, b.is_dir) {
                 (true, false) => std::cmp::Ordering::Less,
                 (false, true) => std::cmp::Ordering::Greater,

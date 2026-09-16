@@ -40,8 +40,8 @@ impl<H: HttpInfra> Anthropic<H> {
             self.anthropic_version.clone(),
         )];
 
-        // Extract API key/token from provider credentials (handles Google ADC, OAuth,
-        // and API key)
+        // Extract API key/token from provider credentials (handles Google ADC,
+        // OAuth, and API key)
         let api_key = self
             .provider
             .credential
@@ -130,7 +130,8 @@ impl<T: HttpInfra> Anthropic<T> {
 
         let mut request = Request::try_from(context)?.max_tokens(max_tokens as u64);
 
-        // For Vertex AI Anthropic, model is in the URL path, not the request body
+        // For Vertex AI Anthropic, model is in the URL path, not the request
+        // body
         if self.provider.id == ProviderId::VERTEX_AI_ANTHROPIC {
             request = request.anthropic_version(self.anthropic_version.clone());
         } else {
@@ -144,8 +145,8 @@ impl<T: HttpInfra> Anthropic<T> {
             .pipe(DropInvalidToolUse)
             .pipe(SanitizeToolIds);
 
-        // Vertex AI does not support output_format, so we skip schema enforcement
-        // and remove any output_format field
+        // Vertex AI does not support output_format, so we skip schema
+        // enforcement and remove any output_format field
         let request = if self.provider.id == ProviderId::VERTEX_AI_ANTHROPIC {
             pipeline
                 .pipe(RemoveOutputFormat)
@@ -159,8 +160,9 @@ impl<T: HttpInfra> Anthropic<T> {
         };
 
         let url = if self.provider.id == ProviderId::VERTEX_AI_ANTHROPIC {
-            // For Vertex AI, we need to append the model ID and streamRawPredict to the URL
-            // The chat_url from provider.json ends with .../models
+            // For Vertex AI, we need to append the model ID and
+            // streamRawPredict to the URL The chat_url from
+            // provider.json ends with .../models
             let base = self.provider.url.as_str().trim_end_matches('/');
             format!("{}/{}:streamRawPredict", base, model.as_str())
         } else {
@@ -452,7 +454,8 @@ mod tests {
             _headers: Option<HeaderMap>,
             _body: Bytes,
         ) -> anyhow::Result<EventSource> {
-            // For now, return an error since eventsource is not used in the failing tests
+            // For now, return an error since eventsource is not used in the
+            // failing tests
             Err(anyhow::anyhow!("EventSource not implemented in mock"))
         }
     }
@@ -813,7 +816,8 @@ mod tests {
     #[test]
     fn test_get_headers_drops_interleaved_thinking_for_4_6_plus_models() {
         // Adaptive thinking auto-enables interleaved thinking on Opus 4.8,
-        // Opus 4.7, Opus 4.6, and Sonnet 4.6; the beta header is redundant there.
+        // Opus 4.7, Opus 4.6, and Sonnet 4.6; the beta header is redundant
+        // there.
         let chat_url = Url::parse("https://api.anthropic.com/v1/messages").unwrap();
         let model_url = Url::parse("https://api.anthropic.com/v1/models").unwrap();
 
