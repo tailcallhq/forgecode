@@ -394,6 +394,28 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
+    #[tokio::test]
+    async fn test_fs_read_unknown_and_extensionless_pdf_magic_remains_visual() {
+        let content = typescript_with_embedded_pdf_magic();
+        for path in [
+            "/test/document.pdf",
+            "/test/document.unknown",
+            "/test/document",
+        ] {
+            let infra = Arc::new(MockCompositeService::new());
+            infra.add_file(PathBuf::from(path), content.clone());
+            let fixture = ForgeFsRead::new(infra);
+
+            let output = fixture.read(path.to_string(), None, None).await.unwrap();
+            let actual = (output.content.as_image().cloned(), output.info);
+
+            let image = Image::new_bytes(content.as_bytes().to_vec(), "application/pdf");
+            let info = FileInfo::new(0, 0, 0, compute_hash(image.url()));
+            let expected = (Some(image), info);
+            assert_eq!(actual, expected);
+        }
+    }
+
     #[test]
     fn test_detect_mime_type_for_ipynb() {
         let fixture = typescript_with_embedded_pdf_magic();
