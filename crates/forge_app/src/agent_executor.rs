@@ -63,8 +63,9 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> AgentEx
                 .await?
                 .ok_or(Error::ConversationNotFound { id: conversation_id })?
         } else {
-            // Create context with agent initiator since it's spawned by a parent agent
-            // This is crucial for GitHub Copilot billing optimization
+            // Create context with agent initiator since it's spawned by a
+            // parent agent This is crucial for GitHub Copilot
+            // billing optimization
             let context = forge_domain::Context::default().initiator("agent".to_string());
             let conversation = Conversation::generate()
                 .title(task.clone())

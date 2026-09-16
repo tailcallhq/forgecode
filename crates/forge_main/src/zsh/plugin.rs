@@ -19,8 +19,8 @@ static ZSH_PLUGIN_LIB: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/../../sh
 pub fn generate_zsh_plugin() -> Result<String> {
     let mut output = String::new();
 
-    // Iterate through all embedded files in shell-plugin/lib, stripping comments
-    // and empty lines. All files in this directory are .zsh files.
+    // Iterate through all embedded files in shell-plugin/lib, stripping
+    // comments and empty lines. All files in this directory are .zsh files.
     for file in forge_embed::files(&ZSH_PLUGIN_LIB) {
         let content = super::normalize_script(std::str::from_utf8(file.contents())?);
         for line in content.lines() {
@@ -93,12 +93,12 @@ fn execute_zsh_script_with_streaming(script_content: &str, script_name: &str) ->
     //
     // On Windows, we write the script to a temp file and run `zsh -f <file>`
     // instead. A temp file is necessary because:
-    //   1. CI has core.autocrlf=true, so checked-out files contain CRLF; writing
-    //      through normalize_script ensures the temp file has LF.
-    //   2. CreateProcess mangles quotes, so passing the script via -c corrupts any
-    //      embedded quoting.
-    //   3. Piping via stdin is unreliable -- Windows caps pipe buffer size, which
-    //      can truncate or block on larger scripts.
+    //   1. CI has core.autocrlf=true, so checked-out files contain CRLF;
+    //      writing through normalize_script ensures the temp file has LF.
+    //   2. CreateProcess mangles quotes, so passing the script via -c corrupts
+    //      any embedded quoting.
+    //   3. Piping via stdin is unreliable -- Windows caps pipe buffer size,
+    //      which can truncate or block on larger scripts.
     // The -f flag also prevents ~/.zshrc from loading during execution.
     let (_temp_dir, mut child) = if cfg!(windows) {
         let (temp_dir, script_path) = create_temp_zsh_script(&script_content)?;
@@ -320,8 +320,8 @@ pub fn setup_zsh_integration(
         }
         MarkerState::NotFound => {
             // No markers - add them at the end
-            // Add blank line before markers if file is not empty and doesn't end with blank
-            // line
+            // Add blank line before markers if file is not empty and doesn't
+            // end with blank line
             if lines.last().is_some_and(|l| !l.trim().is_empty()) {
                 lines.push(String::new());
             }
@@ -336,7 +336,8 @@ pub fn setup_zsh_integration(
         // Generate timestamp for backup filename
         let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
 
-        // Safe to unwrap: zshrc_path was constructed from a valid HOME/ZDOTDIR path
+        // Safe to unwrap: zshrc_path was constructed from a valid HOME/ZDOTDIR
+        // path
         let parent = zshrc_path
             .parent()
             .context("zshrc path has no parent directory")?;
@@ -379,7 +380,8 @@ mod tests {
     /// (e.g., plugin not loaded), or zsh may not be available in CI
     #[test]
     fn test_run_zsh_doctor_streaming() {
-        // SAFETY: No mutex needed for single test - setting env var for test isolation
+        // SAFETY: No mutex needed for single test - setting env var for test
+        // isolation
         unsafe {
             std::env::set_var("FORGE_SKIP_INTERACTIVE", "1");
         }
@@ -400,8 +402,8 @@ mod tests {
                 // Success case
             }
             Err(e) => {
-                // Check if it's a non-zero exit code error or zsh not available (both expected
-                // in tests)
+                // Check if it's a non-zero exit code error or zsh not available
+                // (both expected in tests)
                 let error_msg = e.to_string();
                 assert!(
                     error_msg.contains("exit code") || error_msg.contains("Failed to execute"),
@@ -465,7 +467,8 @@ mod tests {
         let original_home = std::env::var("HOME").ok();
         let original_zdotdir = std::env::var("ZDOTDIR").ok();
 
-        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment
+        // modifications
         unsafe {
             std::env::set_var("HOME", temp_dir.path());
             std::env::remove_var("ZDOTDIR");
@@ -475,7 +478,8 @@ mod tests {
         let actual = setup_zsh_integration(false, None);
 
         // Restore environment first
-        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment
+        // modifications
         unsafe {
             if let Some(home) = original_home {
                 std::env::set_var("HOME", home);
@@ -522,7 +526,8 @@ mod tests {
         let original_home = std::env::var("HOME").ok();
         let original_zdotdir = std::env::var("ZDOTDIR").ok();
 
-        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment
+        // modifications
         unsafe {
             std::env::set_var("HOME", temp_dir.path());
             std::env::set_var("ZDOTDIR", temp_dir.path());
@@ -555,7 +560,8 @@ mod tests {
         assert!(content.contains("# <<< forge initialize <<<"));
 
         // Restore environment
-        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment
+        // modifications
         unsafe {
             if let Some(home) = original_home {
                 std::env::set_var("HOME", home);
@@ -581,7 +587,8 @@ mod tests {
         let original_home = std::env::var("HOME").ok();
         let original_zdotdir = std::env::var("ZDOTDIR").ok();
 
-        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment
+        // modifications
         unsafe {
             std::env::set_var("HOME", temp_dir.path());
             std::env::remove_var("ZDOTDIR");
@@ -616,7 +623,8 @@ mod tests {
         assert!(content.contains("# <<< forge initialize <<<"));
 
         // Restore environment
-        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment
+        // modifications
         unsafe {
             if let Some(home) = original_home {
                 std::env::set_var("HOME", home);
@@ -646,7 +654,8 @@ mod tests {
         let original_home = std::env::var("HOME").ok();
         let original_zdotdir = std::env::var("ZDOTDIR").ok();
 
-        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment
+        // modifications
         unsafe {
             std::env::set_var("HOME", temp_dir.path());
             std::env::set_var("ZDOTDIR", temp_dir.path());
@@ -677,7 +686,8 @@ mod tests {
         assert!(content.contains("# <<< forge initialize <<<"));
 
         // Restore environment
-        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment
+        // modifications
         unsafe {
             if let Some(home) = original_home {
                 std::env::set_var("HOME", home);
@@ -703,7 +713,8 @@ mod tests {
         let original_home = std::env::var("HOME").ok();
         let original_zdotdir = std::env::var("ZDOTDIR").ok();
 
-        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment
+        // modifications
         unsafe {
             std::env::set_var("HOME", temp_dir.path());
             std::env::remove_var("ZDOTDIR");
@@ -785,7 +796,8 @@ mod tests {
         );
 
         // Restore environment
-        // SAFETY: We hold ENV_LOCK to prevent concurrent environment modifications
+        // SAFETY: We hold ENV_LOCK to prevent concurrent environment
+        // modifications
         unsafe {
             if let Some(home) = original_home {
                 std::env::set_var("HOME", home);
