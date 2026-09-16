@@ -148,6 +148,125 @@ mod tests {
             .unwrap_or_else(|_| panic!("Failed to parse JSON fixture: {}", fixture_path))
     }
 
+    // Reduced from @imrehg's responses in #3507 / #3508. Keep provider-only
+    // metadata to exercise the actual OpenAI-compatible wire format without
+    // including local filesystem paths or server arguments.
+    const LLAMACPP_MODELS_FIXTURE: &str = r#"{
+        "object": "list",
+        "data": [
+            {
+                "id": "GLM-4.7-Flash-GGUF",
+                "aliases": [], "tags": [], "object": "model",
+                "owned_by": "llamacpp", "created": 1781360984,
+                "status": {"value": "unloaded"},
+                "architecture": {
+                    "input_modalities": ["text"],
+                    "output_modalities": ["text"]
+                },
+                "need_download": false
+            },
+            {
+                "id": "Qwen3.6-35B-A3B-GGUF",
+                "aliases": [], "tags": [], "object": "model",
+                "owned_by": "llamacpp", "created": 1781360984,
+                "status": {"value": "loaded"},
+                "architecture": {
+                    "input_modalities": ["text", "image"],
+                    "output_modalities": ["text"]
+                },
+                "need_download": false,
+                "meta": {"n_ctx": 135168, "n_params": 34660610688}
+            }
+        ]
+    }"#;
+
+    const LMSTUDIO_MODELS_FIXTURE: &str = r#"{
+        "object": "list",
+        "data": [
+            {"id": "nvidia/nemotron-3-nano-omni", "object": "model", "owned_by": "organization_owner"},
+            {"id": "qwen/qwen3.6-35b-a3b", "object": "model", "owned_by": "organization_owner"},
+            {"id": "glm-4.7-flash@q8_0", "object": "model", "owned_by": "organization_owner"},
+            {"id": "text-embedding-nomic-embed-text-v1.5", "object": "model", "owned_by": "organization_owner"}
+        ]
+    }"#;
+
+    fn model_list_fixture(json: &str) -> anyhow::Result<Vec<forge_domain::Model>> {
+        let response: ListModelResponse = serde_json::from_str(json)?;
+        Ok(response.data.into_iter().map(Into::into).collect())
+    }
+
+    #[test]
+    fn test_llamacpp_model_list() {
+        let fixture = LLAMACPP_MODELS_FIXTURE;
+
+        let actual = model_list_fixture(fixture).unwrap();
+
+        let expected = vec![
+            forge_domain::Model::new("GLM-4.7-Flash-GGUF"),
+            forge_domain::Model::new("Qwen3.6-35B-A3B-GGUF").input_modalities(vec![
+                forge_domain::InputModality::Text,
+                forge_domain::InputModality::Image,
+            ]),
+        ];
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_lmstudio_model_list() {
+        let fixture = LMSTUDIO_MODELS_FIXTURE;
+
+        let actual = model_list_fixture(fixture).unwrap();
+
+        let expected = vec![
+            forge_domain::Model::new("nvidia/nemotron-3-nano-omni"),
+            forge_domain::Model::new("qwen/qwen3.6-35b-a3b"),
+            forge_domain::Model::new("glm-4.7-flash@q8_0"),
+            forge_domain::Model::new("text-embedding-nomic-embed-text-v1.5"),
+        ];
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_openai_model_list() {
+        let fixture = r#"{
+            "object": "list",
+            "data": [{"id": "gpt-4o", "object": "model", "created": 1715367049, "owned_by": "system"}]
+        }"#;
+
+        let actual = model_list_fixture(fixture).unwrap();
+
+        let expected = vec![forge_domain::Model::new("gpt-4o")];
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_model_list_optional_architecture() {
+        let fixtures = [
+            r#"{"data":[{"id":"local-model"}]}"#,
+            r#"{"data":[{"id":"local-model","created":null,"architecture":null}]}"#,
+            r#"{"data":[{"id":"local-model","architecture":{}}]}"#,
+            r#"{"data":[{"id":"local-model","architecture":{"modality":null,"tokenizer":null,"input_modalities":null,"output_modalities":null}}]}"#,
+            r#"{"data":[{"id":"local-model","architecture":{"modality":"text->text","tokenizer":"Other","input_modalities":["text"],"output_modalities":["text"]}}]}"#,
+        ];
+
+        let actual = fixtures
+            .into_iter()
+            .map(|fixture| model_list_fixture(fixture).unwrap())
+            .collect::<Vec<_>>();
+
+        let expected = vec![vec![forge_domain::Model::new("local-model")]; 5];
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_model_list_still_requires_model_id() {
+        let fixture = r#"{"data":[{"object":"model","owned_by":"llamacpp"}]}"#;
+
+        let actual = model_list_fixture(fixture).unwrap_err().to_string();
+
+        assert!(actual.contains("missing field `id`"));
+    }
+
     #[tokio::test]
     async fn test_deserialize_model_with_numeric_pricing() {
         // This reproduces the issue where Chutes API returns numeric pricing instead of
