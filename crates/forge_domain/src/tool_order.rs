@@ -347,8 +347,8 @@ mod tests {
         fixture_order.sort(&mut fixture);
 
         let actual: Vec<String> = fixture.iter().map(|t| t.name.to_string()).collect();
-        // read (pos 0), fs_read and fs_write (both match fs_* at pos 1, alphabetically
-        // sorted), shell (pos 2)
+        // read (pos 0), fs_read and fs_write (both match fs_* at pos 1,
+        // alphabetically sorted), shell (pos 2)
         let expected = vec!["read", "fs_read", "fs_write", "shell"];
 
         assert_eq!(actual, expected);

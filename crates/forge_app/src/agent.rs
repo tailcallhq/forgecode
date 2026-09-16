@@ -130,8 +130,9 @@ impl AgentExt for Agent {
 
         // Apply workflow compact configuration to agents
         if let Some(ref workflow_compact) = config.compact {
-            // Convert forge_config::Compact to forge_domain::Compact, then merge.
-            // Agent settings take priority over workflow settings.
+            // Convert forge_config::Compact to forge_domain::Compact, then
+            // merge. Agent settings take priority over workflow
+            // settings.
             let mut merged_compact = Compact {
                 retention_window: workflow_compact.retention_window,
                 eviction_window: workflow_compact.eviction_window.value(),
@@ -169,7 +170,8 @@ impl AgentExt for Agent {
                 exclude: config_reasoning.exclude,
                 enabled: config_reasoning.enabled,
             };
-            // Start from the agent's own settings and fill unset fields from config.
+            // Start from the agent's own settings and fill unset fields from
+            // config.
             let mut merged = agent.reasoning.clone().unwrap_or_default();
             merged.merge(config_as_domain);
             // If the config explicitly disables reasoning, honour that override
@@ -302,8 +304,8 @@ mod tests {
 
         // CURRENT BEHAVIOR: Due to merge order (workflow_compact merged with
         // agent.compact), agent's retention_window=0 overwrites workflow's 10
-        // This is the documented behavior: "Agent settings take priority over workflow
-        // settings"
+        // This is the documented behavior: "Agent settings take priority over
+        // workflow settings"
 
         // Agent default has retention_window=0, which overwrites workflow's 10
         assert_eq!(

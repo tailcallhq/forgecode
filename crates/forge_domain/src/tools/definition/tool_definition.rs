@@ -148,7 +148,8 @@ mod tests {
         };
         let actual = serde_json::to_value(&fixture).unwrap();
 
-        // Titles must be absent at every level regardless of the schema structure
+        // Titles must be absent at every level regardless of the schema
+        // structure
         assert_eq!(actual.pointer("/input_schema/title"), None);
         assert_eq!(
             actual.pointer("/input_schema/$defs/NestedInput/title"),

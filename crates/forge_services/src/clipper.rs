@@ -159,8 +159,8 @@ impl Clipper {
         prefix_limit: usize,
         suffix_limit: usize,
     ) -> ClipperResult<'a> {
-        // If the combined limits exceed or equal content length, return the whole
-        // content
+        // If the combined limits exceed or equal content length, return the
+        // whole content
         if prefix_limit + suffix_limit >= char_count {
             return ClipperResult { prefix: None, suffix: None, actual: content };
         }
@@ -253,8 +253,8 @@ mod tests {
 
         let result = strategy.clip(content);
 
-        // Should return the original content as the combined limits exceed content
-        // length
+        // Should return the original content as the combined limits exceed
+        // content length
         assert!(result.prefix.is_none());
         assert!(result.suffix.is_none());
         assert_eq!(result.actual, content);

@@ -345,7 +345,8 @@ mod tests {
             .await?;
 
         // Should return the config even if provider is not available
-        // Validation happens when getting the actual provider via ProviderService
+        // Validation happens when getting the actual provider via
+        // ProviderService
         let result = service.get_session_config().await;
 
         assert_eq!(

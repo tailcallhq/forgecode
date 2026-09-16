@@ -43,7 +43,8 @@ impl Transformer for MergeSystemMessages {
                     .join("\n\n");
 
                 if combined_content.is_empty() {
-                    // All system messages had no content, don't create empty system message
+                    // All system messages had no content, don't create empty
+                    // system message
                     rest
                 } else {
                     let mut result = vec![Message {

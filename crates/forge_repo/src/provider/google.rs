@@ -399,10 +399,11 @@ mod tests {
             }])
             .tool_choice(ToolChoice::Call(ToolName::new("math")));
 
-        // We can't easily test Request::from(context) directly here because Request is
-        // private or we need to access it via Google::chat But we can check the
-        // serialized request if we mock the http call. However, Request is pub
-        // in dto::google::Request, so we can use it if we import it. The import
+        // We can't easily test Request::from(context) directly here because
+        // Request is private or we need to access it via Google::chat
+        // But we can check the serialized request if we mock the http
+        // call. However, Request is pub in dto::google::Request, so we
+        // can use it if we import it. The import
         // `use forge_app::dto::google::{EventData, Request};` is already there.
 
         let request = Request::from(context);

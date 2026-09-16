@@ -119,7 +119,8 @@ impl ToolCallFull {
         // - New/different call_id
         // - Empty name
         // - Partial arguments
-        // We need to associate these with the last tool call that had a valid name
+        // We need to associate these with the last tool call that had a valid
+        // name
         let mut last_valid_tool_name: Option<ToolName> = None;
         let mut last_valid_call_id: Option<ToolCallId> = None;
 
@@ -128,8 +129,8 @@ impl ToolCallFull {
             let has_valid_name = part.name.as_ref().is_some_and(|n| !n.as_str().is_empty());
 
             // GLM workaround: Detect GLM-style fragmented tool call
-            // Pattern: empty name + non-empty args + different call_id = continuation of
-            // previous tool
+            // Pattern: empty name + non-empty args + different call_id =
+            // continuation of previous tool
             let is_glm_fragment = !has_valid_name
                 && !part.arguments_part.is_empty()
                 && last_valid_tool_name.is_some()
@@ -169,7 +170,8 @@ impl ToolCallFull {
             {
                 current_tool_name = Some(name.clone());
                 last_valid_tool_name = Some(name.clone());
-                // When we get a valid name, use the current call_id as the last valid one
+                // When we get a valid name, use the current call_id as the last
+                // valid one
                 if let Some(ref cid) = current_call_id {
                     last_valid_call_id = Some(cid.clone());
                 }
@@ -213,8 +215,9 @@ impl ToolCallFull {
                         args: content.to_string(),
                     })?;
 
-                // User might switch the model from a tool unsupported to tool supported model
-                // leaving a lot of messages without tool calls
+                // User might switch the model from a tool unsupported to tool
+                // supported model leaving a lot of messages
+                // without tool calls
 
                 tool_call.call_id = Some(ToolCallId::generate());
                 Ok(vec![tool_call])
@@ -456,8 +459,8 @@ mod tests {
     fn test_tool_in_both_failed_and_succeeded_lists() {
         let read = &ToolName::new("READ");
         let mut counter = ToolErrorTracker::new(3);
-        // Tool appears in both failed and succeeded - success should NOT reset due to
-        // filter
+        // Tool appears in both failed and succeeded - success should NOT reset
+        // due to filter
         counter.adjust(&[read], &[read]);
 
         let actual = counter.maxed_out_tools();
@@ -577,8 +580,8 @@ mod tests {
     }
     #[test]
     fn test_try_from_parts_handles_empty_tool_names() {
-        // Fixture: Tool call parts where empty names in subsequent parts should not
-        // override valid names
+        // Fixture: Tool call parts where empty names in subsequent parts should
+        // not override valid names
         let input = [
             ToolCallPart {
                 call_id: Some(ToolCallId("0".to_string())),

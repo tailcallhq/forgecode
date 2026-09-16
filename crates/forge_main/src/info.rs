@@ -551,8 +551,8 @@ pub(crate) fn format_path_for_display(env: &Environment, path: &Path) -> String 
     {
         // Format based on OS
         return if env.os == "windows" {
-            // Use actual home path with proper quoting for Windows to work in both cmd and
-            // PowerShell
+            // Use actual home path with proper quoting for Windows to work in
+            // both cmd and PowerShell
             let home_path = home.display().to_string();
             let full_path = format!(
                 "{}{}{}",
@@ -1085,8 +1085,9 @@ mod tests {
         let actual_str = String::from_utf8(stripped).unwrap();
 
         // Verify that keys are padded within each section
-        // In SECTION ONE, all keys should be padded to length of "Very Long Key" (13)
-        // In SECTION TWO, all keys should be padded to length of "ABC" (3)
+        // In SECTION ONE, all keys should be padded to length of "Very Long
+        // Key" (13) In SECTION TWO, all keys should be padded to length
+        // of "ABC" (3)
 
         // Check that the display contains properly formatted sections
         assert!(actual_str.contains("SECTION ONE"));
@@ -1160,8 +1161,8 @@ mod tests {
 
         let display = info.to_string();
 
-        // All keys should be lowercase - checking just the key part without exact
-        // formatting
+        // All keys should be lowercase - checking just the key part without
+        // exact formatting
         assert!(display.contains("version"));
         assert!(display.contains("working directory"));
         assert!(display.contains("mixed case key"));
@@ -1268,7 +1269,8 @@ mod tests {
         let actual = super::Info::from(&fixture);
         let expected_display = actual.to_string();
 
-        // Verify it shows "No Changes Produced" when all files have zero changes
+        // Verify it shows "No Changes Produced" when all files have zero
+        // changes
         assert!(expected_display.contains("[No Changes Produced]"));
         assert!(!expected_display.contains("file1.rs"));
         assert!(!expected_display.contains("file2.rs"));

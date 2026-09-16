@@ -21,9 +21,9 @@ impl Transformer for TransformToolCalls {
     type Value = Context;
 
     fn transform(&mut self, mut value: Self::Value) -> Self::Value {
-        // This transformer converts a tool-supported context to a non-tool-supported
-        // format We need to find assistant messages with tool calls and tool
-        // result messages
+        // This transformer converts a tool-supported context to a
+        // non-tool-supported format We need to find assistant messages
+        // with tool calls and tool result messages
 
         let mut new_messages = Vec::new();
 

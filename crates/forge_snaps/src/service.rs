@@ -57,7 +57,8 @@ impl SnapshotService {
     pub async fn undo_snapshot(&self, path: PathBuf) -> Result<()> {
         let snapshot = Snapshot::create(path.clone())?;
 
-        // All the snaps for `path` are stored in `snapshot.path_hash()` directory.
+        // All the snaps for `path` are stored in `snapshot.path_hash()`
+        // directory.
         let snapshot_dir = self.snapshots_directory.join(snapshot.path_hash());
 
         // Check if the `snapshot_dir` exists

@@ -60,7 +60,8 @@ impl Ord for Score {
             }
         }
 
-        // Compare in priority order: relevance → distance → similarity → query index
+        // Compare in priority order: relevance → distance → similarity → query
+        // index
         compare(self.relevance, other.relevance) // Higher relevance is better
             .or_else(|| compare(other.distance, self.distance)) // Lower distance is better (flipped)
             .unwrap_or_else(|| self.query_idx.cmp(&other.query_idx).reverse()) // Lower query index wins (first query wins)
