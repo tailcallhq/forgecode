@@ -1423,7 +1423,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
     async fn on_show_models(&mut self, porcelain: bool) -> anyhow::Result<()> {
         self.spinner.start(Some("Fetching Models"))?;
 
-        let mut all_provider_models = match self.api.get_all_provider_models().await {
+        let mut all_provider_models = match self.api.get_all_provider_models(None).await {
             Ok(provider_models) => provider_models,
             Err(err) => {
                 self.spinner.stop(None)?;
@@ -2912,19 +2912,15 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             }
         }
 
-        // Fetch models from ALL configured providers (matches shell plugin's
-        // `forge list models --porcelain`), then optionally filter by provider.
+        // Scope discovery before contacting providers: an offline previous
+        // provider must not prevent selecting a model on the new provider.
         self.spinner.start(Some("Loading"))?;
-        let mut all_provider_models = self.api.get_all_provider_models().await?;
+        let result = self
+            .api
+            .get_all_provider_models(provider_filter.as_ref())
+            .await;
         self.spinner.stop(None)?;
-
-        // When a provider filter is specified (e.g. during onboarding after a
-        // provider was just selected), restrict the list to that provider's
-        // models so the user cannot accidentally pick a model from a different
-        // provider.
-        if let Some(ref filter_id) = provider_filter {
-            all_provider_models.retain(|pm| &pm.provider_id == filter_id);
-        }
+        let mut all_provider_models = result?;
 
         if all_provider_models.is_empty() {
             return Ok(None);
@@ -3755,7 +3751,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let (needs_model_selection, compatible_model) = match current_model {
             None => (true, None),
             Some(current_model) => {
-                let provider_models = self.api.get_all_provider_models().await?;
+                let provider_models = self.api.get_all_provider_models(Some(&provider.id)).await?;
                 let model_available = provider_models
                     .iter()
                     .find(|pm| pm.provider_id == provider.id)
@@ -4663,7 +4659,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             None => self.api.get_models().await?,
             Some(provider_id) => {
                 self.api
-                    .get_all_provider_models()
+                    .get_all_provider_models(Some(provider_id))
                     .await?
                     .into_iter()
                     .find(|pm| &pm.provider_id == provider_id)
