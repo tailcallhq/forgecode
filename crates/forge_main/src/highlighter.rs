@@ -32,9 +32,9 @@ impl ForgeHighlighter {
             return styled;
         }
 
-        // Command: highlight the command token (e.g. `:compact` or `/compact` for
-        // compat) in yellow bold, then the remainder (arguments) without
-        // special styling.
+        // Command: highlight the command token (e.g. `:compact` or `/compact`
+        // for compat) in yellow bold, then the remainder (arguments)
+        // without special styling.
         if line.starts_with('/') || line.starts_with(':') {
             let end = line.find(|c: char| c.is_whitespace()).unwrap_or(line.len());
             styled.push((
@@ -55,8 +55,8 @@ impl ForgeHighlighter {
             return styled;
         }
 
-        // General message text — scan for `@[...]` file mentions and colour them cyan
-        // bold.
+        // General message text — scan for `@[...]` file mentions and colour
+        // them cyan bold.
         highlight_mentions(line, &mut styled);
 
         styled
@@ -106,14 +106,16 @@ fn highlight_mentions(line: &str, styled: &mut StyledText) {
                 match after_open.get(2..).and_then(|s| s.find(']')) {
                     None => {
                         // No closing `]` — emit `@[` and the rest as plain text
-                        // to match ZSH behaviour (unterminated tag = no highlight).
+                        // to match ZSH behaviour (unterminated tag = no
+                        // highlight).
                         styled.push((Style::new(), after_open.to_string()));
                         break;
                     }
                     Some(rel_close) => {
                         // Absolute position of `]` within `after_open`.
                         let close = 2 + rel_close;
-                        // Emit `@[...]` in cyan bold (inclusive of both brackets).
+                        // Emit `@[...]` in cyan bold (inclusive of both
+                        // brackets).
                         let mention = after_open.get(..=close).unwrap_or(after_open);
                         styled.push((Style::new().bold().fg(Color::Cyan), mention.to_string()));
                         match after_open.get(close + 1..) {
@@ -235,7 +237,8 @@ mod tests {
 
     #[test]
     fn test_file_mention_with_line_range() {
-        // @[path:start:end] — same as ZSH pattern, content inside can contain colons
+        // @[path:start:end] — same as ZSH pattern, content inside can contain
+        // colons
         let fixture = ForgeHighlighter;
         let actual = fixture.highlight("@[src/main.rs:10:20]", 0);
         assert_eq!(render(&actual), "@[src/main.rs:10:20]");
@@ -309,7 +312,8 @@ mod tests {
 
     #[test]
     fn test_bare_at_sign_not_highlighted() {
-        // A bare `@word` (no brackets) is plain text — matches ZSH pattern behaviour.
+        // A bare `@word` (no brackets) is plain text — matches ZSH pattern
+        // behaviour.
         let fixture = ForgeHighlighter;
         let actual = fixture.highlight("email@example.com", 0);
         assert_eq!(render(&actual), "email@example.com");

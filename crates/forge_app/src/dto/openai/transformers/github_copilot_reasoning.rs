@@ -36,7 +36,8 @@ impl Transformer for GitHubCopilotReasoning {
                     message.reasoning_text = reasoning_text;
                     message.reasoning_opaque = reasoning_opaque;
 
-                    // Remove reasoning_details array (GitHub Copilot doesn't accept it)
+                    // Remove reasoning_details array (GitHub Copilot doesn't
+                    // accept it)
                     message.reasoning_details = None;
                 }
             }

@@ -148,8 +148,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
         let tracing_handler = TracingHandler::new();
         let title_handler = TitleGenerationHandler::new(services.clone());
 
-        // Build the on_end hook, conditionally adding PendingTodosHandler based on
-        // config
+        // Build the on_end hook, conditionally adding PendingTodosHandler based
+        // on config
         let on_end_hook = if forge_config.verify_todos {
             tracing_handler
                 .clone()
@@ -194,7 +194,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
                     let conversation = orch.get_conversation().clone();
                     let save_result = services.upsert_conversation(conversation).await;
 
-                    // Send any error to the stream (prioritize dispatch error over save error)
+                    // Send any error to the stream (prioritize dispatch error
+                    // over save error)
                     #[allow(clippy::collapsible_if)]
                     if let Some(err) = dispatch_result.err().or(save_result.err()) {
                         if let Err(e) = tx.send(Err(err)).await {
@@ -302,8 +303,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
     /// Returns models for the configured providers in the requested scope.
     ///
     /// # Arguments
-    /// * `provider_filter` - Restricts model discovery and credential refresh to
-    ///   this provider after the configured providers have been resolved.
+    /// * `provider_filter` - Restricts model discovery and credential refresh
+    ///   to this provider after the configured providers have been resolved.
     ///
     /// # Errors
     /// Returns an error if provider discovery, credential refresh, or a model
@@ -328,8 +329,9 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ForgeAp
     }
 }
 
-/// Filters resolved providers before starting credential refresh or model requests,
-/// then fetches concurrently. Selected-provider failures remain errors.
+/// Filters resolved providers before starting credential refresh or model
+/// requests, then fetches concurrently. Selected-provider failures remain
+/// errors.
 async fn fetch_provider_models<F, Fut>(
     providers: Vec<AnyProvider>,
     provider_filter: Option<&ProviderId>,

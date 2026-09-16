@@ -60,8 +60,8 @@ impl EventHandle<EventData<EndPayload>> for PendingTodosHandler {
         // This prevents duplicate reminders while still allowing new reminders
         // when todos change (e.g., some completed but others still pending)
         let should_add_reminder = if let Some(context) = &conversation.context {
-            // Find the most recent reminder message by looking for the template content
-            // pattern
+            // Find the most recent reminder message by looking for the template
+            // content pattern
             let last_reminder_todos: Option<HashSet<String>> = context
                 .messages
                 .iter()
@@ -236,7 +236,8 @@ mod tests {
         let after_first = conversation.context.as_ref().unwrap().messages.len();
         assert_eq!(after_first, 1);
 
-        // Second call with the same pending todos should NOT add another reminder
+        // Second call with the same pending todos should NOT add another
+        // reminder
         handler.handle(&event, &mut conversation).await.unwrap();
         let after_second = conversation.context.as_ref().unwrap().messages.len();
         assert_eq!(after_second, 1); // Still 1, no duplicate

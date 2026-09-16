@@ -26,8 +26,8 @@ pub trait API: Sync + Send {
     /// Provides models from configured providers in the requested scope.
     ///
     /// # Arguments
-    /// * `provider_filter` - Restricts model discovery and credential refresh to
-    ///   this provider after the configured providers have been resolved.
+    /// * `provider_filter` - Restricts model discovery and credential refresh
+    ///   to this provider after the configured providers have been resolved.
     ///
     /// # Errors
     /// Returns an error if provider discovery, credential refresh, or a model

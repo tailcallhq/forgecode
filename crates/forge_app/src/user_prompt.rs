@@ -155,7 +155,8 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
             let mut event_context = EventContext::new(EventContextValue::new(user_input))
                 .current_date(self.current_time.format("%Y-%m-%d").to_string());
 
-            // Check if context already contains user messages to determine if it's feedback
+            // Check if context already contains user messages to determine if
+            // it's feedback
             let has_user_messages = context.messages.iter().any(|msg| msg.has_role(Role::User));
 
             if has_user_messages {
@@ -233,10 +234,12 @@ impl<S: AttachmentService + EnvironmentInfra<Config = forge_config::ForgeConfig>
         // Track file attachments as read operations in metrics
         let mut metrics = conversation.metrics.clone();
         for attachment in &attachments {
-            // Only track file content attachments (not images or directory listings).
-            // Use the raw content_hash (computed before line-numbering) so that the
-            // external-change detector, which hashes the raw file on disk, sees a
-            // matching hash and does not raise a false "modified externally" warning.
+            // Only track file content attachments (not images or directory
+            // listings). Use the raw content_hash (computed before
+            // line-numbering) so that the external-change detector,
+            // which hashes the raw file on disk, sees a
+            // matching hash and does not raise a false "modified externally"
+            // warning.
             if let AttachmentContent::FileContent { info, .. } = &attachment.content {
                 metrics = metrics.insert(
                     attachment.path.clone(),
@@ -514,7 +517,8 @@ mod tests {
             "file2.rs should have content hash"
         );
 
-        // Verify both files are in files_accessed (since they are Read operations)
+        // Verify both files are in files_accessed (since they are Read
+        // operations)
         assert!(
             actual.metrics.files_accessed.contains("/test/file1.rs"),
             "file1.rs should be in files_accessed"
@@ -563,8 +567,8 @@ mod tests {
         let agent = fixture_agent_without_user_prompt();
         let event = Event::new("Continue working");
 
-        // Create a conversation with existing context (simulating resume) and todos
-        // stored in metrics
+        // Create a conversation with existing context (simulating resume) and
+        // todos stored in metrics
         let conversation = Conversation::new(ConversationId::generate())
             .context(
                 Context::default()
@@ -587,7 +591,8 @@ mod tests {
         // Execute
         let actual = generator.add_user_prompt(conversation).await.unwrap();
 
-        // Assert - Should have system, previous user, new user message, and todo list
+        // Assert - Should have system, previous user, new user message, and
+        // todo list
         let messages = actual.context.unwrap().messages;
         assert_eq!(messages.len(), 4, "Should have 4 messages");
 

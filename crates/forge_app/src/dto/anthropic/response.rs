@@ -164,9 +164,11 @@ impl From<Usage> for forge_domain::Usage {
     fn from(usage: Usage) -> Self {
         // Anthropic token breakdown:
         // - input_tokens: tokens NOT from cache (billed at full price)
-        // - cache_creation_input_tokens: tokens written to cache (billed at full price
+        // - cache_creation_input_tokens: tokens written to cache (billed at
+        //   full price
         //   + write cost)
-        // - cache_read_input_tokens: tokens read from cache (billed at 90% discount)
+        // - cache_read_input_tokens: tokens read from cache (billed at 90%
+        //   discount)
         // Total input = input_tokens + cache_creation_input_tokens +
         // cache_read_input_tokens
 
@@ -320,7 +322,8 @@ impl TryFrom<Event> for ChatCompletionMessage {
                 ChatCompletionMessage::try_from(content_block)?
             }
             Event::MessageStart { message } => {
-                // Extract usage from MessageStart - this contains input token counts
+                // Extract usage from MessageStart - this contains input token
+                // counts
                 ChatCompletionMessage::assistant(Content::part("")).usage(message.usage)
             }
             Event::MessageDelta { delta, usage } => {
@@ -332,7 +335,8 @@ impl TryFrom<Event> for ChatCompletionMessage {
                 return Err(error.into());
             }
             Event::Ping { cost: Some(cost) } => {
-                // OpenCode Zen sends cost in a ping event at the end of the stream
+                // OpenCode Zen sends cost in a ping event at the end of the
+                // stream
                 let cost_value = match cost {
                     StringOrF64::Number(n) => n,
                     StringOrF64::String(s) => s.parse().unwrap_or(0.0),
@@ -395,8 +399,9 @@ impl TryFrom<ContentBlock> for ChatCompletionMessage {
                 )
             }
             ContentBlock::ToolUse { id, name, input } => {
-                // note: We've to check if the input is empty or null. else we end up adding
-                // empty object `{}` as prefix to tool args.
+                // note: We've to check if the input is empty or null. else we
+                // end up adding empty object `{}` as prefix to
+                // tool args.
                 let is_empty =
                     input.is_null() || input.as_object().is_some_and(|map| map.is_empty());
                 ChatCompletionMessage::assistant(Content::part("")).add_tool_call(ToolCallPart {
@@ -565,8 +570,8 @@ mod tests {
         let expected_prompt = TokenCount::Actual(100 + 200 + 300);
         assert_eq!(actual.prompt_tokens, expected_prompt);
 
-        // cached_tokens should only include cache reads (tokens that benefited from
-        // caching)
+        // cached_tokens should only include cache reads (tokens that benefited
+        // from caching)
         let expected_cached = TokenCount::Actual(300);
         assert_eq!(actual.cached_tokens, expected_cached);
 

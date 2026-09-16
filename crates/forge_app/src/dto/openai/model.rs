@@ -150,8 +150,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_deserialize_model_with_numeric_pricing() {
-        // This reproduces the issue where Chutes API returns numeric pricing instead of
-        // strings
+        // This reproduces the issue where Chutes API returns numeric pricing
+        // instead of strings
         let fixture = load_fixture("model_numeric_pricing.json").await;
 
         let actual = serde_json::from_value::<Model>(fixture).unwrap();
@@ -226,8 +226,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_chutes_api_response_format() {
-        // This simulates the actual Chutes API response format that was causing the
-        // issue
+        // This simulates the actual Chutes API response format that was causing
+        // the issue
         let fixture = load_fixture("chutes_api_response.json").await;
 
         let actual = serde_json::from_value::<ListModelResponse>(fixture).unwrap();
@@ -321,7 +321,8 @@ mod tests {
 
         let domain_model: forge_domain::Model = model.into();
 
-        // When supported_parameters is None, capabilities should be None (unknown)
+        // When supported_parameters is None, capabilities should be None
+        // (unknown)
         assert_eq!(domain_model.tools_supported, None);
         assert_eq!(domain_model.supports_parallel_tool_calls, None);
         assert_eq!(domain_model.supports_reasoning, None);

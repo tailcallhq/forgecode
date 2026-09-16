@@ -65,9 +65,10 @@ impl<S: AgentService> EventHandle<EventData<StartPayload>> for TitleGenerationHa
         )
         .reasoning(event.agent.reasoning.clone());
 
-        // `or_insert_with` holds the shard lock for its entire call. Any occupied
-        // entry — InProgress, Awaiting, or Done — is left untouched, so at most
-        // one task is ever spawned per conversation id.
+        // `or_insert_with` holds the shard lock for its entire call. Any
+        // occupied entry — InProgress, Awaiting, or Done — is left
+        // untouched, so at most one task is ever spawned per
+        // conversation id.
         self.title_tasks.entry(conversation.id).or_insert_with(|| {
             let (tx, rx) = oneshot::channel();
             let handle = tokio::spawn(async move {
