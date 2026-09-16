@@ -46,7 +46,8 @@ fn is_ignored_by_name(path: &Path) -> bool {
         || name_lower.ends_with("-lock.yaml")
         || name_lower.ends_with("-lock.yml")
         || name_lower.ends_with(".lock.json")
-        || name_lower.ends_with(".lockfile") || name == "Package.resolved"
+        || name_lower.ends_with(".lockfile")
+        || name == "Package.resolved"
 }
 
 /// Returns `true` if `path` is a symlink (does not follow the link).
