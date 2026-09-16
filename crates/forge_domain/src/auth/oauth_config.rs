@@ -37,7 +37,8 @@ impl OAuthConfig {
     /// Selects the GitHub host for Copilot device authentication.
     ///
     /// # Arguments
-    /// * `host` - A bare github.com or single-label enterprise.ghe.com hostname.
+    /// * `host` - A bare github.com or single-label enterprise.ghe.com
+    ///   hostname.
     ///
     /// # Errors
     /// Rejects URLs, ports, credentials and unsupported hostnames.
@@ -63,7 +64,8 @@ impl OAuthConfig {
         Ok(self)
     }
 
-    /// Validates persisted Copilot OAuth destinations before sending credentials.
+    /// Validates persisted Copilot OAuth destinations before sending
+    /// credentials.
     ///
     /// # Errors
     /// Rejects any endpoint not belonging to the selected GitHub host.
@@ -82,7 +84,8 @@ impl OAuthConfig {
     /// Validates the browser device verification URL against the selected host.
     ///
     /// # Arguments
-    /// * `url` - The verification URL returned by the device authorization service.
+    /// * `url` - The verification URL returned by the device authorization
+    ///   service.
     ///
     /// # Errors
     /// Rejects non-HTTPS, credential-bearing or cross-host verification URLs.
@@ -94,8 +97,9 @@ impl OAuthConfig {
         Ok(())
     }
 
-    /// Validates the Copilot API base returned by the authenticated token service.
-    /// Enterprise credentials must stay within their own enterprise's domain.
+    /// Validates the Copilot API base returned by the authenticated token
+    /// service. Enterprise credentials must stay within their own
+    /// enterprise's domain.
     ///
     /// # Arguments
     /// * `url` - The API base from the token response or saved credential.

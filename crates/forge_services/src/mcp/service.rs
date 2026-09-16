@@ -103,17 +103,18 @@ where
     async fn ensure_mcp_initialized(&self) -> anyhow::Result<()> {
         let raw_mcp = self.manager.read_mcp_config(None).await?;
 
-        // Fast path: if config is unchanged, skip reinitialization without acquiring
-        // the lock
+        // Fast path: if config is unchanged, skip reinitialization without
+        // acquiring the lock
         if !self.is_config_modified(&raw_mcp).await {
             return Ok(());
         }
 
-        // Serialise concurrent initialisations so only one caller runs update_mcp at a
-        // time
+        // Serialise concurrent initialisations so only one caller runs
+        // update_mcp at a time
         let _guard = self.init_lock.lock().await;
 
-        // Double-check under the lock: a concurrent caller may have already updated
+        // Double-check under the lock: a concurrent caller may have already
+        // updated
         if !self.is_config_modified(&raw_mcp).await {
             return Ok(());
         }
@@ -127,9 +128,9 @@ where
     }
 
     async fn update_mcp(&self, mcp: McpConfig) -> Result<(), anyhow::Error> {
-        // Use the raw config hash (pre-trust-gate) so that is_config_modified always
-        // compares against the original file hash, preventing infinite re-prompt loops
-        // when some servers are rejected.
+        // Use the raw config hash (pre-trust-gate) so that is_config_modified
+        // always compares against the original file hash, preventing
+        // infinite re-prompt loops when some servers are rejected.
         let new_hash = mcp.cache_key();
         self.clear_tools().await;
 
@@ -157,7 +158,8 @@ where
                 Ok(_) => {}
                 Err(error) => {
                     // Format error with full chain for detailed diagnostics
-                    // Using Debug formatting with alternate flag shows the full error chain
+                    // Using Debug formatting with alternate flag shows the full
+                    // error chain
                     let error_string = format!("{error:?}");
                     self.failed_servers
                         .write()
@@ -203,7 +205,8 @@ where
         let tools = self.tools.read().await;
 
         // Try exact match first, then fall back to legacy-format lookup for
-        // tool calls arriving in the Claude Code `mcp__{server}__{tool}` format.
+        // tool calls arriving in the Claude Code `mcp__{server}__{tool}`
+        // format.
         let tool = tools
             .get(&call.name)
             .or_else(|| call.name.to_legacy_mcp_name().and_then(|n| tools.get(&n)))
@@ -221,7 +224,8 @@ where
         // this, clear_tools could run while connections are still being
         // established, leaving waiters released into an empty tool map.
         let _guard = self.init_lock.lock().await;
-        // Clear the infra cache and reset config hash to force re-init on next access
+        // Clear the infra cache and reset config hash to force re-init on next
+        // access
         self.infra.cache_clear().await?;
         *self.previous_config_hash.lock().await = Default::default();
         self.clear_tools().await;
@@ -239,9 +243,10 @@ where
 {
     async fn get_mcp_servers(&self) -> anyhow::Result<McpServers> {
         // Apply the trust gate before computing the cache key so that rejected
-        // servers are excluded. Using the raw config hash would allow a stale KV
-        // cache entry (populated before a rejection) to be returned, bypassing
-        // filter_trusted entirely and leaking rejected tools into requests.
+        // servers are excluded. Using the raw config hash would allow a stale
+        // KV cache entry (populated before a rejection) to be returned,
+        // bypassing filter_trusted entirely and leaking rejected tools
+        // into requests.
         let raw_mcp = self.manager.read_mcp_config(None).await?;
         let trusted_mcp = self.manager.filter_trusted(raw_mcp).await?;
         let config_hash = trusted_mcp.cache_key();
@@ -265,9 +270,10 @@ where
     }
 
     async fn init_mcp(&self) -> anyhow::Result<()> {
-        // Run the trust gate prompt at startup so the user's decision is captured
-        // before any tool use. The result is intentionally discarded — servers are
-        // NOT connected here. Connections remain lazy and happen on first tool use
+        // Run the trust gate prompt at startup so the user's decision is
+        // captured before any tool use. The result is intentionally
+        // discarded — servers are NOT connected here. Connections
+        // remain lazy and happen on first tool use
         // via ensure_mcp_initialized.
         let raw_mcp = self.manager.read_mcp_config(None).await?;
         let _ = self.manager.filter_trusted(raw_mcp).await?;

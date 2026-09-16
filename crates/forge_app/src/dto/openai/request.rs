@@ -324,7 +324,8 @@ impl From<ToolDefinition> for Tool {
                 name: value.name.to_string(),
                 parameters: {
                     let mut params = serde_json::to_value(value.input_schema).unwrap();
-                    // Ensure OpenAI compatibility by adding properties field if missing
+                    // Ensure OpenAI compatibility by adding properties field if
+                    // missing
                     if let Some(obj) = params.as_object_mut()
                         && obj.get("type") == Some(&serde_json::Value::String("object".to_string()))
                         && !obj.contains_key("properties")
@@ -846,9 +847,11 @@ mod tests {
     }
     #[test]
     fn test_tool_definition_conversion_missing_properties() {
-        // Test case where input_schema is an object type but missing properties field
+        // Test case where input_schema is an object type but missing properties
+        // field
         let fixture = {
-            // In schemars 1.0, Schema wraps serde_json::Value, so we create JSON directly
+            // In schemars 1.0, Schema wraps serde_json::Value, so we create
+            // JSON directly
             let schema_value = serde_json::json!({
                 "$schema": "http://json-schema.org/draft-07/schema#",
                 "title": "Null",

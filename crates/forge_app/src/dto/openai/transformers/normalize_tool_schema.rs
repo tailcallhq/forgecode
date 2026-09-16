@@ -26,7 +26,8 @@ impl Transformer for NormalizeToolSchema {
         if let Some(tools) = request.tools.as_mut() {
             for tool in tools.iter_mut() {
                 if let Some(obj) = tool.function.parameters.as_object_mut() {
-                    // Remove tool usage description and title from parameters property
+                    // Remove tool usage description and title from parameters
+                    // property
                     obj.remove("description");
                     obj.remove("title");
                 }

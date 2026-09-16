@@ -35,7 +35,8 @@ fn test_regex_single_slash() {
 #[test]
 fn test_regex_with_backslash_slash() {
     // Test regex with escaped slash at the end
-    // parse_regex treats the regex as a string literal, so backslash is preserved
+    // parse_regex treats the regex as a string literal, so backslash is
+    // preserved
     let fixture = r#"/a\/"#;
     let actual = json_repair::<serde_json::Value>(fixture).unwrap();
     let expected = serde_json::json!(r#"/a\/"#);
@@ -55,11 +56,12 @@ fn test_string_with_colon_at_start() {
 #[test]
 fn test_multibyte_unicode_missing_end_quote() {
     // Triggers index out of bounds in insert_before_last_whitespace_str.
-    // The output buffer contains multi-byte UTF-8 characters (é = 2 bytes each),
-    // so self.output.len() (byte count) > chars.len() (char count).
-    // When the repair path calls insert_before_last_whitespace_str with trailing
-    // whitespace, it initialises `index` from the byte length and then indexes
-    // into a Vec<char> at that byte-length position, panicking.
+    // The output buffer contains multi-byte UTF-8 characters (é = 2 bytes
+    // each), so self.output.len() (byte count) > chars.len() (char count).
+    // When the repair path calls insert_before_last_whitespace_str with
+    // trailing whitespace, it initialises `index` from the byte length and
+    // then indexes into a Vec<char> at that byte-length position,
+    // panicking.
     let fixture = r#""café "#;
     let actual = json_repair::<serde_json::Value>(fixture).unwrap();
     let expected = serde_json::json!("café");
@@ -68,13 +70,14 @@ fn test_multibyte_unicode_missing_end_quote() {
 
 #[test]
 fn test_multibyte_unicode_missing_comma_in_object() {
-    // Triggers index out of bounds in insert_before_last_whitespace_str (line 459).
-    // parse_string first collects `"é,"` and hits the inner `"test"`. The
-    // prev_non_whitespace char is `,`, so it retries with stop_at_index=2
-    // (the comma position). On retry it collects str_content = `"é` (3 bytes,
-    // 2 chars) and hits stop_at_index, calling insert_before_last_whitespace_str.
-    // That function sets index = text.len() = 3 (byte count) and then accesses
-    // chars[index - 1] = chars[2] on a Vec<char> of length 2 — panic.
+    // Triggers index out of bounds in insert_before_last_whitespace_str (line
+    // 459). parse_string first collects `"é,"` and hits the inner `"test"`.
+    // The prev_non_whitespace char is `,`, so it retries with
+    // stop_at_index=2 (the comma position). On retry it collects
+    // str_content = `"é` (3 bytes, 2 chars) and hits stop_at_index, calling
+    // insert_before_last_whitespace_str. That function sets index =
+    // text.len() = 3 (byte count) and then accesses chars[index - 1] =
+    // chars[2] on a Vec<char> of length 2 — panic.
     let fixture = "\"é,\"test\"";
     let actual = json_repair::<serde_json::Value>(fixture).unwrap();
     let expected = serde_json::json!(["é", "test"]);
@@ -83,12 +86,12 @@ fn test_multibyte_unicode_missing_comma_in_object() {
 
 #[test]
 fn test_multibyte_unicode_missing_closing_brace() {
-    // Triggers index out of bounds in insert_before_last_whitespace_str (line 384).
-    // A string with a multi-byte character followed by trailing whitespace and
-    // no closing quote hits the "end of text, missing end quote" repair path.
-    // str_content = `"🎉 ` (6 bytes, 3 chars). insert_before_last_whitespace_str
-    // sets index = text.len() = 6 and accesses chars[5] on a Vec<char> of
-    // length 3 — panic.
+    // Triggers index out of bounds in insert_before_last_whitespace_str (line
+    // 384). A string with a multi-byte character followed by trailing
+    // whitespace and no closing quote hits the "end of text, missing end
+    // quote" repair path. str_content = `"🎉 ` (6 bytes, 3 chars).
+    // insert_before_last_whitespace_str sets index = text.len() = 6 and
+    // accesses chars[5] on a Vec<char> of length 3 — panic.
     let fixture = "\"🎉 ";
     let actual = json_repair::<serde_json::Value>(fixture).unwrap();
     let expected = serde_json::json!("🎉");

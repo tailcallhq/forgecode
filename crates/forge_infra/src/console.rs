@@ -99,9 +99,9 @@ mod tests {
         h1.join().unwrap();
         h2.join().unwrap();
 
-        // Verify output is one of the valid orderings where individual writes are
-        // atomic but sequences can interleave. AAAA must come before BBBB, XXXX
-        // must come before ZZZZ
+        // Verify output is one of the valid orderings where individual writes
+        // are atomic but sequences can interleave. AAAA must come
+        // before BBBB, XXXX must come before ZZZZ
         let actual = printer.stdout.lock().unwrap().get_ref().clone();
         let valid_orderings = [
             b"AAAABBBBXXXXZZZZ".to_vec(), // Thread 1 completes, then Thread 2

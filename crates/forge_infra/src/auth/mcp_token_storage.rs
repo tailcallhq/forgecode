@@ -122,7 +122,8 @@ impl CredentialStore for McpTokenStorage {
                     token_response
                         .set_expires_in(Some(&std::time::Duration::from_secs(expires_at - now)));
                 } else {
-                    // Token has expired - set zero duration so rmcp triggers refresh
+                    // Token has expired - set zero duration so rmcp triggers
+                    // refresh
                     token_response.set_expires_in(Some(&std::time::Duration::from_secs(0)));
                 }
             }

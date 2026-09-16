@@ -75,8 +75,9 @@ impl Range {
         // SearchMatch uses 0-based inclusive line numbers
         // Convert to 0-based array indices
         let start_idx = (search_match.start_line as usize).min(lines.len());
-        // end_line is 0-based inclusive, convert to 0-based exclusive for slicing
-        // Add 1 to make it exclusive: line 0 to line 0 means [0..1], one line
+        // end_line is 0-based inclusive, convert to 0-based exclusive for
+        // slicing Add 1 to make it exclusive: line 0 to line 0 means
+        // [0..1], one line
         let end_idx = ((search_match.end_line as usize) + 1).min(lines.len());
 
         // Find the byte position of the start line.
@@ -98,8 +99,9 @@ impl Range {
                 lines.get(start_idx).map_or(0, |l| l.len())
             }
         } else {
-            // Multi-line match: include newlines between lines but NOT after the last line
-            // Sum lengths of lines from start_idx to end_idx (exclusive)
+            // Multi-line match: include newlines between lines but NOT after
+            // the last line Sum lengths of lines from start_idx to
+            // end_idx (exclusive)
             let content_len: usize = if start_idx >= lines.len() || end_idx > lines.len() {
                 0 // Out of bounds match
             } else {
@@ -108,7 +110,8 @@ impl Range {
                     .map_or(0, |slice| slice.iter().map(|l| l.len()).sum())
             };
             let newlines_between = end_idx - start_idx - 1;
-            // Count actual newline bytes (\r\n = 2, \n = 1) to handle mixed endings
+            // Count actual newline bytes (\r\n = 2, \n = 1) to handle mixed
+            // endings
             let newline_bytes: usize = source
                 .split('\n')
                 .skip(start_idx)
@@ -286,7 +289,8 @@ fn apply_replacement(
                 if (patch.start <= target_patch.start && patch.end() > target_patch.start)
                     || (target_patch.start <= patch.start && target_patch.end() > patch.start)
                 {
-                    // For overlapping ranges, we just do an ordinary replacement
+                    // For overlapping ranges, we just do an ordinary
+                    // replacement
                     let before = haystack.get(..patch.start).ok_or(Error::RangeOutOfBounds(
                         0,
                         patch.start,
@@ -345,7 +349,8 @@ fn apply_replacement(
             }
         }
     } else {
-        // No match (range is None) - treat as empty search (full file operation)
+        // No match (range is None) - treat as empty search (full file
+        // operation)
         match operation {
             // Append to the end of the file
             PatchOperation::Append => Ok(format!("{haystack}{line_ending}{normalized_content}")),

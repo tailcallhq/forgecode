@@ -37,7 +37,8 @@ impl Policy {
             }
             Policy::All { all: and } => {
                 let permissions: Vec<_> = and.iter().map(|policy| policy.eval(operation)).collect();
-                // For AND, we need all policies to pass, return the most restrictive permission
+                // For AND, we need all policies to pass, return the most
+                // restrictive permission
                 permissions
                     .into_iter()
                     .find(|permission| permission.is_some())
@@ -53,7 +54,8 @@ impl Policy {
             }
             Policy::Not { not } => {
                 let inner_permission = not.eval(operation);
-                // For NOT, invert the logic - if inner policy denies, we allow, and vice versa
+                // For NOT, invert the logic - if inner policy denies, we allow,
+                // and vice versa
                 match inner_permission {
                     Some(permission) => {
                         let inverted_permission = match permission {
