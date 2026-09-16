@@ -44,8 +44,9 @@ mod tests {
 
         let actual = get_or_create_client_id().map_err(|error| error.to_string());
 
-        // Minimal containers may not have a system ID. Preserve the error as well
-        // as the ID without requiring host-specific machine identity fixtures.
+        // Minimal containers may not have a system ID. Preserve the error as
+        // well as the ID without requiring host-specific machine
+        // identity fixtures.
         let expected = fixture
             .build(PARAPHRASE)
             .map_err(|error| format!("Failed to generate machine ID: {error}"));

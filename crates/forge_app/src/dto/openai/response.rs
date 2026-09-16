@@ -526,8 +526,9 @@ impl TryFrom<Response> for ChatCompletionMessage {
                     }
 
                     let mut default_response = ChatCompletionMessage::assistant(Content::full(""));
-                    // No choices – this can happen with Ollama/LMStudio streaming where the final
-                    // chunk only contains usage information.
+                    // No choices – this can happen with Ollama/LMStudio
+                    // streaming where the final chunk only
+                    // contains usage information.
                     if let Some(u) = usage {
                         default_response.usage = Some(u.into());
                     }
@@ -667,8 +668,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_kimi_k2_both_reasoning_keys_event() {
-        // moonshotai/Kimi-K2.5-TEE emits both "reasoning" and "reasoning_content"
-        // in the same delta object. This must parse without a duplicate_field error.
+        // moonshotai/Kimi-K2.5-TEE emits both "reasoning" and
+        // "reasoning_content" in the same delta object. This must parse
+        // without a duplicate_field error.
         let fixture = load_fixture("chutes_completion_response.json").await;
         let actual = serde_json::from_value::<Response>(fixture);
         assert!(actual.is_ok(), "Failed to parse: {:?}", actual.err());
@@ -943,7 +945,8 @@ mod tests {
         let actual: Usage = fixture_upstream_wins.into();
         assert_eq!(actual.cost, Some(0.005));
 
-        // Priority 3: partial costs are summed when upstream_inference_cost is None
+        // Priority 3: partial costs are summed when upstream_inference_cost is
+        // None
         let fixture_partial_sum = ResponseUsage {
             prompt_tokens: 100,
             completion_tokens: 50,
@@ -960,8 +963,8 @@ mod tests {
         let actual: Usage = fixture_partial_sum.into();
         assert_eq!(actual.cost, Some(0.005));
 
-        // Priority 4: when upstream_inference_cost is 0 then compute it from other
-        // parameters.
+        // Priority 4: when upstream_inference_cost is 0 then compute it from
+        // other parameters.
         let fixture = ResponseUsage {
             prompt_tokens: 100,
             completion_tokens: 50,

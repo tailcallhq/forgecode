@@ -80,12 +80,13 @@ impl<S: AS> TitleGenerator<S> {
             .await?;
         let ChatCompletionMessageFull { content, .. } = stream.into_full(false).await?;
 
-        // Parse the response - try JSON first (structured output), fallback to plain
-        // text
+        // Parse the response - try JSON first (structured output), fallback to
+        // plain text
         match serde_json::from_str::<TitleResponse>(&content) {
             Ok(response) => Ok(Some(response.title)),
             Err(_) => {
-                // Fallback: Some providers don't support structured output, treat as plain text
+                // Fallback: Some providers don't support structured output,
+                // treat as plain text
                 Ok(Some(content.trim().to_string()))
             }
         }

@@ -134,7 +134,8 @@ impl ConversationRepository for ConversationRepositoryImpl {
         self.run_with_connection(move |connection, wid| {
             let workspace_id = wid.id() as i64;
 
-            // Security: Ensure users can only delete conversations within their workspace
+            // Security: Ensure users can only delete conversations within their
+            // workspace
             diesel::delete(conversations::table)
                 .filter(conversations::workspace_id.eq(&workspace_id))
                 .filter(conversations::conversation_id.eq(conversation_id.into_string()))
@@ -886,9 +887,10 @@ mod tests {
 
         repo.upsert_conversation(conversation.clone()).await?;
 
-        // Try to delete with different workspace ID (should fail due to security)
-        // Note: This test would require modifying workspace ID in repo
-        // For now, we test that deletion works with current workspace
+        // Try to delete with different workspace ID (should fail due to
+        // security) Note: This test would require modifying workspace
+        // ID in repo For now, we test that deletion works with current
+        // workspace
         repo.delete_conversation(&conversation.id).await?;
 
         // Verify it's actually deleted
@@ -904,7 +906,8 @@ mod tests {
         let conversation =
             Conversation::new(conversation_id).title(Some("Test Conversation".to_string()));
 
-        // Test complete workflow: create -> delete -> verify -> create new -> verify
+        // Test complete workflow: create -> delete -> verify -> create new ->
+        // verify
         repo.upsert_conversation(conversation.clone()).await?;
 
         // Delete conversation
@@ -967,8 +970,8 @@ mod tests {
     fn test_legacy_tool_value_pair_deserialization() {
         use crate::conversation::conversation_record::ToolOutputRecord;
 
-        // This JSON represents the old Pair variant format that was stored in the
-        // database
+        // This JSON represents the old Pair variant format that was stored in
+        // the database
         let legacy_json = r#"{
             "is_error": false,
             "values": [

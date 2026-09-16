@@ -175,7 +175,8 @@ where
             .await?;
 
         // Clear the unified cache to force refresh on next use
-        // Since we now use a merged hash, clearing any scope invalidates the cache
+        // Since we now use a merged hash, clearing any scope invalidates the
+        // cache
         self.infra.cache_clear().await?;
 
         Ok(())
@@ -201,7 +202,8 @@ where
             McpConfig::default()
         };
 
-        // Merge: user first, then local (local takes precedence as in read_mcp_config).
+        // Merge: user first, then local (local takes precedence as in
+        // read_mcp_config).
         let mut merged = user_config;
         merged.merge(local_config);
 

@@ -256,7 +256,8 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
                     line = active_style.clone().unwrap_or_default();
                     line_width = 0;
                 }
-                // Push the long word, breaking at width while preserving ANSI codes
+                // Push the long word, breaking at width while preserving ANSI
+                // codes
                 while visible_length(&word) > width {
                     let (chunk, rem) = split_word_at_width(&word, width);
                     if !chunk.is_empty() {

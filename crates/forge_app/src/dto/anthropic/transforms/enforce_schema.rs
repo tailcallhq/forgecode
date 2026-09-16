@@ -37,7 +37,8 @@ impl Transformer for EnforceStrictObjectSchema {
         if let Some(OutputFormat::JsonSchema { schema }) = request.output_format.take() {
             // Convert schema to JSON value for normalization
             if let Ok(mut schema_value) = serde_json::to_value(&schema) {
-                // Use non-strict mode (false) for Anthropic - only adds additionalProperties
+                // Use non-strict mode (false) for Anthropic - only adds
+                // additionalProperties
                 enforce_strict_schema(&mut schema_value, false);
 
                 // Convert back to RootSchema

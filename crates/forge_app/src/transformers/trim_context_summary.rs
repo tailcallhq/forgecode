@@ -394,8 +394,8 @@ mod tests {
         )]);
         let actual = TrimContextSummary.transform(fixture);
 
-        // Shell commands break the deduplication chain, so both reads of /test.rs are
-        // preserved
+        // Shell commands break the deduplication chain, so both reads of
+        // /test.rs are preserved
         let expected = ContextSummary::new(vec![SummaryBlock::new(
             Role::Assistant,
             vec![
@@ -424,8 +424,9 @@ mod tests {
         )]);
         let actual = TrimContextSummary.transform(fixture);
 
-        // Shell commands break the deduplication chain - all reads are preserved
-        // because shell commands are interspersed between them
+        // Shell commands break the deduplication chain - all reads are
+        // preserved because shell commands are interspersed between
+        // them
         let expected = ContextSummary::new(vec![SummaryBlock::new(
             Role::Assistant,
             vec![

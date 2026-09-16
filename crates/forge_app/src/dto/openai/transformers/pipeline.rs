@@ -48,8 +48,8 @@ impl Transformer for ProviderPipeline<'_> {
         let provider = self.provider;
         let merge_system_messages = self.merge_system_messages;
 
-        // Z.ai transformer must run before MakeOpenAiCompat which removes reasoning
-        // field
+        // Z.ai transformer must run before MakeOpenAiCompat which removes
+        // reasoning field
         let zai_thinking = SetZaiThinking.when(move |_| is_zai_provider(provider));
 
         let or_transformers = DefaultTransformation::<Request>::new()
@@ -482,8 +482,9 @@ mod tests {
     fn test_merge_system_messages_flag_merges_for_any_provider() {
         use crate::dto::openai::{Message, MessageContent, Role};
 
-        // Use a plain OpenAI provider — it would NOT merge system messages by default.
-        // The global `merge_system_messages = true` flag must trigger the merge.
+        // Use a plain OpenAI provider — it would NOT merge system messages by
+        // default. The global `merge_system_messages = true` flag must
+        // trigger the merge.
         let provider = openai("openai-key");
         let fixture = Request::default().messages(vec![
             Message {
@@ -864,7 +865,8 @@ mod tests {
         let mut pipeline = ProviderPipeline::new(&provider, false);
         let actual = pipeline.transform(fixture);
 
-        // Thought signature should be stripped for gemini-2 models (not gemini-3)
+        // Thought signature should be stripped for gemini-2 models (not
+        // gemini-3)
         let messages = actual.messages.unwrap();
         assert!(messages[0].extra_content.is_none());
     }

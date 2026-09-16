@@ -68,7 +68,8 @@ mod tests {
     #[test]
     fn test_handles_server_name_containing_tool_substring() {
         // Server named "my_tool_server", tool named "action"
-        // rfind gives the LAST `_tool_`, so server = "my_tool_server", tool = "action"
+        // rfind gives the LAST `_tool_`, so server = "my_tool_server", tool =
+        // "action"
         let actual = to_claude_code_format("mcp_my_tool_server_tool_action");
         let expected = "mcp__my_tool_server__action";
         assert_eq!(actual, expected);
@@ -76,7 +77,8 @@ mod tests {
 
     #[test]
     fn test_leaves_already_converted_names_unchanged() {
-        // mcp__ prefix means it was already converted; no `_tool_` in sanitized names
+        // mcp__ prefix means it was already converted; no `_tool_` in sanitized
+        // names
         let actual = to_claude_code_format("mcp__github__create_issue");
         let expected = "mcp__github__create_issue";
         assert_eq!(actual, expected);

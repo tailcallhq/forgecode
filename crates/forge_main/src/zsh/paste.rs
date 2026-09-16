@@ -548,9 +548,9 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-    // Verifies that Cyrillic text with multi-byte UTF-8 characters doesn't panic
-    // when pasting. The original bug was caused by unsafe string slicing at byte
-    // boundaries inside multi-byte UTF-8 characters.
+    // Verifies that Cyrillic text with multi-byte UTF-8 characters doesn't
+    // panic when pasting. The original bug was caused by unsafe string
+    // slicing at byte boundaries inside multi-byte UTF-8 characters.
     #[test]
     fn test_wrap_pasted_text_cyrillic_no_crash() {
         let fixture = "Проверь ПОЛНОСТЬЮ этот проект на соответствие КАЖДОГО пункта функционала исходному тексту задачи";
@@ -558,8 +558,8 @@ mod tests {
         let actual = wrap_pasted_text(fixture);
         eprintln!("DEBUG: actual output = {:?}", actual);
         // The text should be preserved (it contains no absolute paths)
-        // The important thing is this doesn't panic with "byte index is not a char
-        // boundary"
+        // The important thing is this doesn't panic with "byte index is not a
+        // char boundary"
         assert!(!actual.is_empty());
         assert!(actual.starts_with("Проверь"));
     }

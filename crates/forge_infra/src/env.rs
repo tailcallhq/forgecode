@@ -133,7 +133,8 @@ impl EnvironmentInfra for ForgeEnvironmentInfra {
     }
 
     async fn update_environment(&self, ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
-        // Load the global config (with defaults applied) for the update round-trip
+        // Load the global config (with defaults applied) for the update
+        // round-trip
         let mut fc = ConfigReader::default()
             .read_defaults()
             .read_global()
@@ -148,7 +149,8 @@ impl EnvironmentInfra for ForgeEnvironmentInfra {
         fc.write()?;
         debug!(config = ?fc, "written .forge.toml");
 
-        // Reset cache so next get_config() re-reads the updated values from disk
+        // Reset cache so next get_config() re-reads the updated values from
+        // disk
         *self.cache.lock().expect("cache mutex poisoned") = None;
 
         Ok(())
@@ -193,8 +195,9 @@ mod tests {
     #[test]
     fn test_to_environment_falls_back_to_home_dir_when_env_var_absent() {
         let actual = to_environment(PathBuf::from("/any/cwd"));
-        // Without FORGE_CONFIG the base_path must be either ".forge" (new default)
-        // or "forge" (legacy fallback when ~/forge exists on this machine).
+        // Without FORGE_CONFIG the base_path must be either ".forge" (new
+        // default) or "forge" (legacy fallback when ~/forge exists on
+        // this machine).
         let name = actual.base_path.file_name().unwrap();
         assert!(
             name == ".forge" || name == "forge",
