@@ -473,6 +473,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                 }
                 return Ok(());
             }
+            TopLevelCommand::Machine(_) => {
+                unreachable!("`forge machine` is dispatched in main before the UI starts")
+            }
             TopLevelCommand::List(list_group) => {
                 let porcelain = list_group.porcelain;
                 match list_group.command {
