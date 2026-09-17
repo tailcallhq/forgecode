@@ -113,10 +113,10 @@ impl Compactor {
         // chains. After compaction, this consistency can break if the first
         // remaining assistant lacks reasoning.
         //
-        // Solution: Extract the LAST reasoning from compacted messages and inject it
-        // into the first assistant message after compaction. This preserves
-        // chain continuity while preventing exponential accumulation across
-        // multiple compactions.
+        // Solution: Extract the LAST reasoning from compacted messages and
+        // inject it into the first assistant message after compaction.
+        // This preserves chain continuity while preventing exponential
+        // accumulation across multiple compactions.
         //
         // Example: [U, A+r, U, A+r, U, A] → compact → [U-summary, A+r, U, A]
         //                                                          └─from last
@@ -133,8 +133,8 @@ impl Compactor {
                 _ => None,
             });
 
-        // Accumulate usage from all messages in the compaction range before they are
-        // destroyed
+        // Accumulate usage from all messages in the compaction range before
+        // they are destroyed
         let compacted_usage = context.messages.get(start..=end).and_then(|slice| {
             slice
                 .iter()
@@ -143,7 +143,8 @@ impl Compactor {
                 .reduce(|a, b| a.accumulate(&b))
         });
 
-        // Replace the range with the summary, transferring the accumulated usage
+        // Replace the range with the summary, transferring the accumulated
+        // usage
         let mut summary_entry = MessageEntry::from(ContextMessage::user(summary, None));
         summary_entry.usage = compacted_usage;
         context
@@ -289,7 +290,8 @@ mod tests {
 
         let context = compactor.compress_single_sequence(context, (0, 2)).unwrap();
 
-        // Verify reasoning didn't accumulate - should still be just 1 reasoning block
+        // Verify reasoning didn't accumulate - should still be just 1 reasoning
+        // block
         let first_assistant = context
             .messages
             .iter()
@@ -318,7 +320,8 @@ mod tests {
             ..Default::default()
         }];
 
-        // Most recent message in range has empty reasoning, earlier has non-empty
+        // Most recent message in range has empty reasoning, earlier has
+        // non-empty
         let context = Context::default()
             .add_message(ContextMessage::user("M1", None))
             .add_message(ContextMessage::assistant(
@@ -647,8 +650,9 @@ mod tests {
             "Summary message should carry accumulated usage from compacted messages"
         );
 
-        // accumulate_usage() must sum both the compacted range usage (on the summary
-        // message) and the surviving outside_usage — total = inside + inside2 + outside
+        // accumulate_usage() must sum both the compacted range usage (on the
+        // summary message) and the surviving outside_usage — total =
+        // inside + inside2 + outside
         let expected_total_usage = Usage {
             total_tokens: TokenCount::Actual(100000),
             prompt_tokens: TokenCount::Actual(90000),
@@ -855,17 +859,19 @@ mod tests {
         // - Safe threshold (89.6K): ~95K tokens, SHOULD compact (true)
         //
         // At turn 2:
-        // - Unsafe threshold (100K): ~110K tokens, SHOULD compact (true) - but too
-        //   late!
+        // - Unsafe threshold (100K): ~110K tokens, SHOULD compact (true) - but
+        //   too late!
         // - Safe threshold (89.6K): ~110K tokens, already compacted at turn 1
 
-        // Verify that safe threshold triggers at turn 1 (providing early warning)
+        // Verify that safe threshold triggers at turn 1 (providing early
+        // warning)
         let safe_token_count_turn1 = 95_000; // Approximate
         let safe_should_compact_turn1 =
             safe_compact.should_compact(&safe_context, safe_token_count_turn1);
 
-        // The key fix: safe threshold (89.6K) triggers at ~95K, while unsafe (100K)
-        // doesn't This provides a safety margin before we hit the 128K limit
+        // The key fix: safe threshold (89.6K) triggers at ~95K, while unsafe
+        // (100K) doesn't This provides a safety margin before we hit
+        // the 128K limit
         assert!(
             safe_should_compact_turn1 || safe_token_count_turn1 < 89_600,
             "Safe threshold (89.6K) should trigger compaction at ~95K tokens to provide safety margin"
@@ -876,8 +882,8 @@ mod tests {
         let final_unsafe = unsafe_context.token_count_approx();
         let final_safe = safe_context.token_count_approx();
 
-        // Both should be identical since we're just testing threshold logic, not actual
-        // compaction
+        // Both should be identical since we're just testing threshold logic,
+        // not actual compaction
         assert_eq!(
             final_unsafe, final_safe,
             "Both contexts should have same token count"

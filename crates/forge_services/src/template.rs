@@ -184,8 +184,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Expected: Result should contain the rendered system info with substituted
-        // values
+        // Expected: Result should contain the rendered system info with
+        // substituted values
         assert!(actual.contains("<operating_system>test-os</operating_system>"));
         assert!(actual.contains("file1.txt"));
         assert!(actual.contains("file2.txt"));
@@ -204,7 +204,8 @@ mod tests {
         hb.register_template("test", template);
         let actual = hb.render("test", &test_data).unwrap();
 
-        // Expected: Should render the handlebars template with substituted values
+        // Expected: Should render the handlebars template with substituted
+        // values
         let expected = "Hello World!";
         assert_eq!(actual, expected);
     }

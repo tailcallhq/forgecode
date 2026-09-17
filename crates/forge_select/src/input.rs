@@ -74,8 +74,9 @@ impl InputBuilder {
 
         let mut rl = DefaultEditor::new()?;
 
-        // On Windows, rustyline miscounts ANSI escape bytes as visible characters,
-        // causing incorrect cursor placement and extra space before the editor.
+        // On Windows, rustyline miscounts ANSI escape bytes as visible
+        // characters, causing incorrect cursor placement and extra
+        // space before the editor.
         let prompt_str = if cfg!(windows) {
             format!("? {}: ", self.message)
         } else {

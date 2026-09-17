@@ -29,11 +29,13 @@ impl Transformer for MakeOpenAiCompat {
             .is_some_and(|tools| !tools.is_empty());
 
         if !tools_present {
-            // drop `parallel_tool_calls` field if tools are not passed to the request.
+            // drop `parallel_tool_calls` field if tools are not passed to the
+            // request.
             request.parallel_tool_calls = None;
         }
 
-        // OpenAI has deprecated `max_tokens`, now it is `max_completion_tokens`.
+        // OpenAI has deprecated `max_tokens`, now it is
+        // `max_completion_tokens`.
         request.max_completion_tokens = request.max_tokens.take();
 
         request

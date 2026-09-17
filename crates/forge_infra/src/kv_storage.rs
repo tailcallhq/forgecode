@@ -94,15 +94,17 @@ impl forge_app::KVStore for CacacheStorage {
                     }
                     Err(_) => {
                         // Failed to deserialize (likely due to format change)
-                        // Clear the invalid cache entry to maintain backward compatibility
+                        // Clear the invalid cache entry to maintain backward
+                        // compatibility
                         let _ = cacache::remove(&self.cache_dir, &key_str).await;
                         Ok(None)
                     }
                 }
             }
             Err(e) => {
-                // Check if error is NotFound by converting to string and checking message
-                // cacache errors don't have a kind() method
+                // Check if error is NotFound by converting to string and
+                // checking message cacache errors don't have a
+                // kind() method
                 let error_str = e.to_string();
                 if error_str.contains("not found") || error_str.contains("NotFound") {
                     Ok(None)

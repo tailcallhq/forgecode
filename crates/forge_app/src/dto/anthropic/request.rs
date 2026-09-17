@@ -129,8 +129,9 @@ impl TryFrom<forge_domain::Context> for Request {
         // a positive effort / `max_tokens` still emit reasoning on the wire.
         let reasoning_on = request.is_reasoning_supported();
         let (thinking, output_config) = if reasoning_on && let Some(reasoning) = request.reasoning {
-            // Adaptive thinking on 4.7 hides reasoning content by default; opting
-            // into reasoning should surface it unless the caller set `exclude`.
+            // Adaptive thinking on 4.7 hides reasoning content by default;
+            // opting into reasoning should surface it unless the
+            // caller set `exclude`.
             let adaptive_display = if reasoning.exclude == Some(true) {
                 Some(ThinkingDisplay::Omitted)
             } else {
@@ -185,7 +186,8 @@ impl TryFrom<forge_domain::Context> for Request {
             output_config,
             output_format: request.response_format.and_then(|rf| match rf {
                 forge_domain::ResponseFormat::Text => {
-                    // Anthropic doesn't have a "text" output format, so we skip it
+                    // Anthropic doesn't have a "text" output format, so we skip
+                    // it
                     None
                 }
                 forge_domain::ResponseFormat::JsonSchema(schema) => {
@@ -260,7 +262,8 @@ impl TryFrom<ContextMessage> for Message {
                     forge_domain::Role::User => Message { role: Role::User, content },
                     forge_domain::Role::Assistant => Message { role: Role::Assistant, content },
                     forge_domain::Role::System => {
-                        // note: Anthropic doesn't support system role messages and they're already
+                        // note: Anthropic doesn't support system role messages
+                        // and they're already
                         // filtered out. so this state is unreachable.
                         return Err(
                             forge_domain::Error::UnsupportedRole("System".to_string()).into()
@@ -285,7 +288,8 @@ impl Message {
             *content = std::mem::take(content).cached(false);
         }
 
-        // If enabling cache, set cache control on the last cacheable content item
+        // If enabling cache, set cache control on the last cacheable content
+        // item
         if enable_cache
             && let Some(last_cacheable_idx) =
                 self.content
@@ -592,7 +596,8 @@ mod tests {
 
     #[test]
     fn test_reasoning_max_tokens_and_effort_emit_both() {
-        // Effort and budget are independent knobs — neither should hide the other.
+        // Effort and budget are independent knobs — neither should hide the
+        // other.
         let fixture = Context::default().reasoning(ReasoningConfig {
             effort: Some(forge_domain::Effort::Low),
             enabled: Some(true),
@@ -735,9 +740,9 @@ mod tests {
 
     #[test]
     fn test_reasoning_enabled_none_with_max_tokens_still_emits_thinking() {
-        // Matches the domain's `is_reasoning_supported` rule: enabled: None with a
-        // positive budget counts as on, so inherited/merged configs don't silently
-        // disable reasoning on the wire.
+        // Matches the domain's `is_reasoning_supported` rule: enabled: None
+        // with a positive budget counts as on, so inherited/merged
+        // configs don't silently disable reasoning on the wire.
         let fixture = Context::default().reasoning(ReasoningConfig {
             enabled: None,
             max_tokens: Some(8000),

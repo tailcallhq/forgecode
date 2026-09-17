@@ -71,7 +71,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
         if let Some(operation) = operation {
             let decision = self.services.check_operation_permission(&operation).await?;
 
-            // Send custom policy message to the user when a policy file was created
+            // Send custom policy message to the user when a policy file was
+            // created
             if let Some(policy_path) = decision.path {
                 use forge_domain::TitleFormat;
 
@@ -137,8 +138,9 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
                 context.send(content).await?;
             }
 
-            // Check permissions before executing the tool (only in restricted mode)
-            // This is done BEFORE the timeout to ensure permissions are never timed out
+            // Check permissions before executing the tool (only in restricted
+            // mode) This is done BEFORE the timeout to ensure
+            // permissions are never timed out
             let is_restricted = self.services.get_config()?.restricted;
             if is_restricted && self.check_tool_permission(&tool_input, context).await? {
                 // Send formatted output message for policy denial
@@ -153,7 +155,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
             }
 
             // Validate tool modality support before execution
-            // Only resolve the current model when modality validation is needed.
+            // Only resolve the current model when modality validation is
+            // needed.
             if matches!(&tool_input, ToolCatalog::Read(input) if Self::has_image_extension(&input.file_path))
             {
                 let model = self.get_current_model().await;
@@ -259,7 +262,8 @@ impl<S: Services + EnvironmentInfra<Config = forge_config::ForgeConfig>> ToolReg
         // Build TemplateConfig from ForgeConfig for tool description templates
         let config = self.services.get_config()?;
 
-        // Filter out research subagents from task tool description when disabled
+        // Filter out research subagents from task tool description when
+        // disabled
         if !config.research_subagent {
             agents.retain(|agent| {
                 let id = agent.id.as_str();
@@ -306,7 +310,8 @@ impl<S> ToolRegistry<S> {
         // Build tool_names map from all available tools
         let tool_names: Map<String, Value> = ToolCatalog::iter()
             .filter(|tool| {
-                // Only include tools that are supported (filter sem_search if not supported)
+                // Only include tools that are supported (filter sem_search if
+                // not supported)
                 if matches!(tool, ToolCatalog::SemSearch(_)) {
                     sem_search_supported
                 } else {
@@ -603,9 +608,9 @@ mod tests {
         let actual =
             ToolRegistry::<()>::validate_tool_call(&fixture, &ToolName::new("tool_[special]"));
 
-        // The glob pattern "tool_[special]" will match "tool_s", "tool_p", etc., not
-        // the literal string So this test verifies that exact matching doesn't
-        // work when the pattern is a valid glob
+        // The glob pattern "tool_[special]" will match "tool_s", "tool_p",
+        // etc., not the literal string So this test verifies that exact
+        // matching doesn't work when the pattern is a valid glob
         assert!(actual.is_err());
     }
 
@@ -1096,7 +1101,8 @@ fn test_all_rendered_tool_descriptions() {
     }
 
     // Snapshot all rendered tool descriptions for visual verification
-    // This will fail if a tool is renamed and descriptions reference the old name
+    // This will fail if a tool is renamed and descriptions reference the old
+    // name
     let all_descriptions: Vec<_> = tools
         .iter()
         .map(|t| format!("### {}\n\n{}\n", t.name, t.description))

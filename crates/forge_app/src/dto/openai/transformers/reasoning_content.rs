@@ -30,7 +30,8 @@ impl Transformer for ReasoningContent {
                     // Set flat field
                     message.reasoning_content = reasoning_content;
 
-                    // Remove reasoning_details array because target providers do not accept it
+                    // Remove reasoning_details array because target providers
+                    // do not accept it
                     message.reasoning_details = None;
                 }
             }
