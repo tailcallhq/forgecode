@@ -13,3 +13,6 @@ derive_setters.workspace = true
 
 [dev-dependencies]
 
+
+[lints]
+workspace = true

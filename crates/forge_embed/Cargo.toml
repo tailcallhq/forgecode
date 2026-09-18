@@ -8,3 +8,6 @@ rust-version.workspace = true
 include_dir.workspace = true
 handlebars.workspace = true
 anyhow.workspace = true
+
+[lints]
+workspace = true

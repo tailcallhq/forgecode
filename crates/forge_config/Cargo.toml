@@ -26,3 +26,6 @@ is_ci.workspace = true
 pretty_assertions.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

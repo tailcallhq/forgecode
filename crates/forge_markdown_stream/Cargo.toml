@@ -23,3 +23,6 @@ terminal-colorsaurus = "1.0.3"
 insta.workspace = true
 strip-ansi-escapes.workspace = true
 pretty_assertions.workspace = true
+
+[lints]
+workspace = true

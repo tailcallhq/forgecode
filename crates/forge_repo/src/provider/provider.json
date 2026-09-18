@@ -4465,6 +4465,16 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "muse-spark-1.2",
+        "name": "Muse Spark 1.2",
+        "description": "Meta's latest multimodal model for agentic tool calling, coding, structured output, image and video understanding, and long-context reasoning",
+        "context_length": 1048576,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key"]
