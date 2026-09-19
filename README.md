@@ -591,6 +591,16 @@ ORCAROUTER_API_KEY=<your_orcarouter_api_key>
 </details>
 
 <details>
+<summary><strong>Cheaper Inference</strong></summary>
+
+```bash
+# .env
+CHEAPERINFERENCE_API_KEY=<your_cheaperinference_api_key>
+```
+
+</details>
+
+<details>
 <summary><strong>Meta</strong></summary>
 
 ```bash
