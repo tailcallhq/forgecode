@@ -3474,13 +3474,25 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             return Ok(None);
         }
         // Select auth method (or use the only one available)
-        let auth_method = match self
+        let mut auth_method = match self
             .select_auth_method(provider_id.clone(), &auth_methods)
             .await?
         {
             Some(method) => method,
             None => return Ok(None), // User cancelled
         };
+
+        if provider_id == ProviderId::GITHUB_COPILOT
+            && let AuthMethod::OAuthDevice(config) = &auth_method
+        {
+            let Some(host) = ForgeWidget::input("GitHub host (github.com or <enterprise>.ghe.com)")
+                .with_default("github.com")
+                .prompt()?
+            else {
+                return Ok(None);
+            };
+            auth_method = AuthMethod::OAuthDevice(config.clone().with_copilot_host(&host)?);
+        }
 
         // Show warning for Claude Code provider about account ban risk
         if provider_id == ProviderId::CLAUDE_CODE {
