@@ -169,7 +169,13 @@ pub mod tests {
         }
 
         fn get_config(&self) -> anyhow::Result<forge_config::ForgeConfig> {
-            Ok(forge_config::ForgeConfig { max_read_lines: 2000, ..Default::default() })
+            Ok(forge_config::ForgeConfig {
+                max_read_lines: 2000,
+                max_line_chars: 2000,
+                max_file_size_bytes: 104_857_600,
+                max_image_size_bytes: 262_144,
+                ..Default::default()
+            })
         }
 
         async fn update_environment(&self, _ops: Vec<ConfigOperation>) -> anyhow::Result<()> {
