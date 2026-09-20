@@ -38,7 +38,7 @@ convert_case = "0.12.0"
 derive_more = { version = "2.1.1", features = ["from", "display", "debug", "deref", "as_ref", "try_into"] }
 enable-ansi-support = "0.3.1"
 derive_setters = "0.1.9"
-dirs = "6.0.0"
+dirs = "7.0.0"
 dissimilar = "1.0.9"
 dotenvy = "0.15.7"
 futures = "0.3.32"
