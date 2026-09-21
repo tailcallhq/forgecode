@@ -8,6 +8,11 @@ version = "0.1.0"
 rust-version = "1.94"
 edition = "2024"
 
+[workspace.lints.clippy]
+# #[async_trait] generates methods returning Pin<Box<dyn Future>> with an
+# implicit #[must_use]; newer clippy nightlies flag this as double_must_use.
+double_must_use = "allow"
+
 [profile.release]
 lto = true
 codegen-units = 1

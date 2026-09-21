@@ -18,3 +18,5 @@ forge_domain.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
 tempfile.workspace = true
+[lints]
+workspace = true

@@ -58,3 +58,6 @@ serial_test = "4.0"
 fake = { version = "5.1.0", features = ["derive"] }
 pretty_assertions.workspace = true
 forge_domain = { path = "../forge_domain" }
+
+[lints]
+workspace = true
