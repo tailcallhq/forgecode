@@ -2447,7 +2447,6 @@ dependencies = [
  "bstr",
  "forge_domain",
  "hex",
- "infer",
  "pretty_assertions",
  "sha2 0.11.0",
  "tempfile",
