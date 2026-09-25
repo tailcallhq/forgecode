@@ -67,6 +67,36 @@ impl<R> ForgeProviderService<R> {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Provider has no credential"))?;
 
+        // An enterprise token must never fall back to the public Copilot API.
+        // Revalidate persisted destinations before model listing or inference.
+        if template_provider.id == ProviderId::GITHUB_COPILOT
+            && let Some(config) = credential.oauth_config()
+        {
+            config.validate_copilot()?;
+            let key = "copilot_api_url".to_string().into();
+            let api_url = match credential.url_params.get(&key) {
+                Some(value) => Url::parse(value.as_str())?,
+                None if config.auth_url.host_str() == Some("github.com") => {
+                    Url::parse("https://api.githubcopilot.com")?
+                }
+                None => anyhow::bail!(
+                    "Enterprise Copilot credential is missing its API endpoint; log in again"
+                ),
+            };
+            config.validate_copilot_api(&api_url)?;
+            return Ok(Provider {
+                id: template_provider.id,
+                provider_type: template_provider.provider_type,
+                response: template_provider.response,
+                url: api_url.join("chat/completions")?,
+                models: Some(ModelSource::Url(api_url.join("models")?)),
+                auth_methods: template_provider.auth_methods,
+                url_params: template_provider.url_params,
+                credential: template_provider.credential,
+                custom_headers: template_provider.custom_headers,
+            });
+        }
+
         // Render main URL
         let url = self.render_url_template(
             &template_provider.url.template,
@@ -275,6 +305,76 @@ mod tests {
                 Template::<forge_domain::URLParameters>::new("https://api.openai.com/v1/models"),
             )),
             custom_headers: None,
+        }
+    }
+
+    fn copilot_fixture(host: &str, api_url: Option<&str>) -> ProviderTemplate {
+        let config: forge_domain::OAuthConfig = serde_json::from_value(serde_json::json!({
+            "auth_url": "https://github.com/login/device/code",
+            "token_url": "https://github.com/login/oauth/access_token",
+            "client_id": "test-client", "scopes": []
+        }))
+        .unwrap();
+        let tokens =
+            forge_domain::OAuthTokens::new("fake-oauth", None::<String>, chrono::Utc::now());
+        let mut credential = AuthCredential::new_oauth_with_api_key(
+            ProviderId::GITHUB_COPILOT,
+            tokens,
+            "fake-api".to_string().into(),
+            config.with_copilot_host(host).unwrap(),
+        );
+        if let Some(url) = api_url {
+            credential
+                .url_params
+                .insert("copilot_api_url".to_string().into(), url.to_string().into());
+        }
+        let mut fixture = test_template_provider();
+        fixture.id = ProviderId::GITHUB_COPILOT;
+        fixture.credential = Some(credential);
+        fixture
+    }
+
+    #[test]
+    fn copilot_renders_default_and_enterprise_endpoints() {
+        let service = ForgeProviderService::new(Arc::new(()));
+        for (host, endpoint, expected) in [
+            (
+                "github.com",
+                None,
+                (
+                    "https://api.githubcopilot.com/chat/completions",
+                    "https://api.githubcopilot.com/models",
+                ),
+            ),
+            (
+                "company.ghe.com",
+                Some("https://copilot-api.company.ghe.com"),
+                (
+                    "https://copilot-api.company.ghe.com/chat/completions",
+                    "https://copilot-api.company.ghe.com/models",
+                ),
+            ),
+        ] {
+            let fixture = copilot_fixture(host, endpoint);
+            let actual = service.render_provider(fixture).unwrap();
+            let Some(ModelSource::Url(models)) = actual.models else {
+                unreachable!()
+            };
+            assert_eq!((actual.url.as_str(), models.as_str()), expected);
+        }
+    }
+
+    #[test]
+    fn copilot_rejects_missing_or_cross_enterprise_endpoint() {
+        let service = ForgeProviderService::new(Arc::new(()));
+        for endpoint in [
+            None,
+            Some("https://api.githubcopilot.com"),
+            Some("https://copilot-api.other.ghe.com"),
+        ] {
+            let fixture = copilot_fixture("company.ghe.com", endpoint);
+            let actual = service.render_provider(fixture);
+            assert!(actual.is_err());
         }
     }
 
