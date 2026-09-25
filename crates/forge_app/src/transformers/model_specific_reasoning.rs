@@ -35,8 +35,8 @@ impl ModelSpecificReasoning {
             || id.contains("mythos")
             || id.contains("fable")
         {
-            // Opus 5 and Opus 4.8 share Opus 4.7's API contract: adaptive
-            // thinking only (legacy `budget_tokens` returns 400)
+            // Opus 5.5, Opus 5 and Opus 4.8 share Opus 4.7's API contract:
+            // adaptive thinking only (legacy `budget_tokens` returns 400)
             // and non-default sampling params (`temperature`/
             // `top_p`/`top_k`) return 400.
             AnthropicModelFamily::AdaptiveOnly
@@ -202,6 +202,30 @@ mod tests {
         });
 
         let actual = ModelSpecificReasoning::new("claude-opus-5").transform(fixture);
+
+        let expected = Context::default().reasoning(ReasoningConfig {
+            enabled: Some(true),
+            max_tokens: None,
+            effort: Some(Effort::XHigh),
+            exclude: Some(true),
+        });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_opus_5_5_drops_max_tokens_and_sampling_params() {
+        // Opus 5.5 keeps adaptive thinking permanently on: a legacy
+        // `budget_tokens` budget returns 400, and non-default sampling
+        // params return 400, same as Opus 5.
+        let fixture = fixture_context_with_sampling().reasoning(ReasoningConfig {
+            enabled: Some(true),
+            max_tokens: Some(8000),
+            effort: Some(Effort::XHigh),
+            exclude: Some(true),
+        });
+
+        let actual = ModelSpecificReasoning::new("claude-opus-5-5").transform(fixture);
 
         let expected = Context::default().reasoning(ReasoningConfig {
             enabled: Some(true),

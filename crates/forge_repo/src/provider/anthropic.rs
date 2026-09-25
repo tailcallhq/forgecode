@@ -92,8 +92,8 @@ impl<H: HttpInfra> Anthropic<H> {
 }
 
 /// Returns false when the model auto-enables interleaved thinking through
-/// adaptive thinking (Opus 5, Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 5, Sonnet
-/// 4.6). When
+/// adaptive thinking (Opus 5.5, Opus 5, Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 5,
+/// Sonnet 4.6). When
 /// the model is unknown (e.g., listing endpoints), the flag is included because
 /// it is harmless on non-chat endpoints and necessary on older chat models.
 fn interleaved_thinking_required(model: Option<&ModelId>) -> bool {
@@ -843,6 +843,7 @@ mod tests {
         );
 
         for model_id in [
+            "claude-opus-5-5",
             "claude-opus-5",
             "claude-opus-4-8",
             "claude-opus-4-7",
