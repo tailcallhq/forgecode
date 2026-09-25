@@ -4468,5 +4468,14 @@
       }
     ],
     "auth_methods": ["api_key"]
+  },
+  {
+    "id": "cheaper_inference",
+    "api_key_vars": "CHEAPERINFERENCE_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.cheaperinference.com/v1/chat/completions",
+    "models": "https://api.cheaperinference.com/v1/models",
+    "auth_methods": ["api_key"]
   }
 ]
