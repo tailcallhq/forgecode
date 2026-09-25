@@ -71,6 +71,38 @@ forge
 ```
 That's it! Forge is now ready to assist you with your development tasks.
 
+### Windows (Scoop)
+
+With [Scoop](https://scoop.sh/) installed, add this repository as a bucket and install the native x64 or ARM64 CLI:
+
+```powershell
+scoop bucket add forgecode https://github.com/tailcallhq/forgecode
+scoop install forgecode/forge
+forge --help
+```
+
+Use the bucket-qualified name above to avoid unrelated packages named `forge`. This installs the CLI, not the ZSH plugin. For Scoop-managed installations, close running Forge sessions and use Scoop rather than Forge's built-in updater:
+
+```powershell
+scoop update
+scoop update forge
+# Or update all Scoop-managed applications:
+scoop update *
+
+# Remove the CLI and its Scoop shim:
+scoop uninstall forge
+```
+
+Uninstalling does not remove Forge's user configuration or conversations.
+
+**Bucket maintenance:** `scoop update` reads the committed version in `bucket/forge.json`; it does not run `checkver` or `autoupdate`. After both Windows release assets are available, maintainers can run Scoop's updater from the repository root, review the version/URLs/hashes, test on Windows, and commit the updated manifest:
+
+```powershell
+& "$(scoop prefix scoop)\bin\checkver.ps1" -App forge -Dir .\bucket -Update
+```
+
+The manifest includes update templates for both architectures. Publishing updated manifests is a maintainer step; no release automation is added here.
+
 ## Usage Examples
 
 Forge can be used in different ways depending on your needs. Here are some common usage patterns:
