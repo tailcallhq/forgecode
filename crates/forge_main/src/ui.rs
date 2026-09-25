@@ -2166,6 +2166,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
 
     async fn on_command(&mut self, command: AppCommand) -> anyhow::Result<bool> {
         match command {
+            AppCommand::Rewind => self.on_rewind(false, false).await?,
+            AppCommand::Redo => self.on_rewind(true, false).await?,
+            AppCommand::RewindRecover => self.on_rewind(false, true).await?,
             AppCommand::Conversations { id } => {
                 if let Some(raw_id) = id {
                     let conversation_id = ConversationId::parse(&raw_id)
@@ -4014,7 +4017,107 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.on_chat(chat).await
     }
 
+    async fn on_rewind(&mut self, redo: bool, recover: bool) -> Result<()> {
+        let id = self
+            .state
+            .conversation_id
+            .ok_or_else(|| anyhow::anyhow!("No active conversation"))?;
+        let current = self
+            .api
+            .conversation(&id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Conversation is missing"))?;
+        let env = self.api.environment();
+        let history = forge_snaps::ConversationHistory::new(
+            env.snapshot_path(),
+            env.cwd.clone(),
+            id.to_string(),
+        );
+        let (history, lease, points) = tokio::task::spawn_blocking(move || -> Result<_> {
+            let lease = history.acquire()?;
+            let points = history.points()?;
+            Ok((history, lease, points))
+        })
+        .await??;
+        let selected = if !redo && !recover {
+            if points.is_empty() {
+                self.writeln_title(TitleFormat::info("No saved prompts yet."))?;
+                return Ok(());
+            }
+            let Some(point) =
+                ForgeWidget::select("Rewind — files and conversation", points).prompt()?
+            else {
+                return Ok(());
+            };
+            if ForgeWidget::confirm(
+                "Restore files and conversation before this prompt? /redo can reverse it.",
+            )
+            .with_default(false)
+            .prompt()?
+                != Some(true)
+            {
+                return Ok(());
+            }
+            Some(point.turn)
+        } else {
+            None
+        };
+        let (history, destination, token) = tokio::task::spawn_blocking(move || -> Result<_> {
+            let (destination, token) = if recover {
+                history.recover()?
+            } else {
+                history.restore(selected.as_deref(), current)?
+            };
+            Ok((history, destination, token))
+        })
+        .await??;
+        let result = self.api.upsert_conversation(destination.clone()).await;
+        if let Err(error) = result {
+            // The journal remains durable until both sides have committed.
+            self.writeln_title(TitleFormat::error(
+                "Conversation restore failed. Run /rewind-recover before continuing.",
+            ))?;
+            return Err(error);
+        }
+        tokio::task::spawn_blocking(move || history.commit(&token)).await??;
+        drop(lease);
+        let terminal = console::Term::stdout();
+        if terminal.is_term() {
+            terminal.clear_screen()?;
+        }
+        self.on_show_last_message(destination, false).await?;
+        self.writeln_title(TitleFormat::info(
+            "Files and conversation restored. /redo reverses the last rewind.",
+        ))?;
+        Ok(())
+    }
+
     async fn on_chat(&mut self, chat: ChatRequest) -> Result<()> {
+        let env = self.api.environment();
+        let id = chat.conversation_id;
+        let history = forge_snaps::ConversationHistory::new(
+            env.snapshot_path(),
+            env.cwd.clone(),
+            id.to_string(),
+        );
+        let current = self
+            .api
+            .conversation(&id)
+            .await?
+            .unwrap_or_else(|| Conversation::new(id));
+        let label = chat
+            .event
+            .value
+            .as_ref()
+            .and_then(|value| value.as_user_prompt())
+            .map(|prompt| prompt.to_string())
+            .unwrap_or_else(|| "Continue".into());
+        let _lease = tokio::task::spawn_blocking(move || -> Result<_> {
+            let lease = history.acquire()?;
+            history.begin(current, label)?;
+            Ok(lease)
+        })
+        .await??;
         let mut stream = self.api.chat(chat).await?;
 
         // Always use streaming content writer

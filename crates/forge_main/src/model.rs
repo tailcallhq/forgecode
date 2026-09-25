@@ -95,7 +95,10 @@ impl ForgeCommandManager {
     fn is_reserved_command(name: &str) -> bool {
         matches!(
             name,
-            "agent"
+            "rewind"
+                | "redo"
+                | "rewind-recover"
+                | "agent"
                 | "forge"
                 | "muse"
                 | "sage"
@@ -409,6 +412,15 @@ impl ForgeCommandManager {
 /// - File content
 #[derive(Debug, Clone, PartialEq, Eq, EnumProperty, EnumIter, Subcommand)]
 pub enum AppCommand {
+    /// Restore files and conversation to a previous prompt.
+    #[strum(props(usage = "Choose a prompt and restore files and conversation"))]
+    Rewind,
+    /// Reverse the most recent rewind.
+    #[strum(props(usage = "Restore files and conversation from before rewind"))]
+    Redo,
+    /// Finish recovery after an interrupted rewind.
+    #[strum(props(usage = "Recover an interrupted rewind"))]
+    RewindRecover,
     /// Display the effective resolved configuration.
     /// This can be triggered with the '/config' command (aliases: env, e).
     #[strum(props(usage = "Display effective resolved configuration"))]
@@ -712,6 +724,9 @@ impl AppCommand {
             AppCommand::New => "new",
             AppCommand::Message(_) => "message",
             AppCommand::Update => "update",
+            AppCommand::Rewind => "rewind",
+            AppCommand::Redo => "redo",
+            AppCommand::RewindRecover => "rewind-recover",
             AppCommand::Info => "info",
             AppCommand::Usage => "usage",
             AppCommand::Exit => "exit",

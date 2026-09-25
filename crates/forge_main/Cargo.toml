@@ -17,6 +17,7 @@ console.workspace = true
 forge_app.workspace = true
 forge_api.workspace = true
 forge_domain.workspace = true
+forge_snaps.workspace = true
 forge_config.workspace = true
 forge_walker.workspace = true
 forge_display.workspace = true
