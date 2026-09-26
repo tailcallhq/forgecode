@@ -120,7 +120,7 @@ whoami = "2.1.0"
 fnv_rs = "0.4.3"
 merge = { version = "0.2", features = ["derive"] }
 hex = "0.4.3"
-rmcp = { version = "1.0.0", features = [
+rmcp = { version = "2.0.0", features = [
     "client",
     "transport-child-process",
     "transport-streamable-http-client-reqwest",
