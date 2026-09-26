@@ -64,6 +64,12 @@ impl ForgeInfra {
     /// * `config` - Pre-read application configuration; used only at
     ///   construction time to initialize infrastructure services
     /// * `services_url` - Pre-validated URL for the gRPC workspace server
+    /// Routes user questions to the ACP client instead of the terminal.
+    pub fn with_acp_user_interaction(mut self, interaction: forge_app::AcpUserInteraction) -> Self {
+        self.inquire_service = Arc::new(ForgeInquire::Acp(interaction));
+        self
+    }
+
     pub fn new(cwd: PathBuf, config: forge_config::ForgeConfig) -> Self {
         let env = to_environment(cwd.clone());
         let config_infra = Arc::new(ForgeEnvironmentInfra::new(cwd, config.clone()));

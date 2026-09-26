@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use forge_api::ForgeAPI;
+use forge_api::{API, ForgeAPI};
 use forge_config::ForgeConfig;
 use forge_domain::TitleFormat;
 use forge_main::{Cli, Sandbox, TitleDisplayExt, TopLevelCommand, UI, tracker};
@@ -90,10 +90,14 @@ async fn run() -> Result<()> {
     // Initialize and run the UI
     let mut cli = Cli::parse();
 
-    // Check if there's piped input, but skip for `forge select` since that
-    // command uses stdin for its item list.
-    let is_select = matches!(cli.subcommands, Some(TopLevelCommand::Select(_)));
-    if !is_select && !std::io::stdin().is_terminal() {
+    // Check if there's piped input, but skip for commands that own stdin:
+    // `forge select` reads its item list from it and `forge machine stdio`
+    // speaks ACP JSON-RPC over it.
+    let owns_stdin = matches!(
+        cli.subcommands,
+        Some(TopLevelCommand::Select(_)) | Some(TopLevelCommand::Machine(_))
+    );
+    if !owns_stdin && !std::io::stdin().is_terminal() {
         let mut stdin_content = String::new();
         std::io::stdin().read_to_string(&mut stdin_content)?;
         let trimmed_content = stdin_content.trim();
@@ -121,6 +125,29 @@ async fn run() -> Result<()> {
         },
         (_, _) => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     };
+
+    // `forge machine stdio` owns the process: no banner, no interactive UI,
+    // user questions go to the ACP client.
+    if let Some(TopLevelCommand::Machine(_)) = cli.subcommands {
+        // Stdout is the protocol. Anything else in the process that writes to
+        // fd 1 — a tool echoing command output, the panic hook — would corrupt
+        // it, so move the pipe to a private descriptor and point fd 1 at
+        // stderr before anything else runs.
+        let protocol_out = {
+            use std::os::fd::FromRawFd;
+            // SAFETY: fd 1 and 2 are open for the life of the process; dup
+            // returns a fresh descriptor this File then owns exclusively.
+            unsafe {
+                let pipe = libc::dup(1);
+                anyhow::ensure!(pipe >= 0, "failed to duplicate stdout");
+                anyhow::ensure!(libc::dup2(2, 1) >= 0, "failed to redirect stdout to stderr");
+                std::fs::File::from_raw_fd(pipe)
+            }
+        };
+        let (api, user_choices) = ForgeAPI::init_acp(cwd, config);
+        let _guard = tracker::init_tracing(api.environment().log_path())?;
+        return api.acp_start_stdio(user_choices, protocol_out).await;
+    }
 
     let mut ui = UI::init(cli, config, move |config| {
         ForgeAPI::init(cwd.clone(), config)

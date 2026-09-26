@@ -50,3 +50,10 @@ pub fn set_model(model: String) {
 pub fn login(login: String) {
     tokio::spawn(TRACKER.login(login));
 }
+
+/// Initialises file logging for entry points that do not go through the
+/// interactive UI (`forge machine stdio`). Keep the returned guard alive for
+/// the life of the process.
+pub fn init_tracing(log_path: std::path::PathBuf) -> anyhow::Result<forge_tracker::Guard> {
+    forge_tracker::init_tracing(log_path, TRACKER.clone())
+}
