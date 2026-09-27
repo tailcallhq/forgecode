@@ -272,7 +272,7 @@ dependencies = [
  "fastrand",
  "hex",
  "http 1.5.0",
- "sha1",
+ "sha1 0.10.6",
  "time",
  "tokio",
  "tracing",
@@ -913,7 +913,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "sha1",
+ "sha1 0.10.6",
  "sha2 0.10.9",
  "ssri",
  "tempfile",
@@ -6435,9 +6435,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.22.0"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d702de802ce697ec001b9af771a4b1678575d6ac33e31ff05dcf1e2734ebaba"
+checksum = "e4bf3024d46115813aba6c8ca1aa95bb850a26cb7a36f6e03ca0c12c449c5925"
 dependencies = [
  "backtrace",
  "chrono",
@@ -6450,7 +6450,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "sha1",
+ "sha1 0.11.0",
  "tokio",
  "tracing",
  "uuid",
@@ -7799,6 +7799,17 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
  "digest 0.10.7",
+]
+
+[[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.0",
+ "digest 0.11.2",
 ]
 
 [[package]]
