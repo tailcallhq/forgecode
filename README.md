@@ -528,6 +528,19 @@ OPENROUTER_API_KEY=<your_openrouter_api_key>
 </details>
 
 <details>
+<summary><strong>Tsubasa</strong></summary>
+
+```bash
+# .env
+TSUBASA_API_KEY=<your_tsubasa_api_key>
+```
+
+Choose `tsubasa-pro` or `tsubasa-fast`. Both use text input and a 32,768-token
+context window through `https://api.tsubasa.sh/v1/chat/completions`.
+
+</details>
+
+<details>
 <summary><strong>Requesty</strong></summary>
 
 ```bash
