@@ -56,7 +56,7 @@ pub fn sync_all_issues_job() -> Job {
 /// and handles the rewarded lifecycle when the PR is merged.
 ///
 /// Triggered on: pull_request opened/edited/reopened, pull_request_target
-/// closed.
+/// closed. Skipped for schedule and issue events, which carry no PR number.
 pub fn sync_pr_job() -> Job {
     sync_job(
         "Sync PR bounty labels",
@@ -71,4 +71,5 @@ pub fn sync_pr_job() -> Job {
             .issues(Level::Write)
             .pull_requests(Level::Write),
     )
+    .cond(Expression::new("github.event.pull_request != null"))
 }

@@ -50,6 +50,7 @@ jobs:
     - name: Sync all bounty labels
       run: npx tsx .github/scripts/bounty/src/sync-all-issues.ts --repo ${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }} --execute
   sync-pr:
+    if: github.event.pull_request != null
     name: Sync PR bounty labels
     runs-on: ubuntu-latest
     permissions:
