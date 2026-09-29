@@ -806,6 +806,16 @@
         "input_modalities": ["text", "image"]
       },
       {
+        "id": "claude-sonnet-5-5",
+        "name": "Claude Sonnet 5.5",
+        "description": "The best combination of speed and intelligence",
+        "context_length": 1000000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
         "id": "claude-sonnet-5",
         "name": "Claude Sonnet 5",
         "description": "The best combination of speed and intelligence",

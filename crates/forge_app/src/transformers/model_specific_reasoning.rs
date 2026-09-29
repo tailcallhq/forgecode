@@ -28,6 +28,7 @@ impl ModelSpecificReasoning {
     fn family(&self) -> AnthropicModelFamily {
         let id = self.model_id.to_lowercase();
         if id.contains("opus-5")
+            || id.contains("sonnet-5-5")
             || id.contains("opus-4-8")
             || id.contains("48-opus")
             || id.contains("opus-4-7")
@@ -35,10 +36,12 @@ impl ModelSpecificReasoning {
             || id.contains("mythos")
             || id.contains("fable")
         {
-            // Opus 5.5, Opus 5 and Opus 4.8 share Opus 4.7's API contract:
-            // adaptive thinking only (legacy `budget_tokens` returns 400)
-            // and non-default sampling params (`temperature`/
-            // `top_p`/`top_k`) return 400.
+            // Opus 5.5, Sonnet 5.5, Opus 5 and Opus 4.8 share Opus 4.7's API
+            // contract: adaptive thinking only (legacy `budget_tokens`
+            // returns 400) and non-default sampling params (`temperature`/
+            // `top_p`/`top_k`) return 400. Sonnet 5.5 must be matched here,
+            // before the broader `sonnet-5` check below, since it also
+            // supports `xhigh` natively and must not be rewritten to `max`.
             AnthropicModelFamily::AdaptiveOnly
         } else if id.contains("opus-4-6")
             || id.contains("46-opus")
@@ -232,6 +235,55 @@ mod tests {
             max_tokens: None,
             effort: Some(Effort::XHigh),
             exclude: Some(true),
+        });
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_sonnet_5_5_drops_max_tokens_and_sampling_params() {
+        // Sonnet 5.5 rejects legacy `budget_tokens` and non-default sampling
+        // params with a 400, and supports `xhigh` natively, so it must be
+        // AdaptiveOnly rather than inherit Sonnet 5's AdaptiveFriendly rules.
+        for model in ["claude-sonnet-5-5", "anthropic.claude-sonnet-5-5"] {
+            let fixture = fixture_context_with_sampling().reasoning(ReasoningConfig {
+                enabled: Some(true),
+                max_tokens: Some(8000),
+                effort: Some(Effort::XHigh),
+                exclude: Some(true),
+            });
+
+            let actual = ModelSpecificReasoning::new(model).transform(fixture);
+
+            let expected = Context::default().reasoning(ReasoningConfig {
+                enabled: Some(true),
+                max_tokens: None,
+                effort: Some(Effort::XHigh),
+                exclude: Some(true),
+            });
+
+            assert_eq!(actual, expected, "model {}", model);
+        }
+    }
+
+    #[test]
+    fn test_sonnet_5_remains_adaptive_friendly() {
+        // Guards the ordering of the family predicates: matching Sonnet 5.5
+        // as AdaptiveOnly must not pull plain Sonnet 5 along with it.
+        let fixture = Context::default().reasoning(ReasoningConfig {
+            enabled: Some(true),
+            max_tokens: None,
+            effort: Some(Effort::XHigh),
+            exclude: None,
+        });
+
+        let actual = ModelSpecificReasoning::new("claude-sonnet-5").transform(fixture);
+
+        let expected = Context::default().reasoning(ReasoningConfig {
+            enabled: Some(true),
+            max_tokens: None,
+            effort: Some(Effort::Max),
+            exclude: None,
         });
 
         assert_eq!(actual, expected);

@@ -713,6 +713,14 @@ mod tests {
     }
 
     #[test]
+    fn test_get_context_length_sonnet_5_5() {
+        // Claude Sonnet 5.5 has a 1M context window, matching Sonnet 5.
+        let actual = get_context_length("claude-sonnet-5-5");
+        let expected = Some(1_000_000);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_get_context_length_current_models() {
         // Current models (200K context)
         assert_eq!(
