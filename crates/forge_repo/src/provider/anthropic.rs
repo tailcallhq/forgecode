@@ -87,6 +87,10 @@ impl<H: HttpInfra> Anthropic<H> {
             headers.push(("anthropic-beta".to_string(), betas.join(",")));
         }
 
+        if let Some(custom_headers) = &self.provider.custom_headers {
+            headers.extend(custom_headers.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
+
         headers
     }
 }

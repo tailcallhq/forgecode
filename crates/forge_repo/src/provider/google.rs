@@ -20,6 +20,7 @@ struct Google<T> {
     chat_url: Url,
     models: forge_domain::ModelSource<Url>,
     use_api_key_header: bool,
+    custom_headers: Vec<(String, String)>,
 }
 
 impl<H: HttpInfra> Google<H> {
@@ -30,7 +31,14 @@ impl<H: HttpInfra> Google<H> {
         models: forge_domain::ModelSource<Url>,
         use_api_key_header: bool,
     ) -> Self {
-        Self { http, api_key, chat_url, models, use_api_key_header }
+        Self {
+            http,
+            api_key,
+            chat_url,
+            models,
+            use_api_key_header,
+            custom_headers: Vec::new(),
+        }
     }
 
     fn get_headers(&self) -> Vec<(String, String)> {
@@ -45,6 +53,7 @@ impl<H: HttpInfra> Google<H> {
             ));
         }
 
+        headers.extend(self.custom_headers.iter().cloned());
         headers
     }
 }
@@ -179,13 +188,20 @@ impl<F: HttpInfra> GoogleResponseRepository<F> {
             }
         };
 
-        Ok(Google::new(
+        let mut client = Google::new(
             self.infra.clone(),
             token,
             chat_url,
             models,
             use_api_key_header,
-        ))
+        );
+        if let Some(custom_headers) = &provider.custom_headers {
+            client.custom_headers = custom_headers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+        }
+        Ok(client)
     }
 }
 #[async_trait::async_trait]
