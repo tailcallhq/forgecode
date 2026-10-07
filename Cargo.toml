@@ -1,59 +1,83 @@
-[workspace]
-members = ["crates/*"]
-resolver = "2"
-
-
-[workspace.package]
+[package]
+name = "forgecode"
 version = "0.1.0"
-rust-version = "1.94"
-edition = "2024"
+edition = "2021"
+description = "ForgeCode is an AI-powered CLI tool for building, managing, and deploying cloud-native applications."
+license = "MIT"
+repository = "https://github.com/tailcallhq/forgecode"
 
-[profile.release]
-lto = true
-codegen-units = 1
-opt-level = 3
-strip = true
+[[bin]]
+name = "forgecode"
+path = "crates/forge_main/src/main.rs"
 
-[workspace.dependencies]
+[workspace]
+members = [
+    "crates/forge_api",
+    "crates/forge_app",
+    "crates/forge_ci",
+    "crates/forge_config",
+    "crates/forge_display",
+    "crates/forge_domain",
+    "crates/forge_embed",
+    "crates/forge_eventsource",
+    "crates/forge_eventsource_stream",
+    "crates/forge_fs",
+    "crates/forge_infra",
+    "crates/forge_json_repair",
+    "crates/forge_main",
+    "crates/forge_markdown_stream",
+    "crates/forge_repo",
+    "crates/forge_select",
+    "crates/forge_services",
+    "crates/forge_snaps",
+    "crates/forge_spinner",
+    "crates/forge_stream",
+    "crates/forge_template",
+    "crates/forge_test_kit",
+    "crates/forge_tool_macros",
+    "crates/forge_tracker",
+    "crates/forge_walker",
+]
+
+[dependencies]
 anyhow = "1.0.102"
 async-recursion = "1.1.1"
 async-stream = "0.3"
 async-trait = "0.1.89"
-aws-config = { version = "1.8.13", features = ["behavior-version-latest", "sso"], default-features = false }
-aws-sdk-bedrockruntime = { version = "1.129.0", features = ["behavior-version-latest"], default-features = false }
+aws-config = "1.8.13"
+aws-sdk-bedrockruntime = "1.129.0"
 aws-credential-types = "1.2.14"
 aws-smithy-types = "1.4.3"
 aws-smithy-runtime-api = "1.11.3"
-aws-smithy-async = { version = "1.2.11", features = ["rt-tokio"] }
-aws-smithy-runtime = { version = "1.10", features = ["connector-hyper-0-14-x", "tls-rustls"] }
+aws-smithy-async = "1.2.11"
+aws-smithy-runtime = "1.10"
 base64 = "0.23.0"
 bstr = "1.12.1"
 bytes = "1.11.1"
-chrono = { version = "0.4.44", features = ["serde"] }
-clap = { version = "4.6.0", features = ["derive"] }
+chrono = "0.4.44"
+clap = "4.6.0"
 clap_complete = "4.6.0"
 colored = "3.1.1"
 console = "0.16.3"
 convert_case = "0.12.0"
-derive_more = { version = "2.1.1", features = ["from", "display", "debug", "deref", "as_ref", "try_into"] }
-enable-ansi-support = "0.3.1"
+derive_more = "2.1.1"
 derive_setters = "0.1.9"
 dirs = "7.0.0"
 dissimilar = "1.0.9"
 dotenvy = "0.15.7"
 futures = "0.3.32"
-gh-workflow = "0.8.1"
+gh-workflow = "0.9.0"
 glob = "0.3.3"
 grep-searcher = "0.1.14"
 grep-regex = "0.1.13"
 handlebars = "6.4.0"
-html2md = "=0.2.15"
+html2md = "=0.2.17"
 http = "1.2.0"
 ignore = "0.4.23"
 is_ci = "1.2.0"
 indexmap = "2.13.0"
 infer = "0.22.0"
-insta = { version = "1.47.2", features = ["json", "yaml"] }
+insta = "1.47.2"
 lazy_static = "1.4.0"
 machineid-rs = "1.2.4"
 mockito = "1.7.2"
@@ -63,69 +87,45 @@ posthog-rs = "0.27.0"
 pretty_assertions = "1.4.1"
 proc-macro2 = "1.0"
 quote = "1.0"
-rustyline = "18.0.0"
 regex = "1.12.3"
-reqwest = { version = "0.12.23", features = [
-    "json",
-    "rustls-tls",
-    "hickory-dns",
-    "http2",
-], default-features = false }
-rustls = { version = "0.23", features = ["ring"], default-features = false }
+reqwest = { version = "0.13.5", features = ["json", "stream"] }
+rustls = "0.23"
 include_dir = "0.7.4"
 schemars = "1.2"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.143"
 serde_yml = "0.0.13"
 sha2 = "0.11"
-similar = { version = "3.0", features = ["inline"] }
+similar = "3.0"
 strip-ansi-escapes = "0.2.1"
 strum = "0.28.0"
 strum_macros = "0.28.0"
-syn = { version = "3.0.0", features = ["derive", "parsing"] }
-sysinfo = "0.38.3"
+syn = "3.0.0"
+sysinfo = "0.39.0"
 tempfile = "3.27.0"
-termimad = "0.34.1"
+termimad = "0.35.0"
 tiny_http = "0.12.0"
-syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig"] }
+syntect = "5"
 thiserror = "2.0.18"
-toml_edit = { version = "0.25", features = ["serde"] }
-tokio = { version = "1.51.0", features = [
-    "macros",
-    "rt-multi-thread",
-    "sync",
-    "time",
-    "fs",
-    "process",
-    "signal",
-    "io-util",
-] }
+toml_edit = "0.25"
+tokio = { version = "1.51.0", features = ["full"] }
 tokio-stream = "0.1.18"
 tokio-util = "0.7"
-tonic = { version = "0.14.5", features = ["tls-webpki-roots"] }
+tonic = "0.14.5"
 tracing = "0.1.44"
 tracing-appender = "0.2.3"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
-url = { version = "2.5.8", features = ["serde"] }
+tracing-subscriber = "0.3.23"
+url = "2.5.8"
 terminal_size = "0.4"
 unicode-width = "0.2"
 backon = "1.5.2"
 eserde = "0.1.7"
-uuid = { version = "1.23.0", features = [
-    "v4",
-    "fast-rng",
-    "serde",
-] }
+uuid = { version = "1.23.0", features = ["v4", "serde"] }
 whoami = "2.1.0"
 fnv_rs = "0.4.3"
-merge = { version = "0.2", features = ["derive"] }
+merge = "0.2"
 hex = "0.4.3"
-rmcp = { version = "1.0.0", features = [
-    "client",
-    "transport-child-process",
-    "transport-streamable-http-client-reqwest",
-    "auth",
-] }
+rmcp = "2.0.0"
 open = "5.3.2"
 nucleo = "0.5.0"
 nucleo-picker = "0.12.0"
@@ -133,34 +133,15 @@ gray_matter = "0.3.2"
 num-format = "0.4"
 humantime = "2.1.0"
 dashmap = "7.0.0-rc2"
-async-openai = { version = "0.41.0", default-features = false, features = ["response-types"] } # Using only types, not the API client - reduces dependencies
+async-openai = "0.42.0"
 gix = "0.88"
-google-cloud-auth = "1.8.0" # Google Cloud authentication with automatic token refresh
+google-cloud-auth = "1.17.0"
+rustyline = "18.0.0"
+enable-ansi-support = "0.3.1"
 
-# Internal crates
-forge_embed = { path = "crates/forge_embed" }
-forge_api = { path = "crates/forge_api" }
-forge_app = { path = "crates/forge_app" }
-forge_ci = { path = "crates/forge_ci" }
-forge_display = { path = "crates/forge_display" }
-forge_domain = { path = "crates/forge_domain" }
-forge_fs = { path = "crates/forge_fs" }
-forge_infra = { path = "crates/forge_infra" }
-forge_repo = { path = "crates/forge_repo" }
-forge_main = { path = "crates/forge_main" }
-forge_services = { path = "crates/forge_services" }
-forge_snaps = { path = "crates/forge_snaps" }
-forge_spinner = { path = "crates/forge_spinner" }
-forge_stream = { path = "crates/forge_stream" }
-forge_template = { path = "crates/forge_template" }
-forge_tool_macros = { path = "crates/forge_tool_macros" }
-forge_tracker = { path = "crates/forge_tracker" }
-forge_walker = { path = "crates/forge_walker" }
-forge_json_repair = { path = "crates/forge_json_repair" }
-forge_select = { path = "crates/forge_select" }
-forge_test_kit = { path = "crates/forge_test_kit" }
+[dev-dependencies]
+fake = "5.1.0"
 
-forge_markdown_stream = { path = "crates/forge_markdown_stream" }
-forge_config = { path = "crates/forge_config" }
-forge_eventsource = { path = "crates/forge_eventsource" }
-forge_eventsource_stream = { path = "crates/forge_eventsource_stream" }
+[profile.release]
+lto = true
+codegen-units = 1
