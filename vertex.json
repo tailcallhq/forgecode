@@ -1,8 +1,48 @@
 [
   {
+    "id": "google/gemini-3.8-flash",
+    "name": "Gemini 3.8 Flash",
+    "description": "Google's most intelligent Flash model, optimized for agentic coding and tool use",
+    "context_length": 1048576,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": true,
+    "supports_reasoning": true,
+    "input_modalities": ["text", "image"]
+  },
+  {
+    "id": "google/gemini-3.7-flash",
+    "name": "Gemini 3.7 Flash",
+    "description": "Google's everyday agentic workhorse with improved instruction following and tool calling",
+    "context_length": 1048576,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": true,
+    "supports_reasoning": true,
+    "input_modalities": ["text", "image"]
+  },
+  {
+    "id": "google/gemini-3.6-flash",
+    "name": "Gemini 3.6 Flash",
+    "description": "Google's fast, cost-efficient workhorse model with native tool use",
+    "context_length": 1048576,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": true,
+    "supports_reasoning": true,
+    "input_modalities": ["text", "image"]
+  },
+  {
     "id": "google/gemini-3.5-flash",
     "name": "Gemini 3.5 Flash",
     "description": "",
+    "context_length": 1048576,
+    "tools_supported": true,
+    "supports_parallel_tool_calls": true,
+    "supports_reasoning": true,
+    "input_modalities": ["text", "image"]
+  },
+  {
+    "id": "google/gemini-3.5-flash-lite",
+    "name": "Gemini 3.5 Flash-Lite",
+    "description": "Google's fastest and most cost-efficient Gemini model, optimized for low latency use cases",
     "context_length": 1048576,
     "tools_supported": true,
     "supports_parallel_tool_calls": true,
