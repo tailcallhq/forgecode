@@ -53,6 +53,34 @@
     "auth_methods": ["api_key"]
   },
   {
+    "id": "tsubasa",
+    "api_key_vars": "TSUBASA_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.tsubasa.sh/v1/chat/completions",
+    "models": [
+      {
+        "id": "tsubasa-pro",
+        "name": "Tsubasa Pro",
+        "context_length": 32768,
+        "tools_supported": false,
+        "supports_parallel_tool_calls": false,
+        "supports_reasoning": false,
+        "input_modalities": ["text"]
+      },
+      {
+        "id": "tsubasa-fast",
+        "name": "Tsubasa Fast",
+        "context_length": 32768,
+        "tools_supported": false,
+        "supports_parallel_tool_calls": false,
+        "supports_reasoning": false,
+        "input_modalities": ["text"]
+      }
+    ],
+    "auth_methods": ["api_key"]
+  },
+  {
     "id": "requesty",
     "api_key_vars": "REQUESTY_API_KEY",
     "url_param_vars": [],
