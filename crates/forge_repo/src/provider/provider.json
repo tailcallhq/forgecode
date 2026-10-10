@@ -118,79 +118,9 @@
     "url": "https://api.openai.com/v1/chat/completions",
     "models": [
       {
-        "id": "o1",
-        "name": "O1",
-        "description": "OpenAI's reasoning model with advanced problem-solving capabilities",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "o1-2024-12-17",
-        "name": "O1 (2024-12-17)",
-        "description": "OpenAI's reasoning model snapshot from December 2024",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
         "id": "o3",
         "name": "O3",
         "description": "Advanced reasoning model with improved capabilities",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "o3-2025-04-16",
-        "name": "O3 (2025-04-16)",
-        "description": "O3 model snapshot from April 2025",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "o3-mini",
-        "name": "O3 Mini",
-        "description": "Smaller reasoning model optimized for speed and efficiency",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "o3-mini-2025-01-31",
-        "name": "O3 Mini (2025-01-31)",
-        "description": "O3 Mini model snapshot from January 2025",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "o4-mini",
-        "name": "O4 Mini",
-        "description": "Next generation compact reasoning model",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "o4-mini-2025-04-16",
-        "name": "O4 Mini (2025-04-16)",
-        "description": "O4 Mini model snapshot from April 2025",
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
@@ -234,24 +164,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "gpt-4.1-nano",
-        "name": "GPT-4.1 Nano",
-        "description": "Ultra-compact version of GPT-4.1",
-        "context_length": 128000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "gpt-4.1-nano-2025-04-14",
-        "name": "GPT-4.1 Nano (2025-04-14)",
-        "description": "GPT-4.1 Nano model snapshot from April 2025",
-        "context_length": 128000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
-      },
-      {
         "id": "gpt-4o",
         "name": "GPT-4o",
         "description": "OpenAI's flagship multimodal model with vision capabilities",
@@ -279,15 +191,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "gpt-4o-2024-05-13",
-        "name": "GPT-4o (2024-05-13)",
-        "description": "GPT-4o model snapshot from May 2024",
-        "context_length": 128000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "gpt-4o-mini",
         "name": "GPT-4o Mini",
         "description": "Fast and affordable small multimodal model",
@@ -306,73 +209,9 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "gpt-4-turbo",
-        "name": "GPT-4 Turbo",
-        "description": "Most capable GPT-4 model with vision and 128K context",
-        "context_length": 128000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-4-turbo-2024-04-09",
-        "name": "GPT-4 Turbo (2024-04-09)",
-        "description": "GPT-4 Turbo model snapshot from April 2024",
-        "context_length": 128000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-4",
-        "name": "GPT-4",
-        "description": "Base GPT-4 model with 8K context",
-        "context_length": 8192,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": false,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "gpt-4-0613",
-        "name": "GPT-4 (0613)",
-        "description": "GPT-4 model snapshot from June 2023",
-        "context_length": 8192,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": false,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "gpt-3.5-turbo",
-        "name": "GPT-3.5 Turbo",
-        "description": "Fast and affordable model for most tasks",
-        "context_length": 16385,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "gpt-3.5-turbo-0125",
-        "name": "GPT-3.5 Turbo (0125)",
-        "description": "GPT-3.5 Turbo model snapshot from January 2024",
-        "context_length": 16385,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "input_modalities": ["text"]
-      },
-      {
         "id": "gpt-5",
         "name": "GPT-5",
         "description": "OpenAI's next-generation flagship model",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-5-2025-08-07",
-        "name": "GPT-5 (2025-08-07)",
-        "description": "GPT-5 model snapshot from August 2025",
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
@@ -390,16 +229,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "gpt-5-mini-2025-08-07",
-        "name": "GPT-5 Mini (2025-08-07)",
-        "description": "GPT-5 Mini model snapshot from August 2025",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "gpt-5-nano",
         "name": "GPT-5 Nano",
         "description": "Ultra-compact version of GPT-5",
@@ -408,26 +237,6 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text"]
-      },
-      {
-        "id": "gpt-5-nano-2025-08-07",
-        "name": "GPT-5 Nano (2025-08-07)",
-        "description": "GPT-5 Nano model snapshot from August 2025",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text"]
-      },
-      {
-        "id": "gpt-5.1",
-        "name": "GPT-5.1",
-        "description": "Enhanced GPT-5 with improved capabilities",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
       },
       {
         "id": "gpt-5.2",
@@ -444,16 +253,6 @@
         "name": "GPT-5.2 Pro",
         "description": "Professional tier GPT-5.2 with enhanced capabilities",
         "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-5.3-codex",
-        "name": "GPT-5.3 Codex",
-        "description": "GPT-5.3-Codex is optimized for agentic coding tasks",
-        "context_length": 400000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -483,16 +282,6 @@
         "id": "gpt-5.4-mini",
         "name": "GPT-5.4 Mini",
         "description": "Strongest mini model yet for coding, computer use, and subagents",
-        "context_length": 400000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gpt-5.4-nano",
-        "name": "GPT-5.4 nano",
-        "description": "cheapest GPT-5.4-class model for simple high-volume tasks",
         "context_length": 400000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
@@ -796,16 +585,6 @@
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "claude-sonnet-4-5-20250929",
-        "name": "Claude Sonnet 4.5",
-        "description": "Balanced Claude model with excellent performance and speed",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
         "input_modalities": ["text", "image"]
       }
     ],
@@ -1393,26 +1172,6 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gemini-2.5-pro",
-        "name": "Gemini 2.5 Pro",
-        "description": "Most capable Gemini model with advanced reasoning",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "gemini-2.5-flash",
-        "name": "Gemini 2.5 Flash",
-        "description": "Fast and efficient Gemini 2.5 model",
-        "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key", "google_adc"]
@@ -1706,16 +1465,6 @@
       },
       
       {
-        "id": "us.anthropic.claude-sonnet-4-20250514-v1:0",
-        "name": "Claude Sonnet 4 (US)",
-        "description": "",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "meta.llama3-3-70b-instruct-v1:0",
         "name": "Llama 3.3 70B Instruct",
         "description": "",
@@ -1730,16 +1479,6 @@
         "description": "",
         "context_length": 131072,
         "tools_supported": false,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "us.anthropic.claude-opus-4-1-20250805-v1:0",
-        "name": "Claude Opus 4.1 (US)",
-        "description": "",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
         "input_modalities": ["text", "image"]
       },
       {
@@ -1866,16 +1605,6 @@
         "input_modalities": ["text"]
       },
       {
-        "id": "anthropic.claude-opus-4-1-20250805-v1:0",
-        "name": "Claude Opus 4.1",
-        "description": "",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "eu.anthropic.claude-sonnet-4-6",
         "name": "Claude Sonnet 4.6 (EU)",
         "description": "",
@@ -1943,16 +1672,6 @@
         "input_modalities": ["text"]
       },
       {
-        "id": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        "name": "Claude Sonnet 4.5 (EU)",
-        "description": "",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "mistral.mistral-large-3-675b-instruct",
         "name": "Mistral Large 3",
         "description": "",
@@ -1992,16 +1711,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "anthropic.claude-sonnet-4-5-20250929-v1:0",
-        "name": "Claude Sonnet 4.5",
-        "description": "",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "meta.llama3-2-11b-instruct-v1:0",
         "name": "Llama 3.2 11B Instruct",
         "description": "",
@@ -2015,26 +1724,6 @@
         "name": "Claude Opus 4.6 (Global)",
         "description": "",
         "context_length": 1000000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        "name": "Claude Sonnet 4.5 (Global)",
-        "description": "",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "anthropic.claude-sonnet-4-20250514-v1:0",
-        "name": "Claude Sonnet 4",
-        "description": "",
-        "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -2073,16 +1762,6 @@
         "name": "Magistral Small 1.2",
         "description": "",
         "context_length": 128000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "eu.anthropic.claude-sonnet-4-20250514-v1:0",
-        "name": "Claude Sonnet 4 (EU)",
-        "description": "",
-        "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
@@ -2183,15 +1862,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "anthropic.claude-3-5-haiku-20241022-v1:0",
-        "name": "Claude Haiku 3.5",
-        "description": "",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "meta.llama3-2-3b-instruct-v1:0",
         "name": "Llama 3.2 3B Instruct",
         "description": "",
@@ -2199,16 +1869,6 @@
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
         "input_modalities": ["text"]
-      },
-      {
-        "id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        "name": "Claude Sonnet 4.5 (US)",
-        "description": "",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
       },
       {
         "id": "deepseek.r1-v1:0",
@@ -2381,16 +2041,6 @@
         "input_modalities": ["text", "image"]
       },
       {
-        "id": "global.anthropic.claude-sonnet-4-20250514-v1:0",
-        "name": "Claude Sonnet 4 (Global)",
-        "description": "",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
         "id": "us.anthropic.claude-opus-4-7",
         "name": "Claude Opus 4.7 (US)",
         "description": "",
@@ -2494,46 +2144,6 @@
         "id": "claude-opus-4-5@20251101",
         "name": "Claude Opus 4.5",
         "description": "Most capable Claude model with enhanced reasoning and analysis capabilities",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "claude-sonnet-4-5@20250929",
-        "name": "Claude Sonnet 4.5",
-        "description": "Balanced Claude model with excellent performance and speed",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "claude-opus-4-1@20250805",
-        "name": "Claude Opus 4.1",
-        "description": "Advanced Claude model with improved capabilities",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "claude-opus-4@20250514",
-        "name": "Claude Opus 4",
-        "description": "Fourth generation flagship Claude model",
-        "context_length": 200000,
-        "tools_supported": true,
-        "supports_parallel_tool_calls": true,
-        "supports_reasoning": true,
-        "input_modalities": ["text", "image"]
-      },
-      {
-        "id": "claude-sonnet-4@20250514",
-        "name": "Claude Sonnet 4",
-        "description": "Fourth generation balanced Claude model",
         "context_length": 200000,
         "tools_supported": true,
         "supports_parallel_tool_calls": true,
