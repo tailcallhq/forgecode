@@ -5,10 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+filesnap = "=0.5.0"
 anyhow.workspace = true
+tracing.workspace = true
 forge_fs.workspace = true
 fnv_rs.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 uuid = { workspace = true, features = ["v4", "serde"] }
 chrono.workspace = true
 tokio = { workspace = true }
@@ -16,5 +19,6 @@ tokio = { workspace = true }
 forge_domain.workspace = true
 
 [dev-dependencies]
+pretty_assertions.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
 tempfile.workspace = true
