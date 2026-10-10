@@ -46,6 +46,7 @@ pub use command_generator::*;
 pub use data_gen::*;
 pub use error::*;
 pub use git_app::*;
+pub use hooks::{release_global, HerdrReporter};
 pub use infra::*;
 pub use services::*;
 pub use template_engine::*;
