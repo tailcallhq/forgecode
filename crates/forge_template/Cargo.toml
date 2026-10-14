@@ -6,7 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 
-html-escape = "0.2.13"
+html-escape = "0.3.0"
 
 [dev-dependencies]
 pretty_assertions.workspace = true
