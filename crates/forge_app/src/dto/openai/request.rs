@@ -182,9 +182,16 @@ pub struct Prediction {
     pub content: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+/// Optional OpenRouter provider routing preferences.
+#[derive(Debug, Default, Deserialize, Serialize, Clone, PartialEq, Setters)]
+#[setters(strip_option, into)]
 pub struct ProviderPreferences {
-    // Define fields as necessary
+    /// Provider endpoints allowed to serve the request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub only: Option<Vec<String>>,
+    /// Whether routing may fall back to other provider endpoints.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_fallbacks: Option<bool>,
 }
 
 /// Z.ai-specific thinking type
@@ -566,6 +573,24 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+
+    #[test]
+    fn test_provider_preferences_default_serialization() {
+        let fixture = ProviderPreferences::default();
+        let actual = serde_json::to_value(fixture).unwrap();
+        let expected = serde_json::json!({});
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_provider_preferences_false_serialization() {
+        let fixture = ProviderPreferences::default()
+            .only(vec!["openai/flex".to_string()])
+            .allow_fallbacks(false);
+        let actual = serde_json::to_value(fixture).unwrap();
+        let expected = serde_json::json!({"only": ["openai/flex"], "allow_fallbacks": false});
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn test_cached_text_true() {

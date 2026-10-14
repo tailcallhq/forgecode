@@ -6,8 +6,8 @@ use forge_app::domain::{
     Transformer,
 };
 use forge_app::dto::openai::{
-    COPILOT_AUTO_MODEL_ID, CopilotListModelResponse, ListModelResponse, ProviderPipeline, Request,
-    Response, copilot_auto_model,
+    COPILOT_AUTO_MODEL_ID, CopilotListModelResponse, ListModelResponse, ProviderPipeline,
+    ProviderPreferences, Request, Response, copilot_auto_model,
 };
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider};
@@ -52,6 +52,32 @@ fn prepare_copilot_auto_request(mut request: Request) -> Request {
     request.reasoning = None;
     request.reasoning_effort = None;
     request.thinking = None;
+    request
+}
+
+/// Constructs and transforms a request before applying provider-specific routing.
+fn prepare_request(
+    provider: &Provider<Url>,
+    model: &ModelId,
+    context: ChatContext,
+    merge_system_messages: bool,
+) -> Request {
+    let request = Request::from(context).model(model.clone());
+    let mut pipeline = ProviderPipeline::new(provider, merge_system_messages);
+    let mut request = pipeline.transform(request);
+
+    if provider.id == ProviderId::GITHUB_COPILOT && model.as_str() == COPILOT_AUTO_MODEL_ID {
+        request = prepare_copilot_auto_request(request);
+    }
+
+    if provider.id == ProviderId::OPEN_ROUTER && model.as_str() == "openai/gpt-6.1-sol" {
+        request = request.provider(
+            ProviderPreferences::default()
+                .only(vec!["openai/flex".to_string()])
+                .allow_fallbacks(false),
+        );
+    }
+
     request
 }
 
@@ -217,14 +243,7 @@ impl<H: HttpInfra> OpenAIProvider<H> {
         context: ChatContext,
         merge_system_messages: bool,
     ) -> ResultStream<ChatCompletionMessage, anyhow::Error> {
-        let mut request = Request::from(context).model(model.clone());
-        let mut pipeline = ProviderPipeline::new(&self.provider, merge_system_messages);
-        request = pipeline.transform(request);
-
-        if self.provider.id == ProviderId::GITHUB_COPILOT && model.as_str() == COPILOT_AUTO_MODEL_ID
-        {
-            request = prepare_copilot_auto_request(request);
-        }
+        let request = prepare_request(&self.provider, model, context, merge_system_messages);
 
         let url = self.provider.url.clone();
         let headers = create_headers(self.get_headers_with_request(&request));
@@ -440,11 +459,70 @@ mod tests {
     use forge_app::domain::{Provider, ProviderId, ProviderResponse};
     use forge_app::dto::openai::{ContentPart, ImageUrl, Message, MessageContent, Role};
     use forge_eventsource::EventSource;
+    use pretty_assertions::assert_eq;
     use reqwest::header::HeaderMap;
     use url::Url;
 
     use super::*;
     use crate::provider::mock_server::{MockServer, normalize_ports};
+
+    fn routing_fixture(provider_id: ProviderId, model: &str) -> Request {
+        let mut provider = openai("test-key");
+        provider.id = provider_id;
+        prepare_request(
+            &provider,
+            &ModelId::from(model),
+            ChatContext::default(),
+            false,
+        )
+    }
+
+    #[test]
+    fn test_openrouter_sol_routing() {
+        let fixture = routing_fixture(ProviderId::OPEN_ROUTER, "openai/gpt-6.1-sol");
+        let actual = serde_json::to_value(fixture).unwrap();
+        let expected = serde_json::json!({
+            "model": "openai/gpt-6.1-sol",
+            "messages": [],
+            "stream": true,
+            "stream_options": {"include_usage": true},
+            "parallel_tool_calls": true,
+            "provider": {"only": ["openai/flex"], "allow_fallbacks": false}
+        });
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_other_models_and_providers_have_no_routing() {
+        let fixtures = [
+            (ProviderId::OPEN_ROUTER, "openai/gpt-6.1", true),
+            (ProviderId::OPEN_ROUTER, "openai/gpt-6.1-sol:extended", true),
+            (ProviderId::OPEN_ROUTER, "gpt-6.1-sol", true),
+            (ProviderId::FORGE, "openai/gpt-6.1-sol", true),
+            (ProviderId::ZAI, "openai/gpt-6.1-sol", true),
+            (ProviderId::OPENAI, "openai/gpt-6.1-sol", false),
+            (ProviderId::GITHUB_COPILOT, "openai/gpt-6.1-sol", false),
+            (
+                ProviderId::from("custom".to_string()),
+                "openai/gpt-6.1-sol",
+                false,
+            ),
+        ];
+        for (provider_id, model, parallel_tool_calls) in fixtures {
+            let fixture = routing_fixture(provider_id, model);
+            let actual = serde_json::to_value(fixture).unwrap();
+            let mut expected = serde_json::json!({
+                "model": model,
+                "messages": [],
+                "stream": true,
+                "stream_options": {"include_usage": true}
+            });
+            if parallel_tool_calls {
+                expected["parallel_tool_calls"] = serde_json::json!(true);
+            }
+            assert_eq!(actual, expected);
+        }
+    }
 
     // Test helper functions
     fn make_credential(provider_id: ProviderId, key: &str) -> Option<forge_domain::AuthCredential> {
