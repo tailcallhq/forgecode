@@ -127,6 +127,10 @@ async fn run() -> Result<()> {
     })?;
     ui.run().await;
 
+    // Release the Herdr pane (if forge was running inside one) so Herdr can
+    // hand control back or clean up the pane. No-op outside Herdr.
+    forge_app::release_global();
+
     Ok(())
 }
 
