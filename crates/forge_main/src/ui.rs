@@ -2775,7 +2775,12 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             .await?;
 
             if let Some(conv) = selected {
-                let name_result = ForgeWidget::input("New name").allow_empty(false).prompt()?;
+                // Prefill the input with the current title so the user can
+                // edit it in place instead of retyping from an empty line.
+                let name_result = ForgeWidget::input("New name")
+                    .allow_empty(false)
+                    .with_default(conv.title.as_deref().unwrap_or(""))
+                    .prompt()?;
 
                 if let Some(name) = name_result
                     && !name.is_empty()

@@ -240,6 +240,18 @@ function forge-accept-line() {
         ;;
         conversation-rename)
             _forge_action_conversation_rename "$input_text"
+            if [[ -n "${_FORGE_RENAME_ID:-}" ]]; then
+                # Pass 1: BUFFER now holds ":conversation-rename <old name>"
+                # for inline editing. Hand control back to the user without
+                # wiping the buffer.
+                _forge_osc133_emit "D;0"
+                _forge_osc133_emit "A"
+                return 0
+            fi
+            # Pass 2 (or direct <id> <name>): the action already called
+            # _forge_reset in pass 2; for the direct path fall through to the
+            # shared _forge_reset below.
+            : # fall through
         ;;
         copy)
             _forge_action_copy

@@ -205,10 +205,33 @@ function _forge_action_rename() {
 
 # Action handler: Rename a conversation (interactive picker or by ID)
 # Usage: :conversation-rename [<id> <name>]
+#
+# Interactive flow (no args) works in two passes:
+#   pass 1: pick a conversation, prefill the buffer with the current name as
+#           ":conversation-rename <old name>" and hand control back to the
+#           native ZLE line editor, so the user edits the existing name in
+#           place instead of typing into a hidden (no-echo) prompt. This
+#           sidesteps the ZLE raw/no-echo mode that made a bare `read` behave
+#           like a password prompt.
+#   pass 2: the user presses Enter (forge-accept-line re-dispatches here with
+#           input_text = edited name); rename the previously selected id.
 function _forge_action_conversation_rename() {
     local input_text="$1"
 
     echo
+
+    # Pending interactive rename? This is pass 2 (Enter after editing).
+    if [[ -n "${_FORGE_RENAME_ID:-}" ]]; then
+        local pending_id="$_FORGE_RENAME_ID"
+        _FORGE_RENAME_ID=""
+        if [[ -n "$input_text" ]]; then
+            _forge_exec conversation rename "$pending_id" "$input_text"
+        else
+            _forge_log error "No name provided, rename cancelled"
+        fi
+        # Let the dispatcher's shared _forge_reset repaint the prompt.
+        return 0
+    fi
 
     # If input looks like "<id> <name>", split and rename directly
     if [[ -n "$input_text" ]]; then
@@ -221,25 +244,29 @@ function _forge_action_conversation_rename() {
             return 0
         fi
 
-        _forge_exec conversation rename "$conversation_id" $new_name
+        _forge_exec conversation rename "$conversation_id" "$new_name"
         return 0
     fi
 
-    # No args — use Rust's built-in conversation picker
+    # No args — use Rust's built-in conversation picker (pass 1)
     local conversation_id
     conversation_id=$(_forge_select conversation)
 
     if [[ -n "$conversation_id" ]]; then
-        # Prompt for new name
-        echo -n "Enter new name: "
-        read -r new_name </dev/tty
+        # Fetch the current title so the buffer is prefilled with the old
+        # name for inline editing instead of an empty line.
+        local old_name
+        old_name=$(CLICOLOR_FORCE=0 $_FORGE_BIN conversation info "$conversation_id" 2>/dev/null \
+            | sed -n 's/^[[:space:]]*title[[:space:]]*//p' | head -1)
 
-        if [[ -n "$new_name" ]]; then
-            _forge_exec conversation rename "$conversation_id" $new_name
-        else
-            _forge_log error "No name provided, rename cancelled"
-        fi
+        _FORGE_RENAME_ID="$conversation_id"
+        BUFFER=":conversation-rename ${old_name}"
+        CURSOR=${#BUFFER}
+        # Redraw and hand control back to the user to edit the name.
+        zle -I
+        zle reset-prompt
     fi
+    return 0
 }
 
 # Helper function to clone and switch to conversation
