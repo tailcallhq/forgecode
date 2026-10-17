@@ -606,6 +606,16 @@ model: muse-spark-1.1
 </details>
 
 <details>
+<summary><strong>Opper</strong></summary>
+
+```bash
+# .env
+OPPER_API_KEY=<your_opper_api_key>
+```
+
+</details>
+
+<details>
 <summary><strong>IO Intelligence</strong></summary>
 
 ```bash

@@ -4122,5 +4122,14 @@
       }
     ],
     "auth_methods": ["api_key"]
+  },
+  {
+    "id": "opper",
+    "api_key_vars": "OPPER_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.opper.ai/v3/compat/chat/completions",
+    "models": "https://api.opper.ai/v3/compat/models",
+    "auth_methods": ["api_key"]
   }
 ]
