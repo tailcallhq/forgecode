@@ -43,6 +43,8 @@ function forge-completion() {
         return 0
     fi
     
-    # Fall back to default completion
-    zle expand-or-complete
+    # Fall back to the Tab widget captured before Forge bound ^I.
+    # expand-or-complete covers an unreadable binding.
+    local widget="${_FORGE_TAB_WIDGET:-expand-or-complete}"
+    zle "$widget" -w
 }
