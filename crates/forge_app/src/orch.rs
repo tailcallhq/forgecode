@@ -205,11 +205,22 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
         reasoning_supported: bool,
     ) -> anyhow::Result<ChatCompletionMessageFull> {
         let tool_supported = self.is_tool_supported()?;
+        // Only suppress image attachments when we have explicit modality
+        // metadata and it does NOT include image input. When metadata is
+        // unknown/empty we keep the previous (attach) behaviour to avoid
+        // regressions.
+        let supports_image = match self.models.iter().find(|model| &model.id == model_id) {
+            Some(model) if !model.input_modalities.is_empty() => model
+                .input_modalities
+                .iter()
+                .any(|im| matches!(im, InputModality::Image)),
+            _ => true,
+        };
         let mut transformers = DefaultTransformation::default()
             .pipe(SortTools::new(self.agent.tool_order()))
             .pipe(NormalizeToolCallArguments::new())
             .pipe(TransformToolCalls::new().when(|_| !tool_supported))
-            .pipe(ImageHandling::new())
+            .pipe(ImageHandling::with_supports_image(supports_image))
             // Drop ALL reasoning (including config) when reasoning is not supported by the model
             .pipe(DropReasoningDetails.when(|_| !reasoning_supported))
             // Strip all reasoning from messages when the model has changed (signatures are
@@ -285,7 +296,7 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                 .handle(&request_event, &mut self.conversation)
                 .await?;
 
-            let message = crate::retry::retry_with_config(
+            let message = match crate::retry::retry_with_config(
                 &self.config.clone().retry.unwrap_or_default(),
                 || {
                     self.execute_chat_turn(
@@ -314,7 +325,28 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                     }
                 }),
             )
-            .await?;
+            .await
+            {
+                Ok(message) => message,
+                Err(error) if is_not_multimodal_error(&error) => {
+                    // An image attachment reached a text-only model, so the
+                    // provider refused the request. Do not crash the process:
+                    // report a readable message, feed it back into the context
+                    // as a tool output, and end the turn.
+                    warn!(error = ?error, "Model does not support multimodal input");
+                    self.send(ChatResponse::TaskMessage {
+                        content: ChatResponseContent::ToolOutput(
+                            "The current model does not support images (it is not multimodal). \
+                             An image/PDF was not sent, so nothing could be attached. \
+                             Switch to a multimodal model to read images or PDFs."
+                                .to_string(),
+                        ),
+                    })
+                    .await?;
+                    break;
+                }
+                Err(error) => return Err(error),
+            };
 
             // Fire the Response lifecycle event
             let response_event = LifecycleEvent::Response(EventData::new(
@@ -464,4 +496,17 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
     fn get_model(&self) -> ModelId {
         self.agent.model.clone()
     }
+}
+
+/// Detects the provider `400 is not a multimodal model` error. When an image
+/// attachment reaches a text-only model (e.g. a file that starts with the
+/// `%PDF` magic bytes), the provider refuses the request with this error.
+/// Forge must not crash on it: we turn it into a readable message and end the
+/// turn so the conversation can continue.
+fn is_not_multimodal_error(error: &anyhow::Error) -> bool {
+    let message = error.to_string();
+    let lowercase = message.to_lowercase();
+    lowercase.contains("multimodal model")
+        || (lowercase.contains("not multimodal") && lowercase.contains("model"))
+        || (message.contains("400") && lowercase.contains("multimodal"))
 }

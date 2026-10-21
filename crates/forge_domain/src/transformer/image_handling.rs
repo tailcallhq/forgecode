@@ -4,7 +4,9 @@ use crate::{Context, ContextMessage};
 /// Transformer that handles image processing in tool results
 /// Converts image outputs from tool results into separate user messages with
 /// image attachments
-pub struct ImageHandling;
+pub struct ImageHandling {
+    supports_image: bool,
+}
 
 impl Default for ImageHandling {
     fn default() -> Self {
@@ -13,8 +15,24 @@ impl Default for ImageHandling {
 }
 
 impl ImageHandling {
+    /// Creates an [`ImageHandling`] transformer that attaches images to the
+    /// context.
+    ///
+    /// Defaults to `supports_image = true` so the default behaviour is
+    /// unchanged.
     pub fn new() -> Self {
-        Self
+        Self::with_supports_image(true)
+    }
+
+    /// Creates an [`ImageHandling`] transformer with explicit image-support
+    /// knowledge.
+    ///
+    /// When `supports_image` is `false`, image attachments are NOT added to the
+    /// context. Instead a textual note is inserted so the model still knows
+    /// that a tool returned an image/PDF, without triggering a 400 from a
+    /// non-multimodal provider.
+    pub fn with_supports_image(supports_image: bool) -> Self {
+        Self { supports_image }
     }
 }
 
@@ -56,7 +74,18 @@ impl Transformer for ImageHandling {
                 ContextMessage::user(format!("[Here is the image attachment for ID {id}]"), None)
                     .into(),
             );
-            value.messages.push(ContextMessage::Image(image).into());
+            if self.supports_image {
+                value.messages.push(ContextMessage::Image(image).into());
+            } else {
+                // The current model is not multimodal: keep a textual note so
+                // the model still knows a visual file was produced, but never
+                // send actual image bytes that would be rejected with a 400.
+                let mime = image.mime_type().clone();
+                value.messages.push(
+                    ContextMessage::user(format!("[A {mime} file (ID {id}) was not attached to this conversation because the current model is not multimodal — describe or process this visual file differently]"), None)
+                        .into(),
+                );
+            }
         });
 
         value
@@ -244,5 +273,46 @@ mod tests {
 
         let snapshot = TransformationSnapshot::new("ImageHandling", fixture, actual);
         assert_yaml_snapshot!(snapshot);
+    }
+
+    #[test]
+    fn test_image_handling_text_only_model_does_not_attach_image() {
+        let image = Image::new_base64("image_data".to_string(), "image/png");
+
+        let fixture = Context::default().add_tool_results(vec![ToolResult {
+            name: ToolName::new("image_tool"),
+            call_id: Some(ToolCallId::new("call_1")),
+            output: ToolOutput::image(image),
+        }]);
+
+        // Simulate a model that is NOT multimodal: when `supports_image` is
+        // false the actual image bytes must never be attached to the context
+        // (a non-multimodal provider would reject them with a 400). Instead a
+        // textual note should be inserted so the model still knows a visual
+        // file was produced.
+        let mut transformer = ImageHandling::with_supports_image(false);
+        let actual = transformer.transform(fixture.clone());
+
+        let image_messages = actual
+            .messages
+            .iter()
+            .filter(|m| matches!(m.message, ContextMessage::Image(_)))
+            .count();
+        assert_eq!(
+            image_messages, 0,
+            "no ContextMessage::Image must be attached for a text-only model"
+        );
+
+        let joined: String = actual
+            .messages
+            .iter()
+            .filter_map(|m| m.content().map(ToString::to_string))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            joined.contains("not multimodal"),
+            "a textual note explaining the image was not attached should exist, got: {joined}"
+        );
+        assert!(joined.contains("image/png"), "the note should mention the mime, got: {joined}");
     }
 }
