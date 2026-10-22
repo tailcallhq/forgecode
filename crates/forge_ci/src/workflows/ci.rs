@@ -2,7 +2,7 @@ use gh_workflow::generate::Generate;
 use gh_workflow::*;
 
 use crate::jobs::{self, ReleaseBuilderJob};
-use crate::steps::{sccache_runner, setup_protoc};
+use crate::steps::{install_openssl, sccache_runner, setup_protoc};
 
 /// Generate the main CI workflow
 pub fn generate_ci_workflow() {
@@ -11,6 +11,7 @@ pub fn generate_ci_workflow() {
         .runs_on(sccache_runner())
         .permissions(Permissions::default().contents(Level::Read))
         .add_step(Step::new("Checkout Code").uses("actions", "checkout", "v6"))
+        .add_step(install_openssl())
         .add_step(setup_protoc())
         .add_step(Step::toolchain().add_stable())
         .add_step(Step::new("Install cargo-llvm-cov").run("cargo install cargo-llvm-cov"))

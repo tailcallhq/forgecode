@@ -3,7 +3,7 @@ use gh_workflow::toolchain::Component;
 use gh_workflow::*;
 
 use crate::jobs;
-use crate::steps::{sccache_runner, setup_protoc};
+use crate::steps::{install_openssl, sccache_runner, setup_protoc};
 
 /// Generate the autofix workflow
 pub fn generate_autofix_workflow() {
@@ -15,6 +15,7 @@ pub fn generate_autofix_workflow() {
             Step::new("Install SQLite")
                 .run("sudo apt-get update && sudo apt-get install -y libsqlite3-dev"),
         )
+        .add_step(install_openssl())
         .add_step(setup_protoc())
         .add_step(
             Step::toolchain()

@@ -16,3 +16,10 @@ pub fn setup_node() -> Step<Use> {
         .uses("actions", "setup-node", "v4")
         .add_with(("node-version", "20"))
 }
+
+/// Installs the OpenSSL headers and `pkg-config` that `openssl-sys` needs; the
+/// sccache runner image ships neither.
+pub fn install_openssl() -> Step<Run> {
+    Step::new("Install OpenSSL")
+        .run("sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev")
+}
