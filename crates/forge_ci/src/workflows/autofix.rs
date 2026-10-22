@@ -3,14 +3,18 @@ use gh_workflow::toolchain::Component;
 use gh_workflow::*;
 
 use crate::jobs;
-use crate::steps::setup_protoc;
+use crate::steps::{sccache_runner, setup_protoc};
 
 /// Generate the autofix workflow
 pub fn generate_autofix_workflow() {
     let lint_fix_job = Job::new("Lint Fix")
+        .runs_on(sccache_runner())
         .permissions(Permissions::default().contents(Level::Read))
         .add_step(Step::new("Checkout Code").uses("actions", "checkout", "v6"))
-        .add_step(Step::new("Install SQLite").run("sudo apt-get install -y libsqlite3-dev"))
+        .add_step(
+            Step::new("Install SQLite")
+                .run("sudo apt-get update && sudo apt-get install -y libsqlite3-dev"),
+        )
         .add_step(setup_protoc())
         .add_step(
             Step::toolchain()

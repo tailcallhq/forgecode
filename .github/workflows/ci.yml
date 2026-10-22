@@ -36,7 +36,8 @@ env:
 jobs:
   build:
     name: Build and Test
-    runs-on: ubuntu-latest
+    runs-on:
+    - sccache
     permissions:
       contents: read
     steps:
@@ -56,7 +57,8 @@ jobs:
       run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
   zsh_rprompt_perf:
     name: 'Performance: zsh rprompt'
-    runs-on: ubuntu-latest
+    runs-on:
+    - sccache
     permissions:
       contents: read
     steps:
@@ -66,6 +68,8 @@ jobs:
       uses: arduino/setup-protoc@v3
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Install zsh
+      run: sudo apt-get update && sudo apt-get install -y zsh
     - name: Setup Rust Toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
@@ -77,7 +81,8 @@ jobs:
     - build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     name: Draft Release
-    runs-on: ubuntu-latest
+    runs-on:
+    - sccache
     permissions:
       contents: write
       pull-requests: write
@@ -100,7 +105,8 @@ jobs:
   draft_release_pr:
     if: 'github.event_name == ''pull_request'' && contains(github.event.pull_request.labels.*.name, ''ci: build all targets'')'
     name: Draft Release for PR
-    runs-on: ubuntu-latest
+    runs-on:
+    - sccache
     outputs:
       crate_release_name: ${{ steps.set_output.outputs.crate_release_name }}
       crate_release_id: ${{ steps.set_output.outputs.crate_release_id }}
@@ -135,7 +141,7 @@ jobs:
         - binary_name: forge-x86_64-unknown-linux-gnu
           binary_path: target/x86_64-unknown-linux-gnu/release/forge
           cross: 'false'
-          os: ubuntu-latest
+          os: sccache
           target: x86_64-unknown-linux-gnu
         - binary_name: forge-aarch64-unknown-linux-gnu
           binary_path: target/aarch64-unknown-linux-gnu/release/forge
@@ -230,7 +236,7 @@ jobs:
         - binary_name: forge-x86_64-unknown-linux-gnu
           binary_path: target/x86_64-unknown-linux-gnu/release/forge
           cross: 'false'
-          os: ubuntu-latest
+          os: sccache
           target: x86_64-unknown-linux-gnu
         - binary_name: forge-aarch64-unknown-linux-gnu
           binary_path: target/aarch64-unknown-linux-gnu/release/forge

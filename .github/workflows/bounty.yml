@@ -39,25 +39,35 @@ permissions:
 jobs:
   sync-all-issues:
     name: Sync all bounty issues
-    runs-on: ubuntu-latest
+    runs-on:
+    - sccache
     permissions:
       issues: write
     steps:
     - name: Checkout
       uses: actions/checkout@v6
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
     - name: Install npm packages
       run: npm install
     - name: Sync all bounty labels
       run: npx tsx .github/scripts/bounty/src/sync-all-issues.ts --repo ${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }} --execute
   sync-pr:
     name: Sync PR bounty labels
-    runs-on: ubuntu-latest
+    runs-on:
+    - sccache
     permissions:
       issues: write
       pull-requests: write
     steps:
     - name: Checkout
       uses: actions/checkout@v6
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
     - name: Install npm packages
       run: npm install
     - name: Sync bounty labels
