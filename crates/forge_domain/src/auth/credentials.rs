@@ -63,7 +63,8 @@ impl AuthCredential {
             AuthDetails::ApiKey(_) => false,
             // AWS Profile credentials are managed by the AWS SDK internally
             AuthDetails::AwsProfile(_) => false,
-            // Google ADC tokens are short-lived (1 hour) and should always be checked/refreshed
+            // Google ADC tokens are short-lived (1 hour) and should always be
+            // checked/refreshed
             AuthDetails::GoogleAdc(_) => true,
             AuthDetails::OAuth { tokens, .. } | AuthDetails::OAuthWithApiKey { tokens, .. } => {
                 tokens.needs_refresh(buffer)
