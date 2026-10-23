@@ -901,7 +901,8 @@ impl From<MetricsRecord> for forge_domain::Metrics {
                 .into_iter()
                 .filter_map(|(path, file_record)| {
                     let operation = match file_record {
-                        // If it's an array, take the last operation (most recent)
+                        // If it's an array, take the last operation (most
+                        // recent)
                         FileOperationOrArray::Array(mut arr) if !arr.is_empty() => {
                             arr.pop().unwrap().into()
                         }
