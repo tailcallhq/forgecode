@@ -11,6 +11,10 @@ pub struct MatrixEntry {
     pub cross: &'static str,
 }
 
+/// Self-hosted ARC dind pool. `cross` builds run inside Docker containers, so
+/// every `cross: "true"` entry targets it; the rest stay GitHub-hosted.
+const DOCKER_RUNNER: &str = "docker";
+
 #[derive(Clone)]
 pub struct ReleaseMatrix(Vec<MatrixEntry>);
 
@@ -19,14 +23,14 @@ impl Default for ReleaseMatrix {
     fn default() -> Self {
         ReleaseMatrix(vec![
             MatrixEntry {
-                os: "ubuntu-latest",
+                os: DOCKER_RUNNER,
                 target: "x86_64-unknown-linux-musl",
                 binary_name: "forge-x86_64-unknown-linux-musl",
                 binary_path: "target/x86_64-unknown-linux-musl/release/forge",
                 cross: "true",
             },
             MatrixEntry {
-                os: "ubuntu-latest",
+                os: DOCKER_RUNNER,
                 target: "aarch64-unknown-linux-musl",
                 binary_name: "forge-aarch64-unknown-linux-musl",
                 binary_path: "target/aarch64-unknown-linux-musl/release/forge",
@@ -40,7 +44,7 @@ impl Default for ReleaseMatrix {
                 cross: "false",
             },
             MatrixEntry {
-                os: "ubuntu-latest",
+                os: DOCKER_RUNNER,
                 target: "aarch64-unknown-linux-gnu",
                 binary_name: "forge-aarch64-unknown-linux-gnu",
                 binary_path: "target/aarch64-unknown-linux-gnu/release/forge",
@@ -75,7 +79,7 @@ impl Default for ReleaseMatrix {
                 cross: "false",
             },
             MatrixEntry {
-                os: "ubuntu-latest",
+                os: DOCKER_RUNNER,
                 target: "aarch64-linux-android",
                 binary_name: "forge-aarch64-linux-android",
                 binary_path: "target/aarch64-linux-android/release/forge",

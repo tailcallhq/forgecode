@@ -32,7 +32,8 @@ impl From<ReleaseBuilderJob> for Job {
                 max_parallel: None,
                 matrix: Some(ReleaseMatrix::default().into()),
             })
-            .runs_on("${{ matrix.os }}")
+            // Block-list form, as the self-hosted labels are written.
+            .runs_on(vec!["${{ matrix.os }}"])
             .permissions(
                 Permissions::default()
                     .contents(Level::Write)
@@ -50,6 +51,28 @@ impl From<ReleaseBuilderJob> for Job {
                     .uses("taiki-e", "setup-cross-toolchain-action", "v1")
                     .with(("target", "${{ matrix.target }}"))
                     .if_condition(Expression::new("${{ matrix.cross == 'false' }}")),
+            )
+            // On the ARC dind runner the Docker daemon is a sidecar that only
+            // shares `/home/runner/_work`; `cross` bind-mounts CARGO_HOME and
+            // RUSTUP_HOME into its container, so they must live under it.
+            .add_step(
+                Step::new("Put Rust homes on the dind-shared volume")
+                    .run(concat!(
+                        "echo \"CARGO_HOME=$RUNNER_TEMP/cargo\" >> \"$GITHUB_ENV\"\n",
+                        "echo \"RUSTUP_HOME=$RUNNER_TEMP/rustup\" >> \"$GITHUB_ENV\"\n",
+                        "echo \"$RUNNER_TEMP/cargo/bin\" >> \"$GITHUB_PATH\"",
+                    ))
+                    .if_condition(Expression::new("${{ matrix.cross == 'true' }}")),
+            )
+            // `cross` drives rustup on the host; the self-hosted docker runner
+            // has no preinstalled Rust (the hosted image did).
+            .add_step(
+                Step::new("Setup Rust (cross)")
+                    .uses("actions-rust-lang", "setup-rust-toolchain", "v1")
+                    .add_with(("toolchain", "stable"))
+                    .add_with(("cache", "false"))
+                    .add_with(("rustflags", ""))
+                    .if_condition(Expression::new("${{ matrix.cross == 'true' }}")),
             )
             // Explicitly add the target to ensure it's available
             .add_step(
