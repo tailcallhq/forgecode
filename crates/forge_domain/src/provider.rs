@@ -88,6 +88,7 @@ impl ProviderId {
     pub const KIMI_CODING: ProviderId = ProviderId(Cow::Borrowed("kimi_coding"));
     pub const MOONSHOT: ProviderId = ProviderId(Cow::Borrowed("moonshot"));
     pub const ALIBABA_TOKEN_PLAN: ProviderId = ProviderId(Cow::Borrowed("alibaba_token_plan"));
+    pub const STANDARD_COMPUTE: ProviderId = ProviderId(Cow::Borrowed("standard_compute"));
 
     /// Returns all built-in provider IDs
     ///
@@ -135,6 +136,7 @@ impl ProviderId {
             ProviderId::KIMI_CODING,
             ProviderId::MOONSHOT,
             ProviderId::ALIBABA_TOKEN_PLAN,
+            ProviderId::STANDARD_COMPUTE,
         ]
     }
 
@@ -173,6 +175,7 @@ impl ProviderId {
             "neuralwatt" => "Neuralwatt".to_string(),
             "orca_router" => "OrcaRouter".to_string(),
             "meta" => "Meta".to_string(),
+            "standard_compute" => "StandardCompute".to_string(),
             _ => {
                 // For other providers, use UpperCamelCase conversion
                 use convert_case::{Case, Casing};
@@ -235,6 +238,7 @@ impl std::str::FromStr for ProviderId {
             "kimi_coding" => ProviderId::KIMI_CODING,
             "moonshot" => ProviderId::MOONSHOT,
             "alibaba_token_plan" => ProviderId::ALIBABA_TOKEN_PLAN,
+            "standard_compute" => ProviderId::STANDARD_COMPUTE,
             // For custom providers, use Cow::Owned to avoid memory leaks
             custom => ProviderId(Cow::Owned(custom.to_string())),
         };
@@ -614,6 +618,7 @@ mod tests {
         assert_eq!(ProviderId::AMBIENT.to_string(), "Ambient");
         assert_eq!(ProviderId::ORCA_ROUTER.to_string(), "OrcaRouter");
         assert_eq!(ProviderId::META.to_string(), "Meta");
+        assert_eq!(ProviderId::STANDARD_COMPUTE.to_string(), "StandardCompute");
     }
 
     #[test]
@@ -657,6 +662,7 @@ mod tests {
         assert!(built_in.contains(&ProviderId::AMBIENT));
         assert!(built_in.contains(&ProviderId::ORCA_ROUTER));
         assert!(built_in.contains(&ProviderId::META));
+        assert!(built_in.contains(&ProviderId::STANDARD_COMPUTE));
     }
 
     #[test]
@@ -772,6 +778,24 @@ mod tests {
     fn test_orca_router_in_built_in_providers() {
         let built_in = ProviderId::built_in_providers();
         assert!(built_in.contains(&ProviderId::ORCA_ROUTER));
+    }
+
+    #[test]
+    fn test_standard_compute_from_str() {
+        let actual = ProviderId::from_str("standard_compute").unwrap();
+        let expected = ProviderId::STANDARD_COMPUTE;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_standard_compute_display_name() {
+        assert_eq!(ProviderId::STANDARD_COMPUTE.to_string(), "StandardCompute");
+    }
+
+    #[test]
+    fn test_standard_compute_in_built_in_providers() {
+        let built_in = ProviderId::built_in_providers();
+        assert!(built_in.contains(&ProviderId::STANDARD_COMPUTE));
     }
 
     #[test]
