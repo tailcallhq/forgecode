@@ -32,7 +32,8 @@ impl From<ReleaseBuilderJob> for Job {
                 max_parallel: None,
                 matrix: Some(ReleaseMatrix::default().into()),
             })
-            .runs_on("${{ matrix.os }}")
+            // Block-list form, as the self-hosted labels are written.
+            .runs_on(vec!["${{ matrix.os }}"])
             .permissions(
                 Permissions::default()
                     .contents(Level::Write)
@@ -50,6 +51,16 @@ impl From<ReleaseBuilderJob> for Job {
                     .uses("taiki-e", "setup-cross-toolchain-action", "v1")
                     .with(("target", "${{ matrix.target }}"))
                     .if_condition(Expression::new("${{ matrix.cross == 'false' }}")),
+            )
+            // `cross` drives rustup on the host; the self-hosted docker runner
+            // has no preinstalled Rust (the hosted image did).
+            .add_step(
+                Step::new("Setup Rust (cross)")
+                    .uses("actions-rust-lang", "setup-rust-toolchain", "v1")
+                    .add_with(("toolchain", "stable"))
+                    .add_with(("cache", "false"))
+                    .add_with(("rustflags", ""))
+                    .if_condition(Expression::new("${{ matrix.cross == 'true' }}")),
             )
             // Explicitly add the target to ensure it's available
             .add_step(
