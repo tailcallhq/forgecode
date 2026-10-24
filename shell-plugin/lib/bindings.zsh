@@ -26,12 +26,9 @@ function forge-bracketed-paste() {
         fi
     fi
     
-    # Explicitly redisplay the buffer to ensure paste content is visible
-    # This is critical for large or multiline pastes
-    zle redisplay
-    
-    # Reset the prompt to trigger syntax highlighting refresh
-    # The redisplay before reset-prompt ensures the buffer is fully rendered
+    # `reset-prompt` already schedules the redraw, and a preceding
+    # `zle redisplay` adds a second cursor-up of `lprompth - 1` lines on a
+    # multi-line prompt.
     zle reset-prompt
 }
 
