@@ -33,7 +33,9 @@ impl Default for ReleaseMatrix {
                 cross: "true",
             },
             MatrixEntry {
-                os: "ubuntu-latest",
+                // Native build: runs on the self-hosted sccache pool. Entries with
+                // `cross: "true"` need Docker and stay on GitHub-hosted runners.
+                os: crate::steps::SCCACHE_RUNNER,
                 target: "x86_64-unknown-linux-gnu",
                 binary_name: "forge-x86_64-unknown-linux-gnu",
                 binary_path: "target/x86_64-unknown-linux-gnu/release/forge",
