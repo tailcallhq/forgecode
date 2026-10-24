@@ -35,9 +35,34 @@ function forge-bracketed-paste() {
     zle reset-prompt
 }
 
+# Tab widget that was bound to ^I before Forge installed its own binding.
+# Empty when that binding could not be read. Kept across later applies so
+# zsh-vi-mode's keymap rebuild does not replace it with forge-completion.
+typeset -g _FORGE_TAB_WIDGET
+
+function _forge_capture_tab_widget() {
+    # The first successful capture wins. Later applies run after ^I is
+    # already forge-completion.
+    [[ -n "${_FORGE_TAB_WIDGET:-}" ]] && return 0
+
+    local binding widget
+    binding="$(bindkey '^I' 2>/dev/null)" || return 0
+    [[ "$binding" == *" "* ]] || return 0
+
+    # bindkey prints: "^I" <widget>
+    widget="${binding#* }"
+    widget="${widget## }"
+    if [[ -z "$widget" || "$widget" == "forge-completion" ]]; then
+        return 0
+    fi
+
+    _FORGE_TAB_WIDGET="$widget"
+}
+
 # Re-applied after zsh-vi-mode's `zvm_init` precmd hook, which rebuilds the
 # main/viins/vicmd keymaps and otherwise silently clobbers these bindings.
 function _forge_apply_keybindings() {
+    _forge_capture_tab_widget
     zle -N bracketed-paste forge-bracketed-paste
     bindkey '^M' forge-accept-line
     bindkey '^J' forge-accept-line
