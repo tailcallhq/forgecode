@@ -52,6 +52,18 @@ impl From<ReleaseBuilderJob> for Job {
                     .with(("target", "${{ matrix.target }}"))
                     .if_condition(Expression::new("${{ matrix.cross == 'false' }}")),
             )
+            // On the ARC dind runner the Docker daemon is a sidecar that only
+            // shares `/home/runner/_work`; `cross` bind-mounts CARGO_HOME and
+            // RUSTUP_HOME into its container, so they must live under it.
+            .add_step(
+                Step::new("Put Rust homes on the dind-shared volume")
+                    .run(concat!(
+                        "echo \"CARGO_HOME=$RUNNER_TEMP/cargo\" >> \"$GITHUB_ENV\"\n",
+                        "echo \"RUSTUP_HOME=$RUNNER_TEMP/rustup\" >> \"$GITHUB_ENV\"\n",
+                        "echo \"$RUNNER_TEMP/cargo/bin\" >> \"$GITHUB_PATH\"",
+                    ))
+                    .if_condition(Expression::new("${{ matrix.cross == 'true' }}")),
+            )
             // `cross` drives rustup on the host; the self-hosted docker runner
             // has no preinstalled Rust (the hosted image did).
             .add_step(

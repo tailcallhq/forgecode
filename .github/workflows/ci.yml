@@ -181,6 +181,12 @@ jobs:
       uses: taiki-e/setup-cross-toolchain-action@v1
       with:
         target: ${{ matrix.target }}
+    - name: Put Rust homes on the dind-shared volume
+      if: ${{ matrix.cross == 'true' }}
+      run: |-
+        echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+        echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+        echo "$RUNNER_TEMP/cargo/bin" >> "$GITHUB_PATH"
     - name: Setup Rust (cross)
       if: ${{ matrix.cross == 'true' }}
       uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -284,6 +290,12 @@ jobs:
       uses: taiki-e/setup-cross-toolchain-action@v1
       with:
         target: ${{ matrix.target }}
+    - name: Put Rust homes on the dind-shared volume
+      if: ${{ matrix.cross == 'true' }}
+      run: |-
+        echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+        echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+        echo "$RUNNER_TEMP/cargo/bin" >> "$GITHUB_PATH"
     - name: Setup Rust (cross)
       if: ${{ matrix.cross == 'true' }}
       uses: actions-rust-lang/setup-rust-toolchain@v1
