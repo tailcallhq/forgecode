@@ -46,7 +46,7 @@ jobs:
         - binary_name: forge-x86_64-unknown-linux-gnu
           binary_path: target/x86_64-unknown-linux-gnu/release/forge
           cross: 'false'
-          os: ubuntu-latest
+          os: sccache
           target: x86_64-unknown-linux-gnu
         - binary_name: forge-aarch64-unknown-linux-gnu
           binary_path: target/aarch64-unknown-linux-gnu/release/forge
@@ -120,7 +120,8 @@ jobs:
     needs:
     - build_release
     name: npm_release
-    runs-on: ubuntu-latest
+    runs-on:
+    - sccache
     strategy:
       matrix:
         repository:
@@ -133,6 +134,10 @@ jobs:
         repository: ${{ matrix.repository }}
         ref: main
         token: ${{ secrets.NPM_ACCESS }}
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
     - name: Update NPM Package
       run: './update-package.sh ${{ github.event.release.tag_name }}'
       env:
@@ -143,7 +148,8 @@ jobs:
     needs:
     - build_release
     name: homebrew_release
-    runs-on: ubuntu-latest
+    runs-on:
+    - sccache
     steps:
     - name: Checkout Code
       uses: actions/checkout@v6
