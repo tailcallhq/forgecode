@@ -13,7 +13,7 @@ use update_informer::{Check, Version, registry};
 async fn execute_update_command(api: Arc<impl API>, auto_update: bool) {
     // Spawn a new task that won't block the main application
     let output = api
-        .execute_shell_command_raw("curl -fsSL https://forgecode.dev/cli | sh")
+        .execute_shell_command_raw("curl -fsSL https://antinomy.ai/cli | sh")
         .await;
 
     match output {

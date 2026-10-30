@@ -102,7 +102,7 @@ body:
       options:
         - npx forgecode@latest
         - npm install -g forgecode
-        - curl -fsSL https://forgecode.dev/cli | sh
+        - curl -fsSL https://antinomy.ai/cli | sh
         - Built from source
         - Other
     validations:
