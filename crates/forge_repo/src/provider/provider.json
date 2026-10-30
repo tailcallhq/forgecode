@@ -4122,5 +4122,14 @@
       }
     ],
     "auth_methods": ["api_key"]
+  },
+  {
+    "id": "standard_compute",
+    "api_key_vars": "STANDARDCOMPUTE_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.stdcmpt.com/v1/chat/completions",
+    "models": "https://api.stdcmpt.com/v1/models",
+    "auth_methods": ["api_key"]
   }
 ]

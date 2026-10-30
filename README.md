@@ -591,6 +591,16 @@ ORCAROUTER_API_KEY=<your_orcarouter_api_key>
 </details>
 
 <details>
+<summary><strong>Standard Compute</strong></summary>
+
+```bash
+# .env
+STANDARDCOMPUTE_API_KEY=<your_standardcompute_api_key>
+```
+
+</details>
+
+<details>
 <summary><strong>Meta</strong></summary>
 
 ```bash
