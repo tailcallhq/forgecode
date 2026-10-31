@@ -452,6 +452,35 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
+    /// Regression: bracketed-paste must redraw once. A preceding
+    /// `zle redisplay` moves the cursor up an extra `lprompth - 1` lines
+    /// on a multi-line prompt (#3937).
+    #[test]
+    fn test_bracketed_paste_widget_resets_prompt_once() {
+        use pretty_assertions::assert_eq;
+
+        let fixture = generate_zsh_plugin().unwrap();
+        let start = fixture
+            .find("function forge-bracketed-paste()")
+            .expect("bracketed-paste widget");
+        let rest = &fixture[start..];
+        let next = rest[1..]
+            .find("function ")
+            .map(|offset| offset + 1)
+            .expect("following function");
+        let widget = &rest[..next];
+
+        let actual = widget.contains("zle .$WIDGET")
+            && widget.contains("[[ \"$BUFFER\" == :* ]]")
+            && widget.contains("zsh format")
+            && widget.contains("CURSOR=${#BUFFER}")
+            && widget.matches("zle reset-prompt").count() == 1
+            && !widget.contains("zle redisplay")
+            && fixture.contains("zle -N bracketed-paste forge-bracketed-paste");
+        let expected = true;
+        assert_eq!(actual, expected);
+    }
+
     #[test]
     fn test_setup_zsh_integration_without_nerd_font_config() {
         use tempfile::TempDir;
