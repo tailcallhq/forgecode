@@ -606,6 +606,21 @@ model: muse-spark-1.1
 </details>
 
 <details>
+<summary><strong>Runcrate</strong></summary>
+
+```bash
+# .env
+RUNCRATE_API_KEY=<your_runcrate_api_key>
+```
+
+```yaml
+# forge.yaml
+model: deepseek-ai/DeepSeek-V4.1-Flash
+```
+
+</details>
+
+<details>
 <summary><strong>IO Intelligence</strong></summary>
 
 ```bash
