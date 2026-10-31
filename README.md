@@ -1,7 +1,7 @@
 <h1 align="center">⚒️ Forge: AI-Enhanced Terminal Development Environment</h1>
 <p align="center">A comprehensive coding agent that integrates AI capabilities with your development environment</p>
 
-<p align="center"><code>curl -fsSL https://forgecode.dev/cli | sh</code></p>
+<p align="center"><code>curl -fsSL https://antinomy.ai/cli | sh</code></p>
 
 [![CI Status](https://img.shields.io/github/actions/workflow/status/tailcallhq/forgecode/ci.yml?style=for-the-badge)](https://github.com/tailcallhq/forgecode/actions)
 [![GitHub Release](https://img.shields.io/github/v/release/tailcallhq/forgecode?style=for-the-badge)](https://github.com/tailcallhq/forgecode/releases)
@@ -57,7 +57,7 @@
 To get started with Forge, run the command below:
 
 ```bash
-curl -fsSL https://forgecode.dev/cli | sh
+curl -fsSL https://antinomy.ai/cli | sh
 ```
 
 On first run, Forge will guide you through setting up your AI provider credentials using the interactive login flow. Alternatively, you can configure providers beforehand:
@@ -1133,7 +1133,7 @@ For comprehensive documentation on all features and capabilities, please visit t
 
 ```bash
 # YOLO
-curl -fsSL https://forgecode.dev/cli | sh
+curl -fsSL https://antinomy.ai/cli | sh
 
 # Package managers
 nix run github:tailcallhq/forgecode # for latest dev branch
