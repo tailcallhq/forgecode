@@ -972,6 +972,32 @@ mod tests {
     }
 
     #[test]
+    fn test_standard_compute_config() {
+        let configs = get_provider_configs();
+        let config = configs
+            .iter()
+            .find(|c| c.id == ProviderId::STANDARD_COMPUTE)
+            .unwrap();
+        assert_eq!(config.id, ProviderId::STANDARD_COMPUTE);
+        assert_eq!(
+            config.api_key_vars,
+            Some("STANDARDCOMPUTE_API_KEY".to_string())
+        );
+        assert!(config.url_param_vars.is_empty());
+        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(
+            config.url.as_str(),
+            "https://api.stdcmpt.com/v1/chat/completions"
+        );
+        match config.models.as_ref().expect("models should be present") {
+            Models::Url(model_url) => {
+                assert_eq!(model_url, "https://api.stdcmpt.com/v1/models");
+            }
+            other => panic!("expected URL-driven models, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_meta_config() {
         let configs = get_provider_configs();
         let config = configs.iter().find(|c| c.id == ProviderId::META).unwrap();
