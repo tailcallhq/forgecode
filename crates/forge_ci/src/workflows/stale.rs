@@ -22,6 +22,7 @@ pub fn generate_stale_workflow() {
         .add_job(
             "stale",
             Job::new("Stale Issues")
+                .runs_on(crate::steps::sccache_runner())
                 .add_step(
                     Step::new("Mark Stale Issues").uses("actions", "stale", "v10")
                         .with(Input::from(indexmap! {

@@ -3,6 +3,7 @@ use gh_workflow::*;
 /// Create a homebrew release job
 pub fn release_homebrew_job() -> Job {
     Job::new("homebrew_release")
+        .runs_on(crate::steps::sccache_runner())
         .add_step(
             Step::new("Checkout Code").uses("actions", "checkout", "v6")
                 .add_with(("repository", "antinomyhq/homebrew-code-forge"))

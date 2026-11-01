@@ -26,7 +26,9 @@ fn checkout_step() -> Step<Use> {
 fn sync_job(job_name: &str, script: &str, args: String) -> Job {
     let cmd = format!("{TSX} {SCRIPTS_DIR}/{script} {args}");
     Job::new(job_name)
+        .runs_on(crate::steps::sccache_runner())
         .add_step(checkout_step())
+        .add_step(crate::steps::setup_node())
         .add_step(Step::new("Install npm packages").run("npm install"))
         .add_step(Step::new("Sync bounty labels").run(cmd))
 }
@@ -46,7 +48,9 @@ pub fn sync_all_issues_job() -> Job {
             --execute"
     );
     Job::new("Sync all bounty issues")
+        .runs_on(crate::steps::sccache_runner())
         .add_step(checkout_step())
+        .add_step(crate::steps::setup_node())
         .add_step(Step::new("Install npm packages").run("npm install"))
         .add_step(Step::new("Sync all bounty labels").run(cmd))
         .permissions(Permissions::default().issues(Level::Write))

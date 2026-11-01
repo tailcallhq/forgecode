@@ -36,7 +36,8 @@ permissions:
 jobs:
   update_release_draft:
     name: update_release_draft
-    runs-on: ubuntu-latest
+    runs-on:
+    - sccache
     steps:
     - name: Auto Labeler
       if: github.event_name == 'pull_request_target'

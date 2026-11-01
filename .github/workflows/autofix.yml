@@ -32,14 +32,17 @@ env:
 jobs:
   lint:
     name: Lint Fix
-    runs-on: ubuntu-latest
+    runs-on:
+    - sccache
     permissions:
       contents: read
     steps:
     - name: Checkout Code
       uses: actions/checkout@v6
     - name: Install SQLite
-      run: sudo apt-get install -y libsqlite3-dev
+      run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+    - name: Install OpenSSL
+      run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
     - name: Setup Protobuf Compiler
       uses: arduino/setup-protoc@v3
       with:

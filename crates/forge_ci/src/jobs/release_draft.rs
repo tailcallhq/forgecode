@@ -4,6 +4,7 @@ use indexmap::indexmap;
 /// Create a draft release job for GitHub Actions
 pub fn create_draft_release_job(build_job_id: &str) -> Job {
     Job::new("draft_release")
+        .runs_on(crate::steps::sccache_runner())
         .name("Draft Release")
         .add_needs(build_job_id)
         .cond(Expression::new(
