@@ -115,7 +115,8 @@ jobs:
     - draft_release
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     name: build-release
-    runs-on: ${{ matrix.os }}
+    runs-on:
+    - ${{ matrix.os }}
     permissions:
       contents: write
       pull-requests: write
@@ -125,12 +126,12 @@ jobs:
         - binary_name: forge-x86_64-unknown-linux-musl
           binary_path: target/x86_64-unknown-linux-musl/release/forge
           cross: 'true'
-          os: ubuntu-latest
+          os: docker
           target: x86_64-unknown-linux-musl
         - binary_name: forge-aarch64-unknown-linux-musl
           binary_path: target/aarch64-unknown-linux-musl/release/forge
           cross: 'true'
-          os: ubuntu-latest
+          os: docker
           target: aarch64-unknown-linux-musl
         - binary_name: forge-x86_64-unknown-linux-gnu
           binary_path: target/x86_64-unknown-linux-gnu/release/forge
@@ -140,7 +141,7 @@ jobs:
         - binary_name: forge-aarch64-unknown-linux-gnu
           binary_path: target/aarch64-unknown-linux-gnu/release/forge
           cross: 'true'
-          os: ubuntu-latest
+          os: docker
           target: aarch64-unknown-linux-gnu
         - binary_name: forge-x86_64-apple-darwin
           binary_path: target/x86_64-apple-darwin/release/forge
@@ -165,7 +166,7 @@ jobs:
         - binary_name: forge-aarch64-linux-android
           binary_path: target/aarch64-linux-android/release/forge
           cross: 'true'
-          os: ubuntu-latest
+          os: docker
           target: aarch64-linux-android
     steps:
     - name: Checkout Code
@@ -180,6 +181,19 @@ jobs:
       uses: taiki-e/setup-cross-toolchain-action@v1
       with:
         target: ${{ matrix.target }}
+    - name: Put Rust homes on the dind-shared volume
+      if: ${{ matrix.cross == 'true' }}
+      run: |-
+        echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+        echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+        echo "$RUNNER_TEMP/cargo/bin" >> "$GITHUB_PATH"
+    - name: Setup Rust (cross)
+      if: ${{ matrix.cross == 'true' }}
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        cache: 'false'
+        rustflags: ''
     - name: Add Rust target
       if: ${{ matrix.cross == 'false' }}
       run: rustup target add ${{ matrix.target }}
@@ -210,7 +224,8 @@ jobs:
     - draft_release_pr
     if: 'github.event_name == ''pull_request'' && contains(github.event.pull_request.labels.*.name, ''ci: build all targets'')'
     name: build-release
-    runs-on: ${{ matrix.os }}
+    runs-on:
+    - ${{ matrix.os }}
     permissions:
       contents: write
       pull-requests: write
@@ -220,12 +235,12 @@ jobs:
         - binary_name: forge-x86_64-unknown-linux-musl
           binary_path: target/x86_64-unknown-linux-musl/release/forge
           cross: 'true'
-          os: ubuntu-latest
+          os: docker
           target: x86_64-unknown-linux-musl
         - binary_name: forge-aarch64-unknown-linux-musl
           binary_path: target/aarch64-unknown-linux-musl/release/forge
           cross: 'true'
-          os: ubuntu-latest
+          os: docker
           target: aarch64-unknown-linux-musl
         - binary_name: forge-x86_64-unknown-linux-gnu
           binary_path: target/x86_64-unknown-linux-gnu/release/forge
@@ -235,7 +250,7 @@ jobs:
         - binary_name: forge-aarch64-unknown-linux-gnu
           binary_path: target/aarch64-unknown-linux-gnu/release/forge
           cross: 'true'
-          os: ubuntu-latest
+          os: docker
           target: aarch64-unknown-linux-gnu
         - binary_name: forge-x86_64-apple-darwin
           binary_path: target/x86_64-apple-darwin/release/forge
@@ -260,7 +275,7 @@ jobs:
         - binary_name: forge-aarch64-linux-android
           binary_path: target/aarch64-linux-android/release/forge
           cross: 'true'
-          os: ubuntu-latest
+          os: docker
           target: aarch64-linux-android
     steps:
     - name: Checkout Code
@@ -275,6 +290,19 @@ jobs:
       uses: taiki-e/setup-cross-toolchain-action@v1
       with:
         target: ${{ matrix.target }}
+    - name: Put Rust homes on the dind-shared volume
+      if: ${{ matrix.cross == 'true' }}
+      run: |-
+        echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+        echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+        echo "$RUNNER_TEMP/cargo/bin" >> "$GITHUB_PATH"
+    - name: Setup Rust (cross)
+      if: ${{ matrix.cross == 'true' }}
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        cache: 'false'
+        rustflags: ''
     - name: Add Rust target
       if: ${{ matrix.cross == 'false' }}
       run: rustup target add ${{ matrix.target }}
