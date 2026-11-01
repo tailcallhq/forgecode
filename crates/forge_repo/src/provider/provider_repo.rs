@@ -1054,6 +1054,23 @@ mod tests {
     }
 
     #[test]
+    fn test_sideren_config() {
+        let configs = get_provider_configs();
+        let config = configs
+            .iter()
+            .find(|c| c.id == ProviderId::SIDEREN)
+            .unwrap();
+        assert_eq!(config.id, ProviderId::SIDEREN);
+        assert_eq!(config.api_key_vars, Some("SIDEREN_API_KEY".to_string()));
+        assert!(config.url_param_vars.is_empty());
+        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(
+            config.url.as_str(),
+            "https://api.sideren.io/v1/chat/completions"
+        );
+    }
+
+    #[test]
     fn test_moonshot_config() {
         let configs = get_provider_configs();
         let config = configs

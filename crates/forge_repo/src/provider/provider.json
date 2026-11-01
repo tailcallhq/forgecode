@@ -4122,5 +4122,14 @@
       }
     ],
     "auth_methods": ["api_key"]
+  },
+  {
+    "id": "sideren",
+    "api_key_vars": "SIDEREN_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.sideren.io/v1/chat/completions",
+    "models": "https://api.sideren.io/v1/models",
+    "auth_methods": ["api_key"]
   }
 ]
