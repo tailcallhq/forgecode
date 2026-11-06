@@ -1230,7 +1230,7 @@ fn wrap_ansi_line(line: &str, max_width: usize) -> Vec<String> {
                 current_line.clone()
             };
             wrapped_lines.push(pushed);
-            current_line = String::new();
+            current_line.clear();
             visible_width = 0;
             is_continuation = true;
         }
