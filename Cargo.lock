@@ -2477,6 +2477,7 @@ dependencies = [
  "http 1.5.0",
  "nom",
  "pin-project-lite",
+ "pretty_assertions",
  "reqwest 0.11.27",
  "tokio",
  "url",

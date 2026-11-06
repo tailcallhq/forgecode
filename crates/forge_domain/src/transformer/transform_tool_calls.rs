@@ -72,7 +72,7 @@ impl Transformer for TransformToolCalls {
         }
 
         value.messages = new_messages;
-        value.tools = Vec::new();
+        value.tools.clear();
         value
     }
 }

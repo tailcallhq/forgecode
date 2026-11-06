@@ -414,8 +414,7 @@ impl From<&Info> for Porcelain {
             match section {
                 Section::Title(title) => {
                     if in_row {
-                        rows.push(cells.clone());
-                        cells = HashMap::new();
+                        rows.push(std::mem::take(&mut cells));
                         value_counter = 1;
                     }
 
