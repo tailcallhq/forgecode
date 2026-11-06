@@ -97,6 +97,7 @@ where
 #[cfg(test)]
 mod tests {
     use futures::prelude::*;
+    use pretty_assertions::assert_eq;
 
     use super::*;
 
@@ -188,7 +189,8 @@ mod tests {
     #[tokio::test]
     async fn invalid_byte_fails_at_once_instead_of_swallowing_later_chunks() {
         // 0xFF can never start a UTF-8 character, so waiting for more bytes
-        // cannot fix it.
+        // cannot fix it. The stream ends with the error; the valid prefix
+        // stays inside the error's bytes.
         let fixture = futures::stream::iter(vec![
             Ok::<_, ()>(vec![b'a', 0xFF, b'b']),
             Ok::<_, ()>(b"later".to_vec()),
@@ -196,7 +198,30 @@ mod tests {
 
         let actual = Utf8Stream::new(fixture).collect::<Vec<_>>().await;
 
-        assert_eq!(actual.len(), 1);
-        assert!(matches!(actual[0], Err(Utf8StreamError::Utf8(_))));
+        let expected = vec![Err(Utf8StreamError::Utf8(
+            String::from_utf8(vec![b'a', 0xFF, b'b']).unwrap_err(),
+        ))];
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn split_character_followed_by_invalid_byte_fails() {
+        // The first chunk ends inside a 4-byte character, so it is held back;
+        // the next byte cannot continue it.
+        let fixture = futures::stream::iter(vec![
+            Ok::<_, ()>(vec![240, 159]),
+            Ok::<_, ()>(vec![b'A']),
+            Ok::<_, ()>(b"later".to_vec()),
+        ]);
+
+        let actual = Utf8Stream::new(fixture).collect::<Vec<_>>().await;
+
+        let expected = vec![
+            Ok(String::new()),
+            Err(Utf8StreamError::Utf8(
+                String::from_utf8(vec![240, 159, b'A']).unwrap_err(),
+            )),
+        ];
+        assert_eq!(actual, expected);
     }
 }
