@@ -56,12 +56,24 @@ where
                 let bytes = core::mem::take(this.buffer);
                 match String::from_utf8(bytes) {
                     Ok(string) => Poll::Ready(Some(Ok(string))),
+                    // A byte sequence that can never become valid: waiting
+                    // for more input would only swallow every later chunk.
+                    Err(err) if err.utf8_error().error_len().is_some() => {
+                        *this.terminated = true;
+                        Poll::Ready(Some(Err(Utf8StreamError::Utf8(err))))
+                    }
+                    // Only the tail is incomplete: a character split across
+                    // chunks. Emit the valid prefix and keep the tail.
                     Err(err) => {
                         let valid_size = err.utf8_error().valid_up_to();
                         let mut bytes = err.into_bytes();
-                        let rem = bytes.split_off(valid_size);
-                        *this.buffer = rem;
-                        Poll::Ready(Some(Ok(unsafe { String::from_utf8_unchecked(bytes) })))
+                        *this.buffer = bytes.split_off(valid_size);
+                        // The prefix is valid by construction, so this never
+                        // fails; checking it again keeps the code free of
+                        // `unsafe`.
+                        Poll::Ready(Some(
+                            String::from_utf8(bytes).map_err(Utf8StreamError::Utf8),
+                        ))
                     }
                 }
             }
@@ -171,5 +183,20 @@ mod tests {
         assert_eq!(results[0], Ok("".to_string()));
         assert_eq!(results[1], Ok("👍".to_string()));
         assert!(matches!(results[2], Err(Utf8StreamError::Utf8(_))));
+    }
+
+    #[tokio::test]
+    async fn invalid_byte_fails_at_once_instead_of_swallowing_later_chunks() {
+        // 0xFF can never start a UTF-8 character, so waiting for more bytes
+        // cannot fix it.
+        let fixture = futures::stream::iter(vec![
+            Ok::<_, ()>(vec![b'a', 0xFF, b'b']),
+            Ok::<_, ()>(b"later".to_vec()),
+        ]);
+
+        let actual = Utf8Stream::new(fixture).collect::<Vec<_>>().await;
+
+        assert_eq!(actual.len(), 1);
+        assert!(matches!(actual[0], Err(Utf8StreamError::Utf8(_))));
     }
 }
