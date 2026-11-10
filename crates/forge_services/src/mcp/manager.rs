@@ -146,7 +146,8 @@ where
                 // Read and merge all configurations (original behavior)
                 let env = self.infra.get_environment();
                 let paths = vec![
-                    // Configs at lower levels take precedence, so we read them in reverse order.
+                    // Configs at lower levels take precedence, so we read them
+                    // in reverse order.
                     env.mcp_user_config().as_path().to_path_buf(),
                     env.mcp_local_config().as_path().to_path_buf(),
                 ];

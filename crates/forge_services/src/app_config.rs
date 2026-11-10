@@ -78,7 +78,8 @@ mod tests {
     use std::sync::Mutex;
 
     use forge_config::{ForgeConfig, ModelConfig};
-    // Alias to avoid collision with forge_config::ModelConfig used in test fixtures
+    // Alias to avoid collision with forge_config::ModelConfig used in test
+    // fixtures
     use forge_domain::ModelConfig as DomainModelConfig;
     use forge_domain::{
         AnyProvider, ChatRepository, ConfigOperation, Environment, InputModality, MigrationResult,

@@ -385,8 +385,8 @@ async fn test_multiple_consecutive_tool_calls() {
             ChatCompletionMessage::assistant("Reading 3").add_tool_call(tool_call.clone()),
             ChatCompletionMessage::assistant("Reading 4").add_tool_call(tool_call.clone()),
             ChatCompletionMessage::assistant("Completing Task").finish_reason(FinishReason::Stop),
-            // Extra responses for doom loop reminder iterations (detector triggers on each request
-            // after 4th tool call)
+            // Extra responses for doom loop reminder iterations (detector
+            // triggers on each request after 4th tool call)
             ChatCompletionMessage::assistant("Acknowledged").finish_reason(FinishReason::Stop),
             ChatCompletionMessage::assistant("Task complete").finish_reason(FinishReason::Stop),
         ]);
@@ -423,8 +423,8 @@ async fn test_doom_loop_detection_adds_user_reminder_after_repeated_calls_on_nex
             ChatCompletionMessage::assistant("Call 3").add_tool_call(tool_call.clone()),
             ChatCompletionMessage::assistant("Call 4").add_tool_call(tool_call.clone()),
             ChatCompletionMessage::assistant("Done").finish_reason(FinishReason::Stop),
-            // Extra responses for doom loop reminder iterations (detector triggers on each request
-            // after 4th tool call)
+            // Extra responses for doom loop reminder iterations (detector
+            // triggers on each request after 4th tool call)
             ChatCompletionMessage::assistant("Noted").finish_reason(FinishReason::Stop),
             ChatCompletionMessage::assistant("Actually done now").finish_reason(FinishReason::Stop),
         ]);
@@ -614,7 +614,8 @@ async fn test_todo_enforcement_injects_reminder() {
 
     let mut ctx = TestContext::default()
         .mock_assistant_responses(vec![
-            // LLM tries to finish but has pending todos - reminder will be injected
+            // LLM tries to finish but has pending todos - reminder will be
+            // injected
             ChatCompletionMessage::assistant(Content::full("Task is done"))
                 .finish_reason(FinishReason::Stop),
             // Second response after the first reminder is injected

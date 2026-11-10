@@ -926,7 +926,8 @@ mod tests {
         let messages = vec![
             Ok(ChatCompletionMessage::default().content(Content::part(&xml_content[0..30]))),
             Ok(ChatCompletionMessage::default().content(Content::part(&xml_content[30..]))),
-            // These messages come after tool interruption but contain usage updates
+            // These messages come after tool interruption but contain usage
+            // updates
             Ok(ChatCompletionMessage::default().content(Content::part(" ignored content"))),
             // Final message with the actual usage - this is always sent last
             Ok(ChatCompletionMessage::default().usage(Usage {
@@ -1161,7 +1162,8 @@ mod tests {
 
         let messages = vec![
             Ok(ChatCompletionMessage::default().content(Content::part(xml_content))),
-            // After interruption - content should be ignored but usage should be captured
+            // After interruption - content should be ignored but usage should
+            // be captured
             Ok(ChatCompletionMessage::default()
                 .content(Content::part("This content should be ignored"))),
             Ok(ChatCompletionMessage::default()

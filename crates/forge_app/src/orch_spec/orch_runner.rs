@@ -33,7 +33,8 @@ pub struct Runner {
     // Tool call requests and the mock responses
     test_tool_calls: Mutex<VecDeque<(ToolCallFull, ToolResult)>>,
 
-    // Mock completions from the LLM (Each value is produced as an event in the stream)
+    // Mock completions from the LLM (Each value is produced as an event in the
+    // stream)
     test_completions: Mutex<VecDeque<ChatCompletionMessage>>,
 
     // Mock shell command outputs

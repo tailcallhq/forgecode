@@ -35,8 +35,8 @@ use crate::walker::ForgeWalkerService;
 
 #[derive(Clone)]
 pub struct ForgeInfra {
-    // TODO: Drop the "Service" suffix. Use names like ForgeFileReader, ForgeFileWriter,
-    // ForgeHttpClient etc.
+    // TODO: Drop the "Service" suffix. Use names like ForgeFileReader,
+    // ForgeFileWriter, ForgeHttpClient etc.
     file_read_service: Arc<ForgeFileReadService>,
     file_write_service: Arc<ForgeFileWriteService>,
     file_remove_service: Arc<ForgeFileRemoveService>,

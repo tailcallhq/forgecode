@@ -39,7 +39,8 @@ pub struct Message {
     pub reasoning_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_opaque: Option<String>,
-    // kimi_k2 uses reasoning_content as flat string (similar to reasoning_text but aliased)
+    // kimi_k2 uses reasoning_content as flat string (similar to reasoning_text
+    // but aliased)
     #[serde(skip_serializing_if = "Option::is_none", rename = "reasoning_content")]
     pub reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -395,8 +396,8 @@ impl From<Context> for Request {
             min_p: Default::default(),
             top_a: Default::default(),
             prediction: Default::default(),
-            // Since compaction is support on the client we don't need middle-out transforms any
-            // more
+            // Since compaction is support on the client we don't need
+            // middle-out transforms any more
             transforms: Default::default(),
             models: Default::default(),
             route: Default::default(),
