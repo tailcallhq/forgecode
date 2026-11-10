@@ -1227,10 +1227,10 @@ fn wrap_ansi_line(line: &str, max_width: usize) -> Vec<String> {
             let pushed = if is_continuation {
                 format!("{WRAP_ICON}{current_line}")
             } else {
-                current_line.clone()
+                std::mem::take(&mut current_line)
             };
             wrapped_lines.push(pushed);
-            current_line = String::new();
+            current_line.clear();
             visible_width = 0;
             is_continuation = true;
         }
