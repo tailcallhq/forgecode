@@ -3,6 +3,7 @@ use gh_workflow::*;
 /// Create a job to update the release draft
 pub fn draft_release_update_job() -> Job {
     Job::new("update_release_draft")
+        .runs_on(crate::steps::sccache_runner())
         .add_step(
             Step::new("Auto Labeler")
                 .uses("release-drafter", "release-drafter/autolabeler", "v7")

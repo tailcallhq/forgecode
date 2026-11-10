@@ -415,7 +415,7 @@ impl From<&Info> for Porcelain {
                 Section::Title(title) => {
                     if in_row {
                         rows.push(cells.clone());
-                        cells = HashMap::new();
+                        cells.clear();
                         value_counter = 1;
                     }
 

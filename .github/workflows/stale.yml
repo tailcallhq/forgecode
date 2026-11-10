@@ -30,7 +30,8 @@ permissions:
 jobs:
   stale:
     name: Stale Issues
-    runs-on: ubuntu-latest
+    runs-on:
+    - sccache
     steps:
     - name: Mark Stale Issues
       uses: actions/stale@v10
