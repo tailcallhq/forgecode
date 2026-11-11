@@ -40,6 +40,9 @@ pub struct Model {
     pub top_provider: Option<TopProvider>,
     pub per_request_limits: Option<serde_json::Value>,
     pub supported_parameters: Option<Vec<String>>,
+    /// Routes the provider serves this model on, e.g. `/chat/completions`.
+    /// Absent for providers that do not report per-model routes.
+    pub supported_endpoints: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -92,6 +95,21 @@ pub struct TopProvider {
 #[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct ListModelResponse {
     pub data: Vec<Model>,
+}
+
+impl Model {
+    /// Whether the provider serves this model on the chat completions route.
+    ///
+    /// Providers that multiplex several protocols on one endpoint (e.g.
+    /// Command Code serves OpenAI chat and Anthropic messages from the same
+    /// host) report the routes each model answers in `supported_endpoints`.
+    /// Models that do not declare routes are assumed to support chat
+    /// completions, since most providers omit the field.
+    pub fn serves_chat_completions(&self) -> bool {
+        self.supported_endpoints.as_ref().is_none_or(|endpoints| {
+            endpoints.is_empty() || endpoints.iter().any(|e| e.ends_with("chat/completions"))
+        })
+    }
 }
 
 impl From<Model> for forge_domain::Model {
@@ -185,6 +203,7 @@ mod tests {
             top_provider: None,
             per_request_limits: None,
             supported_parameters: None,
+            supported_endpoints: None,
         };
 
         assert_eq!(actual.id, expected.id);
@@ -304,6 +323,35 @@ mod tests {
         assert_eq!(actual.pricing.as_ref().unwrap().prompt, Some(0.0015));
         assert_eq!(actual.pricing.as_ref().unwrap().completion, Some(0.0002));
     }
+    #[test]
+    fn test_serves_chat_completions() {
+        // Models that declare routes only serve the declared ones.
+        let fixture = serde_json::json!({
+            "id": "claude-sonnet-5",
+            "supported_endpoints": ["/messages"]
+        });
+        let actual = serde_json::from_value::<Model>(fixture)
+            .unwrap()
+            .serves_chat_completions();
+        assert!(!actual);
+
+        let fixture = serde_json::json!({
+            "id": "gpt-5.4",
+            "supported_endpoints": ["/chat/completions", "/responses"]
+        });
+        let actual = serde_json::from_value::<Model>(fixture)
+            .unwrap()
+            .serves_chat_completions();
+        assert!(actual);
+
+        // Providers that omit the field are assumed to serve chat.
+        let fixture = serde_json::json!({ "id": "some-model" });
+        let actual = serde_json::from_value::<Model>(fixture)
+            .unwrap()
+            .serves_chat_completions();
+        assert!(actual);
+    }
+
     #[tokio::test]
     async fn test_model_conversion_without_supported_parameters() {
         let model = Model {
@@ -317,6 +365,7 @@ mod tests {
             top_provider: None,
             per_request_limits: None,
             supported_parameters: None, // No supported_parameters field
+            supported_endpoints: None,
         };
 
         let domain_model: forge_domain::Model = model.into();
@@ -345,6 +394,7 @@ mod tests {
                 "reasoning".to_string(),
                 // Note: "supports_parallel_tool_calls" is not included
             ]),
+            supported_endpoints: None,
         };
 
         let domain_model: forge_domain::Model = model.into();

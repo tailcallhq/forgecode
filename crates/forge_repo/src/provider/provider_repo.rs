@@ -1022,6 +1022,35 @@ mod tests {
     }
 
     #[test]
+    fn test_command_code_config() {
+        let configs = get_provider_configs();
+        let config = configs
+            .iter()
+            .find(|c| c.id == ProviderId::COMMAND_CODE)
+            .unwrap();
+        assert_eq!(config.id, ProviderId::COMMAND_CODE);
+        assert_eq!(
+            config.api_key_vars,
+            Some("COMMAND_CODE_API_KEY".to_string())
+        );
+        assert!(config.url_param_vars.is_empty());
+        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(
+            config.url.as_str(),
+            "https://api.commandcode.ai/provider/v1/chat/completions"
+        );
+        // Claude models on Command Code only answer on /messages, so the
+        // model list is fetched and filtered by supported endpoint instead
+        // of being hardcoded.
+        match config.models.as_ref().expect("models should be present") {
+            Models::Url(model_url) => {
+                assert_eq!(model_url, "https://api.commandcode.ai/provider/v1/models");
+            }
+            other => panic!("expected URL-driven models, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_alibaba_token_plan_config() {
         let configs = get_provider_configs();
         let config = configs

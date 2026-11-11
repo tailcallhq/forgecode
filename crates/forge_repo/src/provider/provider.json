@@ -4242,5 +4242,14 @@
       }
     ],
     "auth_methods": ["api_key"]
+  },
+  {
+    "id": "command_code",
+    "api_key_vars": "COMMAND_CODE_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.commandcode.ai/provider/v1/chat/completions",
+    "models": "https://api.commandcode.ai/provider/v1/models",
+    "auth_methods": ["api_key"]
   }
 ]
