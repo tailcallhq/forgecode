@@ -141,7 +141,7 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync>
         match provider.response {
             Some(ProviderResponse::OpenAI) => {
                 // Check if model is a Codex model
-                if model_id.as_str().contains("gpt-5")
+                if uses_responses_api(model_id.as_str())
                     && (provider.id == ProviderId::OPENAI
                         || provider.id == ProviderId::GITHUB_COPILOT
                         || provider.id == ProviderId::CODEX)
@@ -194,6 +194,12 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync>
     }
 }
 
+/// Returns `true` when an OpenAI-compatible model must be served by the
+/// Responses API rather than Chat Completions.
+fn uses_responses_api(model: &str) -> bool {
+    model.contains("gpt-5") || model.contains("gpt-6")
+}
+
 /// Tracks abort handles for background tasks and cancels them on drop.
 #[derive(Default)]
 struct BgRefresh(std::sync::Mutex<Vec<AbortHandle>>);
@@ -214,5 +220,30 @@ impl Drop for BgRefresh {
                 handle.abort();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn test_uses_responses_api() {
+        let fixture = [
+            "gpt-5.6-luna",
+            "gpt-6-astra",
+            "gpt-6-sol",
+            "gpt-6-luna",
+            "gpt-6-cyber",
+            "gpt-6.1-sol",
+            "gpt-6.1-terra",
+            "openai/gpt-6-luna",
+            "gpt-4o",
+        ];
+        let actual: Vec<bool> = fixture.iter().map(|m| uses_responses_api(m)).collect();
+        let expected = vec![true, true, true, true, true, true, true, true, false];
+        assert_eq!(actual, expected);
     }
 }

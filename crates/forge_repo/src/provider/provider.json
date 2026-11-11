@@ -548,6 +548,66 @@
         "supports_parallel_tool_calls": true,
         "supports_reasoning": true,
         "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-6-astra",
+        "name": "GPT-6 Astra",
+        "description": "Our most capable model for the most demanding work",
+        "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-6-sol",
+        "name": "GPT-6 Sol",
+        "description": "Built to power complex coding and agentic workflows",
+        "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-6-luna",
+        "name": "GPT-6 Luna",
+        "description": "Our most efficient model for focused, high-volume tasks",
+        "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-6-cyber",
+        "name": "GPT-6 Cyber",
+        "description": "Cybersecurity model for authorized vulnerability research and security testing",
+        "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-6.1-sol",
+        "name": "GPT-6.1 Sol",
+        "description": "Near-Astra performance for complex work at a lower cost",
+        "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-6.1-terra",
+        "name": "GPT-6.1 Terra",
+        "description": "Fast, efficient model for visual reasoning, precise computer use, and clear writing",
+        "context_length": 1050000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
       }
     ],
     "auth_methods": ["api_key"]
@@ -2702,6 +2762,66 @@
     "response_type": "OpenAI",
     "url": "https://chatgpt.com/backend-api/codex/responses",
     "models": [
+      {
+        "id": "gpt-6-astra",
+        "name": "GPT-6 Astra",
+        "description": "Our most capable model for the most demanding work",
+        "context_length": 500000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-6-sol",
+        "name": "GPT-6 Sol",
+        "description": "Built to power complex coding and agentic workflows",
+        "context_length": 500000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-6-luna",
+        "name": "GPT-6 Luna",
+        "description": "Our most efficient model for focused, high-volume tasks",
+        "context_length": 500000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-6-cyber",
+        "name": "GPT-6 Cyber",
+        "description": "Cybersecurity model for authorized vulnerability research and security testing",
+        "context_length": 500000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-6.1-sol",
+        "name": "GPT-6.1 Sol",
+        "description": "Near-Astra performance for complex work at a lower cost",
+        "context_length": 500000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
+      {
+        "id": "gpt-6.1-terra",
+        "name": "GPT-6.1 Terra",
+        "description": "Fast, efficient model for visual reasoning, precise computer use, and clear writing",
+        "context_length": 500000,
+        "tools_supported": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "input_modalities": ["text", "image"]
+      },
       {
         "id": "gpt-5.6-luna",
         "name": "GPT-5.6 Luna",
