@@ -3,6 +3,7 @@ mod bedrock;
 mod bedrock_cache;
 mod bedrock_sanitize_ids;
 mod chat;
+mod command_code;
 mod event;
 mod google;
 #[cfg(test)]

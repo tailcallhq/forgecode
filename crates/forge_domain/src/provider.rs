@@ -88,6 +88,7 @@ impl ProviderId {
     pub const KIMI_CODING: ProviderId = ProviderId(Cow::Borrowed("kimi_coding"));
     pub const MOONSHOT: ProviderId = ProviderId(Cow::Borrowed("moonshot"));
     pub const ALIBABA_TOKEN_PLAN: ProviderId = ProviderId(Cow::Borrowed("alibaba_token_plan"));
+    pub const COMMAND_CODE: ProviderId = ProviderId(Cow::Borrowed("command_code"));
 
     /// Returns all built-in provider IDs
     ///
@@ -135,6 +136,7 @@ impl ProviderId {
             ProviderId::KIMI_CODING,
             ProviderId::MOONSHOT,
             ProviderId::ALIBABA_TOKEN_PLAN,
+            ProviderId::COMMAND_CODE,
         ]
     }
 
@@ -160,6 +162,7 @@ impl ProviderId {
             "codex" => "Codex".to_string(),
             "opencode_zen" => "OpenCode Zen".to_string(),
             "opencode_go" => "OpenCode Go".to_string(),
+            "command_code" => "Command Code".to_string(),
             "fireworks-ai" => "FireworksAI".to_string(),
             "fireworks-ai-firepass" => "FireworksAIFirepass".to_string(),
             "novita" => "Novita".to_string(),
@@ -235,6 +238,7 @@ impl std::str::FromStr for ProviderId {
             "kimi_coding" => ProviderId::KIMI_CODING,
             "moonshot" => ProviderId::MOONSHOT,
             "alibaba_token_plan" => ProviderId::ALIBABA_TOKEN_PLAN,
+            "command_code" => ProviderId::COMMAND_CODE,
             // For custom providers, use Cow::Owned to avoid memory leaks
             custom => ProviderId(Cow::Owned(custom.to_string())),
         };
@@ -256,6 +260,7 @@ pub enum ProviderResponse {
     Bedrock,
     Google,
     OpenCode,
+    CommandCode,
 }
 
 /// Represents the source of models for a provider
@@ -836,6 +841,26 @@ mod tests {
     fn test_alibaba_token_plan_from_str_roundtrip() {
         let actual = ProviderId::from_str("alibaba_token_plan").unwrap();
         let expected = ProviderId::ALIBABA_TOKEN_PLAN;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_command_code_display_name() {
+        let actual = ProviderId::COMMAND_CODE.to_string();
+        let expected = "Command Code".to_string();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_command_code_in_built_in_providers() {
+        let built_in = ProviderId::built_in_providers();
+        assert!(built_in.contains(&ProviderId::COMMAND_CODE));
+    }
+
+    #[test]
+    fn test_command_code_from_str_roundtrip() {
+        let actual = ProviderId::from_str("command_code").unwrap();
+        let expected = ProviderId::COMMAND_CODE;
         assert_eq!(actual, expected);
     }
 
