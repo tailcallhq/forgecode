@@ -21,6 +21,7 @@ pub enum ProviderResponseType {
     Bedrock,
     Google,
     OpenCode,
+    CommandCode,
 }
 
 /// Category of a provider.

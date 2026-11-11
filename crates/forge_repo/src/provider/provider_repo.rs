@@ -198,6 +198,7 @@ impl From<forge_config::ProviderEntry> for ProviderConfig {
             forge_config::ProviderResponseType::Bedrock => ProviderResponse::Bedrock,
             forge_config::ProviderResponseType::Google => ProviderResponse::Google,
             forge_config::ProviderResponseType::OpenCode => ProviderResponse::OpenCode,
+            forge_config::ProviderResponseType::CommandCode => ProviderResponse::CommandCode,
         });
 
         let models = entry.models.map(|m| match m {
@@ -1034,14 +1035,13 @@ mod tests {
             Some("COMMAND_CODE_API_KEY".to_string())
         );
         assert!(config.url_param_vars.is_empty());
-        assert_eq!(config.response_type, Some(ProviderResponse::OpenAI));
+        assert_eq!(config.response_type, Some(ProviderResponse::CommandCode));
         assert_eq!(
             config.url.as_str(),
             "https://api.commandcode.ai/provider/v1/chat/completions"
         );
-        // Claude models on Command Code only answer on /messages, so the
-        // model list is fetched and filtered by supported endpoint instead
-        // of being hardcoded.
+        // The model list is discovered from the provider so new models appear
+        // without a release.
         match config.models.as_ref().expect("models should be present") {
             Models::Url(model_url) => {
                 assert_eq!(model_url, "https://api.commandcode.ai/provider/v1/models");

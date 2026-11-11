@@ -11,6 +11,7 @@ use url::Url;
 
 use crate::provider::anthropic::AnthropicResponseRepository;
 use crate::provider::bedrock::BedrockResponseRepository;
+use crate::provider::command_code::CommandCodeResponseRepository;
 use crate::provider::google::GoogleResponseRepository;
 use crate::provider::openai::OpenAIResponseRepository;
 use crate::provider::openai_responses::OpenAIResponsesResponseRepository;
@@ -42,6 +43,7 @@ impl<F: EnvironmentInfra<Config = forge_config::ForgeConfig> + HttpInfra> ForgeC
             BedrockResponseRepository::new(Arc::new(config.retry.unwrap_or_default()));
         let google_repo = GoogleResponseRepository::new(infra.clone());
         let opencode_zen_repo = OpenCodeZenResponseRepository::new(infra.clone());
+        let command_code_repo = CommandCodeResponseRepository::new(infra.clone());
 
         let model_cache = Arc::new(CacacheStorage::new(
             env.cache_dir().join("model_cache"),
@@ -56,6 +58,7 @@ impl<F: EnvironmentInfra<Config = forge_config::ForgeConfig> + HttpInfra> ForgeC
                 bedrock_repo,
                 google_repo,
                 opencode_zen_repo,
+                command_code_repo,
             }),
             model_cache,
             bg_refresh: BgRefresh::default(),
@@ -129,6 +132,7 @@ struct ProviderRouter<F> {
     bedrock_repo: BedrockResponseRepository,
     google_repo: GoogleResponseRepository<F>,
     opencode_zen_repo: OpenCodeZenResponseRepository<F>,
+    command_code_repo: CommandCodeResponseRepository<F>,
 }
 
 impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync> ProviderRouter<F> {
@@ -171,6 +175,11 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync>
                     .chat(model_id, context, provider)
                     .await
             }
+            Some(ProviderResponse::CommandCode) => {
+                self.command_code_repo
+                    .chat(model_id, context, provider)
+                    .await
+            }
             None => Err(anyhow::anyhow!(
                 "Provider response type not configured for provider: {}",
                 provider.id
@@ -186,6 +195,7 @@ impl<F: HttpInfra + EnvironmentInfra<Config = forge_config::ForgeConfig> + Sync>
             Some(ProviderResponse::Bedrock) => self.bedrock_repo.models(provider).await,
             Some(ProviderResponse::Google) => self.google_repo.models(provider).await,
             Some(ProviderResponse::OpenCode) => self.opencode_zen_repo.models(provider).await,
+            Some(ProviderResponse::CommandCode) => self.command_code_repo.models(provider).await,
             None => Err(anyhow::anyhow!(
                 "Provider response type not configured for provider: {}",
                 provider.id

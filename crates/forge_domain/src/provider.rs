@@ -260,6 +260,7 @@ pub enum ProviderResponse {
     Bedrock,
     Google,
     OpenCode,
+    CommandCode,
 }
 
 /// Represents the source of models for a provider
