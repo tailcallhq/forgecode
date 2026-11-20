@@ -4104,6 +4104,15 @@
     "auth_methods": ["api_key"]
   },
   {
+    "id": "trusted_router",
+    "api_key_vars": "TRUSTEDROUTER_API_KEY",
+    "url_param_vars": [],
+    "response_type": "OpenAI",
+    "url": "https://api.trustedrouter.com/v1/chat/completions",
+    "models": "https://api.trustedrouter.com/v1/models",
+    "auth_methods": ["api_key"]
+  },
+  {
     "id": "meta",
     "api_key_vars": "META_API_KEY",
     "url_param_vars": [],
