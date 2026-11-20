@@ -84,6 +84,7 @@ impl ProviderId {
     pub const AMBIENT: ProviderId = ProviderId(Cow::Borrowed("ambient"));
     pub const NEURALWATT: ProviderId = ProviderId(Cow::Borrowed("neuralwatt"));
     pub const ORCA_ROUTER: ProviderId = ProviderId(Cow::Borrowed("orca_router"));
+    pub const TRUSTED_ROUTER: ProviderId = ProviderId(Cow::Borrowed("trusted_router"));
     pub const META: ProviderId = ProviderId(Cow::Borrowed("meta"));
     pub const KIMI_CODING: ProviderId = ProviderId(Cow::Borrowed("kimi_coding"));
     pub const MOONSHOT: ProviderId = ProviderId(Cow::Borrowed("moonshot"));
@@ -131,6 +132,7 @@ impl ProviderId {
             ProviderId::AMBIENT,
             ProviderId::NEURALWATT,
             ProviderId::ORCA_ROUTER,
+            ProviderId::TRUSTED_ROUTER,
             ProviderId::META,
             ProviderId::KIMI_CODING,
             ProviderId::MOONSHOT,
@@ -172,6 +174,7 @@ impl ProviderId {
             "ambient" => "Ambient".to_string(),
             "neuralwatt" => "Neuralwatt".to_string(),
             "orca_router" => "OrcaRouter".to_string(),
+            "trusted_router" => "TrustedRouter".to_string(),
             "meta" => "Meta".to_string(),
             _ => {
                 // For other providers, use UpperCamelCase conversion
@@ -231,6 +234,7 @@ impl std::str::FromStr for ProviderId {
             "ambient" => ProviderId::AMBIENT,
             "neuralwatt" => ProviderId::NEURALWATT,
             "orca_router" => ProviderId::ORCA_ROUTER,
+            "trusted_router" => ProviderId::TRUSTED_ROUTER,
             "meta" => ProviderId::META,
             "kimi_coding" => ProviderId::KIMI_CODING,
             "moonshot" => ProviderId::MOONSHOT,
@@ -613,6 +617,7 @@ mod tests {
         assert_eq!(ProviderId::NVIDIA.to_string(), "NVIDIA");
         assert_eq!(ProviderId::AMBIENT.to_string(), "Ambient");
         assert_eq!(ProviderId::ORCA_ROUTER.to_string(), "OrcaRouter");
+        assert_eq!(ProviderId::TRUSTED_ROUTER.to_string(), "TrustedRouter");
         assert_eq!(ProviderId::META.to_string(), "Meta");
     }
 
@@ -656,6 +661,7 @@ mod tests {
         assert!(built_in.contains(&ProviderId::NVIDIA));
         assert!(built_in.contains(&ProviderId::AMBIENT));
         assert!(built_in.contains(&ProviderId::ORCA_ROUTER));
+        assert!(built_in.contains(&ProviderId::TRUSTED_ROUTER));
         assert!(built_in.contains(&ProviderId::META));
     }
 
@@ -772,6 +778,24 @@ mod tests {
     fn test_orca_router_in_built_in_providers() {
         let built_in = ProviderId::built_in_providers();
         assert!(built_in.contains(&ProviderId::ORCA_ROUTER));
+    }
+
+    #[test]
+    fn test_trusted_router_from_str() {
+        let actual = ProviderId::from_str("trusted_router").unwrap();
+        let expected = ProviderId::TRUSTED_ROUTER;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_trusted_router_display_name() {
+        assert_eq!(ProviderId::TRUSTED_ROUTER.to_string(), "TrustedRouter");
+    }
+
+    #[test]
+    fn test_trusted_router_in_built_in_providers() {
+        let built_in = ProviderId::built_in_providers();
+        assert!(built_in.contains(&ProviderId::TRUSTED_ROUTER));
     }
 
     #[test]
