@@ -12,6 +12,7 @@ use tracing::warn;
 
 use crate::agent::AgentService;
 use crate::transformers::{DropReasoningOnlyMessages, ModelSpecificReasoning};
+use crate::turn_budget::TurnBudget;
 use crate::{EnvironmentInfra, TemplateEngine};
 
 #[derive(Clone, Setters)]
@@ -268,6 +269,12 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
 
         // Retrieve the number of requests allowed per tick.
         let max_requests_per_turn = self.agent.max_requests_per_turn;
+        // Hard dollar cap for this turn, if configured.
+        let turn_budget = self
+            .config
+            .max_cost_per_turn
+            .map(|limit| TurnBudget::new(self.agent.id.as_str(), limit))
+            .transpose()?;
         let tool_context =
             ToolCallContext::new(self.conversation.metrics.clone()).sender(self.sender.clone());
 
@@ -338,6 +345,13 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
                     .iter()
                     .any(|call| ToolCatalog::should_yield(&call.name));
 
+            // Book this request against the turn's dollar cap. If the cap is
+            // reached, the turn is interrupted after this request's tool calls
+            // are recorded, so no further model request is made in this turn.
+            let budget_interrupt = turn_budget
+                .as_ref()
+                .and_then(|budget| budget.record(&model_id, &message.usage));
+
             // Process tool calls and update context
             let mut tool_call_records = self
                 .execute_tool_calls(&message.tool_calls, &tool_context)
@@ -395,6 +409,18 @@ impl<S: AgentService + EnvironmentInfra<Config = forge_config::ForgeConfig>> Orc
             self.conversation.context = Some(context.clone());
             self.services.update(self.conversation.clone()).await?;
             request_count += 1;
+
+            if !should_yield && let Some(reason) = budget_interrupt {
+                warn!(
+                    agent_id = %self.agent.id,
+                    model_id = %model_id,
+                    ?reason,
+                    "Agent has reached the cost limit for this turn"
+                );
+                self.send(ChatResponse::Interrupt { reason }).await?;
+                // Stop before another paid request is made
+                should_yield = true;
+            }
 
             if !should_yield && let Some(max_request_allowed) = max_requests_per_turn {
                 // Check if agent has reached the maximum request per turn limit

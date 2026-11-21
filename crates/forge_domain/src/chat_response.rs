@@ -93,7 +93,7 @@ impl ChatResponse {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum InterruptionReason {
     MaxToolFailurePerTurnLimitReached {
         limit: u64,
@@ -101,6 +101,17 @@ pub enum InterruptionReason {
     },
     MaxRequestPerTurnLimitReached {
         limit: u64,
+    },
+    /// The turn spent its `max_cost_per_turn` budget.
+    MaxCostPerTurnLimitReached {
+        limit_usd: f64,
+        spent_usd: f64,
+    },
+    /// A request finished without a provider-reported cost and its model has
+    /// no known price, so the dollar cap cannot be enforced.
+    UnpricedRequest {
+        model: String,
+        reason: String,
     },
 }
 
