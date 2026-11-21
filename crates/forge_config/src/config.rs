@@ -258,6 +258,12 @@ pub struct ForgeConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_requests_per_turn: Option<usize>,
 
+    /// Maximum spend in USD for a single turn. The turn stops once the
+    /// requests it made reach this amount, or as soon as a request cannot be
+    /// priced. Unset means no dollar cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_cost_per_turn: Option<f64>,
+
     /// Context compaction settings applied to all agents; falls back to each
     /// agent's individual setting when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]

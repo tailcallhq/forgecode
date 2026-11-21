@@ -4225,6 +4225,16 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     InterruptionReason::MaxToolFailurePerTurnLimitReached { limit, .. } => {
                         format!("Maximum tool failure limit ({limit}) reached for this turn")
                     }
+                    InterruptionReason::MaxCostPerTurnLimitReached { limit_usd, spent_usd } => {
+                        format!(
+                            "Cost limit reached for this turn: ${spent_usd:.4} spent of ${limit_usd:.4}"
+                        )
+                    }
+                    InterruptionReason::UnpricedRequest { model, reason } => {
+                        format!(
+                            "Stopped: {model} could not be priced for the cost limit ({reason})"
+                        )
+                    }
                 };
 
                 self.writeln_title(TitleFormat::action(title))?;

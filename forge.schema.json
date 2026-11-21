@@ -96,6 +96,14 @@
       "default": 0,
       "minimum": 0
     },
+    "max_cost_per_turn": {
+      "description": "Maximum spend in USD for a single turn. The turn stops once the\nrequests it made reach this amount, or as soon as a request cannot be\npriced. Unset means no dollar cap.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
     "max_extensions": {
       "description": "Maximum number of file extensions included in the agent system prompt.",
       "type": "integer",

@@ -33,6 +33,7 @@ mod tool_registry;
 mod tool_resolver;
 mod transformers;
 mod truncation;
+mod turn_budget;
 mod user;
 pub mod user_prompt;
 pub mod utils;

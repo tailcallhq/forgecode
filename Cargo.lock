@@ -2326,6 +2326,7 @@ dependencies = [
  "include_dir",
  "insta",
  "lazy_static",
+ "llm-budget",
  "merge",
  "pretty_assertions",
  "regex",
@@ -5351,6 +5352,24 @@ name = "litrs"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
+
+[[package]]
+name = "llm-budget"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0dc5da5b440da690a3fe3cbef4e3a7a52a3ad5f7c37b456feb3d048abf384244"
+dependencies = [
+ "llm-prices",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "llm-prices"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8687beff4d5ceb2b1a5fc5f242df4f2c107ca92609f47d30fab584591157d9dd"
 
 [[package]]
 name = "lock_api"

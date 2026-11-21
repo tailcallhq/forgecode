@@ -18,6 +18,7 @@ async-recursion.workspace = true
 chrono.workspace = true
 derive_setters.workspace = true
 handlebars.workspace = true
+llm-budget.workspace = true
 forge_embed.workspace = true
 include_dir.workspace = true
 serde_json.workspace = true
